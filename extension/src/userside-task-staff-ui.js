@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Userside - исполнители заявки UI compact + address guards
 // @namespace    userside-simnet-task-staff-ui-compact-address-guards
-// @version      5.9.9-validation-layout-fix
+// @version      5.9.10-create-form-fix
 // @description  Компактный UI назначения бригад + адресные guards; пассивное редактирование не требует мастера/даты
 // @match        https://userside.simnet.kiev.ua/*
 // @run-at       document-idle
@@ -11,7 +11,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '5.9.9-validation-layout-fix';
+    const VERSION = '5.9.10-create-form-fix';
     const DEBUG = false;
 
     const L1_ID = '1';
@@ -170,6 +170,8 @@
     const buildingListSearchInfoCache = new Map();
     const customerPageAddressCache = new Map();
     const buildingRefreshTimers = new WeakMap();
+    const formPatchOperations = new WeakSet();
+    const formSaveOperations = new WeakSet();
 
     function log(...args) {
         if (DEBUG) console.log('[US staff ui]', VERSION, ...args);
@@ -2724,14 +2726,19 @@
 
     function fixNativeValidation(form) {
         form.querySelectorAll('input, select, textarea').forEach(el => {
-            const hiddenByType = el.type === 'hidden';
             const staffRelated =
                 el.name === 'division_task_staffids[]' ||
                 el.name === 'division_auto_task_staffids[]' ||
                 el.id === 'dummy_pers_id' ||
                 el.id === 'employeeFindInputtask_staffId';
+            const managedByStaffUi = Boolean(el.closest(
+                '[data-us-staff-root="1"], [data-us-staff-hidden="1"]'
+            ));
 
-            if (hiddenByType || staffRelated || !isVisible(el)) {
+            // Do not weaken validation for unrelated hidden/dynamic fields in the
+            // native task form. Only controls replaced or created by this module
+            // belong to the compatibility cleanup below.
+            if (staffRelated || managedByStaffUi) {
                 el.removeAttribute('required');
                 el.removeAttribute('aria-required');
 
@@ -4661,7 +4668,7 @@
             };
         }
 
-        if (/(?:жк|житл|льгот)/i.test(String(type?.text || '')) && /подкл|підключ|подключ/.test(text)) {
+        if (/(?:\bжк\b|житл|льгот)/i.test(String(type?.text || '')) && /подкл|підключ|подключ/.test(text)) {
             return {
                 type: 'non-private',
                 label: 'Подключение ЖК / многоквартирного дома'
@@ -4885,66 +4892,78 @@
     }
 
     async function patchForm(form) {
-        if (!form || form.dataset.usStaffFinalPatched === '1') return;
+        if (
+            !form ||
+            form.dataset.usStaffFinalPatched === '1' ||
+            formPatchOperations.has(form)
+        ) return;
 
         const block = findStaffBlock(form);
         if (!block) return;
 
-        const taskId = getTaskIdFromForm(form);
-        let selectedIds = new Set();
-
-        if (taskId) {
-            selectedIds = await fetchRealStaffIds(taskId);
-        }
-
-        if (selectedIds.size === 0) {
-            selectedIds = readIdsFromNativeForm(form);
-        }
-
-        if (selectedIds.size === 0 && canUseUrlPreselectedStaff(form)) {
-            selectedIds = readPreselectedIdsFromUrl();
-        }
-
-        const root = createStaffRoot(selectedIds);
-
-        const item = document.createElement('div');
-        item.className = 'item';
-
-        const left = document.createElement('div');
-        left.className = 'left_data';
-        left.textContent = '';
-
-        const right = document.createElement('div');
-        right.appendChild(root);
-
-        item.appendChild(left);
-        item.appendChild(right);
-
-        block.innerHTML = '';
-        block.appendChild(item);
-
-        form.dataset.usStaffFinalPatched = '1';
-
-        const initialTaskType = getSelectedTaskType(form);
-        form.dataset.usInitialTaskTypeValue = String(initialTaskType?.value || '');
-        form.dataset.usInitialTaskTypeText = String(initialTaskType?.text || '');
-        form.dataset.usInitialSelectedIds = staffIdsSignature(selectedIds);
-        form.dataset.usStaffManualTouched = '0';
-
-        syncEditFormStaffFields(form);
-        updateStreetHints(form, true);
-        resolveBuildingInfo(form)
-            .then(() => updateStreetHints(form, true))
-            .catch(error => log('resolveBuildingInfo failed', error));
+        formPatchOperations.add(form);
 
         try {
-            window.URL_SEARCH_LOAD_LIST = '/employee/ajax_fast_multi_find?is_with_fired=1&is_with_division=2&search=';
-            window.URL_EMPLOYEE_MULTI_SELECTOR_ADD = '/employee/ajax_employee_multi_selector_add?is_with_fired=1&is_with_division=2';
-        } catch (error) {
-            log(error);
-        }
+            const taskId = getTaskIdFromForm(form);
+            let selectedIds = new Set();
 
-        log('patched form selected:', Array.from(selectedIds));
+            if (taskId) {
+                selectedIds = await fetchRealStaffIds(taskId);
+            }
+
+            if (!form.isConnected || !block.isConnected) return;
+
+            if (selectedIds.size === 0) {
+                selectedIds = readIdsFromNativeForm(form);
+            }
+
+            if (selectedIds.size === 0 && canUseUrlPreselectedStaff(form)) {
+                selectedIds = readPreselectedIdsFromUrl();
+            }
+
+            const root = createStaffRoot(selectedIds);
+
+            const item = document.createElement('div');
+            item.className = 'item';
+
+            const left = document.createElement('div');
+            left.className = 'left_data';
+            left.textContent = '';
+
+            const right = document.createElement('div');
+            right.appendChild(root);
+
+            item.appendChild(left);
+            item.appendChild(right);
+
+            block.innerHTML = '';
+            block.appendChild(item);
+
+            form.dataset.usStaffFinalPatched = '1';
+
+            const initialTaskType = getSelectedTaskType(form);
+            form.dataset.usInitialTaskTypeValue = String(initialTaskType?.value || '');
+            form.dataset.usInitialTaskTypeText = String(initialTaskType?.text || '');
+            form.dataset.usInitialSelectedIds = staffIdsSignature(selectedIds);
+            form.dataset.usStaffManualTouched = '0';
+
+            syncEditFormStaffFields(form);
+            updateStreetHints(form, true);
+            resolveBuildingInfo(form)
+                .then(() => updateStreetHints(form, true))
+                .catch(error => log('resolveBuildingInfo failed', error));
+
+            try {
+                window.URL_SEARCH_LOAD_LIST = '/employee/ajax_fast_multi_find?is_with_fired=1&is_with_division=2&search=';
+                window.URL_EMPLOYEE_MULTI_SELECTOR_ADD = '/employee/ajax_employee_multi_selector_add?is_with_fired=1&is_with_division=2';
+            } catch (error) {
+                log(error);
+            }
+
+            log('patched form selected:', Array.from(selectedIds));
+        } finally {
+            formPatchOperations.delete(form);
+        }
     }
 
     function scheduleBuildingRefresh(form) {
@@ -4973,64 +4992,90 @@
         event.stopPropagation();
         event.stopImmediatePropagation();
 
-        nativePreflightBeforeUsersideCheck(form);
-        fixNativeValidation(form);
-
-        const baseValidation = validateEditForm(form);
-
-        if (!baseValidation.ok) {
-            showValidationErrors(form, baseValidation.errors);
+        if (formSaveOperations.has(form)) {
             return;
         }
+        formSaveOperations.add(form);
 
-        const selectedIds = getSelectedIds(form);
-        const buildingGuard = await validateBuildingGuard(form, selectedIds);
+        try {
+            nativePreflightBeforeUsersideCheck(form);
+            fixNativeValidation(form);
 
-        if (!buildingGuard.ok) {
-            const root = form.querySelector('[data-us-staff-root="1"]');
-            if (root) renderCurrent(root);
+            const baseValidation = validateEditForm(form);
 
-            showValidationErrors(form, buildingGuard.errors, 'Сохранение остановлено из-за неправильной связки адреса и бригады.');
-            return;
-        }
-
-        if (buildingGuard.warnings.length > 0) {
-            console.warn('[US staff ui] building guard warning:', buildingGuard.warnings.join('\n'));
-        }
-
-        syncEditFormStaffFields(form);
-
-        const taskId = getTaskIdFromForm(form);
-
-        if (taskId) {
-            try {
-                await applyStaffViaNativeDialog(taskId, selectedIds);
-            } catch (error) {
-                console.error(error);
-
-                showUsTaskAlert('Не удалось применить исполнителей', [
-                    'Не смог применить исполнителей через родное окно Userside.',
-                    'Заявку не сохраняю, чтобы снова не оставить старую Техподдержку.',
-                    error.message
-                ], {
-                    subtitle: 'Сохранение остановлено из-за ошибки применения исполнителей.',
-                    note: 'Скопируй диагностику, если ошибка повторится.'
-                });
-
+            if (!baseValidation.ok) {
+                showValidationErrors(form, baseValidation.errors);
                 return;
             }
-        }
 
-        form.dataset.usStaffBypassSubmit = '1';
+            const selectedIds = getSelectedIds(form);
+            const buildingGuard = await validateBuildingGuard(form, selectedIds);
 
-        if (typeof form.requestSubmit === 'function') {
-            if (submitter && submitter.form === form && submitter.type === 'submit') {
-                form.requestSubmit(submitter);
-            } else {
-                form.requestSubmit();
+            if (!buildingGuard.ok) {
+                const root = form.querySelector('[data-us-staff-root="1"]');
+                if (root) renderCurrent(root);
+
+                showValidationErrors(form, buildingGuard.errors, 'Сохранение остановлено из-за неправильной связки адреса и бригады.');
+                return;
             }
-        } else {
-            HTMLFormElement.prototype.submit.call(form);
+
+            if (buildingGuard.warnings.length > 0) {
+                console.warn('[US staff ui] building guard warning:', buildingGuard.warnings.join('\n'));
+            }
+
+            syncEditFormStaffFields(form);
+
+            const taskId = getTaskIdFromForm(form);
+
+            if (taskId) {
+                try {
+                    await applyStaffViaNativeDialog(taskId, selectedIds);
+                } catch (error) {
+                    console.error(error);
+
+                    showUsTaskAlert('Не удалось применить исполнителей', [
+                        'Не смог применить исполнителей через родное окно Userside.',
+                        'Заявку не сохраняю, чтобы снова не оставить старую Техподдержку.',
+                        error.message
+                    ], {
+                        subtitle: 'Сохранение остановлено из-за ошибки применения исполнителей.',
+                        note: 'Скопируй диагностику, если ошибка повторится.'
+                    });
+
+                    return;
+                }
+            }
+
+            form.dataset.usStaffBypassSubmit = '1';
+
+            try {
+                if (typeof form.requestSubmit === 'function') {
+                    if (submitter && submitter.form === form && submitter.type === 'submit') {
+                        form.requestSubmit(submitter);
+                    } else {
+                        form.requestSubmit();
+                    }
+                } else {
+                    HTMLFormElement.prototype.submit.call(form);
+                }
+            } finally {
+                // requestSubmit dispatches the bypassed submit synchronously. If
+                // native validation cancels it, the next attempt must still pass
+                // through our guards instead of inheriting a stale bypass flag.
+                delete form.dataset.usStaffBypassSubmit;
+            }
+        } catch (error) {
+            console.error('[US staff ui] save flow failed', error);
+            showUsTaskAlert('Не удалось проверить заявку', [
+                'Во время проверки перед сохранением произошла ошибка.',
+                'Заявка не отправлена.',
+                String(error?.message || error)
+            ], {
+                subtitle: 'Сохранение безопасно остановлено.',
+                note: 'Повтори действие. Если ошибка останется — скопируй диагностику.'
+            });
+        } finally {
+            formSaveOperations.delete(form);
         }
     }
 
@@ -5366,16 +5411,36 @@
         if (!target) return false;
         if (isCancelOrNavigationControl(target)) return false;
 
+        const tag = String(target.tagName || '').toUpperCase();
         const text = normalizeText(target.textContent || target.value || target.getAttribute?.('title') || '');
         const type = String(target.type || '').toLowerCase();
         const name = normalizeText(target.getAttribute?.('name') || '');
         const id = normalizeText(target.getAttribute?.('id') || '');
-        const action = `${text} ${name} ${id}`;
+        const href = String(target.getAttribute?.('href') || '');
+        const onclick = String(target.getAttribute?.('onclick') || '');
+        const identity = `${name} ${id}`.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+        const explicitSaveText = /^(сохранить|добавить|изменить|записать|ок)$/i.test(text);
+        const explicitSaveIdentity =
+            /(^|[^a-z0-9])(save|submit)(?=$|[^a-z0-9])/i.test(identity) ||
+            /(^|[^a-z0-9])button[^a-z0-9]+(add|edit|update|apply)(?=$|[^a-z0-9])/i.test(identity);
+        const nativeSaveCall =
+            /(?:checkAddTask|checkFormTaskAdd|requestSubmit|\.submit)\s*\(/i.test(`${href} ${onclick}`);
 
-        if (/^(сохранить|добавить|изменить|записать|ок)$/i.test(text)) return true;
-        if (/(save|submit|apply|add|edit|update|button_save|button_add)/i.test(action)) return true;
+        if (tag === 'INPUT') {
+            return type === 'submit' || type === 'image' ||
+                (type === 'button' && explicitSaveText && (explicitSaveIdentity || nativeSaveCall));
+        }
 
-        return type === 'submit';
+        if (tag === 'BUTTON') {
+            return type === 'submit' || (!type && Boolean(target.closest?.('form'))) ||
+                (type === 'button' && explicitSaveText && (explicitSaveIdentity || nativeSaveCall));
+        }
+
+        if (tag === 'A') {
+            return explicitSaveText && (explicitSaveIdentity || nativeSaveCall);
+        }
+
+        return false;
     }
 
     function installGuards() {
@@ -5607,7 +5672,9 @@
         installNativeCheckAddTaskLogger();
 
         getTaskForms(root).forEach(form => {
-            patchForm(form);
+            void patchForm(form).catch(error => {
+                console.error('[US staff ui] form patch failed', error);
+            });
             fixNativeValidation(form);
             ensureStreetHints(form);
             updateStreetHints(form);
