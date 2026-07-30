@@ -3,11 +3,11 @@ import fs from "node:fs/promises";
 import test from "node:test";
 
 const scriptUrl = new URL(
-  "../userscripts/userside-task-staff-ui.user.js",
+  "../extension/src/userside-task-staff-ui.js",
   import.meta.url
 );
 
-test("Userside task staff module has a consistent restricted userscript header", async () => {
+test("Integrated Userside task staff module keeps consistent source metadata", async () => {
   const source = await fs.readFile(scriptUrl, "utf8");
   const header = source.slice(0, source.indexOf("// ==/UserScript==") + 21);
   const metadataVersion = header.match(/^\/\/ @version\s+(.+)$/m)?.[1]?.trim();

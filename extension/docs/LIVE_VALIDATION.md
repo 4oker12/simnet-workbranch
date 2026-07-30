@@ -4,7 +4,7 @@ Date: 2026-07-30
 
 ## Build
 
-- extension: `0.4.1`;
+- extension: `0.5.0`;
 - Workbench source: `2.0.0-dev.5.8`;
 - browser: signed-in Chrome profile;
 - Tampermonkey: disabled by the operator.
@@ -47,13 +47,14 @@ No contract numbers, session tokens, PP values or subscriber data are included i
 
 ## Not automatically repeated
 
-The original smoke-test did not start another subscriber diagnostic because no dedicated test contract was selected for that validation pass. Mentor-mode live checks for `0.4.1` are recorded separately after the extension is reloaded. It also did not deliberately repeat:
+The original smoke-test did not start another subscriber diagnostic because no dedicated test contract was selected for that validation pass. Mentor-mode live checks are recorded separately after the extension is reloaded. It also did not deliberately repeat:
 
 - active-operation STOP;
 - a new ONU poll;
 - a new PON-port analysis;
 - UserSide map evidence capture;
 - clipboard export.
+- submission of a real task through the integrated task-staff validation module.
 
 The browser already showed a successfully completed diagnostic through the extension. The remaining checks should be exercised against a designated test contract to avoid unnecessary live requests.
 
