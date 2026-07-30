@@ -35,4 +35,12 @@ test("Manifest V3 references existing local scripts and only approved hosts", as
     const stat = await fs.stat(new URL(script, extensionUrl));
     assert.ok(stat.isFile(), `manifest script is missing: ${script}`);
   }
+
+  const taskStaffEntry = manifest.content_scripts.find((entry) =>
+    entry.js.includes("src/userside-task-staff-ui.js")
+  );
+  assert.ok(taskStaffEntry, "task staff module is not connected to the extension");
+  assert.deepEqual(taskStaffEntry.matches, ["https://userside.simnet.kiev.ua/*"]);
+  assert.equal(taskStaffEntry.run_at, "document_idle");
+  assert.equal(taskStaffEntry.world, "MAIN");
 });

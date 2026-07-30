@@ -15,7 +15,7 @@ const chrome = {
   runtime: {
     getManifest() {
       return {
-        version: "0.4.1",
+        version: "0.5.0",
         manifest_version: 3
       };
     },
@@ -96,7 +96,7 @@ const info = await send({
   type: "SIMNET_WB_GET_EXTENSION_INFO"
 });
 assert.equal(info.ok, true);
-assert.equal(info.version, "0.4.1");
+assert.equal(info.version, "0.5.0");
 assert.equal(info.manifestVersion, 3);
 
 const allowed = await send({

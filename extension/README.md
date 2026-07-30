@@ -7,9 +7,9 @@ Manifest V3 build of the production Diagnostic Workbench for the shared UserSide
 - userscript: `SIMNET Diagnostic Workbench`;
 - source version: `2.0.0-dev.5.8`;
 - source SHA-256: `416C44C307E7B8324AE94E1A76477556856593B051677E9585DAEDB322E8D9AF`;
-- extension version: `0.4.1`.
+- extension version: `0.5.0`.
 
-The original userscript business logic is bundled into `src/workbench.js` and augmented by extension-native provider and mentor modules. The extension supplies a compatibility layer for the Tampermonkey APIs.
+The original Workbench userscript business logic is bundled into `src/workbench.js` and augmented by extension-native provider and mentor modules. The Userside task-staff and validation module is bundled as `src/userside-task-staff-ui.js`. The extension supplies a compatibility layer for the Tampermonkey APIs still used by Workbench internals.
 
 Live smoke-test results are recorded in `LIVE_VALIDATION.md`.
 
@@ -19,6 +19,7 @@ Live smoke-test results are recorded in `LIVE_VALIDATION.md`.
 - `src/billing-provider.js` — isolated Simnet/Looknet profiles and safe UserSide provider detection;
 - `src/training-knowledge.js` — structured, testable mentor rules derived from the operator knowledge base;
 - `src/training-mentor.js` — mode selector, contextual checklist, non-blocking DOM marker and an in-panel focus explanation;
+- `src/userside-task-staff-ui.js` — Userside task staff recommendations, master/crew selection UI and save-time validation;
 - `src/gm-compat.js` — synchronous cached facade over `chrome.storage.local`, cross-tab events, GET transport, styles and clipboard;
 - `src/service-worker.js` — allowlisted cross-origin GET bridge and request cancellation;
 - `src/page-hook.js` — passive MAIN-world capture for the UserSide map module.
@@ -45,7 +46,7 @@ There are no permissions for cookies, `webRequest`, `declarativeNetRequest`, nat
 
 ## Installation
 
-1. Disable the Tampermonkey version of `SIMNET Diagnostic Workbench`. Do not run both implementations simultaneously.
+1. Disable the Tampermonkey versions of `SIMNET Diagnostic Workbench` and `Userside - исполнители заявки UI compact + address guards`. Do not run either userscript alongside the extension.
 2. Open `chrome://extensions`.
 3. Enable **Developer mode**.
 4. Click **Load unpacked**.
@@ -73,6 +74,8 @@ Perform these checks in order and stop after the first failure:
 12. **Map module:** on the UserSide map, perform a normal search and verify that passive evidence counters change.
 13. **Clipboard:** copy one text report.
 14. **No duplicates:** reload each page and verify that only one Workbench panel exists.
+15. **Task staff UI:** open a designated test task and verify the compact staff/crew controls.
+16. **Validation:** verify that a strict task cannot be saved without the required date and field crew; do not submit a real task during smoke testing.
 
 ## Expected compatibility
 
@@ -91,6 +94,7 @@ The migration keeps:
 - panel geometry and journal state;
 - clipboard actions;
 - passive UserSide map capture;
+- task staff recommendations and save-time task validation without Tampermonkey;
 - optional modules included in the source userscript.
 
 ## Important validation note

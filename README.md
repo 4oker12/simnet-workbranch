@@ -7,14 +7,13 @@
 - `extension/` — основное Chrome Extension **SIMNET / LOOKNET Diagnostic Workbench**;
 - `extension/src/workbench.js` — проверенная бизнес-логика Workbench `2.0.0-dev.5.8`;
 - `extension/src/training-*.js` — режим обучения и структурированная база подсказок;
-- `userscripts/userside-task-staff-ui.user.js` — отдельный Userside-модуль назначения исполнителей `5.9.9-validation-layout-fix`;
+- `extension/src/userside-task-staff-ui.js` — встроенный Userside-модуль назначения исполнителей и валидации заявок `5.9.9-validation-layout-fix`;
 - `tests/` — автоматические регрессионные и статические тесты;
 - `scripts/` — воспроизводимая сборка ZIP;
 - `docs/WORKFLOW.md` — правила совместной разработки через Git.
 
-Userside-модуль `5.9.9` хранится рядом с расширением, но **не подключён** в
-`extension/manifest.json` и не меняет поведение Workbench. Его перенос из userscript
-в Chrome Extension следует делать отдельной задачей с отдельной проверкой.
+Userside-модуль `5.9.9` подключён напрямую через `extension/manifest.json` и
+работает без Tampermonkey вместе с Workbench.
 
 ## Быстрый старт
 
