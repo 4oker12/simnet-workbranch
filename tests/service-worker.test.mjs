@@ -19,7 +19,7 @@ const chrome = {
     },
     getManifest() {
       return {
-        version: "0.6.3",
+        version: "0.6.4",
         manifest_version: 3
       };
     },
@@ -103,7 +103,7 @@ const info = await send({
   type: "SIMNET_WB_GET_EXTENSION_INFO"
 });
 assert.equal(info.ok, true);
-assert.equal(info.version, "0.6.3");
+assert.equal(info.version, "0.6.4");
 assert.equal(info.manifestVersion, 3);
 
 const devReload = await send({

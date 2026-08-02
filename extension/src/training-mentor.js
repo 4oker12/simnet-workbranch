@@ -54,6 +54,8 @@
     activeRuleId: "",
     highlighted: null,
     highlightedElements: [],
+    spotlight: null,
+    focusFrame: 0,
     focusRequestId: 0,
     initialized: false,
     pageUrl: location.href
@@ -251,15 +253,6 @@
         <i><b id="dp-mentor-progress-bar"></b></i>
       </div>
       <div id="dp-mentor-notice" role="status" aria-live="polite"></div>
-      <aside id="dp-mentor-focus" hidden>
-        <div>
-          <small id="dp-mentor-focus-stage"></small>
-          <b id="dp-mentor-focus-title"></b>
-        </div>
-        <button type="button" id="dp-mentor-focus-close">Понятно</button>
-        <p id="dp-mentor-focus-instruction"></p>
-        <em id="dp-mentor-focus-why"></em>
-      </aside>
       <section id="dp-mentor-inspections" hidden>
         <header>
           <b>Контроль полей страницы</b>
@@ -282,7 +275,6 @@
       clearFocus();
       refreshMentor();
     });
-    workspace.querySelector("#dp-mentor-focus-close").addEventListener("click", clearFocus);
     workspace.querySelector("#dp-mentor-inspection-list").addEventListener("click", (event) => {
       const button = event.target.closest("[data-mentor-inspection-show]");
       if (button) {
@@ -1567,17 +1559,17 @@
     return true;
   }
 
-  function ruleCardHtml(rule, completed, meta = {}) {
+  function ruleCardHtml(rule, completed) {
     const checklist = rule.checklist
       .map((item) => `<li>${escapeHtml(item)}</li>`)
       .join("");
     return `
       <article class="dp-mentor-rule${completed ? " done" : ""}${rule.caution ? " caution" : ""}" data-mentor-rule="${rule.id}">
-        <div class="dp-mentor-rule-stage">Шаг ${escapeHtml(meta.step)} / ${escapeHtml(meta.total)} · ${escapeHtml(rule.stage.replace(/^\d+\s*·\s*/, ""))}</div>
+        <div class="dp-mentor-rule-stage">${escapeHtml(rule.stage.replace(/^\d+\s*·\s*/, ""))}</div>
         <h3>${escapeHtml(rule.title)}</h3>
+        <p class="dp-mentor-rule-instruction">${escapeHtml(rule.instruction)}</p>
         <details>
-          <summary>Что проверить</summary>
-          <p class="dp-mentor-rule-instruction">${escapeHtml(rule.instruction)}</p>
+          <summary>Почему и что проверить</summary>
           <p class="dp-mentor-why">${escapeHtml(rule.why)}</p>
           <ul>${checklist}</ul>
         </details>
@@ -1611,10 +1603,7 @@
       `;
       return;
     }
-    container.innerHTML = ruleCardHtml(progress.next, false, {
-      step: progress.done + 1,
-      total: progress.total
-    });
+    container.innerHTML = ruleCardHtml(progress.next, false);
     container.querySelectorAll("[data-mentor-show]").forEach((button) => {
       button.addEventListener("click", () => revealRule(button.dataset.mentorShow, true));
     });
@@ -1705,8 +1694,83 @@
     runtime.highlighted = null;
     runtime.highlightedElements = [];
     runtime.activeRuleId = "";
-    const focus = document.querySelector("#dp-mentor-focus");
-    if (focus) focus.hidden = true;
+    runtime.spotlight?.remove();
+    runtime.spotlight = null;
+    if (runtime.focusFrame) window.cancelAnimationFrame(runtime.focusFrame);
+    runtime.focusFrame = 0;
+  }
+
+  function focusWorkArea() {
+    const panel = document.querySelector("#dp-panel");
+    const panelRect = panel?.getBoundingClientRect?.();
+    const right = panelRect && panelRect.left > window.innerWidth * 0.45
+      ? Math.min(window.innerWidth, panelRect.left)
+      : window.innerWidth;
+    return { left: 0, top: 0, right, bottom: window.innerHeight };
+  }
+
+  function setShadeRect(node, left, top, width, height) {
+    node.style.left = `${Math.max(0, left)}px`;
+    node.style.top = `${Math.max(0, top)}px`;
+    node.style.width = `${Math.max(0, width)}px`;
+    node.style.height = `${Math.max(0, height)}px`;
+  }
+
+  function highlightedRect(anchor) {
+    const elements = runtime.highlighted === anchor && runtime.highlightedElements.length
+      ? runtime.highlightedElements
+      : [anchor];
+    const rects = elements
+      .filter((element) => element?.isConnected)
+      .map((element) => element.getBoundingClientRect())
+      .filter((rect) => rect.width > 0 && rect.height > 0);
+    if (!rects.length) return anchor.getBoundingClientRect();
+    const left = Math.min(...rects.map((rect) => rect.left));
+    const right = Math.max(...rects.map((rect) => rect.right));
+    const top = Math.min(...rects.map((rect) => rect.top));
+    const bottom = Math.max(...rects.map((rect) => rect.bottom));
+    return { left, right, top, bottom, width: right - left, height: bottom - top };
+  }
+
+  function positionSpotlight(anchor, spotlight) {
+    const rect = highlightedRect(anchor);
+    const area = focusWorkArea();
+    const padding = 8;
+    const left = Math.max(area.left, Math.min(area.right, rect.left) - padding);
+    const right = Math.max(left, Math.min(area.right, rect.right) + padding);
+    const top = Math.max(area.top, Math.min(area.bottom, rect.top) - padding);
+    const bottom = Math.max(top, Math.min(area.bottom, rect.bottom) + padding);
+    const shades = spotlight.querySelectorAll(".dp-mentor-spotlight-shade");
+    setShadeRect(shades[0], area.left, area.top, area.right - area.left, top - area.top);
+    setShadeRect(shades[1], area.left, top, left - area.left, bottom - top);
+    setShadeRect(shades[2], right, top, area.right - right, bottom - top);
+    setShadeRect(shades[3], area.left, bottom, area.right - area.left, area.bottom - bottom);
+  }
+
+  function createSpotlight(anchor) {
+    const spotlight = document.createElement("div");
+    spotlight.id = "dp-mentor-spotlight";
+    spotlight.setAttribute("aria-hidden", "true");
+    for (let index = 0; index < 4; index += 1) {
+      const shade = document.createElement("span");
+      shade.className = "dp-mentor-spotlight-shade";
+      spotlight.appendChild(shade);
+    }
+    document.body.appendChild(spotlight);
+    runtime.spotlight = spotlight;
+    positionSpotlight(anchor, spotlight);
+  }
+
+  function scheduleFocusPosition() {
+    if (!runtime.highlighted || !runtime.spotlight || runtime.focusFrame) return;
+    runtime.focusFrame = window.requestAnimationFrame(() => {
+      runtime.focusFrame = 0;
+      if (!runtime.highlighted?.isConnected) {
+        clearFocus();
+        return;
+      }
+      positionSpotlight(runtime.highlighted, runtime.spotlight);
+    });
   }
 
   function nextPaint() {
@@ -1782,19 +1846,7 @@
     await nextPaint();
     await nextPaint();
     if (requestId !== runtime.focusRequestId || !anchorIsVisible(anchor)) return false;
-    const focus = document.querySelector("#dp-mentor-focus");
-    if (focus) {
-      const stage = focus.querySelector("#dp-mentor-focus-stage");
-      const title = focus.querySelector("#dp-mentor-focus-title");
-      const instruction = focus.querySelector("#dp-mentor-focus-instruction");
-      const why = focus.querySelector("#dp-mentor-focus-why");
-      if (stage) stage.textContent = rule.stage;
-      if (title) title.textContent = rule.title;
-      if (instruction) instruction.textContent = rule.instruction;
-      if (why) why.textContent = rule.why;
-      focus.hidden = false;
-      focus.scrollIntoView({ behavior: "auto", block: "nearest" });
-    }
+    createSpotlight(anchor);
     return true;
   }
 
@@ -1919,15 +1971,6 @@
       .dp-mentor-progress i b { display:block !important; width:0; height:100% !important; background:var(--dp-mentor-blue) !important; border-radius:inherit !important; transition:width .2s ease !important; }
       #dp-mentor-notice { margin:10px 12px 0 !important; padding:9px 10px !important; color:#7a4d0b !important; background:#fff8eb !important; border:1px solid #f2d39b !important; border-radius:8px !important; font-size:10.5px !important; line-height:1.4 !important; }
       #dp-mentor-notice:empty { display:none !important; }
-      #dp-mentor-focus { display:grid !important; grid-template-columns:minmax(0,1fr) auto !important; gap:7px 10px !important; margin:10px 12px 0 !important; padding:11px !important; color:var(--dp-mentor-text) !important; background:var(--dp-mentor-blue-soft) !important; border:1px solid #84adff !important; border-radius:10px !important; box-shadow:0 4px 12px rgba(40,120,240,.09) !important; }
-      #dp-mentor-focus[hidden] { display:none !important; }
-      #dp-mentor-focus > div { display:grid !important; gap:2px !important; min-width:0 !important; }
-      #dp-mentor-focus small { color:#175cd3 !important; font-size:9px !important; font-weight:750 !important; letter-spacing:.04em !important; text-transform:uppercase !important; }
-      #dp-mentor-focus b { color:#1849a9 !important; font-size:13px !important; }
-      #dp-mentor-focus > button { align-self:start !important; min-height:27px !important; padding:0 8px !important; color:#344054 !important; background:#fff !important; border:1px solid #b2ccff !important; border-radius:7px !important; font-size:9.5px !important; font-weight:700 !important; cursor:pointer !important; }
-      #dp-mentor-focus p, #dp-mentor-focus em { grid-column:1 / -1 !important; margin:0 !important; line-height:1.45 !important; }
-      #dp-mentor-focus p { color:#344054 !important; font-size:11px !important; }
-      #dp-mentor-focus em { color:#667085 !important; font-size:10px !important; font-style:normal !important; }
       #dp-mentor-rules { display:grid !important; gap:8px !important; padding:8px 12px 12px !important; }
       #dp-mentor-inspections { display:grid !important; gap:10px !important; padding:13px 12px !important; background:var(--dp-mentor-bg) !important; border-bottom:1px solid var(--dp-mentor-line) !important; }
       #dp-mentor-inspections[hidden] { display:none !important; }
@@ -1997,7 +2040,7 @@
       .dp-mentor-rule h3 { margin:3px 0 0 !important; color:#101828 !important; font-size:12px !important; line-height:1.3 !important; }
       .dp-mentor-rule details { margin-top:6px !important; padding-top:5px !important; border-top:1px solid #eaecf0 !important; }
       .dp-mentor-rule summary { color:#475467 !important; font-size:10px !important; font-weight:650 !important; cursor:pointer !important; }
-      .dp-mentor-rule-instruction { margin:6px 0 0 !important; color:#344054 !important; font-size:10.5px !important; line-height:1.4 !important; }
+      .dp-mentor-rule-instruction { display:-webkit-box !important; max-height:2.8em !important; margin:5px 0 0 !important; overflow:hidden !important; color:#344054 !important; font-size:10.5px !important; line-height:1.4 !important; -webkit-box-orient:vertical !important; -webkit-line-clamp:2 !important; }
       .dp-mentor-why { color:#475467 !important; font-size:10.5px !important; line-height:1.45 !important; }
       .dp-mentor-rule ul { margin:6px 0 0 18px !important; padding:0 !important; color:#667085 !important; font-size:10.5px !important; line-height:1.45 !important; }
       .dp-mentor-rule-actions { display:flex !important; justify-content:space-between !important; align-items:center !important; gap:8px !important; margin-top:7px !important; }
@@ -2006,9 +2049,11 @@
       .dp-mentor-rule-actions label { display:flex !important; align-items:center !important; gap:5px !important; color:#475467 !important; font-size:10.5px !important; font-weight:650 !important; cursor:pointer !important; }
       .dp-mentor-empty { display:grid !important; gap:5px !important; padding:16px !important; color:#667085 !important; background:#fff !important; border:1px dashed #b9c2d0 !important; border-radius:10px !important; text-align:center !important; }
       .dp-mentor-empty b { color:#344054 !important; }
-      .dp-mentor-highlight { position:relative !important; outline:3px solid #fdb022 !important; outline-offset:4px !important; border-radius:3px !important; box-shadow:0 0 0 7px rgba(253,176,34,.18) !important; scroll-margin:90px !important; }
-      .dp-mentor-highlight > td, .dp-mentor-highlight > th { background:#fff8eb !important; }
-      span[data-dp-mentor-inspection-line].dp-mentor-highlight { display:block !important; min-width:max-content !important; padding:3px 7px !important; color:#15171a !important; background:#fff8eb !important; }
+      .dp-mentor-highlight { position:relative !important; background:#fff !important; outline:3px solid #fff !important; outline-offset:5px !important; border-radius:3px !important; box-shadow:0 0 0 9px rgba(255,255,255,.2),0 10px 34px rgba(0,0,0,.48) !important; scroll-margin:90px !important; }
+      .dp-mentor-highlight > td, .dp-mentor-highlight > th { background:#fff !important; }
+      span[data-dp-mentor-inspection-line].dp-mentor-highlight { display:block !important; min-width:max-content !important; padding:3px 7px !important; color:#15171a !important; background:#fff !important; }
+      #dp-mentor-spotlight { position:fixed !important; inset:0 !important; z-index:2147483638 !important; pointer-events:none !important; }
+      .dp-mentor-spotlight-shade { position:fixed !important; display:block !important; margin:0 !important; padding:0 !important; background:rgba(31,34,38,.82) !important; border:0 !important; border-radius:0 !important; box-shadow:none !important; pointer-events:none !important; }
       @media (max-width:1100px) {
         #dp-panel[data-operation-mode="mentor"] { width:min(480px,48vw) !important; min-width:360px !important; }
       }
@@ -2037,6 +2082,8 @@
     window.addEventListener("popstate", refreshAfterNavigation);
     window.addEventListener("hashchange", refreshAfterNavigation);
     window.addEventListener("pageshow", refreshAfterNavigation);
+    window.addEventListener("resize", scheduleFocusPosition);
+    window.addEventListener("scroll", scheduleFocusPosition, true);
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && runtime.highlighted) clearFocus();
     });
