@@ -64,7 +64,8 @@
         "src/training-knowledge.js",
         "src/workbench.js",
         "src/training-mentor.js",
-        "src/operator-navigator.js"
+        "src/operator-navigator.js",
+        "src/operator-finance-inspector.js"
       ],
       "run_at": "document_idle",
       "world": "ISOLATED"
