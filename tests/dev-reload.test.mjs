@@ -37,6 +37,7 @@ test("Workbench exposes a one-click unpacked extension reload control", async ()
   const source = await fs.readFile(workbenchUrl, "utf8");
   assert.ok(source.includes('id="dp-reload-extension"'));
   assert.ok(source.includes("chrome?.runtime?.getManifest"));
-  assert.ok(source.includes("chrome?.runtime?.reload"));
+  assert.ok(source.includes("chrome?.runtime?.sendMessage"));
+  assert.ok(source.includes("SIMNET_WB_DEV_RELOAD"));
   assert.ok(source.includes("simnet-workbench:dev-reload-page"));
 });

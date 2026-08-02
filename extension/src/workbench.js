@@ -9821,10 +9821,11 @@
     button.disabled = true;
     button.textContent = '↻ обновление…';
     try {
-      const runtimeReload = globalThis.chrome?.runtime?.reload;
-      if (typeof runtimeReload !== 'function') throw new Error('chrome.runtime.reload недоступен');
+      const sendMessage = globalThis.chrome?.runtime?.sendMessage;
+      if (typeof sendMessage !== 'function') throw new Error('chrome.runtime.sendMessage недоступен');
       window.dispatchEvent(new Event('simnet-workbench:dev-reload-page'));
-      runtimeReload.call(globalThis.chrome.runtime);
+      const request = sendMessage.call(globalThis.chrome.runtime, { type: 'SIMNET_WB_DEV_RELOAD' });
+      if (request && typeof request.catch === 'function') request.catch(() => {});
     } catch (error) {
       button.dataset.busy = '0';
       button.disabled = false;

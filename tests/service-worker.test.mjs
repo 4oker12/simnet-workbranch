@@ -10,9 +10,13 @@ const source = await fs.readFile(workerPath, "utf8");
 let installedListener = null;
 let messageListener = null;
 const fetchCalls = [];
+let reloadCount = 0;
 
 const chrome = {
   runtime: {
+    reload() {
+      reloadCount += 1;
+    },
     getManifest() {
       return {
         version: "0.6.2",
@@ -67,6 +71,9 @@ const context = vm.createContext({
       }
     };
   },
+  queueMicrotask(callback) {
+    callback();
+  },
   setTimeout
 });
 
@@ -98,6 +105,18 @@ const info = await send({
 assert.equal(info.ok, true);
 assert.equal(info.version, "0.6.2");
 assert.equal(info.manifestVersion, 3);
+
+const devReload = await send({
+  type: "SIMNET_WB_DEV_RELOAD"
+});
+assert.equal(devReload.ok, true);
+assert.equal(reloadCount, 1);
+
+const blockedDevReload = await send({
+  type: "SIMNET_WB_DEV_RELOAD"
+}, "https://example.com/");
+assert.equal(blockedDevReload.ok, false);
+assert.equal(reloadCount, 1);
 
 const allowed = await send({
   type: "SIMNET_WB_FETCH",

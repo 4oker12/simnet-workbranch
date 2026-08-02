@@ -4,6 +4,7 @@ const LOG_PREFIX = "[SIMNET-WB-EXT]";
 const FETCH_MESSAGE = "SIMNET_WB_FETCH";
 const ABORT_MESSAGE = "SIMNET_WB_ABORT_FETCH";
 const INFO_MESSAGE = "SIMNET_WB_GET_EXTENSION_INFO";
+const DEV_RELOAD_MESSAGE = "SIMNET_WB_DEV_RELOAD";
 const MAX_TIMEOUT_MS = 60_000;
 const MAX_RESPONSE_CHARS = 8_000_000;
 const ALLOWED_ORIGINS = new Set([
@@ -158,6 +159,19 @@ chrome.runtime.onInstalled.addListener((details) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === DEV_RELOAD_MESSAGE) {
+    if (!senderIsAllowed(sender)) {
+      sendResponse({
+        ok: false,
+        error: "Перезагрузка отклонена: источник не относится к Workbench"
+      });
+      return false;
+    }
+    sendResponse({ ok: true });
+    queueMicrotask(() => chrome.runtime.reload());
+    return false;
+  }
+
   if (message?.type === INFO_MESSAGE) {
     try {
       const manifest = chrome.runtime.getManifest();
