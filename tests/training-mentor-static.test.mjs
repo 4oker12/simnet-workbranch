@@ -14,8 +14,8 @@ const workbenchSource = await fs.readFile(workbenchPath, "utf8");
 
 assert.ok(source.includes('id="dp-mentor-focus"'));
 assert.ok(source.includes('id="dp-mentor-refresh"'));
-assert.ok(source.includes('marker.id = "dp-mentor-target-marker"'));
-assert.ok(source.includes("pointer-events:none"));
+assert.ok(source.includes("Learning Mode · Наставник"));
+assert.ok(source.includes("Подсветка только по кнопке"));
 assert.ok(source.includes("function waitForPanel(attempt = 0)"));
 assert.ok(source.includes("attempt >= 120"));
 assert.ok(source.includes("search: location.search"));
@@ -23,8 +23,8 @@ assert.ok(source.includes("billingSection"));
 assert.ok(source.includes("completedByContext"));
 assert.ok(source.includes('PROGRESS_KEY = "dp_mentor_progress_v1"'));
 assert.ok(source.includes("saveCompletedByContext()"));
-assert.ok(source.includes("Шаг ${progress.done + 1} из ${progress.total}"));
-assert.ok(source.includes("После отметки откроется следующий шаг"));
+assert.ok(source.includes("Сейчас · шаг ${progress.done + 1} из ${progress.total}"));
+assert.ok(source.includes("Подсветка включается только вручную и не блокирует страницу"));
 assert.ok(source.includes("location.href === runtime.pageUrl"));
 assert.ok(source.includes('id="dp-mentor-inspections"'));
 assert.ok(source.includes("function renderFieldInspections(context)"));
@@ -42,7 +42,6 @@ assert.ok(source.includes("knowledge.evaluateBillingFields"));
 assert.ok(source.includes("knowledge.classifyOnuOutputLine"));
 assert.ok(source.includes("knowledge.analyzeOnuOutputLine"));
 assert.ok(source.includes("highlightedElements"));
-assert.ok(source.includes("function highlightedRect(anchor)"));
 assert.ok(source.includes("MAC, VLAN и PON-порт"));
 assert.ok(source.includes("Стабильность: Online Duration и история"));
 assert.ok(source.includes("MAC ONU и абонента на EPON-порту"));
@@ -66,6 +65,8 @@ assert.ok(source.includes('inspectionGroupHtml("next-step", "Следующий 
 assert.ok(source.includes("function ensureTechnicalProfile(context)"));
 assert.ok(source.includes('JUNIPER_REVIEWS_KEY = "dp_mentor_juniper_reviews_v1"'));
 assert.ok(source.includes("function subscriberIdentity()"));
+assert.ok(source.includes('/\\/customer\\/(\\d+)/i'));
+assert.ok(source.includes("subscriberIdentity()\n    ].join(\"|\")"));
 assert.ok(source.includes("function accountStatusProfileFromHtml(html)"));
 assert.ok(source.includes("function ensureJuniperAccountStatus(context)"));
 assert.ok(source.includes("function juniperFieldInspections(context)"));
@@ -116,16 +117,15 @@ assert.ok(source.includes("billing-onu-conclusion-summary"));
 assert.ok(source.includes("Интерпретация опроса"));
 assert.ok(source.includes("reviewedInspectionIds"));
 assert.ok(source.includes('showButton.textContent = "Подсветить снова"'));
-assert.ok(source.includes('spotlight.id = "dp-mentor-spotlight"'));
-assert.ok(source.includes("function positionSpotlight(anchor, spotlight)"));
 assert.ok(source.includes("async function expandCollapsedAncestors(anchor)"));
 assert.ok(source.includes("show_x(${legacy[1]})"));
 assert.ok(source.includes("await expandCollapsedAncestors(anchor)"));
 assert.ok(source.includes("function anchorIsVisible(anchor)"));
-assert.ok(source.includes('className = "dp-mentor-spotlight-shade"'));
 assert.ok(source.includes('event.key === "Escape"'));
-assert.ok(source.includes('#dp-mentor-target-marker[data-side="right"]::before'));
-assert.ok(source.includes("position:fixed !important"));
+assert.ok(!source.includes("dp-mentor-target-marker"));
+assert.ok(!source.includes("dp-mentor-spotlight"));
+assert.ok(!source.includes("dp-mentor-spotlight-shade"));
+assert.ok(source.includes("outline:3px solid #fdb022"));
 assert.ok(source.includes('data-mentor-inspection-group="access"'));
 assert.ok(source.includes('data-mentor-inspection-group="availability"'));
 assert.ok(source.includes("expandedInspectionGroup"));
@@ -148,6 +148,15 @@ assert.ok(source.includes('class="dp-mentor-inspection-note'));
 assert.ok(source.includes('Показать на странице'));
 assert.ok(source.includes('Изучено: ${progress.done} / ${progress.total}'));
 assert.ok(source.includes('data-mentor-warning-count'));
+assert.ok(source.includes("function hasPonPriority(inspections)"));
+assert.ok(source.includes('inspectionGroupHtml("technical", "1 · PON: опрос ONU и порта"'));
+assert.ok(source.includes('inspectionGroupHtml("availability", "2 · Juniper и интернет сейчас"'));
+assert.ok(
+  source.indexOf('inspectionGroupHtml("technical", "1 · PON: опрос ONU и порта"')
+    < source.indexOf('inspectionGroupHtml("availability", "2 · Juniper и интернет сейчас"'),
+  "PON polling must be rendered before the Juniper check"
+);
+assert.ok(source.includes("PON-маршрут: 1) опроси ONU и PON-порт; 2) проверь Juniper-сессию и трафик"));
 assert.ok(!source.includes('background:#111821'));
 assert.ok(workbenchSource.includes("globalThis.__SIMNET_ONU_ANALYSIS__"));
 assert.ok(workbenchSource.includes("analyzeOnuPollResult,"));
@@ -166,6 +175,7 @@ assert.ok(workbenchSource.includes("function extractBdcomEponRegistration(raw)")
 assert.ok(!source.includes("MutationObserver"));
 assert.ok(!source.includes('document.addEventListener("click"'));
 assert.ok(!source.includes("dp-mentor-callout"));
+assert.ok(!source.includes("dp_mentor_auto_hints_v1"));
 
 assert.match(
   source,

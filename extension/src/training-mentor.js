@@ -21,7 +21,6 @@
     GM_xmlhttpRequest
   } = compat.api;
   const MODE_KEY = "dp_workbench_operation_mode_v1";
-  const AUTO_HINTS_KEY = "dp_mentor_auto_hints_v1";
   const PROGRESS_KEY = "dp_mentor_progress_v1";
   const JUNIPER_REVIEWS_KEY = "dp_mentor_juniper_reviews_v1";
   const VALID_MODES = new Set(["diagnostic", "mentor"]);
@@ -33,7 +32,6 @@
   });
   const runtime = {
     mode: normalizeMode(GM_getValue(MODE_KEY, "diagnostic")),
-    autoHints: GM_getValue(AUTO_HINTS_KEY, false) === true,
     completed: new Set(),
     completedByContext: loadCompletedByContext(),
     juniperReviews: loadJuniperReviews(),
@@ -45,6 +43,7 @@
     openInspectionNotes: new Set(),
     closedInspectionNotes: new Set(),
     reviewedInspectionContext: "",
+    priorityContext: "",
     expandedInspectionGroup: "",
     technicalProfiles: new Map(),
     technicalProfileRequests: new Map(),
@@ -55,9 +54,6 @@
     activeRuleId: "",
     highlighted: null,
     highlightedElements: [],
-    marker: null,
-    spotlight: null,
-    focusFrame: 0,
     focusRequestId: 0,
     initialized: false,
     pageUrl: location.href
@@ -100,6 +96,8 @@
   function subscriberIdentity() {
     const id = new URLSearchParams(location.search).get("id") || "";
     if (id) return `${location.hostname}|${id}`;
+    const customerId = String(location.pathname || "").match(/\/customer\/(\d+)/i)?.[1] || "";
+    if (customerId) return `${location.hostname}|customer-${customerId}`;
     const heading = normalizedText(document.querySelector("body")?.textContent).match(/\babon\d{3,14}\b/i)?.[0] || "";
     return `${location.hostname}|${heading.toLowerCase() || "unknown"}`;
   }
@@ -110,7 +108,7 @@
       "a", "button", "th", "td", "label", "legend"
     ];
     return [...document.querySelectorAll(selectors.join(","))]
-      .filter((node) => !node.closest("#dp-panel, #dp-mentor-target-marker"))
+      .filter((node) => !node.closest("#dp-panel"))
       .slice(0, 600)
       .map((node) => String(node.textContent || "").replace(/\s+/g, " ").trim())
       .filter(Boolean)
@@ -142,7 +140,8 @@
       context.hostname,
       context.pageType,
       context.provider,
-      context.technology
+      context.technology,
+      subscriberIdentity()
     ].join("|");
   }
 
@@ -207,7 +206,7 @@
     panel.dataset.operationMode = runtime.mode;
     renderModeControls();
     if (runtime.mode === "mentor") {
-      refreshMentor({ autoReveal: source !== "storage" });
+      refreshMentor();
     } else {
       clearFocus();
       clearFieldDecorations();
@@ -240,19 +239,16 @@
     workspace.innerHTML = `
       <header class="dp-mentor-header">
         <div>
-          <b>Наставник оператора</b>
+          <b>Learning Mode · Наставник</b>
           <span id="dp-mentor-context">Определяю страницу…</span>
         </div>
         <div class="dp-mentor-header-actions">
-          <button type="button" id="dp-mentor-refresh">Обновить контекст</button>
-          <label title="Подсвечивать следующий доступный DOM-элемент при открытии режима">
-            <input id="dp-mentor-auto-hints" type="checkbox">
-            Автоподсказки
-          </label>
+          <span class="dp-mentor-manual-hint">Подсветка только по кнопке</span>
+          <button type="button" id="dp-mentor-refresh">Обновить</button>
         </div>
       </header>
       <div class="dp-mentor-progress">
-        <div><span>Маршрут текущего раздела</span><button type="button" id="dp-mentor-reset">Сбросить маршрут</button></div>
+        <div><span>Маршрут текущей страницы</span><button type="button" id="dp-mentor-reset">Сбросить</button></div>
         <i><b id="dp-mentor-progress-bar"></b></i>
       </div>
       <div id="dp-mentor-notice" role="status" aria-live="polite"></div>
@@ -261,7 +257,7 @@
           <small id="dp-mentor-focus-stage"></small>
           <b id="dp-mentor-focus-title"></b>
         </div>
-        <button type="button" id="dp-mentor-focus-close">Закрыть</button>
+        <button type="button" id="dp-mentor-focus-close">Понятно</button>
         <p id="dp-mentor-focus-instruction"></p>
         <em id="dp-mentor-focus-why"></em>
       </aside>
@@ -276,24 +272,16 @@
     `;
     const inspectionHeader = workspace.querySelector("#dp-mentor-inspections > header");
     if (inspectionHeader) {
-      inspectionHeader.querySelector("b").textContent = "Важные элементы страницы";
-      inspectionHeader.querySelector("span").textContent = "Нажми строку — откроется пояснение; кнопка внутри подсветит источник на странице.";
+      inspectionHeader.querySelector("b").textContent = "Контекстные проверки";
+      inspectionHeader.querySelector("span").textContent = "Показываем только то, что относится к текущей странице и технологии абонента.";
     }
     const providerRow = panel.querySelector("#dp-billing-provider");
     if (providerRow) providerRow.insertAdjacentElement("afterend", workspace);
     else panel.appendChild(workspace);
 
-    const autoHints = workspace.querySelector("#dp-mentor-auto-hints");
-    autoHints.checked = runtime.autoHints;
-    autoHints.addEventListener("change", () => {
-      runtime.autoHints = autoHints.checked;
-      try { GM_setValue(AUTO_HINTS_KEY, runtime.autoHints); } catch (_) {}
-      if (!runtime.autoHints) clearFocus();
-      else revealNextRule();
-    });
     workspace.querySelector("#dp-mentor-refresh").addEventListener("click", () => {
       clearFocus();
-      refreshMentor({ autoReveal: runtime.autoHints });
+      refreshMentor();
     });
     workspace.querySelector("#dp-mentor-focus-close").addEventListener("click", clearFocus);
     workspace.querySelector("#dp-mentor-inspection-list").addEventListener("click", (event) => {
@@ -335,7 +323,7 @@
       runtime.completed.clear();
       saveCompletedByContext();
       clearFocus();
-      refreshMentor({ autoReveal: runtime.autoHints });
+      refreshMentor();
     });
   }
 
@@ -1444,6 +1432,15 @@
     `;
   }
 
+  function hasPonPriority(inspections) {
+    const priorityIds = new Set([
+      "billing-check-onu",
+      "billing-check-onu-tmc",
+      "billing-check-pon-group-hint"
+    ]);
+    return inspections.some((inspection) => priorityIds.has(inspection.id));
+  }
+
   function renderFieldInspections(context) {
     clearFieldDecorations();
     const section = document.querySelector("#dp-mentor-inspections");
@@ -1462,6 +1459,11 @@
     if (context.billingSection === "technical") inspections = technicalFieldInspections(context);
     if (context.billingSection === "juniper") inspections = juniperFieldInspections(context);
     if (context.billingSection === "onu") inspections = decorateOnuOutput(context);
+    const ponPriority = context.billingSection === "account" && hasPonPriority(inspections);
+    if (ponPriority && runtime.priorityContext !== runtime.reviewedInspectionContext) {
+      runtime.priorityContext = runtime.reviewedInspectionContext;
+      runtime.expandedInspectionGroup = "technical";
+    }
     runtime.currentInspections = inspections;
     runtime.inspectionAnchors = new Map(
       inspections.filter((item) => item.element).map((item) => [item.id, item.element])
@@ -1477,8 +1479,7 @@
     const technical = inspections.filter((item) => item.group === "technical");
     const conclusion = inspections.filter((item) => item.group === "conclusion");
     const other = inspections.filter((item) => !["availability", "access", "service", "finance", "technology", "identifiers", "binding", "next-step", "technical", "conclusion"].includes(item.group));
-    list.innerHTML = [
-      inspectionGroupHtml("availability", "Интернет сейчас", availability),
+    const commonGroups = [
       inspectionGroupHtml("access", "Доступ и ограничения", access),
       inspectionGroupHtml("service", "Состояние услуги", service),
       inspectionGroupHtml("finance", "Финансы", finance),
@@ -1486,10 +1487,21 @@
       inspectionGroupHtml("identifiers", "Идентификаторы оборудования", identifiers),
       inspectionGroupHtml("binding", "Привязка оборудования", binding),
       inspectionGroupHtml("next-step", "Следующий шаг", nextStep),
-      inspectionGroupHtml("technical", "Техническая проверка", technical),
       inspectionGroupHtml("conclusion", "Интерпретация опроса", conclusion),
       inspectionGroupHtml("other", "Дополнительный контроль", other)
-    ].join("");
+    ];
+    list.innerHTML = (ponPriority
+      ? [
+          inspectionGroupHtml("technical", "1 · PON: опрос ONU и порта", technical),
+          inspectionGroupHtml("availability", "2 · Juniper и интернет сейчас", availability),
+          ...commonGroups
+        ]
+      : [
+          inspectionGroupHtml("availability", "Интернет сейчас", availability),
+          ...commonGroups,
+          inspectionGroupHtml("technical", "Техническая проверка", technical)
+        ]
+    ).join("");
     section.hidden = !inspections.length;
     updateProgress(runtime.currentRules, inspections);
     return inspections;
@@ -1571,8 +1583,8 @@
           <ul>${checklist}</ul>
         </details>
         <div class="dp-mentor-rule-actions">
-          <button type="button" data-mentor-show="${rule.id}">Показать на странице</button>
-          <label><input type="checkbox" data-mentor-done="${rule.id}"${completed ? " checked" : ""}> Шаг выполнен</label>
+          <button type="button" data-mentor-show="${rule.id}">Найти на странице</button>
+          <label><input type="checkbox" data-mentor-done="${rule.id}"${completed ? " checked" : ""}> Готово — дальше</label>
         </div>
       </article>
     `;
@@ -1600,10 +1612,13 @@
       `;
       return;
     }
+    const currentIndex = ruleList.findIndex((rule) => rule.id === progress.next.id);
+    const upcoming = currentIndex >= 0 ? ruleList[currentIndex + 1] : null;
     container.innerHTML = `
       <div class="dp-mentor-step-intro">
-        <b>Шаг ${progress.done + 1} из ${progress.total}</b>
-        <span>Сейчас изучаем только этот элемент страницы. После отметки откроется следующий шаг.</span>
+        <b>Сейчас · шаг ${progress.done + 1} из ${progress.total}</b>
+        <span>Один шаг за раз. Подсветка включается только вручную и не блокирует страницу.</span>
+        ${upcoming ? `<small>Далее: ${escapeHtml(upcoming.title)}</small>` : ""}
       </div>
       ${ruleCardHtml(progress.next, false)}
     `;
@@ -1617,7 +1632,7 @@
         else runtime.completed.delete(id);
         saveCompletedByContext();
         clearFocus();
-        refreshMentor({ autoReveal: runtime.autoHints });
+        refreshMentor();
       });
     });
   }
@@ -1652,7 +1667,7 @@
       ".left_data", "[role=\"tab\"]", "a", "button", "th", "td",
       "label", "legend", "span", "b", "strong", "h1", "h2", "h3"
     ].join(","))]
-      .filter((node) => !node.closest("#dp-panel, #dp-mentor-target-marker"))
+      .filter((node) => !node.closest("#dp-panel"))
       .slice(0, 2500);
   }
 
@@ -1697,128 +1712,8 @@
     runtime.highlighted = null;
     runtime.highlightedElements = [];
     runtime.activeRuleId = "";
-    runtime.spotlight?.remove();
-    runtime.spotlight = null;
-    runtime.marker?.remove();
-    runtime.marker = null;
-    if (runtime.focusFrame) window.cancelAnimationFrame(runtime.focusFrame);
-    runtime.focusFrame = 0;
     const focus = document.querySelector("#dp-mentor-focus");
     if (focus) focus.hidden = true;
-  }
-
-  function focusWorkArea() {
-    const panel = document.querySelector("#dp-panel");
-    const panelRect = panel?.getBoundingClientRect?.();
-    const right = panelRect && panelRect.left > window.innerWidth * 0.45
-      ? Math.min(window.innerWidth, panelRect.left)
-      : window.innerWidth;
-    return { left: 0, top: 0, right, bottom: window.innerHeight };
-  }
-
-  function setShadeRect(node, left, top, width, height) {
-    node.style.left = `${Math.max(0, left)}px`;
-    node.style.top = `${Math.max(0, top)}px`;
-    node.style.width = `${Math.max(0, width)}px`;
-    node.style.height = `${Math.max(0, height)}px`;
-  }
-
-  function highlightedRect(anchor) {
-    const elements = runtime.highlighted === anchor && runtime.highlightedElements.length
-      ? runtime.highlightedElements
-      : [anchor];
-    const rects = elements
-      .filter((element) => element?.isConnected)
-      .map((element) => element.getBoundingClientRect())
-      .filter((rect) => rect.width > 0 && rect.height > 0);
-    if (!rects.length) return anchor.getBoundingClientRect();
-    return {
-      left: Math.min(...rects.map((rect) => rect.left)),
-      right: Math.max(...rects.map((rect) => rect.right)),
-      top: Math.min(...rects.map((rect) => rect.top)),
-      bottom: Math.max(...rects.map((rect) => rect.bottom)),
-      width: Math.max(...rects.map((rect) => rect.right)) - Math.min(...rects.map((rect) => rect.left)),
-      height: Math.max(...rects.map((rect) => rect.bottom)) - Math.min(...rects.map((rect) => rect.top))
-    };
-  }
-
-  function positionSpotlight(anchor, spotlight) {
-    const rect = highlightedRect(anchor);
-    const area = focusWorkArea();
-    const padding = 8;
-    const left = Math.max(area.left, Math.min(area.right, rect.left) - padding);
-    const right = Math.max(left, Math.min(area.right, rect.right) + padding);
-    const top = Math.max(area.top, Math.min(area.bottom, rect.top) - padding);
-    const bottom = Math.max(top, Math.min(area.bottom, rect.bottom) + padding);
-    const shades = spotlight.querySelectorAll(".dp-mentor-spotlight-shade");
-    setShadeRect(shades[0], area.left, area.top, area.right - area.left, top - area.top);
-    setShadeRect(shades[1], area.left, top, left - area.left, bottom - top);
-    setShadeRect(shades[2], right, top, area.right - right, bottom - top);
-    setShadeRect(shades[3], area.left, bottom, area.right - area.left, area.bottom - bottom);
-  }
-
-  function createSpotlight(anchor) {
-    const spotlight = document.createElement("div");
-    spotlight.id = "dp-mentor-spotlight";
-    spotlight.setAttribute("aria-hidden", "true");
-    for (let index = 0; index < 4; index += 1) {
-      const shade = document.createElement("button");
-      shade.type = "button";
-      shade.className = "dp-mentor-spotlight-shade";
-      shade.tabIndex = -1;
-      shade.setAttribute("aria-label", "Закрыть подсказку");
-      shade.addEventListener("click", clearFocus);
-      spotlight.appendChild(shade);
-    }
-    document.body.appendChild(spotlight);
-    runtime.spotlight = spotlight;
-    positionSpotlight(anchor, spotlight);
-    return spotlight;
-  }
-
-  function positionMarker(anchor, marker) {
-    const rect = highlightedRect(anchor);
-    const area = focusWorkArea();
-    const markerRect = marker.getBoundingClientRect();
-    const width = markerRect.width || 280;
-    const height = markerRect.height || 96;
-    const gap = 18;
-    const margin = 12;
-    let side = "right";
-    let left = rect.right + gap;
-    let top = rect.top + (rect.height - height) / 2;
-
-    if (left + width > area.right - margin) {
-      side = "left";
-      left = rect.left - width - gap;
-    }
-    if (left < area.left + margin) {
-      side = "bottom";
-      left = rect.left + (rect.width - width) / 2;
-      top = rect.bottom + gap;
-    }
-    if (side === "bottom" && top + height > area.bottom - margin) {
-      side = "top";
-      top = rect.top - height - gap;
-    }
-    left = Math.max(area.left + margin, Math.min(area.right - width - margin, left));
-    top = Math.max(area.top + margin, Math.min(area.bottom - height - margin, top));
-    marker.dataset.side = side;
-    marker.style.left = `${left}px`;
-    marker.style.top = `${top}px`;
-  }
-
-  function scheduleFocusPosition() {
-    if (!runtime.highlighted || !runtime.marker || !runtime.spotlight || runtime.focusFrame) return;
-    runtime.focusFrame = window.requestAnimationFrame(() => {
-      runtime.focusFrame = 0;
-      if (!runtime.highlighted?.isConnected) {
-        clearFocus();
-        return;
-      }
-      positionSpotlight(runtime.highlighted, runtime.spotlight);
-      positionMarker(runtime.highlighted, runtime.marker);
-    });
   }
 
   function nextPaint() {
@@ -1894,22 +1789,6 @@
     await nextPaint();
     await nextPaint();
     if (requestId !== runtime.focusRequestId || !anchorIsVisible(anchor)) return false;
-    createSpotlight(anchor);
-
-    const marker = document.createElement("aside");
-    marker.id = "dp-mentor-target-marker";
-    marker.setAttribute("role", "note");
-    const markerStage = document.createElement("small");
-    markerStage.textContent = rule.stage;
-    const markerTitle = document.createElement("b");
-    markerTitle.textContent = rule.title;
-    const markerInstruction = document.createElement("p");
-    markerInstruction.textContent = rule.instruction;
-    marker.append(markerStage, markerTitle, markerInstruction);
-    document.body.appendChild(marker);
-    runtime.marker = marker;
-    positionMarker(anchor, marker);
-
     const focus = document.querySelector("#dp-mentor-focus");
     if (focus) {
       const stage = focus.querySelector("#dp-mentor-focus-stage");
@@ -1944,13 +1823,7 @@
     return focused;
   }
 
-  function revealNextRule() {
-    if (runtime.mode !== "mentor" || !runtime.autoHints || runtime.activeRuleId) return;
-    const progress = knowledge.progressFor(runtime.currentRules, runtime.completed);
-    if (progress.next) revealRule(progress.next.id, false);
-  }
-
-  function refreshMentor(options = {}) {
+  function refreshMentor() {
     if (runtime.mode !== "mentor") return;
     const context = currentContext();
     const nextContextKey = contextKey(context);
@@ -1960,6 +1833,7 @@
       runtime.reviewedInspectionIds = new Set();
       runtime.openInspectionNotes = new Set();
       runtime.closedInspectionNotes = new Set();
+      runtime.priorityContext = "";
       runtime.expandedInspectionGroup = context.billingSection === "technical" ? "technology" : "availability";
     }
     if (runtime.contextKey && runtime.contextKey !== nextContextKey) {
@@ -1982,8 +1856,11 @@
       && context.billingSection === "onu"
       && !runtime.completed.has("billing-onu-target");
     const warningCount = inspections.filter((item) => item.status === "warning").length;
+    const ponPriority = context.billingSection === "account" && hasPonPriority(inspections);
     showMentorNotice(
-      warningCount
+      ponPriority
+        ? `PON-маршрут: 1) опроси ONU и PON-порт; 2) проверь Juniper-сессию и трафик.${warningCount ? ` Отклонений для проверки: ${warningCount}.` : ""}`
+        : warningCount
         ? `На странице найдено отклонений: ${warningCount}. Сначала проверь поля с красной подсветкой.`
         : ponTargetPending
         ? "PON: сначала подтверди, что открыт правильный OLT, порт и ONU. После отметки наставник перейдёт к статусу."
@@ -1991,7 +1868,6 @@
           ? "Чек-лист завершён. Перед заявкой ещё раз отдели подтверждённые факты от предположений."
           : ""
     );
-    if (options.autoReveal) window.setTimeout(revealNextRule, 220);
   }
 
   function installStyles() {
@@ -2006,6 +1882,9 @@
         --dp-mentor-muted:#667085;
         --dp-mentor-blue:#2878f0;
         --dp-mentor-blue-soft:#eef5ff;
+        width:min(560px,42vw) !important;
+        min-width:420px !important;
+        max-width:560px !important;
         color:var(--dp-mentor-text) !important;
         background:var(--dp-mentor-bg) !important;
       }
@@ -2035,6 +1914,7 @@
       .dp-mentor-header b { color:var(--dp-mentor-text) !important; font-size:14px !important; font-weight:750 !important; }
       .dp-mentor-header span { color:var(--dp-mentor-muted) !important; font-size:10.5px !important; overflow:hidden !important; text-overflow:ellipsis !important; white-space:nowrap !important; }
       .dp-mentor-header-actions { display:flex !important; align-items:center !important; gap:7px !important; }
+      .dp-mentor-manual-hint { color:#667085 !important; font-size:9px !important; font-weight:650 !important; white-space:nowrap !important; }
       .dp-mentor-header-actions > button { min-height:28px !important; padding:0 8px !important; color:#344054 !important; background:#fff !important; border:1px solid #d0d5dd !important; border-radius:7px !important; box-shadow:0 1px 2px rgba(16,24,40,.05) !important; font-size:9.5px !important; font-weight:700 !important; cursor:pointer !important; }
       .dp-mentor-header label { display:flex !important; align-items:center !important; gap:5px !important; color:#475467 !important; font-size:10px !important; white-space:nowrap !important; cursor:pointer !important; }
       .dp-mentor-header input, .dp-mentor-rule input { accent-color:var(--dp-mentor-blue) !important; }
@@ -2115,6 +1995,7 @@
       .dp-mentor-inspection-actions button:hover { background:#eff6ff !important; }
       .dp-mentor-step-intro, .dp-mentor-complete { display:grid !important; gap:4px !important; padding:10px 11px !important; color:#667085 !important; background:#f9fafb !important; border:1px solid #dfe3ea !important; border-radius:9px !important; font-size:10.5px !important; line-height:1.4 !important; }
       .dp-mentor-step-intro b, .dp-mentor-complete b { color:#344054 !important; font-size:12px !important; }
+      .dp-mentor-step-intro small { color:#175cd3 !important; font-size:9.5px !important; font-weight:650 !important; }
       .dp-mentor-complete { padding:16px !important; color:#027a48 !important; border-color:#abefc6 !important; background:#ecfdf3 !important; text-align:center !important; }
       .dp-mentor-complete b { color:#05603a !important; }
       .dp-mentor-rule { padding:12px !important; background:#fff !important; border:1px solid #d0d5dd !important; border-radius:10px !important; box-shadow:0 1px 2px rgba(16,24,40,.04) !important; }
@@ -2133,21 +2014,14 @@
       .dp-mentor-rule-actions label { display:flex !important; align-items:center !important; gap:5px !important; color:#475467 !important; font-size:10.5px !important; font-weight:650 !important; cursor:pointer !important; }
       .dp-mentor-empty { display:grid !important; gap:5px !important; padding:16px !important; color:#667085 !important; background:#fff !important; border:1px dashed #b9c2d0 !important; border-radius:10px !important; text-align:center !important; }
       .dp-mentor-empty b { color:#344054 !important; }
-      .dp-mentor-highlight { position:relative !important; background:#fff !important; outline:3px solid #fff !important; outline-offset:5px !important; border-radius:3px !important; box-shadow:0 0 0 9px rgba(255,255,255,.18),0 10px 34px rgba(0,0,0,.48) !important; scroll-margin:90px !important; }
-      .dp-mentor-highlight > td, .dp-mentor-highlight > th { background:#fff !important; }
-      span[data-dp-mentor-inspection-line].dp-mentor-highlight { display:block !important; min-width:max-content !important; padding:3px 7px !important; color:#15171a !important; }
-      #dp-mentor-spotlight { position:fixed !important; inset:0 !important; z-index:2147483638 !important; pointer-events:none !important; }
-      .dp-mentor-spotlight-shade { position:fixed !important; display:block !important; margin:0 !important; padding:0 !important; background:rgba(31,34,38,.86) !important; border:0 !important; border-radius:0 !important; box-shadow:none !important; cursor:pointer !important; pointer-events:auto !important; }
-      #dp-mentor-target-marker { position:fixed !important; z-index:2147483645 !important; display:grid !important; gap:5px !important; width:min(280px,calc(100vw - 24px)) !important; box-sizing:border-box !important; padding:13px 15px !important; color:#17191c !important; background:#fff !important; border:1px solid #d2d4d7 !important; border-radius:9px !important; box-shadow:0 12px 38px rgba(0,0,0,.5) !important; font-family:"Segoe UI",Arial,sans-serif !important; pointer-events:none !important; user-select:none !important; }
-      #dp-mentor-target-marker::before { content:"" !important; position:absolute !important; width:0 !important; height:0 !important; border:10px solid transparent !important; }
-      #dp-mentor-target-marker[data-side="right"]::before { left:-20px !important; top:20px !important; border-right-color:#fff !important; }
-      #dp-mentor-target-marker[data-side="left"]::before { right:-20px !important; top:20px !important; border-left-color:#fff !important; }
-      #dp-mentor-target-marker[data-side="bottom"]::before { left:22px !important; top:-20px !important; border-bottom-color:#fff !important; }
-      #dp-mentor-target-marker[data-side="top"]::before { left:22px !important; bottom:-20px !important; border-top-color:#fff !important; }
-      #dp-mentor-target-marker small { color:#666c74 !important; font-size:9px !important; font-weight:800 !important; letter-spacing:.06em !important; text-transform:uppercase !important; }
-      #dp-mentor-target-marker b { color:#111315 !important; font-size:14px !important; line-height:1.25 !important; }
-      #dp-mentor-target-marker p { margin:0 !important; color:#34383e !important; font-size:11.5px !important; line-height:1.45 !important; }
+      .dp-mentor-highlight { position:relative !important; outline:3px solid #fdb022 !important; outline-offset:4px !important; border-radius:3px !important; box-shadow:0 0 0 7px rgba(253,176,34,.18) !important; scroll-margin:90px !important; }
+      .dp-mentor-highlight > td, .dp-mentor-highlight > th { background:#fff8eb !important; }
+      span[data-dp-mentor-inspection-line].dp-mentor-highlight { display:block !important; min-width:max-content !important; padding:3px 7px !important; color:#15171a !important; background:#fff8eb !important; }
+      @media (max-width:1100px) {
+        #dp-panel[data-operation-mode="mentor"] { width:min(480px,48vw) !important; min-width:360px !important; }
+      }
       @media (max-width:700px) {
+        #dp-panel[data-operation-mode="mentor"] { width:100vw !important; min-width:0 !important; max-width:100vw !important; }
         .dp-mentor-header { align-items:flex-start !important; flex-direction:column !important; }
         .dp-mentor-header-actions { width:100% !important; justify-content:space-between !important; }
       }
@@ -2166,19 +2040,17 @@
     const refreshAfterNavigation = () => {
       runtime.pageUrl = location.href;
       clearFocus();
-      refreshMentor({ autoReveal: runtime.autoHints });
+      refreshMentor();
     };
     window.addEventListener("popstate", refreshAfterNavigation);
     window.addEventListener("hashchange", refreshAfterNavigation);
     window.addEventListener("pageshow", refreshAfterNavigation);
-    window.addEventListener("resize", scheduleFocusPosition);
-    window.addEventListener("scroll", scheduleFocusPosition, true);
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && runtime.highlighted) clearFocus();
     });
     document.addEventListener("change", (event) => {
       if (runtime.mode !== "mentor" || event.target.closest?.("#dp-panel")) return;
-      window.setTimeout(() => refreshMentor({ autoReveal: false }), 0);
+      window.setTimeout(() => refreshMentor(), 0);
     }, true);
     window.setInterval(() => {
       if (location.href === runtime.pageUrl) return;
@@ -2191,12 +2063,6 @@
         if (mode === runtime.mode) return;
         runtime.mode = mode;
         applyMode("storage");
-      });
-      GM_addValueChangeListener(AUTO_HINTS_KEY, (_name, _oldValue, value) => {
-        runtime.autoHints = value === true;
-        const checkbox = document.querySelector("#dp-mentor-auto-hints");
-        if (checkbox) checkbox.checked = runtime.autoHints;
-        if (!runtime.autoHints) clearFocus();
       });
     } catch (_) {}
   }

@@ -7,7 +7,7 @@ Manifest V3 build of the production Diagnostic Workbench for the shared UserSide
 - userscript: `SIMNET Diagnostic Workbench`;
 - source version: `2.0.0-dev.5.8`;
 - source SHA-256: `416C44C307E7B8324AE94E1A76477556856593B051677E9585DAEDB322E8D9AF`;
-- extension version: `0.6.1`.
+- extension version: `0.6.2`.
 
 The original Workbench userscript business logic is bundled into `src/workbench.js` and augmented by extension-native provider and mentor modules. The Userside task-staff and validation module is bundled as `src/userside-task-staff-ui.js`. The extension supplies a compatibility layer for the Tampermonkey APIs still used by Workbench internals.
 
@@ -18,7 +18,7 @@ Live smoke-test results are recorded in `LIVE_VALIDATION.md`.
 - `src/workbench.js` — original Workbench business logic, UI, diagnostics and optional modules;
 - `src/billing-provider.js` — isolated Simnet/Looknet profiles and safe UserSide provider detection;
 - `src/training-knowledge.js` — structured, testable mentor rules derived from the operator knowledge base;
-- `src/training-mentor.js` — mode selector, contextual checklist, non-blocking DOM marker and an in-panel focus explanation;
+- `src/training-mentor.js` — mode selector, contextual one-step route, manual non-blocking field highlight and an in-panel explanation;
 - `src/userside-task-staff-ui.js` — Userside task staff recommendations, master/crew selection UI and save-time validation;
 - `src/gm-compat.js` — synchronous cached facade over `chrome.storage.local`, cross-tab events, GET transport, styles and clipboard;
 - `src/service-worker.js` — allowlisted cross-origin GET bridge and request cancellation;
@@ -28,10 +28,10 @@ The ONU mentor does not maintain a second set of diagnostic rules. `src/workbenc
 exposes its read-only ONU analysis API to `src/training-mentor.js`, so BDCOM EPON,
 BDCOM GPON, GCOM and Huawei use the same parsers, thresholds, deviations and final
 conclusions in both automatic diagnostics and step-by-step training. The mentor adds
-the interaction layer: clickable fact cards, exact source-line spotlighting and
+the interaction layer: clickable fact cards, exact source-line highlighting and
 reviewed progress.
 
-Related source lines are grouped before spotlighting. BDCOM GPON presents MAC/VLAN/PON
+Related source lines are grouped before highlighting. BDCOM GPON presents MAC/VLAN/PON
 binding, current registration, UNI-port state and uptime/history as coherent blocks.
 BDCOM EPON keeps the current active registration separate from the previous deregistration
 reason, combines a direct ONU-MAC warning with the relevant MAC table, and exposes port
@@ -42,8 +42,9 @@ and subscriber MAC, preventing those identities from being conflated.
 Important-page checks are presented as a compact accordion. Access/restrictions,
 service state, finance, technical checks, ONU interpretation and secondary controls
 are separate color-coded sections; opening one section closes the previous one. The
-technical section contains the ONU poll and Juniper checks as distinct spotlightable
-items.
+technical section contains the ONU poll and Juniper checks as distinct highlightable
+items. On a confirmed PON account the section order is fixed: ONU/PON-port polling
+first, Juniper session and traffic second.
 The mentor uses a light field-based visual system: semantic sections have restrained
 accent bars and individual facts appear as compact label/value rows with a status dot.
 The learning-mode toggle controls whether these rows expose their `?` notes. Opening a
@@ -65,11 +66,11 @@ missing-session response confirms that no current session exists. Billing's gree
 icon is intentionally not part of mentor evaluation.
 Active Juniper output is further split into explained fields: session status/ID,
 BRAS/source, IP–MAC–VLAN, start/last event, traffic/speed and ROUTER/VENDOR. Each item
-spotlights its source line and explains what the value proves and what it does not prove.
+highlights its source line and explains what the value proves and what it does not prove.
 
 When a clickable fact is inside a collapsed Billing section, the mentor activates the
 page's own section toggle, waits for layout, scrolls to the revealed row and only then
-builds the spotlight. PON guidance first uses the OLT from the Billing technical profile.
+applies a non-blocking outline. PON guidance first uses the OLT from the Billing technical profile.
 When that field is empty, the mentor reads the subscriber TMC in UserSide with the same
 equipment resolver as the diagnostic workflow and highlights the matching BDCOM EPON,
 BDCOM GPON, GCOM or Huawei section. A PON token in the Billing group name is a secondary

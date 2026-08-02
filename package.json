@@ -1,6 +1,6 @@
 {
   "name": "simnet-workbranch",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "private": true,
   "description": "SIMNET / LOOKNET Diagnostic Workbench Chrome extension and related UserSide tooling.",
   "scripts": {
