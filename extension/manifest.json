@@ -67,8 +67,10 @@
         "src/page-focus.js",
         "src/operator-routes.js",
         "src/operator-finance.js",
+        "src/operator-traffic.js",
         "src/operation-mode-controller.js",
-        "src/operator-navigator.js"
+        "src/operator-navigator.js",
+        "src/operator-traffic-ui.js"
       ],
       "run_at": "document_idle",
       "world": "ISOLATED"
