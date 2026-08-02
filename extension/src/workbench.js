@@ -3522,7 +3522,9 @@
   function billingTechnologyActionFromEvidence(evidence) {
     const text = String(evidence && evidence.text || '').toLowerCase();
     if (evidence && evidence.forcedBillingAction) return evidence.forcedBillingAction;
-    if (/huawei/.test(text)) return '313';
+    if (/huawei|smartax|\bma\d{3,5}\b/.test(text)) return '313';
+    const inferred = inferBillingActionFromText(text);
+    if (inferred) return inferred;
     if (/epon/.test(text)) return '310';
     if (/gpon/.test(text) && /gcom/.test(text)) return '312';
     if (/gpon/.test(text) && /bdcom/.test(text)) return '311';
@@ -3534,9 +3536,10 @@
   function buildPollEvidence(mainDoc) {
     const evidence = extractOltEvidence(mainDoc) || {};
     const oltInfo = evidence.text || '';
+    const oltContext = [oltInfo, evidence.rowText].filter(Boolean).join(' | ');
     const oltIp = evidence.ip || extractByRegex(oltInfo, /\b(?:\d{1,3}\.){3}\d{1,3}\b/) || '';
     const deviceMac = extractActiveDeviceMac(mainDoc) || '';
-    const forcedBillingAction = /huawei/i.test(oltInfo) ? '313' : '';
+    const forcedBillingAction = /huawei|smartax|\bma\d{3,5}\b/i.test(oltContext) ? '313' : '';
     return {
       oltInfo,
       oltIp,
@@ -3548,8 +3551,16 @@
       deviceMac,
       source: 'ТМЦ UserSide (источник №2 после Billing)',
       forcedBillingAction,
-      text: [oltInfo, deviceMac].filter(Boolean).join(' | '),
+      text: [oltContext, deviceMac].filter(Boolean).join(' | '),
     };
+  }
+
+  function analyzeUserSideTmcHtml(html) {
+    const evidence = buildPollEvidence(parseHtml(String(html || '')));
+    return Object.freeze({
+      ...evidence,
+      action: billingTechnologyActionFromEvidence(evidence),
+    });
   }
 
   function billingTechnologyCandidates(doc, baseUrl, evidence, includeAll = false) {
@@ -4090,6 +4101,13 @@
   function parsePollDurationSeconds(raw) {
     const text = String(raw || '').toLowerCase();
     if (!text) return null;
+    const bdcomClock = text.match(/\b(\d+)d\s*[:.]\s*(\d{1,2}):(\d{2}):(\d{2})\b/i);
+    if (bdcomClock) {
+      return Number(bdcomClock[1]) * 86400
+        + Number(bdcomClock[2]) * 3600
+        + Number(bdcomClock[3]) * 60
+        + Number(bdcomClock[4]);
+    }
     const read = patterns => {
       for (const pattern of patterns) {
         const match = text.match(pattern);
@@ -4181,9 +4199,54 @@
     };
   }
 
+  function extractBdcomGponRegistration(raw) {
+    const lifecycle = parseBdcomGponLifecycle(raw);
+    const evidence = lifecycle.activeRow || lifecycle.inactiveRow || '';
+    const activeAt = lifecycle.activeRow ? parsePollDate(lifecycle.activeRow) : null;
+    const durationRaw = firstPollMatch(lifecycle.activeRow, [
+      /\b(\d+d\s*[:.]\s*\d{1,2}:\d{2}:\d{2})\b/i,
+    ]);
+    const distanceMatch = lifecycle.activeRow.match(/\s(\d+(?:[.,]\d+)?)\s*$/);
+    return {
+      activeAt: activeAt && !Number.isNaN(activeAt.getTime()) ? activeAt : null,
+      durationSeconds: parsePollDurationSeconds(durationRaw),
+      durationText: durationRaw,
+      distanceMeters: distanceMatch ? pollNumber(distanceMatch[1]) : null,
+      evidence: evidence.trim(),
+    };
+  }
+
+  function extractBdcomEponRegistration(raw) {
+    const blocks = splitPollCommandBlocks(raw);
+    const activeBlock = blocks.find(block => /show\s+epon\s+active-onu/i.test(block.command));
+    const evidence = activeBlock
+      ? pollLines(activeBlock.text).find(line => /\bEPON\d*\/\d+(?::\d+)?\b/i.test(line)) || ''
+      : '';
+    const dates = [...evidence.matchAll(/20\d{2}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2}:\d{2}/g)].map(match => parsePollDate(match[0]));
+    const reason = normalizePollDownReason(firstPollMatch(evidence, [
+      /(POWER[_ -]?OFF|Dying\s*Gasp|LOSi(?:\/LOBi)?|LOBi|\bLOS\b|wire[-\s]+down|linkfault)/i,
+    ]));
+    const alive = evidence.match(/\b(\d+)\s*[.]\s*(\d{1,2}):(\d{2}):(\d{2})\s*$/);
+    const durationSeconds = alive
+      ? Number(alive[1]) * 86400 + Number(alive[2]) * 3600 + Number(alive[3]) * 60 + Number(alive[4])
+      : null;
+    return {
+      activeAt: dates[0] && !Number.isNaN(dates[0].getTime()) ? dates[0] : null,
+      lastDownAt: dates[1] && !Number.isNaN(dates[1].getTime()) ? dates[1] : null,
+      lastDownReasonCode: reason.code,
+      lastDownReasonRaw: reason.raw,
+      durationSeconds,
+      durationText: durationSeconds ? formatPollDuration(durationSeconds) : '',
+      distanceMeters: null,
+      evidence: evidence.trim(),
+    };
+  }
+
   function extractPollHistory(raw) {
     const events = [];
-    for (const line of pollLines(raw)) {
+    const sourceLines = pollLines(raw);
+    for (let lineIndex = 0; lineIndex < sourceLines.length; lineIndex += 1) {
+      const line = sourceLines[lineIndex];
       const gponSequence = line.match(/^\s*(\d+)\s+(20\d{2}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2}:\d{2})\s+(20\d{2}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2}:\d{2})\s+(.+?)\s*$/);
       if (gponSequence) {
         const normalized = normalizePollDownReason(gponSequence[4]);
@@ -4194,6 +4257,25 @@
             reasonCode: normalized.code,
             reasonRaw: normalized.raw,
             evidence: line.trim(),
+          });
+        }
+        continue;
+      }
+
+      const huaweiCause = line.match(/^\s*DownCause\s*:\s*(.+?)\s*$/i);
+      if (huaweiCause) {
+        const normalized = normalizePollDownReason(huaweiCause[1]);
+        const historyStart = Math.max(0, lineIndex - 10);
+        const downLine = sourceLines.slice(historyStart, lineIndex)
+          .reverse()
+          .find(candidate => /^\s*DownTime\s*:/i.test(candidate)) || '';
+        const at = parsePollDate(downLine);
+        if (normalized.code && normalized.code !== 'other') {
+          events.push({
+            at: at && !Number.isNaN(at.getTime()) ? at : null,
+            reasonCode: normalized.code,
+            reasonRaw: normalized.raw,
+            evidence: [downLine.trim(), line.trim()].filter(Boolean).join(' · '),
           });
         }
         continue;
@@ -4303,7 +4385,11 @@
         const suffixVlan = suffix.match(/^\s*(\d{1,4})(?:\s|$)/);
         if (prefixVlan && Number(prefixVlan[1]) >= 1 && Number(prefixVlan[1]) <= 4094) vlan = Number(prefixVlan[1]);
         else if (suffixVlan && Number(suffixVlan[1]) >= 1 && Number(suffixVlan[1]) <= 4094) vlan = Number(suffixVlan[1]);
-        rows.push({ mac, vlan, evidence: line.trim() });
+        const port = firstPollMatch(line, [
+          /\b((?:gpon|epon)\d*\/\d+(?::\d+)?(?:-\d+)?)\b/i,
+          /\b(\d+\/\d+\/\d+(?::\d+)?)\b/,
+        ]);
+        rows.push({ mac, vlan, port, evidence: line.trim() });
       }
     }
 
@@ -4494,6 +4580,7 @@
     const parsedOnuMac = normalizePollMac(firstPollMatch(raw, [
       /^\s*(?:ONU|ONT)\s+MAC(?:\s+address)?\s*[:=]\s*([^\s]+)\s*$/im,
       /^\s*MAC\s+Address\s*[:=]\s*([^\s]+)\s*$/im,
+      /^\s*MAC\s*[:=]\s*([^\s]+)\s*$/im,
       /^\s*ONU\s+ID\s*:\s*([^\s]+)\s*$/im,
     ]));
     const onuMac = parsedOnuMac || (adapter === 'bdcom-epon' ? normalizePollMac(context.expectedOnuMac) : '');
@@ -4530,8 +4617,12 @@
       service,
       macTable,
       uptime,
+      registration: null,
       history,
       errors,
+      sourceWarnings: {
+        onuMacMismatch: /неверно\s+указан\s+mac\s+onu|incorrect(?:ly)?\s+(?:specified\s+)?onu\s+mac|onu\s+mac\s+mismatch/i.test(String(raw || '')),
+      },
       expected: {
         onuMac: normalizePollMac(context.expectedOnuMac),
         onuSerial: String(context.expectedOnuSerial || '').trim(),
@@ -4553,6 +4644,20 @@
     facts.optics.onuTxDbm = pollNumber(firstPollMatch(raw, [
       /^\s*(?:ONT\s+)?Tx\s+optical\s+power\s*\(dBm\)\s*:\s*(-?[\d.]+)/im,
     ]));
+    const ontId = firstPollMatch(raw, [/^\s*ontid_by_onu\s*=\s*(\d+)\s*$/im]);
+    if (ontId && facts.optics.onuRxDbm === null) {
+      const opticalBlock = splitPollCommandBlocks(raw)
+        .find(block => /display\s+ont\s+optical-info/i.test(block.command));
+      const row = opticalBlock
+        ? pollLines(opticalBlock.text).find(line => new RegExp(`^\\s*${ontId}\\s+-?\\d`).test(line)) || ''
+        : '';
+      const values = row.match(/^\s*\d+\s+(-?\d+(?:[.,]\d+)?)\s+(-?\d+(?:[.,]\d+)?)\s+(-?\d+(?:[.,]\d+)?)/);
+      if (values) {
+        facts.optics.onuRxDbm = pollNumber(values[1]);
+        facts.optics.onuTxDbm = pollNumber(values[2]);
+        facts.optics.oltRxDbm = pollNumber(values[3]);
+      }
+    }
     return facts;
   }
 
@@ -4571,6 +4676,10 @@
 
   function parseBdcomGponOnuPoll(raw, context) {
     const facts = baseOnuFacts(raw, context, 'bdcom-gpon');
+    facts.registration = extractBdcomGponRegistration(raw);
+    if (facts.distanceMeters === null && facts.registration.distanceMeters !== null) {
+      facts.distanceMeters = facts.registration.distanceMeters;
+    }
     facts.optics.onuRxDbm = firstNumericLine(raw, /(?:ONU\s+)?(?:Rx\s+optical\s+power|Rx\s*Power|RxPower|received\s+(?:optical\s+)?power)/i, /OLT|CATV/i);
     facts.optics.onuTxDbm = firstNumericLine(raw, /(?:ONU\s+)?(?:Tx\s+optical\s+power|Tx\s*Power|TxPower|transmit(?:ted)?\s+(?:optical\s+)?power)/i, /OLT|CATV/i);
     if (!facts.serial) {
@@ -4584,6 +4693,7 @@
 
   function parseBdcomEponOnuPoll(raw, context) {
     const facts = baseOnuFacts(raw, context, 'bdcom-epon');
+    facts.registration = extractBdcomEponRegistration(raw);
     const blocks = splitPollCommandBlocks(raw);
     const oltBlock = blocks.find(block => /optical-transceiver-diagnosis/i.test(block.command));
     if (oltBlock) {
@@ -4643,6 +4753,11 @@
     const routerMacMatched = Boolean(referenceRouterMac && routerMacs.includes(referenceRouterMac));
     const routerMacMismatch = Boolean(referenceRouterMac && routerMacPresent && !routerMacMatched);
     const macTableEmpty = facts.macTable.seen && !routerMacPresent;
+
+    if (facts.sourceWarnings?.onuMacMismatch) {
+      deviations.push('OLT прямо сообщает: в Billing неверно указан MAC ONU для абонента.');
+      raise('conflict');
+    }
 
     if (facts.status === 'online') current.push('ONU находится в сети.');
     else if (facts.status === 'offline') {
@@ -4856,6 +4971,18 @@
     const report = evaluateOnuPollFacts(facts);
     return { adapter, facts, report };
   }
+
+  globalThis.__SIMNET_ONU_ANALYSIS__ = Object.freeze({
+    analyzeOnuPollResult,
+    isolateOnuPollTranscript,
+    pollAdapterFromAction,
+    thresholds: ONU_ANALYSIS_THRESHOLDS,
+  });
+
+  globalThis.__SIMNET_TMC_ANALYSIS__ = Object.freeze({
+    analyzeUserSideTmcHtml,
+    billingTechnologyActionFromEvidence,
+  });
 
   function isolateOnuPollTranscript(raw) {
     const text = String(raw || '').replace(/\r/g, '').trim();
