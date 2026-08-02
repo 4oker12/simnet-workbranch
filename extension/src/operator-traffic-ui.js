@@ -152,7 +152,10 @@
     if (event.target.closest("[data-dp-traffic-load]")) load(state.status === "ready");
   }, true);
 
-  const observer = new MutationObserver(() => render());
+  const observer = new MutationObserver(() => {
+    const usage = document.querySelector("#dp-operator-workspace .dp-operator-usage");
+    if (usage && !usage.querySelector("#dp-operator-monthly-traffic")) render();
+  });
   observer.observe(document.documentElement, { childList: true, subtree: true });
 
   const style = document.createElement("style");
