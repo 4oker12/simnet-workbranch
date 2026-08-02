@@ -63,7 +63,8 @@
         "src/billing-provider.js",
         "src/training-knowledge.js",
         "src/workbench.js",
-        "src/training-mentor.js"
+        "src/training-mentor.js",
+        "src/operator-navigator.js"
       ],
       "run_at": "document_idle",
       "world": "ISOLATED"
