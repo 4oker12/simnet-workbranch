@@ -243,8 +243,7 @@
           <span id="dp-mentor-context">Определяю страницу…</span>
         </div>
         <div class="dp-mentor-header-actions">
-          <span class="dp-mentor-manual-hint">Подсветка только по кнопке</span>
-          <button type="button" id="dp-mentor-refresh">Обновить</button>
+          <button type="button" id="dp-mentor-refresh" title="Обновить контекст страницы" aria-label="Обновить контекст страницы">↻</button>
         </div>
       </header>
       <div class="dp-mentor-progress">
@@ -1568,23 +1567,23 @@
     return true;
   }
 
-  function ruleCardHtml(rule, completed) {
+  function ruleCardHtml(rule, completed, meta = {}) {
     const checklist = rule.checklist
       .map((item) => `<li>${escapeHtml(item)}</li>`)
       .join("");
     return `
       <article class="dp-mentor-rule${completed ? " done" : ""}${rule.caution ? " caution" : ""}" data-mentor-rule="${rule.id}">
-        <div class="dp-mentor-rule-stage">${escapeHtml(rule.stage)}</div>
+        <div class="dp-mentor-rule-stage">Шаг ${escapeHtml(meta.step)} / ${escapeHtml(meta.total)} · ${escapeHtml(rule.stage.replace(/^\d+\s*·\s*/, ""))}</div>
         <h3>${escapeHtml(rule.title)}</h3>
-        <p>${escapeHtml(rule.instruction)}</p>
         <details>
-          <summary>Зачем и что подтвердить</summary>
+          <summary>Что проверить</summary>
+          <p class="dp-mentor-rule-instruction">${escapeHtml(rule.instruction)}</p>
           <p class="dp-mentor-why">${escapeHtml(rule.why)}</p>
           <ul>${checklist}</ul>
         </details>
         <div class="dp-mentor-rule-actions">
-          <button type="button" data-mentor-show="${rule.id}">Найти на странице</button>
-          <label><input type="checkbox" data-mentor-done="${rule.id}"${completed ? " checked" : ""}> Готово — дальше</label>
+          <button type="button" data-mentor-show="${rule.id}">Найти</button>
+          <label><input type="checkbox" data-mentor-done="${rule.id}"${completed ? " checked" : ""}> Готово</label>
         </div>
       </article>
     `;
@@ -1612,16 +1611,10 @@
       `;
       return;
     }
-    const currentIndex = ruleList.findIndex((rule) => rule.id === progress.next.id);
-    const upcoming = currentIndex >= 0 ? ruleList[currentIndex + 1] : null;
-    container.innerHTML = `
-      <div class="dp-mentor-step-intro">
-        <b>Сейчас · шаг ${progress.done + 1} из ${progress.total}</b>
-        <span>Один шаг за раз. Подсветка включается только вручную и не блокирует страницу.</span>
-        ${upcoming ? `<small>Далее: ${escapeHtml(upcoming.title)}</small>` : ""}
-      </div>
-      ${ruleCardHtml(progress.next, false)}
-    `;
+    container.innerHTML = ruleCardHtml(progress.next, false, {
+      step: progress.done + 1,
+      total: progress.total
+    });
     container.querySelectorAll("[data-mentor-show]").forEach((button) => {
       button.addEventListener("click", () => revealRule(button.dataset.mentorShow, true));
     });
@@ -1906,6 +1899,7 @@
       #dp-panel[data-operation-mode="mentor"] #dp-status,
       #dp-panel[data-operation-mode="mentor"] #dp-form,
       #dp-panel[data-operation-mode="mentor"] #dp-results,
+      #dp-panel[data-operation-mode="mentor"] #dp-billing-provider,
       #dp-panel[data-operation-mode="mentor"] #dp-journal-resizer,
       #dp-panel[data-operation-mode="mentor"] #dp-journal-wrap { display:none !important; }
       #dp-panel[data-operation-mode="mentor"] #dp-mentor-workspace { display:block !important; }
@@ -1914,8 +1908,7 @@
       .dp-mentor-header b { color:var(--dp-mentor-text) !important; font-size:14px !important; font-weight:750 !important; }
       .dp-mentor-header span { color:var(--dp-mentor-muted) !important; font-size:10.5px !important; overflow:hidden !important; text-overflow:ellipsis !important; white-space:nowrap !important; }
       .dp-mentor-header-actions { display:flex !important; align-items:center !important; gap:7px !important; }
-      .dp-mentor-manual-hint { color:#667085 !important; font-size:9px !important; font-weight:650 !important; white-space:nowrap !important; }
-      .dp-mentor-header-actions > button { min-height:28px !important; padding:0 8px !important; color:#344054 !important; background:#fff !important; border:1px solid #d0d5dd !important; border-radius:7px !important; box-shadow:0 1px 2px rgba(16,24,40,.05) !important; font-size:9.5px !important; font-weight:700 !important; cursor:pointer !important; }
+      .dp-mentor-header-actions > button { display:grid !important; place-items:center !important; width:28px !important; min-width:28px !important; height:28px !important; padding:0 !important; color:#344054 !important; background:#fff !important; border:1px solid #d0d5dd !important; border-radius:7px !important; box-shadow:0 1px 2px rgba(16,24,40,.05) !important; font-size:16px !important; font-weight:700 !important; cursor:pointer !important; }
       .dp-mentor-header label { display:flex !important; align-items:center !important; gap:5px !important; color:#475467 !important; font-size:10px !important; white-space:nowrap !important; cursor:pointer !important; }
       .dp-mentor-header input, .dp-mentor-rule input { accent-color:var(--dp-mentor-blue) !important; }
       .dp-mentor-progress { display:grid !important; gap:7px !important; padding:10px 14px !important; background:#fff !important; border-bottom:1px solid var(--dp-mentor-line) !important; }
@@ -1935,7 +1928,7 @@
       #dp-mentor-focus p, #dp-mentor-focus em { grid-column:1 / -1 !important; margin:0 !important; line-height:1.45 !important; }
       #dp-mentor-focus p { color:#344054 !important; font-size:11px !important; }
       #dp-mentor-focus em { color:#667085 !important; font-size:10px !important; font-style:normal !important; }
-      #dp-mentor-rules { display:grid !important; gap:10px !important; padding:12px !important; }
+      #dp-mentor-rules { display:grid !important; gap:8px !important; padding:8px 12px 12px !important; }
       #dp-mentor-inspections { display:grid !important; gap:10px !important; padding:13px 12px !important; background:var(--dp-mentor-bg) !important; border-bottom:1px solid var(--dp-mentor-line) !important; }
       #dp-mentor-inspections[hidden] { display:none !important; }
       #dp-mentor-inspections > header { display:grid !important; gap:2px !important; }
@@ -1993,23 +1986,22 @@
       .dp-mentor-inspection-actions { display:flex !important; justify-content:flex-start !important; }
       .dp-mentor-inspection-actions button { min-height:29px !important; padding:0 9px !important; color:#175cd3 !important; background:#fff !important; border:1px solid #84adff !important; border-radius:7px !important; box-shadow:0 1px 2px rgba(16,24,40,.04) !important; font-size:9.5px !important; font-weight:700 !important; cursor:pointer !important; }
       .dp-mentor-inspection-actions button:hover { background:#eff6ff !important; }
-      .dp-mentor-step-intro, .dp-mentor-complete { display:grid !important; gap:4px !important; padding:10px 11px !important; color:#667085 !important; background:#f9fafb !important; border:1px solid #dfe3ea !important; border-radius:9px !important; font-size:10.5px !important; line-height:1.4 !important; }
-      .dp-mentor-step-intro b, .dp-mentor-complete b { color:#344054 !important; font-size:12px !important; }
-      .dp-mentor-step-intro small { color:#175cd3 !important; font-size:9.5px !important; font-weight:650 !important; }
+      .dp-mentor-complete { display:grid !important; gap:4px !important; padding:10px 11px !important; color:#667085 !important; background:#f9fafb !important; border:1px solid #dfe3ea !important; border-radius:9px !important; font-size:10.5px !important; line-height:1.4 !important; }
+      .dp-mentor-complete b { color:#344054 !important; font-size:12px !important; }
       .dp-mentor-complete { padding:16px !important; color:#027a48 !important; border-color:#abefc6 !important; background:#ecfdf3 !important; text-align:center !important; }
       .dp-mentor-complete b { color:#05603a !important; }
-      .dp-mentor-rule { padding:12px !important; background:#fff !important; border:1px solid #d0d5dd !important; border-radius:10px !important; box-shadow:0 1px 2px rgba(16,24,40,.04) !important; }
+      .dp-mentor-rule { padding:9px 11px !important; background:#fff !important; border:1px solid #d0d5dd !important; border-radius:10px !important; box-shadow:0 1px 2px rgba(16,24,40,.04) !important; }
       .dp-mentor-rule.done { opacity:.72 !important; }
       .dp-mentor-rule.caution { border-color:#fdb022 !important; }
       .dp-mentor-rule-stage { color:#175cd3 !important; font-size:9px !important; font-weight:750 !important; letter-spacing:.05em !important; text-transform:uppercase !important; }
-      .dp-mentor-rule h3 { margin:3px 0 5px !important; color:#101828 !important; font-size:13px !important; line-height:1.3 !important; }
-      .dp-mentor-rule > p { margin:0 !important; color:#344054 !important; font-size:11px !important; line-height:1.45 !important; }
-      .dp-mentor-rule details { margin-top:8px !important; padding-top:7px !important; border-top:1px solid #eaecf0 !important; }
+      .dp-mentor-rule h3 { margin:3px 0 0 !important; color:#101828 !important; font-size:12px !important; line-height:1.3 !important; }
+      .dp-mentor-rule details { margin-top:6px !important; padding-top:5px !important; border-top:1px solid #eaecf0 !important; }
       .dp-mentor-rule summary { color:#475467 !important; font-size:10px !important; font-weight:650 !important; cursor:pointer !important; }
+      .dp-mentor-rule-instruction { margin:6px 0 0 !important; color:#344054 !important; font-size:10.5px !important; line-height:1.4 !important; }
       .dp-mentor-why { color:#475467 !important; font-size:10.5px !important; line-height:1.45 !important; }
       .dp-mentor-rule ul { margin:6px 0 0 18px !important; padding:0 !important; color:#667085 !important; font-size:10.5px !important; line-height:1.45 !important; }
-      .dp-mentor-rule-actions { display:flex !important; justify-content:space-between !important; align-items:center !important; gap:8px !important; margin-top:9px !important; }
-      .dp-mentor-rule-actions button { min-height:30px !important; padding:0 9px !important; color:#175cd3 !important; background:#fff !important; border:1px solid #84adff !important; border-radius:7px !important; font-size:10px !important; font-weight:700 !important; cursor:pointer !important; }
+      .dp-mentor-rule-actions { display:flex !important; justify-content:space-between !important; align-items:center !important; gap:8px !important; margin-top:7px !important; }
+      .dp-mentor-rule-actions button { min-height:27px !important; padding:0 9px !important; color:#175cd3 !important; background:#fff !important; border:1px solid #84adff !important; border-radius:7px !important; font-size:9.5px !important; font-weight:700 !important; cursor:pointer !important; }
       .dp-mentor-rule-actions button:hover { background:#eff6ff !important; }
       .dp-mentor-rule-actions label { display:flex !important; align-items:center !important; gap:5px !important; color:#475467 !important; font-size:10.5px !important; font-weight:650 !important; cursor:pointer !important; }
       .dp-mentor-empty { display:grid !important; gap:5px !important; padding:16px !important; color:#667085 !important; background:#fff !important; border:1px dashed #b9c2d0 !important; border-radius:10px !important; text-align:center !important; }

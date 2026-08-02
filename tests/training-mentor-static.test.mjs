@@ -15,7 +15,7 @@ const workbenchSource = await fs.readFile(workbenchPath, "utf8");
 assert.ok(source.includes('id="dp-mentor-focus"'));
 assert.ok(source.includes('id="dp-mentor-refresh"'));
 assert.ok(source.includes("Learning Mode · Наставник"));
-assert.ok(source.includes("Подсветка только по кнопке"));
+assert.ok(!source.includes("dp-mentor-manual-hint"));
 assert.ok(source.includes("function waitForPanel(attempt = 0)"));
 assert.ok(source.includes("attempt >= 120"));
 assert.ok(source.includes("search: location.search"));
@@ -23,8 +23,9 @@ assert.ok(source.includes("billingSection"));
 assert.ok(source.includes("completedByContext"));
 assert.ok(source.includes('PROGRESS_KEY = "dp_mentor_progress_v1"'));
 assert.ok(source.includes("saveCompletedByContext()"));
-assert.ok(source.includes("Сейчас · шаг ${progress.done + 1} из ${progress.total}"));
-assert.ok(source.includes("Подсветка включается только вручную и не блокирует страницу"));
+assert.ok(source.includes("Шаг ${escapeHtml(meta.step)} / ${escapeHtml(meta.total)}"));
+assert.ok(source.includes('class="dp-mentor-rule-instruction"'));
+assert.ok(!source.includes("dp-mentor-step-intro"));
 assert.ok(source.includes("location.href === runtime.pageUrl"));
 assert.ok(source.includes('id="dp-mentor-inspections"'));
 assert.ok(source.includes("function renderFieldInspections(context)"));
@@ -176,6 +177,10 @@ assert.ok(!source.includes("MutationObserver"));
 assert.ok(!source.includes('document.addEventListener("click"'));
 assert.ok(!source.includes("dp-mentor-callout"));
 assert.ok(!source.includes("dp_mentor_auto_hints_v1"));
+assert.match(
+  source,
+  /#dp-panel\[data-operation-mode="mentor"\][\s\S]*#dp-billing-provider,[\s\S]*display:none/
+);
 
 assert.match(
   source,
