@@ -7,7 +7,7 @@ Manifest V3 build of the production Diagnostic Workbench for the shared UserSide
 - userscript: `SIMNET Diagnostic Workbench`;
 - source version: `2.0.0-dev.5.8`;
 - source SHA-256: `416C44C307E7B8324AE94E1A76477556856593B051677E9585DAEDB322E8D9AF`;
-- extension version: `0.6.0`.
+- extension version: `0.6.1`.
 
 The original Workbench userscript business logic is bundled into `src/workbench.js` and augmented by extension-native provider and mentor modules. The Userside task-staff and validation module is bundled as `src/userside-task-staff-ui.js`. The extension supplies a compatibility layer for the Tampermonkey APIs still used by Workbench internals.
 
@@ -107,6 +107,11 @@ There are no permissions for cookies, `webRequest`, `declarativeNetRequest`, nat
 7. Open or reload UserSide.
 
 For an update, click **Reload** on the extension card and then reload both target tabs.
+
+For day-to-day unpacked development, use the green **↻ EXT** button in the
+Workbench header. It reloads the extension from the permanent local repository
+and refreshes the current UserSide/Billing page. The Chrome extension card is
+needed only for the first load or when the manifest itself cannot be reloaded.
 
 ## First live validation
 

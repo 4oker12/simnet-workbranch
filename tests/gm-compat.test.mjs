@@ -68,7 +68,7 @@ const chrome = {
       if (message.type === "SIMNET_WB_GET_EXTENSION_INFO") {
         return {
           ok: true,
-          version: "0.5.0"
+          version: "0.6.1"
         };
       }
       if (message.type === "SIMNET_WB_ABORT_FETCH") {

@@ -8792,6 +8792,23 @@
     #dp-panel[data-tab-role="mirror"] #dp-form { background: #1c1730 !important; }
     #dp-panel[data-tab-role="mirror"] #dp-input[readonly] { color: #b8bfd0 !important; border-color: #745f94 !important; }
     .dp-head-controls { display:flex !important; align-items:center !important; gap:6px !important; }
+    #dp-reload-extension {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      height: 28px !important;
+      padding: 0 7px !important;
+      color: #d9ffe8 !important;
+      background: #17412f !important;
+      border: 1px solid #4da777 !important;
+      border-radius: 8px !important;
+      font-size: 10px !important;
+      font-weight: 800 !important;
+      line-height: 1 !important;
+      white-space: nowrap !important;
+    }
+    #dp-reload-extension:hover { background: #205b42 !important; }
+    #dp-reload-extension:disabled { cursor: wait !important; opacity: .72 !important; }
     #dp-reset-panel, #dp-minimize {
       display: grid !important;
       place-items: center !important;
@@ -9181,7 +9198,8 @@
       justify-content: center !important;
     }
     #dp-panel.collapsed .dp-head-title,
-    #dp-panel.collapsed #dp-reset-panel { display: none !important; }
+    #dp-panel.collapsed #dp-reset-panel,
+    #dp-panel.collapsed #dp-reload-extension { display: none !important; }
     #dp-panel.collapsed .dp-head-controls { flex-direction: column !important; }
     #dp-panel.collapsed #dp-minimize {
       width: 34px !important;
@@ -9495,6 +9513,10 @@
     }
   `);
 
+  const extensionManifestVersion = (() => {
+    try { return String(globalThis.chrome?.runtime?.getManifest?.().version || 'dev'); } catch (_) { return 'dev'; }
+  })();
+
   const panelHtml = `
     <div id="dp-panel" data-workbench-version="2.0.0-dev.5.8" data-layout="responsive-docked" data-workspace-view="process">
       <div id="dp-head">
@@ -9504,6 +9526,7 @@
           <span id="dp-sync-badge">Единое состояние: инициализация…</span>
         </div>
         <div class="dp-head-controls">
+          <button type="button" title="Перезагрузить unpacked-расширение из постоянной папки и обновить страницу" id="dp-reload-extension">↻ EXT ${extensionManifestVersion}</button>
           <button type="button" title="Переместить панель на другую сторону" id="dp-side-panel">⇆</button>
           <button type="button" title="Вернуть стандартную ширину боковой панели" id="dp-reset-panel">↺</button>
           <button type="button" title="Свернуть боковую панель" id="dp-minimize">›</button>
@@ -9791,6 +9814,24 @@
 
   document.querySelector('#dp-hide-panel')?.addEventListener('click', () => setMainPanelHidden(true, true));
   document.querySelector('#dp-panel-launcher')?.addEventListener('click', () => setMainPanelHidden(false, true));
+  document.querySelector('#dp-reload-extension')?.addEventListener('click', () => {
+    const button = document.querySelector('#dp-reload-extension');
+    if (!button || button.dataset.busy === '1') return;
+    button.dataset.busy = '1';
+    button.disabled = true;
+    button.textContent = '↻ обновление…';
+    try {
+      const runtimeReload = globalThis.chrome?.runtime?.reload;
+      if (typeof runtimeReload !== 'function') throw new Error('chrome.runtime.reload недоступен');
+      window.dispatchEvent(new Event('simnet-workbench:dev-reload-page'));
+      runtimeReload.call(globalThis.chrome.runtime);
+    } catch (error) {
+      button.dataset.busy = '0';
+      button.disabled = false;
+      button.textContent = `↻ EXT ${extensionManifestVersion}`;
+      renderStatus(`не удалось перезагрузить расширение: ${String(error?.message || error)}`, 'error');
+    }
+  });
   document.querySelector('#dp-side-panel')?.addEventListener('click', () => {
     const current = String(safeGetValue(PANEL_SIDE_KEY, 'right') || 'right') === 'left' ? 'left' : 'right';
     const next = current === 'right' ? 'left' : 'right';
