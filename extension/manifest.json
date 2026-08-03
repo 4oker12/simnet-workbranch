@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET / LOOKNET Diagnostic Workbench",
-  "version": "0.7.12",
+  "version": "0.7.13",
   "minimum_chrome_version": "111",
   "description": "Chrome Extension build of Diagnostic Workbench for SIMNET, LOOKNET and the shared UserSide.",
   "permissions": [
@@ -71,8 +71,8 @@
         "src/operation-mode-controller.js",
         "src/operator-navigator.js",
         "src/operator-guidance.js",
-        "src/operator-session-stability.js",
         "src/operator-live-state.js",
+        "src/operator-session-stability.js",
         "src/operator-live-precision.js",
         "src/operator-tech-guide.js",
         "src/operator-ui-polish.js",
