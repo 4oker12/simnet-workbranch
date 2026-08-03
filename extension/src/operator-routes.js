@@ -65,18 +65,18 @@
     ponLine: step({
       id: "pon-line",
       title: "ONU и линия",
-      short: "Регистрация ONU, оптика, Ethernet-порт и события линии",
-      entityKeys: Object.freeze(["lineState", "optics", "clientPort", "uptime"]),
+      short: "Регистрация ONU, Ethernet-порт, MAC, оптика и время работы",
+      entityKeys: Object.freeze(["lineState", "clientPort", "learnedMac", "routerMac", "optics", "uptime"]),
       focusKey: "lineState",
-      why: "Этот шаг существует только при подтверждённой PON-технологии. ONU online подтверждает регистрацию, но не гарантирует активную сессию или исправность локальной сети."
+      why: "ONU online подтверждает регистрацию, а LinkState UP — физический линк ONU–роутер. Изученный MAC сравнивается с ожидаемым MAC из строки запроса. Линк 100 Мбит/с при тарифе выше 100 — частый признак работы только двух пар: повреждённого или четырёхжильного патч-корда, плохого обжима/коннектора, Fast Ethernet-порта, неисправности порта либо принудительно заданной скорости 100M."
     }),
     ethernetPort: step({
       id: "ethernet-port",
       title: "Порт и привязка",
-      short: "Коммутатор, физический link, MAC, VLAN и ошибки порта",
-      entityKeys: Object.freeze(["lineState", "clientPort", "learnedMac", "vlan"]),
+      short: "Коммутатор, физический link, ожидаемый и изученный MAC, VLAN",
+      entityKeys: Object.freeze(["lineState", "clientPort", "learnedMac", "routerMac", "vlan"]),
       focusKey: "lineState",
-      why: "Для Ethernet/FTTB вместо ONU проверяется порт доступа: link, изученный MAC, VLAN и признаки нестабильности."
+      why: "Для Ethernet/FTTB проверяются порт доступа, link, изученный и ожидаемый MAC, VLAN и признаки нестабильности. Линк 100 Мбит/с ограничит скорость даже при гигабитном тарифе; проверь четыре пары кабеля, обжим, коннекторы, возможности портов и автосогласование."
     }),
     detectTechnology: step({
       id: "detect-technology",
@@ -85,14 +85,6 @@
       entityKeys: Object.freeze(["technology"]),
       focusKey: "technology",
       why: "Пока технология не подтверждена, Workbench не должен запускать PON-опрос или считать отсутствие ONU ошибкой."
-    }),
-    equipment: step({
-      id: "equipment",
-      title: "Оборудование",
-      short: "Граница между сетью провайдера и роутером абонента",
-      entityKeys: Object.freeze(["clientPort", "learnedMac", "routerMac"]),
-      focusKey: "clientPort",
-      why: "Сопоставь физический линк и MAC за портом. Это помогает локализовать проблему до роутера либо уже внутри локальной сети абонента."
     }),
     history: step({
       id: "history",
@@ -113,13 +105,12 @@
     return Object.freeze({
       id: "no-internet",
       title: "Нет интернета",
-      description: "Определи уровень разрыва: доступ, сессия, линия или клиентское оборудование.",
+      description: "Определи уровень разрыва: доступ, сессия, линия или порт подключения.",
       technology,
       steps: Object.freeze([
         connectivitySteps.access,
         connectivitySteps.session,
         branch,
-        connectivitySteps.equipment,
         connectivitySteps.history
       ])
     });
