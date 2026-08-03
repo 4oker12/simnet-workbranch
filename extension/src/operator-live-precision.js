@@ -302,7 +302,12 @@
   if (OLT_ACTIONS.has(action())) {
     const startedAt = Date.now();
     let timer = 0;
-    observer = new MutationObserver(() => {
+    observer = new MutationObserver((mutations) => {
+      const relevant = mutations.some((mutation) => {
+        const target = mutation.target instanceof Element ? mutation.target : mutation.target?.parentElement;
+        return target && !target.closest("#dp-panel");
+      });
+      if (!relevant) return;
       clearTimeout(timer);
       timer = setTimeout(() => {
         refreshPrecision();
