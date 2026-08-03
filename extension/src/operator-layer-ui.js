@@ -6,8 +6,6 @@
   let scheduled = 0;
   let renderedAfterPatch = false;
 
-  const text = (value) => String(value || "").replace(/\s+/g, " ").trim();
-
   function frozenStep(step, overrides) {
     return Object.freeze({ ...step, ...overrides });
   }
@@ -156,6 +154,9 @@
   installStyle();
   patchRoutes();
   [0, 250, 700, 1500, 3000].forEach((delay) => window.setTimeout(schedule, delay));
+  window.setTimeout(() => {
+    document.querySelector("#dp-connectivity-live")?.classList.add("dp-three-layers-ready");
+  }, 4500);
 
   globalThis.__SIMNET_OPERATOR_LAYER_UI__ = Object.freeze({ apply, patchRoutes });
 })();
