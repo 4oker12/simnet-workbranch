@@ -1,10 +1,10 @@
 {
   "name": "simnet-workbranch",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "private": true,
   "description": "SIMNET / LOOKNET Diagnostic Workbench Chrome extension and related UserSide tooling.",
   "scripts": {
-    "check:syntax": "node --check extension/src/service-worker.js && node --check extension/src/dev-reload-page-hook.js && node --check extension/src/gm-compat.js && node --check extension/src/billing-provider.js && node --check extension/src/page-hook.js && node --check extension/src/userside-task-staff-ui.js && node --check extension/src/training-knowledge.js && node --check extension/src/training-mentor.js && node --check extension/src/page-focus.js && node --check extension/src/operator-routes.js && node --check extension/src/operator-finance.js && node --check extension/src/operator-connectivity.js && node --check extension/src/operation-mode-controller.js && node --check extension/src/operator-navigator.js && node --check extension/src/operator-connectivity-ui.js && node --check extension/src/operator-traffic.js && node --check extension/src/operator-traffic-ui.js && node --check extension/src/workbench.js",
+    "check:syntax": "node --check extension/src/service-worker.js && node --check extension/src/dev-reload-page-hook.js && node --check extension/src/gm-compat.js && node --check extension/src/billing-provider.js && node --check extension/src/page-hook.js && node --check extension/src/userside-task-staff-ui.js && node --check extension/src/training-knowledge.js && node --check extension/src/training-mentor.js && node --check extension/src/page-focus.js && node --check extension/src/operator-routes.js && node --check extension/src/operator-finance.js && node --check extension/src/operator-connectivity.js && node --check extension/src/operation-mode-controller.js && node --check extension/src/operator-navigator.js && node --check extension/src/operator-connectivity-ui.js && node --check extension/src/operator-pon-detail.js && node --check extension/src/operator-traffic.js && node --check extension/src/operator-traffic-ui.js && node --check extension/src/workbench.js",
     "test": "npm run check:syntax && node --test --test-concurrency=1",
     "package:extension": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-extension.ps1",
     "update:workbench": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sync-workbench.ps1"
