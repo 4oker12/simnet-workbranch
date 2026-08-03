@@ -3,10 +3,11 @@
 (() => {
   if (globalThis.__SIMNET_OPERATOR_SESSION_STABILITY__) return;
 
+  const PENDING_KEY = "dp_operator_session_focus_v2";
   const text = (value) => String(value || "").replace(/\s+/g, " ").trim();
-  const PENDING_KEY = "dp_operator_session_focus_v1";
-  let lastSanitized = "";
-  let activeTarget = null;
+  let activeMark = null;
+  let observer = null;
+  let timer = 0;
 
   function currentAction() {
     try { return new URL(location.href).searchParams.get("a") || ""; } catch (_) { return ""; }
@@ -20,79 +21,71 @@
     } catch (_) { return ""; }
   }
 
-  function patchRoutes() {
-    const routes = globalThis.__SIMNET_OPERATOR_ROUTES__;
-    if (!routes || routes.__sessionStabilityPatched) return Boolean(routes);
-    const originalBuild = routes.buildNoInternet;
-    if (typeof originalBuild !== "function") return false;
-
-    const buildNoInternet = (technology) => {
-      const route = originalBuild(technology);
-      const steps = route.steps.map((step) => {
-        if (step.id !== "session") return step;
-        return Object.freeze({
-          ...step,
-          short: "Только факт активной авторизации в Juniper",
-          entityKeys: Object.freeze(["sessionState"]),
-          focusKey: "sessionState",
-          why: "Активная сессия подтверждает авторизацию абонента. Логин, IP и служебные таймеры не являются отдельными диагностическими выводами."
-        });
-      });
-      return Object.freeze({ ...route, title: "Проверка связи", steps: Object.freeze(steps) });
-    };
-
-    globalThis.__SIMNET_OPERATOR_ROUTES__ = Object.freeze({
-      ...routes,
-      buildNoInternet,
-      __sessionStabilityPatched: true
-    });
-    return true;
-  }
-
-  function pageText() {
-    const chunks = [];
-    const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
-    let node;
-    while ((node = walker.nextNode())) {
-      const parent = node.parentElement;
-      if (!parent || parent.closest("#dp-panel,script,style,noscript")) continue;
-      const value = text(node.nodeValue);
-      if (value) chunks.push(value);
-    }
-    return chunks.join("\n");
-  }
-
-  function explicitSessionState(raw = pageText()) {
-    const active = /(?:статус\s+(?:сесії|сессии)|session\s+status)[^\n]{0,100}(?:online|active\s*(?:\(\d+\))?|up)\b/i.test(raw);
-    const none = /(?:статус\s+(?:сесії|сессии)|session\s+status)[^\n]{0,100}(?:offline|inactive|none|0\s*(?:session|сес))/i.test(raw)
-      || /(?:нет|немає|відсутн|отсутствует)\s+(?:активн(?:ой|ої)?\s+)?(?:сесси|сесі)/i.test(raw);
-    if (none) return "none";
-    if (active) return "active";
-    return "unknown";
-  }
-
   function storeApi() {
     return globalThis.__SIMNET_OPERATOR_CONTEXT_STORE__ || null;
   }
 
-  function sanitizeSession() {
+  function statusMatch(raw) {
+    return String(raw || "").match(
+      /(?:^|[\r\n])\s*(?:\d+\.\s*)?(?:Статус\s+(?:сесії|сессии)|Session\s+status)\s*[-:]\s*([^\r\n]+)/im
+    );
+  }
+
+  function findStatusEvidence() {
+    let best = null;
+    for (const node of document.querySelectorAll("td,th,pre,code,div,p,span")) {
+      if (node.closest("#dp-panel,script,style,noscript")) continue;
+      const raw = String(node.innerText || node.textContent || "");
+      if (!raw || raw.length > 2500) continue;
+      const match = statusMatch(raw);
+      if (!match) continue;
+      const candidate = {
+        node,
+        raw,
+        value: text(match[1]),
+        length: raw.length
+      };
+      if (!best || candidate.length < best.length) best = candidate;
+    }
+    return best;
+  }
+
+  function stateFromValue(value) {
+    const normalized = text(value);
+    if (!normalized) return "unknown";
+    if (/\boffline\b|\binactive\b|\bnone\b|\bdown\b|(?:^|\D)0\s*(?:sessions?|сесси|сесі)/i.test(normalized)) return "none";
+    if (/\bonline\b|\bactive(?:\s*\(\d+\))?\b|\bup\b/i.test(normalized)) return "active";
+    return "unknown";
+  }
+
+  function normalizeSession() {
     if (currentAction() !== "252") return false;
     const store = storeApi();
     if (!store?.current || !store?.writeSource) return false;
-    const state = explicitSessionState();
-    const context = store.current();
-    const snapshot = context.sources?.session;
-    const previous = snapshot?.data || {};
+    const evidence = findStatusEvidence();
+    if (!evidence?.value) return false;
+
+    const state = stateFromValue(evidence.value);
     const label = state === "active"
       ? "Сессия активна"
       : state === "none"
         ? "Активной сессии нет"
         : "Статус сессии не подтверждён";
-    const signature = `${context.identity?.key || ""}|${state}|${label}`;
-    if (signature === lastSanitized && previous.state === state && previous.label === label) return true;
-    lastSanitized = signature;
-    if (previous.state === state && previous.label === label && snapshot?.parser === "juniper2-only") return true;
-    store.writeSource("session", { ...previous, state, label }, {
+    const context = store.current();
+    const snapshot = context.sources?.session;
+    const previous = snapshot?.data || {};
+
+    if (previous.state === state
+      && previous.label === label
+      && previous.statusRaw === evidence.value
+      && snapshot?.parser === "juniper2-only") return true;
+
+    store.writeSource("session", {
+      ...previous,
+      state,
+      label,
+      statusRaw: evidence.value
+    }, {
       action: "252",
       href: location.href,
       parser: "juniper2-only",
@@ -102,49 +95,67 @@
     return true;
   }
 
-  function isVisible(element) {
-    if (!(element instanceof Element) || !element.isConnected) return false;
-    const style = getComputedStyle(element);
-    return style.display !== "none" && style.visibility !== "hidden" && element.getClientRects().length > 0;
-  }
-
-  function sessionStatusTarget() {
-    let best = null;
-    let bestLength = Infinity;
-    const pattern = /(?:статус\s+(?:сесії|сессии)|session\s+status)[\s\S]{0,120}(?:online|active|offline|inactive|none)/i;
-    for (const node of document.querySelectorAll("tr,td,th,pre,code,div,p,span,b,strong")) {
-      if (node.closest("#dp-panel")) continue;
-      const value = text(node.innerText || node.textContent);
-      if (!value || value.length > 1000 || !pattern.test(value)) continue;
-      const target = node.closest("tr") || node;
-      if (value.length < bestLength && isVisible(target)) {
-        best = target;
-        bestLength = value.length;
-      }
+  function clearMark() {
+    if (!activeMark?.isConnected) {
+      activeMark = null;
+      return;
     }
-    return best;
+    const parent = activeMark.parentNode;
+    activeMark.replaceWith(document.createTextNode(activeMark.textContent || ""));
+    parent?.normalize?.();
+    activeMark = null;
   }
 
-  function clearFocus() {
-    globalThis.__SIMNET_PAGE_FOCUS__?.clear?.("session-stability-clear");
-    activeTarget?.classList.remove("dp-session-status-target");
-    activeTarget = null;
+  function markInTextNode(root, expectedValue) {
+    if (!(root instanceof Element)) return false;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const parent = node.parentElement;
+        return parent && !parent.closest("#dp-panel,script,style,noscript")
+          ? NodeFilter.FILTER_ACCEPT
+          : NodeFilter.FILTER_REJECT;
+      }
+    });
+    let node;
+    while ((node = walker.nextNode())) {
+      const raw = String(node.nodeValue || "");
+      const line = raw.match(/(?:Статус\s+(?:сесії|сессии)|Session\s+status)\s*[-:]\s*([^\r\n]+)/i);
+      let start = -1;
+      let selected = "";
+      if (line?.[1]) {
+        selected = line[1];
+        start = (line.index || 0) + line[0].lastIndexOf(selected);
+      } else if (expectedValue) {
+        start = raw.toLowerCase().indexOf(expectedValue.toLowerCase());
+        if (start >= 0) selected = raw.slice(start, start + expectedValue.length);
+      }
+      if (start < 0 || !selected) continue;
+
+      const range = document.createRange();
+      range.setStart(node, start);
+      range.setEnd(node, start + selected.length);
+      const mark = document.createElement("mark");
+      mark.className = "dp-session-status-mark";
+      try { range.surroundContents(mark); } catch (_) { continue; }
+      activeMark = mark;
+      mark.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+      return true;
+    }
+    return false;
   }
 
   function focusStatus() {
-    clearFocus();
-    const target = sessionStatusTarget();
-    if (!target) return false;
-    activeTarget = target;
-    target.classList.add("dp-session-status-target");
-    const state = explicitSessionState();
-    globalThis.__SIMNET_PAGE_FOCUS__?.show?.(target, {
-      label: "Статус сессии Juniper",
-      tone: state === "active" ? "ok" : state === "none" ? "warning" : "info",
-      padding: 7,
-      scroll: true
-    });
-    return true;
+    clearMark();
+    normalizeSession();
+    const evidence = findStatusEvidence();
+    if (!evidence?.node) return false;
+    if (markInTextNode(evidence.node, evidence.value)) return true;
+
+    for (const node of document.querySelectorAll("td,th,pre,code,div,p,span")) {
+      if (node.closest("#dp-panel")) continue;
+      if (markInTextNode(node, evidence.value)) return true;
+    }
+    return false;
   }
 
   function sessionUrl() {
@@ -182,7 +193,7 @@
     return true;
   }
 
-  function isSessionShowClick(event) {
+  function isSessionClick(event) {
     if (event.target.closest?.('#dp-live-entities [data-live-entity="sessionState"]')) return true;
     if (!event.target.closest?.("#dp-live-show")) return false;
     return /сесси/i.test(text(document.querySelector("#dp-live-step-title")?.textContent));
@@ -207,33 +218,66 @@
     if (document.getElementById("dp-session-stability-style")) return;
     const style = document.createElement("style");
     style.id = "dp-session-stability-style";
-    style.textContent = ".dp-session-status-target{position:relative!important;z-index:2147483639!important;outline:3px solid #84cc16!important;outline-offset:3px!important}";
+    style.textContent = `
+      mark.dp-session-status-mark{
+        display:inline!important;
+        padding:2px 5px!important;
+        color:#14532d!important;
+        background:#dcfce7!important;
+        border:1px solid #22c55e!important;
+        border-radius:4px!important;
+        box-shadow:none!important;
+      }
+    `;
     (document.head || document.documentElement).appendChild(style);
   }
 
+  function scheduleNormalize() {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(normalizeSession, 80);
+  }
+
   document.addEventListener("click", (event) => {
-    if (!isSessionShowClick(event)) return;
+    if (!isSessionClick(event)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     showSessionSource();
   }, true);
 
-  document.addEventListener("dp:operator-live-captured", () => window.setTimeout(sanitizeSession, 0));
-  document.addEventListener("dp:operator-context-change", () => window.setTimeout(sanitizeSession, 0));
-  addEventListener("keydown", (event) => { if (event.key === "Escape") clearFocus(); }, true);
+  document.addEventListener("dp:operator-live-captured", scheduleNormalize);
+  addEventListener("keydown", (event) => {
+    if (event.key === "Escape") clearMark();
+  }, true);
 
   installStyle();
-  patchRoutes();
   [0, 250, 700, 1500, 3000].forEach((delay) => window.setTimeout(() => {
-    patchRoutes();
-    sanitizeSession();
+    normalizeSession();
     consumePending();
   }, delay));
 
+  if (currentAction() === "252") {
+    const startedAt = Date.now();
+    observer = new MutationObserver((mutations) => {
+      const relevant = mutations.some((mutation) => {
+        const target = mutation.target instanceof Element ? mutation.target : mutation.target?.parentElement;
+        return target && !target.closest("#dp-panel");
+      });
+      if (!relevant) return;
+      scheduleNormalize();
+      if (Date.now() - startedAt > 8000) observer?.disconnect();
+    });
+    observer.observe(document.body || document.documentElement, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+    window.setTimeout(() => observer?.disconnect(), 8500);
+  }
+
   globalThis.__SIMNET_OPERATOR_SESSION_STABILITY__ = Object.freeze({
-    patchRoutes,
-    sanitizeSession,
+    normalizeSession,
     focusStatus,
-    showSessionSource
+    showSessionSource,
+    findStatusEvidence
   });
 })();
