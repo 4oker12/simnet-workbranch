@@ -49,18 +49,18 @@
     access: step({
       id: "access",
       title: "Доступ",
-      short: "Состояние услуги и административное разрешение доступа",
-      entityKeys: Object.freeze(["accessSummary", "serviceState", "access", "disconnectWarning"]),
-      focusKey: "accessSummary",
-      why: "Сначала исключи административную или финансовую причину. Пока доступ запрещён, техническая ветка не объясняет отсутствие интернета."
+      short: "Статус услуги и административное разрешение доступа",
+      entityKeys: Object.freeze(["serviceState", "access"]),
+      focusKey: "serviceState",
+      why: "Проверь два независимых поля: состояние услуги и разрешение доступа. Они не должны дублироваться одной общей строкой."
     }),
     session: step({
       id: "session",
       title: "Сессия",
-      short: "Есть ли активная авторизация и когда абонент был виден последний раз",
-      entityKeys: Object.freeze(["sessionState", "sessionLogin", "sessionIp", "lastAuthorization"]),
+      short: "Факт активной авторизации в Juniper",
+      entityKeys: Object.freeze(["sessionState"]),
       focusKey: "sessionState",
-      why: "Отсутствие активной сессии не равно отсутствию физической линии. Сопоставь с технологической веткой и последней авторизацией."
+      why: "Активная сессия подтверждает авторизацию. Логин, IP и служебные таймеры не являются отдельными диагностическими выводами."
     }),
     ponLine: step({
       id: "pon-line",
@@ -104,7 +104,7 @@
         : connectivitySteps.detectTechnology;
     return Object.freeze({
       id: "no-internet",
-      title: "Нет интернета",
+      title: "Проверка связи",
       description: "Определи уровень разрыва: доступ, сессия, линия или порт подключения.",
       technology,
       steps: Object.freeze([
