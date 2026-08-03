@@ -91,11 +91,11 @@
     const signature = `${context.identity?.key || ""}|${state}|${label}`;
     if (signature === lastSanitized && previous.state === state && previous.label === label) return true;
     lastSanitized = signature;
-    if (previous.state === state && previous.label === label && snapshot?.parser === "juniper-explicit-status") return true;
+    if (previous.state === state && previous.label === label && snapshot?.parser === "juniper2-only") return true;
     store.writeSource("session", { ...previous, state, label }, {
       action: "252",
       href: location.href,
-      parser: "juniper-explicit-status",
+      parser: "juniper2-only",
       confidence: state === "unknown" ? "low" : "high",
       identity: context.identity
     });
@@ -137,9 +137,10 @@
     if (!target) return false;
     activeTarget = target;
     target.classList.add("dp-session-status-target");
+    const state = explicitSessionState();
     globalThis.__SIMNET_PAGE_FOCUS__?.show?.(target, {
       label: "Статус сессии Juniper",
-      tone: explicitSessionState() === "active" ? "ok" : explicitSessionState() === "none" ? "warning" : "info",
+      tone: state === "active" ? "ok" : state === "none" ? "warning" : "info",
       padding: 7,
       scroll: true
     });
