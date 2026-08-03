@@ -3,11 +3,9 @@
 (() => {
   if (globalThis.__SIMNET_OPERATOR_SESSION_STABILITY__) return;
 
-  const PENDING_KEY = "dp_operator_session_focus_v2";
+  const PENDING_KEY = "dp_operator_session_focus_v3";
   const text = (value) => String(value || "").replace(/\s+/g, " ").trim();
   let activeMark = null;
-  let observer = null;
-  let timer = 0;
 
   function currentAction() {
     try { return new URL(location.href).searchParams.get("a") || ""; } catch (_) { return ""; }
@@ -38,61 +36,11 @@
       const raw = String(node.innerText || node.textContent || "");
       if (!raw || raw.length > 2500) continue;
       const match = statusMatch(raw);
-      if (!match) continue;
-      const candidate = {
-        node,
-        raw,
-        value: text(match[1]),
-        length: raw.length
-      };
+      if (!match?.[1]) continue;
+      const candidate = { node, value: text(match[1]), length: raw.length };
       if (!best || candidate.length < best.length) best = candidate;
     }
     return best;
-  }
-
-  function stateFromValue(value) {
-    const normalized = text(value);
-    if (!normalized) return "unknown";
-    if (/\boffline\b|\binactive\b|\bnone\b|\bdown\b|(?:^|\D)0\s*(?:sessions?|сесси|сесі)/i.test(normalized)) return "none";
-    if (/\bonline\b|\bactive(?:\s*\(\d+\))?\b|\bup\b/i.test(normalized)) return "active";
-    return "unknown";
-  }
-
-  function normalizeSession() {
-    if (currentAction() !== "252") return false;
-    const store = storeApi();
-    if (!store?.current || !store?.writeSource) return false;
-    const evidence = findStatusEvidence();
-    if (!evidence?.value) return false;
-
-    const state = stateFromValue(evidence.value);
-    const label = state === "active"
-      ? "Сессия активна"
-      : state === "none"
-        ? "Активной сессии нет"
-        : "Статус сессии не подтверждён";
-    const context = store.current();
-    const snapshot = context.sources?.session;
-    const previous = snapshot?.data || {};
-
-    if (previous.state === state
-      && previous.label === label
-      && previous.statusRaw === evidence.value
-      && snapshot?.parser === "juniper2-only") return true;
-
-    store.writeSource("session", {
-      ...previous,
-      state,
-      label,
-      statusRaw: evidence.value
-    }, {
-      action: "252",
-      href: location.href,
-      parser: "juniper2-only",
-      confidence: state === "unknown" ? "low" : "high",
-      identity: context.identity
-    });
-    return true;
   }
 
   function clearMark() {
@@ -106,8 +54,8 @@
     activeMark = null;
   }
 
-  function markInTextNode(root, expectedValue) {
-    if (!(root instanceof Element)) return false;
+  function markExactValue(root, expectedValue) {
+    if (!(root instanceof Element) || !expectedValue) return false;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
         const parent = node.parentElement;
@@ -116,21 +64,23 @@
           : NodeFilter.FILTER_REJECT;
       }
     });
+
     let node;
     while ((node = walker.nextNode())) {
       const raw = String(node.nodeValue || "");
       const line = raw.match(/(?:Статус\s+(?:сесії|сессии)|Session\s+status)\s*[-:]\s*([^\r\n]+)/i);
       let start = -1;
       let selected = "";
+
       if (line?.[1]) {
         selected = line[1];
         start = (line.index || 0) + line[0].lastIndexOf(selected);
-      } else if (expectedValue) {
+      } else {
         start = raw.toLowerCase().indexOf(expectedValue.toLowerCase());
         if (start >= 0) selected = raw.slice(start, start + expectedValue.length);
       }
-      if (start < 0 || !selected) continue;
 
+      if (start < 0 || !selected) continue;
       const range = document.createRange();
       range.setStart(node, start);
       range.setEnd(node, start + selected.length);
@@ -146,21 +96,19 @@
 
   function focusStatus() {
     clearMark();
-    normalizeSession();
     const evidence = findStatusEvidence();
-    if (!evidence?.node) return false;
-    if (markInTextNode(evidence.node, evidence.value)) return true;
+    if (!evidence?.node || !evidence.value) return false;
+    if (markExactValue(evidence.node, evidence.value)) return true;
 
     for (const node of document.querySelectorAll("td,th,pre,code,div,p,span")) {
       if (node.closest("#dp-panel")) continue;
-      if (markInTextNode(node, evidence.value)) return true;
+      if (markExactValue(node, evidence.value)) return true;
     }
     return false;
   }
 
   function sessionUrl() {
-    const store = storeApi();
-    const context = store?.current?.() || {};
+    const context = storeApi()?.current?.() || {};
     const saved = context.sources?.session?.href;
     try {
       const base = globalThis.__SIMNET_BILLING_PROVIDER__
@@ -220,21 +168,13 @@
     style.id = "dp-session-stability-style";
     style.textContent = `
       mark.dp-session-status-mark{
-        display:inline!important;
-        padding:2px 5px!important;
-        color:#14532d!important;
-        background:#dcfce7!important;
-        border:1px solid #22c55e!important;
-        border-radius:4px!important;
-        box-shadow:none!important;
+        display:inline!important;padding:2px 5px!important;
+        color:#14532d!important;background:#dcfce7!important;
+        border:1px solid #22c55e!important;border-radius:4px!important;
+        box-shadow:none!important
       }
     `;
     (document.head || document.documentElement).appendChild(style);
-  }
-
-  function scheduleNormalize() {
-    window.clearTimeout(timer);
-    timer = window.setTimeout(normalizeSession, 80);
   }
 
   document.addEventListener("click", (event) => {
@@ -244,38 +184,14 @@
     showSessionSource();
   }, true);
 
-  document.addEventListener("dp:operator-live-captured", scheduleNormalize);
   addEventListener("keydown", (event) => {
     if (event.key === "Escape") clearMark();
   }, true);
 
   installStyle();
-  [0, 250, 700, 1500, 3000].forEach((delay) => window.setTimeout(() => {
-    normalizeSession();
-    consumePending();
-  }, delay));
-
-  if (currentAction() === "252") {
-    const startedAt = Date.now();
-    observer = new MutationObserver((mutations) => {
-      const relevant = mutations.some((mutation) => {
-        const target = mutation.target instanceof Element ? mutation.target : mutation.target?.parentElement;
-        return target && !target.closest("#dp-panel");
-      });
-      if (!relevant) return;
-      scheduleNormalize();
-      if (Date.now() - startedAt > 8000) observer?.disconnect();
-    });
-    observer.observe(document.body || document.documentElement, {
-      childList: true,
-      subtree: true,
-      characterData: true
-    });
-    window.setTimeout(() => observer?.disconnect(), 8500);
-  }
+  [120, 420, 1000].forEach((delay) => window.setTimeout(consumePending, delay));
 
   globalThis.__SIMNET_OPERATOR_SESSION_STABILITY__ = Object.freeze({
-    normalizeSession,
     focusStatus,
     showSessionSource,
     findStatusEvidence
