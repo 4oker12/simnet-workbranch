@@ -84,6 +84,37 @@ test("live panel consumes core state and sends diagnostic commands", () => {
   assert.match(livePanel, /Live Assistant/);
 });
 
+test("billing bridge detects the card from URL and the visible login row", () => {
+  assert.match(bridge, /function findLoginElement\(\)/);
+  assert.match(bridge, /function billingRowData\(loginElement\)/);
+  assert.match(bridge, /action === "user"/);
+  assert.match(bridge, /rowData\.ip \|\| routeIp/);
+  assert.match(bridge, /window\.setTimeout\(publish, 1400\)/);
+});
+
+test("authorization guidance includes billing access checks", () => {
+  assert.match(bridge, /function billingAccessChecks\(\)/);
+  assert.match(bridge, /select\[name='state'\]/);
+  assert.match(bridge, /input\[name='start_day'\]/);
+  assert.match(bridge, /Доступ/);
+  assert.match(bridge, /Блокировка/);
+  assert.match(bridge, /Группа/);
+  assert.match(bridge, /Тариф/);
+  assert.match(livePanel, /accessSummary/);
+  assert.match(livePanel, /Проверь доступ, блокировку, группу, тариф и день начала/);
+});
+
+test("line guidance highlights all poll choices and explains technology selection", () => {
+  assert.match(adapter, /simnet-wb-highlight-overlay/);
+  assert.match(adapter, /BDCOM\\s\+EPON/);
+  assert.match(adapter, /BDCOM\\s\+GPON/);
+  assert.match(adapter, /GCOM/);
+  assert.match(adapter, /HUAWEI\\s\+OLT/);
+  assert.match(adapter, /rgba\(3,7,12,\.56\)/);
+  assert.match(livePanel, /Показать опросы/);
+  assert.match(livePanel, /Уточни технологию в «Технических данных»/);
+});
+
 test("core bridge owns context, status and diagnostic commands", () => {
   assert.match(bridge, /__SIMNET_WORKBENCH_CORE__/);
   assert.match(bridge, /function detectContext\(\)/);
