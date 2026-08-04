@@ -7,9 +7,11 @@ const bridge = readFileSync(new URL("../extension/src/workbench-core-bridge.js",
 const adapter = readFileSync(new URL("../extension/src/core-sidepanel-adapter.js", import.meta.url), "utf8");
 const worker = readFileSync(new URL("../extension/src/sidepanel-worker.js", import.meta.url), "utf8");
 const livePanel = readFileSync(new URL("../extension/live-panel.js", import.meta.url), "utf8");
+const livePanelHtml = readFileSync(new URL("../extension/live-panel.html", import.meta.url), "utf8");
+const livePanelCss = readFileSync(new URL("../extension/live-panel.css", import.meta.url), "utf8");
 const manifest = JSON.parse(readFileSync(new URL("../extension/manifest.json", import.meta.url), "utf8"));
 
-test("launcher stays pinned to the right and reserves only 48px", () => {
+test("closed launcher stays pinned to the right and reserves only 48px", () => {
   assert.match(launcher, /const RAIL_WIDTH = 48/);
   assert.match(launcher, /right:0/);
   assert.match(launcher, /padding-right/);
@@ -21,6 +23,24 @@ test("launcher exposes only live assistant and quick facts", () => {
   assert.match(launcher, /data-mode="quick"/);
   assert.doesNotMatch(launcher, /data-mode="mentor"/);
   assert.doesNotMatch(launcher, /Обучение|Live Call<\/span>/);
+});
+
+test("native panel keeps the rail at the far right and workspace to its left", () => {
+  assert.match(livePanelHtml, /class="side-shell"/);
+  assert.match(livePanelHtml, /class="workspace"/);
+  assert.match(livePanelHtml, /class="dock-rail"/);
+  assert.match(livePanelCss, /grid-template-columns:minmax\(0,1fr\) 48px/);
+  assert.match(livePanelCss, /\.workspace\{grid-column:1/);
+  assert.match(livePanelCss, /\.dock-rail\{grid-column:2/);
+  assert.match(livePanelCss, /@keyframes slide-left/);
+});
+
+test("external launcher hides while native side panel owns the right edge", () => {
+  assert.match(worker, /SIMNET_WB_SIDE_PANEL_PORT/);
+  assert.match(worker, /SIMNET_WB_PANEL_VISIBILITY/);
+  assert.match(worker, /setLauncherVisible\(connectedTabId, false\)/);
+  assert.match(worker, /setLauncherVisible\(connectedTabId, true\)/);
+  assert.match(launcher, /setRailVisible\(message\.visible\)/);
 });
 
 test("legacy workbench UI is kept off-screen as runtime only", () => {
@@ -44,7 +64,7 @@ test("live panel consumes core state and sends diagnostic commands", () => {
   assert.match(adapter, /SIMNET_WB_CORE_STATE/);
   assert.match(livePanel, /SIMNET_WB_GET_ACTIVE_STATE/);
   assert.match(livePanel, /SIMNET_WB_CORE_COMMAND/);
-  assert.match(livePanel, /Сопровождение|Live Assistant/);
+  assert.match(livePanel, /Live Assistant/);
 });
 
 test("core bridge owns context, status and diagnostic commands", () => {
