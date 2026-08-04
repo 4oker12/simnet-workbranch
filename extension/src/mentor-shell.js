@@ -5,7 +5,7 @@
 
   const HOST_ID = "simnet-mentor-shell";
   const PANEL_SELECTOR = "#dp-panel";
-  const SETTINGS_KEY = "simnet_mentor_shell_v2";
+  const SETTINGS_KEY = "simnet_mentor_shell_v3";
   const RAIL_WIDTH = 48;
   const ANCHOR_WIDTH = 280;
   const EXPANDED_WIDTH = ANCHOR_WIDTH + RAIL_WIDTH;
@@ -19,6 +19,7 @@
     root: null,
     basePaddingRight: "0px",
     observer: null,
+    pageObserver: null,
     renderTimer: 0
   };
 
@@ -26,8 +27,6 @@
     brand: "M5 5h14v14H5zM8 9h8M8 13h5M8 17h7",
     mentor: "M12 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14ZM9 21h6M12 17v4M9.5 10.5l1.6 1.6 3.5-4",
     quick: "M13 2 5 14h7l-1 8 8-12h-7z",
-    history: "M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2",
-    more: "M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2ZM5 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2ZM19 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2",
     collapse: "M9 5l7 7-7 7",
     close: "M6 6l12 12M18 6 6 18",
     user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8c0-4 3-6 7-6s7 2 7 6",
@@ -35,7 +34,6 @@
     check: "M5 12l4 4L19 6",
     play: "M8 5v14l11-7z",
     stop: "M7 7h10v10H7z",
-    refresh: "M20 11a8 8 0 1 0-2 5.5M20 4v7h-7",
     copy: "M9 9h10v10H9zM5 5h10v4M5 5v10h4"
   };
 
@@ -43,7 +41,7 @@
     return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icons[name] || icons.brand}"></path></svg>`;
   }
 
-  function safeText(value, max = 160) {
+  function safeText(value, max = 180) {
     return String(value || "").replace(/\s+/g, " ").trim().slice(0, max);
   }
 
@@ -96,7 +94,7 @@
             <div class="section-label">Следующая проверка</div>
             <button type="button" data-action="quick-inline">
               <span>${svg("quick")}</span>
-              <span><b>Быстрый разбор</b><small>Новый компактный интерфейс</small></span>
+              <span><b>Быстрый разбор</b><small>Запустить диагностику без старой панели</small></span>
               ${svg("arrow")}
             </button>
           </section>
@@ -112,14 +110,12 @@
           <button class="brand" data-action="collapse">${svg("brand")}<span class="tip">Workbench</span></button>
           <button class="active" data-action="mentor">${svg("mentor")}<span class="tip">Помощник-наставник</span></button>
           <button data-action="quick">${svg("quick")}<span class="tip">Быстрая диагностика</span></button>
-          <button data-action="history">${svg("history")}<span class="tip">История абонента</span></button>
-          <button data-action="more">${svg("more")}<span class="tip">Дополнительно</span></button>
           <button class="rail-bottom" data-action="collapse">${svg("collapse")}<span class="tip">Свернуть</span></button>
         </nav>
 
-        <section class="flyout" aria-label="Расширенный модуль">
+        <section class="flyout" aria-label="Быстрая диагностика">
           <header class="flyout-head">
-            <strong data-flyout-title>Модуль</strong>
+            <strong>Быстрая диагностика</strong>
             <button type="button" data-action="close-flyout">${svg("close")}</button>
           </header>
           <div class="flyout-body" data-flyout-body></div>
@@ -133,17 +129,12 @@
     return `
       :host{all:initial;position:fixed;z-index:2147483647;top:0;right:0;bottom:0;width:${EXPANDED_WIDTH}px;height:100vh;color:#e7edf7;font:12px/1.4 "Segoe UI",Arial,sans-serif;transition:width .16s ease}
       :host([data-collapsed="true"]){width:${RAIL_WIDTH}px}
-      *,*::before,*::after{box-sizing:border-box}
-      button{font:inherit}
-      svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+      *,*::before,*::after{box-sizing:border-box}button{font:inherit}svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
       .shell{position:relative;display:grid;grid-template-columns:${ANCHOR_WIDTH}px ${RAIL_WIDTH}px;width:100%;height:100%;background:#0d141f;border-left:1px solid #273244}
-      :host([data-collapsed="true"]) .shell{grid-template-columns:${RAIL_WIDTH}px}
-      :host([data-collapsed="true"]) .anchor{display:none}
-      :host([data-collapsed="true"]) .rail{grid-column:1}
+      :host([data-collapsed="true"]) .shell{grid-template-columns:${RAIL_WIDTH}px}:host([data-collapsed="true"]) .anchor{display:none}:host([data-collapsed="true"]) .rail{grid-column:1}
       .anchor{grid-column:1;display:flex;flex-direction:column;gap:10px;min-width:0;height:100%;padding:12px;background:#101823;overflow:hidden}
       .rail{grid-column:2;display:flex;flex-direction:column;align-items:center;gap:7px;padding:8px 5px;background:#0a1019;border-left:1px solid #202b3a}
-      .rail button{position:relative;display:grid;place-items:center;width:38px;height:38px;padding:0;color:#8f9caf;background:transparent;border:0;border-radius:9px;cursor:pointer}
-      .rail button:hover,.rail button:focus-visible{color:#fff;background:#1b2737;outline:none}.rail button.active{color:#c9a8ff;background:#2c2143}.rail .brand{color:#d8e2f0;background:#172131}.rail-bottom{margin-top:auto!important}
+      .rail button{position:relative;display:grid;place-items:center;width:38px;height:38px;padding:0;color:#8f9caf;background:transparent;border:0;border-radius:9px;cursor:pointer}.rail button:hover,.rail button:focus-visible{color:#fff;background:#1b2737;outline:none}.rail button.active{color:#c9a8ff;background:#2c2143}.rail .brand{color:#d8e2f0;background:#172131}.rail-bottom{margin-top:auto!important}
       .tip{position:absolute;right:46px;top:50%;z-index:5;padding:5px 7px;color:#fff;background:#101827;border:1px solid #344155;border-radius:6px;opacity:0;visibility:hidden;transform:translateY(-50%);white-space:nowrap;pointer-events:none}.rail button:hover .tip{opacity:1;visibility:visible}
       .subscriber-head{display:flex;align-items:center;gap:9px;min-height:42px}.avatar{display:grid;place-items:center;flex:0 0 34px;width:34px;height:34px;color:#dbe6f5;background:#1c2735;border:1px solid #324055;border-radius:50%}.subscriber-copy{display:grid;gap:2px;min-width:0}.subscriber-copy strong,.subscriber-copy span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.subscriber-copy span{color:#8f9caf;font-size:10px}
       .chips{display:flex;gap:5px;min-height:25px;overflow:hidden}.chip{display:inline-flex;align-items:center;min-width:0;height:24px;padding:0 7px;color:#cbd6e5;background:#182332;border:1px solid #2b394c;border-radius:7px;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}.chip.skeleton{width:72px;background:linear-gradient(90deg,#182332 20%,#243246 50%,#182332 80%);background-size:200% 100%;animation:shimmer 1.2s infinite}
@@ -151,12 +142,11 @@
       .next-step{padding:0;overflow:hidden;border-color:#274a70;background:#11233a}.next-step .section-label{padding:9px 10px 0;color:#6ea8e8}.next-step button{display:grid;grid-template-columns:28px 1fr 18px;align-items:center;gap:7px;width:100%;padding:8px 10px 10px;color:#e5edf8;text-align:left;background:transparent;border:0;cursor:pointer}.next-step button:hover{background:#172d49}.next-step button>span:first-child{display:grid;place-items:center;color:#63d68f}.next-step b,.next-step small{display:block}.next-step small{margin-top:2px;color:#7f91a8;font-size:9px}
       .facts{display:grid;gap:5px;margin-top:auto;color:#8896aa;font-size:9px}.facts span{display:flex;align-items:center;gap:6px}.facts svg{width:12px;height:12px;color:#56c98a}
       .flyout{position:absolute;top:0;right:${EXPANDED_WIDTH}px;display:grid;grid-template-rows:44px minmax(0,1fr);width:min(${FLYOUT_WIDTH}px,calc(100vw - ${EXPANDED_WIDTH}px));height:100vh;background:#0e1621;border-left:1px solid #283548;border-right:1px solid #283548;box-shadow:-14px 0 32px rgba(0,0,0,.28);opacity:0;visibility:hidden;transform:translateX(18px);transition:opacity .16s ease,transform .16s ease,visibility .16s}.flyout[data-open="true"]{opacity:1;visibility:visible;transform:translateX(0)}
-      .flyout-head{display:flex;align-items:center;justify-content:space-between;padding:0 10px;background:#121c28;border-bottom:1px solid #283548}.flyout-head button{display:grid;place-items:center;width:30px;height:30px;color:#9aa8ba;background:transparent;border:0;border-radius:6px;cursor:pointer}.flyout-head button:hover{color:#fff;background:#202d3e}.flyout-body{min-height:0;overflow:auto;padding:12px;background:#0f1722}
+      .flyout-head{display:flex;align-items:center;justify-content:space-between;padding:0 10px;background:#121c28;border-bottom:1px solid #283548}.flyout-head button{display:grid;place-items:center;width:30px;height:30px;color:#9aa8ba;background:transparent;border:0;border-radius:6px;cursor:pointer}.flyout-body{min-height:0;overflow:auto;padding:12px;background:#0f1722}
       .module-intro{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.module-intro p{margin:3px 0 0;color:#8391a5;font-size:10px}.primary-action,.secondary-action{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 11px;border-radius:7px;cursor:pointer}.primary-action{color:#06140d;background:#55d88a;border:0;font-weight:700}.secondary-action{color:#c7d2e1;background:#182332;border:1px solid #2e3c50}.primary-action:disabled,.secondary-action:disabled{opacity:.45;cursor:not-allowed}
       .status-strip{display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:9px 10px;background:#151f2c;border:1px solid #2b394b;border-radius:8px}.status-strip span{width:8px;height:8px;border-radius:50%;background:#6f7e91}.status-strip.running span{background:#58a6ff;box-shadow:0 0 0 4px rgba(88,166,255,.12)}
-      .result-grid{display:grid;gap:7px}.result-card{padding:9px 10px;background:#131d29;border:1px solid #293648;border-radius:8px}.result-card b{display:block;margin-bottom:3px;color:#dce5f1;font-size:10px}.result-card span{color:#8f9daf;font-size:10px}.empty-state{display:grid;place-items:center;min-height:180px;color:#738196;text-align:center}.empty-state svg{width:28px;height:28px;margin-bottom:8px}
-      .legacy-runtime{position:fixed!important;left:-100000px!important;top:-100000px!important;width:1px!important;height:1px!important;overflow:hidden!important;opacity:0!important;pointer-events:none!important;clip-path:inset(100%)!important}
-      ::slotted(#dp-panel){position:relative!important;inset:auto!important;width:520px!important;min-width:520px!important;height:800px!important;max-height:none!important;display:block!important;visibility:visible!important;opacity:1!important;transform:none!important}
+      .summary-card{margin-bottom:9px;padding:10px;background:#151f2c;border:1px solid #2b394b;border-radius:8px}.summary-card b{display:block;margin-bottom:4px}.summary-card p{margin:0;color:#9aa8ba;font-size:10px}.result-grid{display:grid;gap:7px}.result-card{padding:9px 10px;background:#131d29;border:1px solid #293648;border-radius:8px}.result-card b{display:block;margin-bottom:3px;color:#dce5f1;font-size:10px}.result-card span{color:#8f9daf;font-size:10px}.empty-state{display:grid;place-items:center;min-height:180px;color:#738196;text-align:center}
+      .legacy-runtime{position:fixed!important;left:-100000px!important;top:-100000px!important;width:1px!important;height:1px!important;overflow:hidden!important;opacity:0!important;pointer-events:none!important;clip-path:inset(100%)!important}::slotted(#dp-panel){position:relative!important;inset:auto!important;width:520px!important;min-width:520px!important;height:800px!important;max-height:none!important;display:block!important;visibility:visible!important;opacity:1!important;transform:none!important}
       @keyframes shimmer{to{background-position:-200% 0}}
     `;
   }
@@ -193,7 +183,39 @@
     if (panel.parentElement !== state.host) state.host.appendChild(panel);
   }
 
-  function textFrom(selectors) {
+  function bodyText() {
+    const clone = document.body?.cloneNode(true);
+    clone?.querySelector(`#${HOST_ID}`)?.remove();
+    clone?.querySelector(PANEL_SELECTOR)?.remove();
+    return safeText(clone?.innerText || clone?.textContent || "", 70000);
+  }
+
+  function first(regex, text = bodyText()) {
+    const match = String(text || "").match(regex);
+    return safeText(match?.[1] || "", 180);
+  }
+
+  function normalizeMac(text) {
+    const match = String(text || "").toUpperCase().match(/\b(?:[0-9A-F]{2}[:-]){5}[0-9A-F]{2}\b|\b[0-9A-F]{4}(?:\.[0-9A-F]{4}){2}\b/);
+    if (!match) return "";
+    const raw = match[0].replace(/[-.]/g, "");
+    return raw.match(/.{2}/g)?.join(":") || "";
+  }
+
+  function pageContext() {
+    const text = bodyText();
+    const url = new URL(location.href);
+    const contract = first(/\babon\s*[-_:]?\s*(\d{4,14})\b/i, text)
+      || first(/(?:договор|договір|контракт|agreement)\D{0,50}(\d{4,14})/i, text)
+      || first(/(?:name|search|contract)=([^&]+)/i, url.search);
+    const ip = first(/\b((?:\d{1,3}\.){3}\d{1,3})\b/, text);
+    const mac = normalizeMac(text);
+    const fullName = first(/(?:ФИО|ПІБ|Абонент|Клиент|Клієнт)\s*[:—-]?\s*([^\n|]{3,120})/i, text);
+    const address = first(/(?:Адрес|Адреса)\s*[:—-]?\s*([^\n|]{4,180})/i, text);
+    return { contract: contract.replace(/^abon/i, ""), ip, mac, fullName, address };
+  }
+
+  function legacyText(selectors) {
     for (const selector of selectors) {
       const node = state.panel?.querySelector(selector);
       const text = safeText(node?.value || node?.textContent || "", 180);
@@ -203,18 +225,25 @@
   }
 
   function currentContext() {
-    const input = state.panel?.querySelector("#dp-input");
-    const value = safeText(input?.value || "", 60);
-    const contract = value.match(/\d{4,14}/)?.[0] || "";
-    const status = safeText(state.panel?.querySelector("#dp-status")?.textContent || "", 140);
+    const page = pageContext();
+    const inputValue = safeText(state.panel?.querySelector("#dp-input")?.value || "", 60);
+    const contract = inputValue.match(/\d{4,14}/)?.[0] || page.contract;
     return {
       contract,
-      status,
-      fullName: textFrom(["#dp-full-name", "[data-dp-field='fullName']", "[data-field='fio']"]),
-      address: textFrom(["#dp-address", "[data-dp-field='address']", "[data-field='address']"]),
-      ip: textFrom(["#dp-ip", "[data-dp-field='ip']", "[data-field='ip']"]),
-      mac: textFrom(["#dp-mac", "[data-dp-field='mac']", "[data-field='mac']"])
+      fullName: legacyText(["#dp-full-name", "[data-dp-field='fullName']", "[data-field='fio']"]) || page.fullName,
+      address: legacyText(["#dp-address", "[data-dp-field='address']", "[data-field='address']"]) || page.address,
+      ip: legacyText(["#dp-ip", "[data-dp-field='ip']", "[data-field='ip']"]) || page.ip,
+      mac: legacyText(["#dp-mac", "[data-dp-field='mac']", "[data-field='mac']"]) || page.mac,
+      status: safeText(state.panel?.querySelector("#dp-status")?.textContent || "", 140)
     };
+  }
+
+  function syncLegacyInput(contract) {
+    const input = state.panel?.querySelector("#dp-input");
+    if (!input || !contract || input.value === contract) return;
+    input.value = contract;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
   function legacyRunning() {
@@ -222,27 +251,46 @@
     return Boolean(stop && !stop.disabled);
   }
 
+  function stageFromStatus(status, running) {
+    const text = safeText(status, 160).toLowerCase();
+    if (!running && /заверш|готов|успеш|итог/.test(text)) return "Завершено";
+    if (/onu|olt|сигнал|оптик/.test(text)) return "Опрос ONU / OLT";
+    if (/userside|юзерсайд/.test(text)) return "Сбор UserSide";
+    if (/billing|биллинг/.test(text)) return "Сбор Billing";
+    if (/анализ|сопостав/.test(text)) return "Анализ";
+    return running ? "Сбор данных" : "Готов к запуску";
+  }
+
   function collectFacts() {
     const facts = [];
-    const nodes = [...(state.panel?.querySelectorAll("tr,details,.dp-result-row,[data-dp-result]") || [])];
+    const nodes = [...(state.panel?.querySelectorAll("#dp-results tr,#dp-results details,#dp-results .dp-result-row,#dp-results [data-dp-result]") || [])];
     for (const node of nodes) {
-      const text = safeText(node.textContent, 220);
+      const text = safeText(node.textContent, 240);
       if (!text || /ожидани|номер договора|рандом|пуск/i.test(text)) continue;
-      if (!/(договор|адрес|mac|ip|onu|olt|сигнал|сесси|баланс|услуг|доступ)/i.test(text)) continue;
+      if (!/(договор|адрес|mac|ip|onu|olt|сигнал|сесси|баланс|услуг|доступ|тариф)/i.test(text)) continue;
       if (!facts.includes(text)) facts.push(text);
-      if (facts.length >= 8) break;
+      if (facts.length >= 10) break;
     }
     return facts;
+  }
+
+  function summaryFromFacts(facts, context, running) {
+    if (running) return { title: "Диагностика выполняется", text: "Workbench собирает и сопоставляет данные." };
+    const joined = facts.join(" ").toLowerCase();
+    if (/сесси.{0,30}(нет|отсутств|не найден)/.test(joined)) return { title: "Сессия не подтверждена", text: "Проверь авторизацию и соответствие технических данных." };
+    if (/onu.{0,30}(offline|down|не доступ|не найден)/.test(joined)) return { title: "ONU требует проверки", text: "Нужно подтвердить состояние линии и актуальность привязки." };
+    if (/сигнал.{0,30}(низк|плох|крит)/.test(joined)) return { title: "Возможна проблема оптической линии", text: "Сравни уровни и проверь динамику сигнала." };
+    if (facts.length) return { title: "Данные собраны", text: "Открой факты ниже и проверь ключевые расхождения." };
+    if (!context.contract) return { title: "Нет контекста абонента", text: "Открой карточку Billing или UserSide." };
+    return { title: "Готов к запуску", text: "Нажми «Запустить», чтобы выполнить быстрый разбор." };
   }
 
   function renderAnchor() {
     if (!state.root) return;
     const context = currentContext();
-    const title = state.root.querySelector("[data-context-title]");
-    const meta = state.root.querySelector("[data-context-meta]");
-    title.textContent = context.fullName || (context.contract ? `abon${context.contract}` : "Ожидаю карточку");
-    meta.textContent = context.address || (location.hostname.includes("userside") ? "UserSide" : "Billing");
-
+    if (context.contract) syncLegacyInput(context.contract);
+    state.root.querySelector("[data-context-title]").textContent = context.fullName || (context.contract ? `abon${context.contract}` : "Ожидаю карточку");
+    state.root.querySelector("[data-context-meta]").textContent = context.address || (location.hostname.includes("userside") ? "UserSide" : "Billing");
     const chipValues = { contract: context.contract ? `№ ${context.contract}` : "", ip: context.ip, mac: context.mac };
     for (const [key, value] of Object.entries(chipValues)) {
       const chip = state.root.querySelector(`[data-copy="${key}"]`);
@@ -250,14 +298,11 @@
       chip.textContent = value;
       chip.classList.toggle("skeleton", !value);
     }
-
-    const statusNode = state.root.querySelector("[data-session-status]");
-    const statusMeta = state.root.querySelector("[data-session-meta]");
     const running = legacyRunning();
-    statusNode.textContent = running ? "Диагностика выполняется" : (context.status || "Готов к работе");
-    statusMeta.textContent = running ? "Данные обновляются" : "Ожидаю действие оператора";
+    const stage = stageFromStatus(context.status, running);
+    state.root.querySelector("[data-session-status]").textContent = stage;
+    state.root.querySelector("[data-session-meta]").textContent = context.status || (running ? "Данные обновляются" : "Ожидаю действие оператора");
     state.root.querySelector(".session-dot").style.background = running ? "#58a6ff" : "#6c7b8f";
-
     if (state.flyout) renderFlyout();
   }
 
@@ -265,29 +310,25 @@
     const context = currentContext();
     const facts = collectFacts();
     const running = legacyRunning();
+    const summary = summaryFromFacts(facts, context, running);
     return `
       <div class="module-intro">
-        <div><strong>Быстрая диагностика</strong><p>Новый интерфейс поверх существующего диагностического ядра</p></div>
-        <button class="primary-action" data-action="run-diagnostic" ${running ? "disabled" : ""}>${svg("play")} ${running ? "Выполняется" : "Запустить"}</button>
+        <div><strong>Быстрая диагностика</strong><p>Реальные данные из существующего ядра</p></div>
+        <div>
+          <button class="primary-action" data-action="run-diagnostic" ${running || !context.contract ? "disabled" : ""}>${svg("play")} ${running ? "Выполняется" : "Запустить"}</button>
+          ${running ? `<button class="secondary-action" data-action="stop-diagnostic">${svg("stop")} Стоп</button>` : ""}
+        </div>
       </div>
-      <div class="status-strip ${running ? "running" : ""}"><span></span><b>${safeText(context.status || (running ? "Сбор данных" : "Готов к запуску"), 120)}</b></div>
+      <div class="status-strip ${running ? "running" : ""}"><span></span><b>${stageFromStatus(context.status, running)}</b></div>
+      <div class="summary-card"><b>${summary.title}</b><p>${summary.text}</p></div>
       <div class="result-grid">
-        ${facts.length ? facts.map((fact, index) => `<div class="result-card"><b>${index === 0 ? "Текущий результат" : "Факт"}</b><span>${fact}</span></div>`).join("") : `<div class="empty-state"><div>${svg("quick")}<br>Результаты появятся здесь после запуска.<br>Старая белая панель больше не показывается.</div></div>`}
+        ${facts.length ? facts.map(fact => `<div class="result-card"><b>Факт</b><span>${fact}</span></div>`).join("") : `<div class="empty-state">Результаты появятся после запуска диагностики.</div>`}
       </div>`;
-  }
-
-  function historyMarkup() {
-    return `<div class="module-intro"><div><strong>История абонента</strong><p>Компактное представление истории будет подключено следующим этапом</p></div><button class="secondary-action" data-action="run-history">${svg("history")} Собрать</button></div><div class="empty-state"><div>${svg("history")}<br>Сейчас запускается существующая логика истории,<br>но её старый интерфейс остаётся скрытым.</div></div>`;
-  }
-
-  function moreMarkup() {
-    return `<div class="module-intro"><div><strong>Дополнительные инструменты</strong><p>Технические функции будут переноситься сюда по одной</p></div></div><div class="result-grid"><button class="secondary-action" data-action="stop-diagnostic">${svg("stop")} Остановить текущую операцию</button><button class="secondary-action" data-action="refresh-view">${svg("refresh")} Обновить представление</button></div>`;
   }
 
   function renderFlyout() {
     const body = state.root?.querySelector("[data-flyout-body]");
-    if (!body) return;
-    body.innerHTML = state.flyout === "quick" ? quickMarkup() : state.flyout === "history" ? historyMarkup() : moreMarkup();
+    if (body) body.innerHTML = quickMarkup();
   }
 
   function setCollapsed(value) {
@@ -298,12 +339,10 @@
     saveSettings();
   }
 
-  function openFlyout(kind, title) {
-    state.flyout = kind;
+  function openFlyout() {
+    state.flyout = "quick";
     setCollapsed(false);
-    const flyout = state.root.querySelector(".flyout");
-    flyout.dataset.open = "true";
-    state.root.querySelector("[data-flyout-title]").textContent = title;
+    state.root.querySelector(".flyout").dataset.open = "true";
     renderFlyout();
   }
 
@@ -316,11 +355,6 @@
   function clickLegacy(selector) {
     const node = state.panel?.querySelector(selector);
     if (node && !node.disabled) node.click();
-  }
-
-  function clickExistingHistory() {
-    const candidate = [...(state.panel?.querySelectorAll("button,a") || [])].find(node => /разобрать\s+историю|история\s+абонента/i.test(safeText(node.textContent, 80)));
-    candidate?.click();
   }
 
   async function copyValue(button) {
@@ -337,23 +371,26 @@
     if (!action) return;
     if (action === "collapse") setCollapsed(!state.collapsed);
     if (action === "mentor") { closeFlyout(); setCollapsed(false); }
-    if (action === "quick" || action === "quick-inline") openFlyout("quick", "Быстрая диагностика");
-    if (action === "history") openFlyout("history", "История абонента");
-    if (action === "more") openFlyout("more", "Дополнительные инструменты");
+    if (action === "quick" || action === "quick-inline") openFlyout();
     if (action === "close-flyout") closeFlyout();
     if (action === "run-diagnostic") { clickLegacy("#dp-run"); renderFlyout(); }
     if (action === "stop-diagnostic") { clickLegacy("#dp-stop"); renderFlyout(); }
-    if (action === "run-history") { clickExistingHistory(); renderFlyout(); }
-    if (action === "refresh-view") renderAnchor();
+  }
+
+  function scheduleRender() {
+    window.clearTimeout(state.renderTimer);
+    state.renderTimer = window.setTimeout(renderAnchor, 100);
   }
 
   function observe() {
     state.observer?.disconnect();
-    state.observer = new MutationObserver(() => {
-      window.clearTimeout(state.renderTimer);
-      state.renderTimer = window.setTimeout(renderAnchor, 100);
-    });
+    state.pageObserver?.disconnect();
+    state.observer = new MutationObserver(scheduleRender);
     if (state.panel) state.observer.observe(state.panel, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class", "style", "value", "disabled"] });
+    state.pageObserver = new MutationObserver(mutations => {
+      if (mutations.some(mutation => [...mutation.addedNodes].some(node => node.nodeType === Node.ELEMENT_NODE && !node.closest?.(`#${HOST_ID}`)))) scheduleRender();
+    });
+    state.pageObserver.observe(document.documentElement, { childList: true, subtree: true });
   }
 
   async function install() {
@@ -375,8 +412,8 @@
   }
 
   globalThis.__SIMNET_MENTOR_SHELL__ = {
-    version: "0.2.0",
-    openDiagnostics: () => openFlyout("quick", "Быстрая диагностика"),
+    version: "0.3.0",
+    openDiagnostics: openFlyout,
     closeFlyout,
     collapse: () => setCollapsed(true),
     expand: () => setCollapsed(false)
@@ -389,6 +426,7 @@
   }, true);
   window.addEventListener("pagehide", () => {
     state.observer?.disconnect();
+    state.pageObserver?.disconnect();
     window.clearTimeout(state.renderTimer);
     restorePage();
   });
