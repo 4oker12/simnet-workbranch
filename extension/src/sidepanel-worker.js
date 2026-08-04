@@ -16,18 +16,11 @@ const WORKFLOW_STORAGE_KEY = "simnet_wb_olt_workflows_v1";
 const snapshots = new Map();
 const modes = new Map();
 let workflows = {};
-let workflowsLoaded = false;
 const normalizeMode = value => value === "quick" ? "quick" : "live";
 
 const workflowReady = chrome.storage.session.get({ [WORKFLOW_STORAGE_KEY]: {} })
-  .then(result => {
-    workflows = result?.[WORKFLOW_STORAGE_KEY] || {};
-    workflowsLoaded = true;
-  })
-  .catch(() => {
-    workflows = {};
-    workflowsLoaded = true;
-  });
+  .then(result => { workflows = result?.[WORKFLOW_STORAGE_KEY] || {}; })
+  .catch(() => { workflows = {}; });
 
 function enableActionOpening() {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
@@ -81,7 +74,13 @@ function openForSender(sender, requestedMode = "live") {
 
 function workflowKeyFromState(state) {
   const context = state?.context || {};
-  if (context.contract) return `contract:${context.contract}`;
+  if (context.contract) {
+    const direct = `contract:${context.contract}`;
+    if (workflows[direct]) return direct;
+    const byContract = Object.values(workflows).find(item => item.contract === context.contract || item.login === context.login);
+    if (byContract) return byContract.key;
+    return direct;
+  }
   if (context.billingId) {
     const match = Object.values(workflows).find(item => item.billingId === context.billingId);
     if (match) return match.key;
@@ -99,22 +98,15 @@ function workflowFor(state, tabId = null) {
 }
 
 async function persistWorkflows() {
-  try {
-    await chrome.storage.session.set({ [WORKFLOW_STORAGE_KEY]: workflows });
-  } catch (_) {}
+  try { await chrome.storage.session.set({ [WORKFLOW_STORAGE_KEY]: workflows }); } catch (_) {}
 }
 
 function publicWorkflow(workflow) {
-  if (!workflow) return null;
-  return JSON.parse(JSON.stringify(workflow));
+  return workflow ? JSON.parse(JSON.stringify(workflow)) : null;
 }
 
 function broadcastWorkflow(workflow, tabId = null) {
-  chrome.runtime.sendMessage({
-    type: WORKFLOW_STATE,
-    tabId,
-    workflow: publicWorkflow(workflow)
-  }).catch(() => {});
+  chrome.runtime.sendMessage({ type: WORKFLOW_STATE, tabId, workflow: publicWorkflow(workflow) }).catch(() => {});
 }
 
 function stageForContext(workflow, context) {
@@ -124,22 +116,29 @@ function stageForContext(workflow, context) {
     if (workflow.tmc?.found) return "billing_fill_olt";
     return "billing_olt_missing";
   }
-  if (context.kind === "billing_user") return "billing_main";
-  if (context.kind === "userside_customer") {
-    return context.tmc?.found ? "userside_tmc_found" : "userside_tmc";
-  }
+  if (context.kind === "billing_user") return workflow.tmc?.found ? "billing_main_with_tmc" : "billing_main";
+  if (context.kind === "userside_customer") return context.tmc?.found ? "userside_tmc_found" : "userside_tmc";
   return workflow.stage || "idle";
+}
+
+function migrateWorkflowKey(workflow) {
+  if (!workflow?.contract) return workflow;
+  const canonicalKey = `contract:${workflow.contract}`;
+  if (workflow.key === canonicalKey) return workflow;
+  delete workflows[workflow.key];
+  workflow.key = canonicalKey;
+  workflows[canonicalKey] = workflow;
+  return workflow;
 }
 
 async function reconcileWorkflow(tabId, windowId, state) {
   await workflowReady;
   const context = state?.context || {};
-  const workflow = workflowFor(state, tabId);
+  let workflow = workflowFor(state, tabId);
   if (!workflow) return null;
 
   workflow.windowId = Number.isInteger(windowId) ? windowId : workflow.windowId;
   workflow.updatedAt = Date.now();
-  workflow.stage = stageForContext(workflow, context);
 
   if (context.system === "billing") {
     workflow.billingTabId = tabId;
@@ -157,9 +156,13 @@ async function reconcileWorkflow(tabId, windowId, state) {
   if (context.system === "userside") {
     workflow.usersideTabId = tabId;
     workflow.customerId = context.customerId || workflow.customerId;
+    workflow.contract = context.contract || workflow.contract;
+    workflow.login = context.login || workflow.login;
     if (context.tmc?.found) workflow.tmc = context.tmc;
   }
 
+  workflow = migrateWorkflowKey(workflow);
+  workflow.stage = stageForContext(workflow, context);
   workflows[workflow.key] = workflow;
   await persistWorkflows();
   broadcastWorkflow(workflow, tabId);
@@ -170,13 +173,11 @@ async function startOltWorkflow(tab) {
   await workflowReady;
   const state = snapshots.get(tab.id) || null;
   const context = state?.context || {};
-  if (!context.contract && !context.billingId) {
-    throw new Error("Сначала открой карточку абонента Billing или UserSide");
-  }
+  if (!context.contract && !context.billingId) throw new Error("Сначала открой карточку абонента Billing или UserSide");
 
   const existing = workflowFor(state, tab.id);
   const key = existing?.key || `contract:${context.contract || `billing-${context.billingId}`}`;
-  const workflow = {
+  let workflow = {
     ...(existing || {}),
     key,
     type: "olt-discovery",
@@ -194,12 +195,12 @@ async function startOltWorkflow(tab) {
     },
     billingOlt: context.olt || existing?.billingOlt || null,
     tmc: context.tmc?.found ? context.tmc : existing?.tmc || null,
-    stage: stageForContext(existing || { stage: "idle" }, context),
     startedAt: existing?.startedAt || Date.now(),
     updatedAt: Date.now()
   };
-
-  workflows[key] = workflow;
+  workflow = migrateWorkflowKey(workflow);
+  workflow.stage = stageForContext(workflow, context);
+  workflows[workflow.key] = workflow;
   await persistWorkflows();
   broadcastWorkflow(workflow, tab.id);
   return workflow;
@@ -285,8 +286,22 @@ chrome.runtime.onConnect.addListener(port => {
     connectedTabId = Number.isInteger(tab?.id) ? tab.id : null;
     return setLauncherVisible(connectedTabId, false);
   });
-  port.onDisconnect.addListener(() => {
-    void setLauncherVisible(connectedTabId, true);
+  port.onDisconnect.addListener(() => { void setLauncherVisible(connectedTabId, true); });
+});
+
+chrome.tabs.onCreated.addListener(tab => {
+  if (!Number.isInteger(tab?.id) || !Number.isInteger(tab?.openerTabId)) return;
+  void workflowReady.then(async () => {
+    const workflow = Object.values(workflows).find(item => item.active && item.billingTabId === tab.openerTabId);
+    if (!workflow) return;
+    workflow.usersideTabId = tab.id;
+    workflow.windowId = tab.windowId;
+    workflow.stage = "opening_userside";
+    workflow.updatedAt = Date.now();
+    workflows[workflow.key] = workflow;
+    await persistWorkflows();
+    broadcastWorkflow(workflow, tab.id);
+    void configurePanel(tab.id);
   });
 });
 
@@ -316,9 +331,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === GET_ACTIVE_STATE) {
-    void workflowReady
-      .then(() => activePayload())
-      .then(sendResponse)
+    void workflowReady.then(() => activePayload()).then(sendResponse)
       .catch(error => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
   }
@@ -334,8 +347,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === WORKFLOW_COMMAND) {
-    void handleWorkflowCommand(message)
-      .then(sendResponse)
+    void handleWorkflowCommand(message).then(sendResponse)
       .catch(error => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
   }
