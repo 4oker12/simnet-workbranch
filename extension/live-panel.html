@@ -7,88 +7,103 @@
   <link rel="stylesheet" href="live-panel.css">
 </head>
 <body>
-  <main class="app">
-    <header class="app-head">
-      <div class="brand-block">
-        <span class="brand-mark" aria-hidden="true"></span>
-        <div>
-          <span class="eyebrow">WORKBENCH</span>
-          <h1>Live Assistant</h1>
-        </div>
-      </div>
-      <nav class="view-tabs" aria-label="Режим отображения">
-        <button type="button" data-mode="live" class="active">Сопровождение</button>
-        <button type="button" data-mode="quick">Факты</button>
-      </nav>
-    </header>
-
-    <section class="subscriber-card" aria-live="polite">
-      <div class="subscriber-row">
-        <div class="avatar" id="subscriberAvatar">A</div>
-        <div class="subscriber-copy">
-          <strong id="subscriberTitle">Ожидаю карточку</strong>
-          <span id="subscriberMeta">Открой Billing или UserSide</span>
-        </div>
-        <span class="source-badge" id="sourceBadge">Нет контекста</span>
-      </div>
-      <div class="chips" id="chips"></div>
-    </section>
-
-    <section id="liveView" class="panel-view">
-      <div class="status-strip">
-        <span class="status-dot" id="statusDot"></span>
-        <div class="status-copy">
-          <strong id="stageText">Готов к работе</strong>
-          <span id="statusText">Контекст не получен</span>
-        </div>
-        <button type="button" id="refreshBtn" class="icon-action" title="Обновить состояние" aria-label="Обновить состояние">↻</button>
-      </div>
-
-      <section class="focus-card">
-        <div class="focus-head">
-          <span class="eyebrow">Сейчас важно</span>
-          <span class="confidence" id="confidenceBadge">контекст</span>
-        </div>
-        <strong id="focusTitle">Открой карточку абонента</strong>
-        <p id="focusText">Помощник автоматически определит следующий проверяемый шаг.</p>
-        <div class="focus-actions" id="focusActions"></div>
-      </section>
-
-      <section class="checklist-card">
-        <div class="section-head">
+  <main class="side-shell">
+    <section class="workspace" aria-live="polite">
+      <header class="app-head">
+        <div class="brand-block">
+          <span class="brand-mark" aria-hidden="true"></span>
           <div>
-            <span class="eyebrow">Live Call</span>
-            <strong>Ход обращения</strong>
+            <span class="eyebrow">WORKBENCH</span>
+            <h1>Live Assistant</h1>
           </div>
-          <span class="progress-chip" id="progressChip">0 / 3</span>
         </div>
-        <div class="checklist" id="checklist"></div>
+        <span class="live-state"><i></i> Сопровождение</span>
+      </header>
+
+      <section class="subscriber-card">
+        <div class="subscriber-row">
+          <div class="avatar" id="subscriberAvatar">A</div>
+          <div class="subscriber-copy">
+            <strong id="subscriberTitle">Ожидаю карточку</strong>
+            <span id="subscriberMeta">Открой Billing или UserSide</span>
+          </div>
+          <span class="source-badge" id="sourceBadge">Нет контекста</span>
+        </div>
+        <div class="chips" id="chips"></div>
       </section>
 
-      <section class="evidence-card">
-        <div class="section-head compact">
-          <span class="eyebrow">Подтверждено</span>
-          <button type="button" data-switch-quick class="text-action">Все факты</button>
+      <section id="liveView" class="panel-view">
+        <div class="status-strip">
+          <span class="status-dot" id="statusDot"></span>
+          <div class="status-copy">
+            <strong id="stageText">Готов к работе</strong>
+            <span id="statusText">Контекст не получен</span>
+          </div>
+          <button type="button" id="refreshBtn" class="icon-action" title="Обновить состояние" aria-label="Обновить состояние">↻</button>
         </div>
-        <div class="evidence-chips" id="evidenceChips"></div>
+
+        <section class="focus-card">
+          <div class="focus-head">
+            <span class="eyebrow">Сейчас важно</span>
+            <span class="confidence" id="confidenceBadge">контекст</span>
+          </div>
+          <strong id="focusTitle">Открой карточку абонента</strong>
+          <p id="focusText">Помощник автоматически определит следующий проверяемый шаг.</p>
+          <div class="focus-actions" id="focusActions"></div>
+        </section>
+
+        <section class="checklist-card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Live Call</span>
+              <strong>Ход обращения</strong>
+            </div>
+            <span class="progress-chip" id="progressChip">0 / 3</span>
+          </div>
+          <div class="checklist" id="checklist"></div>
+        </section>
+
+        <section class="evidence-card">
+          <div class="section-head compact">
+            <span class="eyebrow">Подтверждено</span>
+            <button type="button" data-mode="quick" class="text-action">Все факты</button>
+          </div>
+          <div class="evidence-chips" id="evidenceChips"></div>
+        </section>
+
+        <footer class="command-bar">
+          <button type="button" id="runBtn" class="primary-action">Собрать данные</button>
+          <button type="button" id="stopBtn" class="secondary-action" hidden>Стоп</button>
+        </footer>
       </section>
 
-      <footer class="command-bar">
-        <button type="button" id="runBtn" class="primary-action">Собрать данные</button>
-        <button type="button" id="stopBtn" class="secondary-action" hidden>Стоп</button>
-      </footer>
+      <section id="quickView" class="panel-view quick-view" hidden>
+        <div class="quick-head">
+          <div>
+            <span class="eyebrow">Технический слой</span>
+            <strong>Быстрые факты</strong>
+          </div>
+          <button type="button" id="quickRefreshBtn" class="icon-action" title="Обновить" aria-label="Обновить">↻</button>
+        </div>
+        <div class="facts" id="facts"></div>
+      </section>
     </section>
 
-    <section id="quickView" class="panel-view quick-view" hidden>
-      <div class="quick-head">
-        <div>
-          <span class="eyebrow">Технический слой</span>
-          <strong>Быстрые факты</strong>
-        </div>
-        <button type="button" id="quickRefreshBtn" class="icon-action" title="Обновить" aria-label="Обновить">↻</button>
-      </div>
-      <div class="facts" id="facts"></div>
-    </section>
+    <nav class="dock-rail" aria-label="Workbench">
+      <button type="button" class="rail-button active" data-mode="live" aria-label="Live Assistant">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14ZM9 21h6M12 17v4M9.5 10.5l1.6 1.6 3.5-4"></path></svg>
+        <span>Live</span>
+      </button>
+      <button type="button" class="rail-button" data-mode="quick" aria-label="Быстрые факты">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 5 14h7l-1 8 8-12h-7z"></path></svg>
+        <span>Факты</span>
+      </button>
+      <span class="rail-spacer"></span>
+      <button type="button" class="rail-button close-button" id="closePanel" aria-label="Закрыть панель">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>
+        <span>Закрыть</span>
+      </button>
+    </nav>
   </main>
   <script src="live-panel.js"></script>
 </body>
