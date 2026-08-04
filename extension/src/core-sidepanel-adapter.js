@@ -13,9 +13,9 @@
 
   function highlight(target) {
     const selectors = {
-      subscriber: ["#customer-card-customer-id", "#ref_adr", "#dp-input"],
-      session: ["#ref_ip_mac", "#dp-session", "[data-field='session']"],
-      line: ["#tableListData", ".table_port", "[data-field='onu']"]
+      subscriber: ["#customer-card-customer-id", "#ref_adr", "#dp-input", "a[href*='gotouser.php']"],
+      session: ["#ref_ip_mac", "#dp-session", "[data-field='session']", "iframe[src*='juniper']"],
+      line: ["#tableListData", ".table_port", "[data-field='onu']", "[id*='onu']", "[class*='onu']"]
     }[target] || [];
     const element = selectors.map(selector => document.querySelector(selector)).find(Boolean);
     if (!element) return false;
@@ -51,5 +51,5 @@
   const unsubscribe = core.subscribe(publish);
   window.addEventListener("pagehide", unsubscribe, { once: true });
   publish();
-  globalThis.__SIMNET_CORE_SIDE_PANEL_ADAPTER__ = { version: "0.1.0", publish };
+  globalThis.__SIMNET_CORE_SIDE_PANEL_ADAPTER__ = { version: "0.2.0", publish };
 })();
