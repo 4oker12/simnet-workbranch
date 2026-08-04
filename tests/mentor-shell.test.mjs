@@ -27,6 +27,8 @@ test("legacy workbench UI is kept off-screen as runtime only", () => {
   assert.match(launcher, /#dp-panel/);
   assert.match(launcher, /-100000px/);
   assert.match(launcher, /sidepanelRuntime = "hidden"/);
+  assert.match(launcher, /clip-path/);
+  assert.match(launcher, /pointer-events/);
 });
 
 test("native live panel is opened from the launcher", () => {
