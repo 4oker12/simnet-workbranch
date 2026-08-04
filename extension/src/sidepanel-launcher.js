@@ -190,7 +190,9 @@
     (document.body || document.documentElement).appendChild(host);
     state.host = host;
     state.root = root;
-    syncLayout();
+    state.layout = isSubscriberWorkspace() ? "full" : "compact";
+    state.lastHref = location.href;
+    applyGeometry();
     setRailVisible(state.visible);
   }
 
@@ -214,7 +216,7 @@
   });
 
   globalThis.__SIMNET_SIDE_PANEL_LAUNCHER__ = {
-    version: "0.4.0",
+    version: "0.4.1",
     open: mode => open(mode, null),
     setRailVisible,
     syncLayout
