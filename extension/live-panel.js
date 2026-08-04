@@ -4,12 +4,14 @@ const CORE_STATE = "SIMNET_WB_CORE_STATE";
 const CORE_COMMAND = "SIMNET_WB_CORE_COMMAND";
 const GET_ACTIVE_STATE = "SIMNET_WB_GET_ACTIVE_STATE";
 const SET_PANEL_MODE = "SIMNET_WB_SET_PANEL_MODE";
+const PANEL_PORT_NAME = "SIMNET_WB_SIDE_PANEL_PORT";
 const DECISIONS_KEY = "wb_live_decisions_v1";
 
 let snapshot = null;
 let mode = "live";
 let activeTabId = null;
 let decisionsByContext = {};
+let panelPort = null;
 
 const $ = selector => document.querySelector(selector);
 const safe = (value, max = 260) => String(value || "").replace(/\s+/g, " ").trim().slice(0, max);
@@ -23,8 +25,7 @@ function contextKey(state = snapshot) {
 }
 
 function currentDecisions() {
-  const key = contextKey();
-  return decisionsByContext[key] || {};
+  return decisionsByContext[contextKey()] || {};
 }
 
 async function loadDecisions() {
@@ -40,10 +41,7 @@ async function saveDecision(stepId, answer) {
   const key = contextKey();
   decisionsByContext = {
     ...decisionsByContext,
-    [key]: {
-      ...(decisionsByContext[key] || {}),
-      [stepId]: answer
-    }
+    [key]: { ...(decisionsByContext[key] || {}), [stepId]: answer }
   };
   try { await chrome.storage.session.set({ [DECISIONS_KEY]: decisionsByContext }); } catch (_) {}
 }
@@ -73,7 +71,7 @@ function buildSteps(state = snapshot) {
     {
       id: "session",
       title: "Сессия / авторизация",
-      detail: sessionSeen ? (sessionNegative ? "Получен отрицательный результат — требуется проверка" : "Результат авторизации найден") : "Нужен подтверждённый результат BRAS/Juniper",
+      detail: sessionSeen ? (sessionNegative ? "Получен отрицательный результат" : "Результат авторизации найден") : "Нужен результат BRAS/Juniper",
       complete: sessionSeen || decisions.session === "yes",
       attention: sessionNegative || decisions.session === "no",
       highlight: "session"
@@ -81,7 +79,7 @@ function buildSteps(state = snapshot) {
     {
       id: "line",
       title: "Линия и ONU",
-      detail: lineSeen ? (lineNegative ? "Есть отклонение в состоянии линии" : "Технические данные линии получены") : "Нужен live-опрос ONU/OLT",
+      detail: lineSeen ? (lineNegative ? "Есть отклонение в состоянии линии" : "Технические данные получены") : "Нужен live-опрос ONU/OLT",
       complete: lineSeen || decisions.line === "yes",
       attention: lineNegative || decisions.line === "no",
       highlight: "line"
@@ -90,44 +88,36 @@ function buildSteps(state = snapshot) {
 }
 
 function activeStep(steps) {
-  return steps.find(step => !step.complete) || steps.find(step => step.attention) || steps[steps.length - 1];
+  return steps.find(step => step.attention) || steps.find(step => !step.complete) || steps[steps.length - 1];
 }
 
 function focusFor(state, steps) {
   const context = state?.context || {};
   const joined = factText(state);
-  if (!context.contract) {
-    return {
-      title: "Открой карточку абонента",
-      text: "Live Assistant автоматически подхватит договор, IP и доступные технические данные.",
-      confidence: "нет контекста",
-      step: steps[0]
-    };
-  }
-  if (state?.status?.running) {
-    return {
-      title: "Диагностика выполняется",
-      text: "Не делай итоговый вывод до завершения текущего этапа сбора.",
-      confidence: "live",
-      step: activeStep(steps)
-    };
-  }
-  if (/(сесси|bras|авторизац).{0,45}(нет|отсутств|не найден|offline|down)/.test(joined)) {
-    return {
-      title: "Сессия не подтверждена",
-      text: "Активный договор и online ONU не доказывают наличие авторизации. Проверь BRAS/Juniper и соответствие IP/MAC.",
-      confidence: "важно",
-      step: steps.find(step => step.id === "session")
-    };
-  }
-  if (/(onu|ont|olt|сигнал|оптик).{0,45}(offline|down|не доступ|не найден|крит|плох)/.test(joined)) {
-    return {
-      title: "Проверь физическое состояние линии",
-      text: "Сопоставь live-данные ONU с технической привязкой и исключи устаревшие MAC/SN.",
-      confidence: "важно",
-      step: steps.find(step => step.id === "line")
-    };
-  }
+  if (!context.contract) return {
+    title: "Открой карточку абонента",
+    text: "Live Assistant автоматически подхватит договор, IP и доступные технические данные.",
+    confidence: "нет контекста",
+    step: steps[0]
+  };
+  if (state?.status?.running) return {
+    title: "Диагностика выполняется",
+    text: "Не делай итоговый вывод до завершения текущего этапа сбора.",
+    confidence: "live",
+    step: activeStep(steps)
+  };
+  if (/(сесси|bras|авторизац).{0,45}(нет|отсутств|не найден|offline|down)/.test(joined)) return {
+    title: "Сессия не подтверждена",
+    text: "Активный договор и online ONU не доказывают наличие авторизации. Проверь BRAS/Juniper и соответствие IP/MAC.",
+    confidence: "важно",
+    step: steps.find(step => step.id === "session")
+  };
+  if (/(onu|ont|olt|сигнал|оптик).{0,45}(offline|down|не доступ|не найден|крит|плох)/.test(joined)) return {
+    title: "Проверь физическое состояние линии",
+    text: "Сопоставь live-данные ONU с технической привязкой абонента.",
+    confidence: "важно",
+    step: steps.find(step => step.id === "line")
+  };
   const step = activeStep(steps);
   return {
     title: step?.title || "Контекст собран",
@@ -167,7 +157,9 @@ function evidenceTokens(state = snapshot) {
 }
 
 function renderMode() {
-  document.querySelectorAll("[data-mode]").forEach(button => button.classList.toggle("active", normalizeMode(button.dataset.mode) === mode));
+  document.querySelectorAll("[data-mode]").forEach(button => {
+    button.classList.toggle("active", normalizeMode(button.dataset.mode) === mode);
+  });
   $("#liveView").hidden = mode !== "live";
   $("#quickView").hidden = mode !== "quick";
 }
@@ -228,16 +220,20 @@ function render() {
   $("#focusTitle").textContent = focus.title;
   $("#focusText").textContent = focus.text;
   $("#confidenceBadge").textContent = focus.confidence;
-
   renderFocusActions(focus);
   renderChecklist(steps);
   $("#evidenceChips").innerHTML = evidenceTokens(state).map(token => `<span class="evidence-chip ${token.tone}">${escapeHtml(token.text)}</span>`).join("");
-
   $("#runBtn").disabled = !context.contract || Boolean(state.status?.running);
   $("#runBtn").textContent = state.status?.running ? "Сбор выполняется" : "Собрать данные";
   $("#stopBtn").hidden = !state.status?.running;
   renderFacts(state);
   renderMode();
+}
+
+async function setMode(nextMode) {
+  mode = normalizeMode(nextMode);
+  renderMode();
+  try { await send({ type: SET_PANEL_MODE, mode }); } catch (_) {}
 }
 
 async function load() {
@@ -252,6 +248,8 @@ async function load() {
   } catch (_) {}
   render();
 }
+
+try { panelPort = chrome.runtime.connect({ name: PANEL_PORT_NAME }); } catch (_) {}
 
 chrome.runtime.onMessage.addListener(message => {
   if (message?.type === CORE_STATE) {
@@ -269,20 +267,12 @@ chrome.runtime.onMessage.addListener(message => {
 document.addEventListener("click", async event => {
   const modeButton = event.target.closest("[data-mode]");
   if (modeButton) {
-    mode = normalizeMode(modeButton.dataset.mode);
-    await send({ type: SET_PANEL_MODE, mode }).catch(() => {});
-    renderMode();
-    return;
-  }
-  if (event.target.closest("[data-switch-quick]")) {
-    mode = "quick";
-    await send({ type: SET_PANEL_MODE, mode }).catch(() => {});
-    renderMode();
+    await setMode(modeButton.dataset.mode);
     return;
   }
   const highlight = event.target.closest("[data-highlight]");
   if (highlight) {
-    await send({ type: CORE_COMMAND, action: "highlight", target: highlight.dataset.highlight }).catch(() => {});
+    try { await send({ type: CORE_COMMAND, action: "highlight", target: highlight.dataset.highlight }); } catch (_) {}
     return;
   }
   const answer = event.target.closest("[data-answer][data-step]");
@@ -291,10 +281,27 @@ document.addEventListener("click", async event => {
     render();
     return;
   }
-  if (event.target.closest("#runBtn")) await send({ type: CORE_COMMAND, action: "run" }).catch(() => {});
-  if (event.target.closest("#stopBtn")) await send({ type: CORE_COMMAND, action: "stop" }).catch(() => {});
-  if (event.target.closest("#refreshBtn") || event.target.closest("#quickRefreshBtn")) await send({ type: CORE_COMMAND, action: "refresh" }).catch(() => {});
+  if (event.target.closest("#runBtn")) {
+    try { await send({ type: CORE_COMMAND, action: "run" }); } catch (_) {}
+    return;
+  }
+  if (event.target.closest("#stopBtn")) {
+    try { await send({ type: CORE_COMMAND, action: "stop" }); } catch (_) {}
+    return;
+  }
+  if (event.target.closest("#refreshBtn") || event.target.closest("#quickRefreshBtn")) {
+    try { await send({ type: CORE_COMMAND, action: "refresh" }); } catch (_) {}
+    return;
+  }
+  if (event.target.closest("#closePanel")) {
+    try { panelPort?.disconnect(); } catch (_) {}
+    window.close();
+  }
 });
 
 window.addEventListener("focus", () => { void load(); });
+window.addEventListener("pagehide", () => {
+  try { panelPort?.disconnect(); } catch (_) {}
+}, { once: true });
+
 void load();
