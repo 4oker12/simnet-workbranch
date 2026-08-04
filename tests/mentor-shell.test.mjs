@@ -14,30 +14,44 @@ test("mentor shell keeps a right-pinned 48px rail and 280px anchor", () => {
   assert.match(source, /right:0/);
 });
 
-test("all visible modules open only to the left of the right rail", () => {
+test("quick diagnostics opens only to the left", () => {
   assert.match(source, /right:\$\{EXPANDED_WIDTH\}px/);
   assert.match(source, /transform:translateX\(18px\)/);
   assert.doesNotMatch(source, /left:100%/);
 });
 
-test("legacy Workbench stays hidden and is not rendered in the flyout", () => {
+test("legacy Workbench stays hidden and only provides runtime", () => {
   assert.match(source, /class="legacy-runtime"/);
   assert.match(source, /left:-100000px/);
   assert.match(source, /clip-path:inset\(100%\)/);
   assert.doesNotMatch(source, /flyout-body"><slot name="workbench"/);
 });
 
-test("quick diagnostics uses a new compact view and delegates execution to legacy core", () => {
-  assert.match(source, /function quickMarkup\(\)/);
-  assert.match(source, /data-action="run-diagnostic"/);
-  assert.match(source, /clickLegacy\("#dp-run"\)/);
-  assert.match(source, /Старая белая панель больше не показывается/);
+test("visible scope contains only mentor and quick diagnostics", () => {
+  assert.match(source, /Помощник-наставник/);
+  assert.match(source, /Быстрая диагностика/);
+  assert.doesNotMatch(source, /data-action="history"/);
+  assert.doesNotMatch(source, /data-action="more"/);
+  assert.doesNotMatch(source, /История абонента/);
+  assert.doesNotMatch(source, /500\s*м/);
 });
 
-test("mentor is the primary surface", () => {
-  assert.match(source, /Помощник-наставник/);
-  assert.match(source, /Что важно сейчас/);
-  assert.match(source, /Следующая проверка/);
+test("quick diagnostics delegates execution to legacy core", () => {
+  assert.match(source, /data-action="run-diagnostic"/);
+  assert.match(source, /clickLegacy\("#dp-run"\)/);
+  assert.match(source, /clickLegacy\("#dp-stop"\)/);
+  assert.match(source, /function collectFacts\(\)/);
+  assert.match(source, /function summaryFromFacts\(/);
+  assert.match(source, /function stageFromStatus\(/);
+});
+
+test("shell reads page context and syncs the hidden input", () => {
+  assert.match(source, /function pageContext\(\)/);
+  assert.match(source, /function currentContext\(\)/);
+  assert.match(source, /function syncLegacyInput\(/);
+  assert.match(source, /data-copy="contract"/);
+  assert.match(source, /data-copy="ip"/);
+  assert.match(source, /data-copy="mac"/);
 });
 
 test("shell adds no transport duplication", () => {
