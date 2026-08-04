@@ -6,52 +6,45 @@ const railSource = readFileSync(new URL("../extension/src/rail-shell.js", import
 const contextSource = readFileSync(new URL("../extension/src/auto-context.js", import.meta.url), "utf8");
 const manifest = JSON.parse(readFileSync(new URL("../extension/manifest.json", import.meta.url), "utf8"));
 
-test("side rail is a fixed full-height right column, not a floating card", () => {
-  assert.match(railSource, /position:fixed/);
-  assert.match(railSource, /top:0/);
-  assert.match(railSource, /right:0/);
-  assert.match(railSource, /bottom:0/);
-  assert.match(railSource, /height:100vh/);
-  assert.match(railSource, /const EXPANDED_WIDTH = 352/);
-  assert.match(railSource, /const COLLAPSED_WIDTH = 52/);
-  assert.doesNotMatch(railSource, /data-action="side"/);
+test("compact anchor is fixed at the right edge", () => {
+  assert.match(railSource, /const MAIN_WIDTH = 280;/);
+  assert.match(railSource, /const COLLAPSED_WIDTH = 48;/);
+  assert.match(railSource, /position:fixed;/);
+  assert.match(railSource, /right:0;/);
+  assert.match(railSource, /height:100vh;/);
+  assert.match(railSource, /padding-right.*MAIN_WIDTH|applyPageReserve/);
 });
 
-test("side rail reserves page space and supports collapse", () => {
-  assert.match(railSource, /applyPageReserve/);
-  assert.match(railSource, /padding-right/);
-  assert.match(railSource, /data-action="collapse"/);
-  assert.match(railSource, /data-expanded="false"/);
-});
-
-test("rail exposes exactly two primary diagnostic modes", () => {
-  assert.match(railSource, /data-action="diagnostic"/);
+test("heavy modules use a flyout to the left of the anchor", () => {
+  assert.match(railSource, /const FLYOUT_WIDTH = 540;/);
+  assert.match(railSource, /class="flyout"/);
+  assert.match(railSource, /right:\$\{MAIN_WIDTH\}px;/);
+  assert.match(railSource, /data-action="close-flyout"/);
+  assert.match(railSource, /data-action="details"/);
   assert.match(railSource, /data-action="mentor"/);
-  assert.match(railSource, /Быстрая диагностика/);
-  assert.match(railSource, /Диагност-наставник/);
+  assert.match(railSource, /data-action="history"/);
+});
+
+test("anchor uses skeletons, chips and icon-only actions", () => {
+  assert.match(railSource, /skeleton-line/);
+  assert.match(railSource, /skeleton-inline/);
+  assert.match(railSource, /data-chip="contract"/);
+  assert.match(railSource, /data-chip="ip"/);
+  assert.match(railSource, /data-chip="mac"/);
+  assert.match(railSource, /data-copy-key/);
+  assert.match(railSource, /data-action="stop"/);
+  assert.match(railSource, /class="quick-actions"/);
+});
+
+test("rail keeps only diagnostic, mentor and history navigation", () => {
   assert.doesNotMatch(railSource, /data-action="results"/);
   assert.doesNotMatch(railSource, /data-action="journal"/);
+  assert.match(railSource, /Подробная диагностика/);
+  assert.match(railSource, /Диагност-наставник/);
+  assert.match(railSource, /История абонента/);
 });
 
-test("legacy search controls are hidden and result details become compact accordions", () => {
-  assert.match(railSource, /#dp-input,/);
-  assert.match(railSource, /#dp-run,/);
-  assert.match(railSource, /#dp-random-toggle \{ display:none !important; \}/);
-  assert.match(railSource, /details > summary/);
-  assert.match(railSource, /border-radius:6px/);
-});
-
-test("auto-context detects subscriber data and starts existing diagnostics without own transport", () => {
-  assert.match(contextSource, /contractFromPageText/);
-  assert.match(contextSource, /validIp/);
-  assert.match(contextSource, /run\.click\(\)/);
-  assert.match(contextSource, /simnet-workbench-context/);
-  assert.doesNotMatch(contextSource, /fetch\s*\(/);
-  assert.doesNotMatch(contextSource, /XMLHttpRequest/);
-  assert.doesNotMatch(contextSource, /GM_xmlhttpRequest/);
-});
-
-test("side rail reuses the existing Workbench panel through a slot", () => {
+test("legacy panel remains slotted and transport-free", () => {
   assert.match(railSource, /attachShadow\(\{ mode: "open" \}\)/);
   assert.match(railSource, /<slot name="workbench"><\/slot>/);
   assert.match(railSource, /panel\.slot = "workbench"/);
@@ -59,7 +52,18 @@ test("side rail reuses the existing Workbench panel through a slot", () => {
   assert.doesNotMatch(railSource, /XMLHttpRequest/);
 });
 
-test("manifest loads auto-context after Workbench and before the visual rail", () => {
+test("auto-context extracts compact identity values without transport", () => {
+  assert.match(contextSource, /function nameFromRows\(\)/);
+  assert.match(contextSource, /function addressFromRows\(\)/);
+  assert.match(contextSource, /function macFromRows\(\)/);
+  assert.match(contextSource, /name: nameFromRows\(\)/);
+  assert.match(contextSource, /address: addressFromRows\(\)/);
+  assert.match(contextSource, /mac,/);
+  assert.doesNotMatch(contextSource, /fetch\s*\(/);
+  assert.doesNotMatch(contextSource, /XMLHttpRequest/);
+});
+
+test("modules load after the existing Workbench core", () => {
   const isolatedScript = manifest.content_scripts.find(entry => entry.world === "ISOLATED");
   assert.ok(isolatedScript);
   const workbenchIndex = isolatedScript.js.indexOf("src/workbench.js");
