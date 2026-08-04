@@ -25,6 +25,7 @@
   };
 
   function panel() { return document.querySelector("#dp-panel"); }
+  function textOf(selector) { return safeText(document.querySelector(selector)?.textContent || "", 500); }
 
   function detectBillingContext(text) {
     const gotouser = document.querySelector('a[href*="userside.simnet.kiev.ua/script/gotouser.php"]');
@@ -41,9 +42,16 @@
 
   function detectUsersideContext(text) {
     const customerId = (location.pathname.match(/^\/customer\/(\d+)/) || [])[1] || "";
-    const login = extractLogins(`${document.title} ${text}`)[0] || "";
-    const publicIps = extractIps(text).filter(value => !/^172\.16\.|^127\.|^0\./.test(value));
-    return { system: "userside", login, contract: login.replace(/^abon/i, ""), billingId: "", customerId, ip: publicIps[0] || "" };
+    const cardText = [
+      document.title,
+      textOf("#customer-card-customer-id"),
+      textOf("#slider_content_id"),
+      text
+    ].join(" ");
+    const login = extractLogins(cardText)[0] || "";
+    const ipMacText = textOf("#ref_ip_mac") || cardText;
+    const ips = extractIps(ipMacText).filter(value => !/^172\.16\.|^127\.|^0\./.test(value));
+    return { system: "userside", login, contract: login.replace(/^abon/i, ""), billingId: "", customerId, ip: ips[0] || "" };
   }
 
   function labelValue(labelPattern, max = 180) {
@@ -65,11 +73,14 @@
     clone.querySelector("#simnet-mentor-shell")?.remove();
     const text = safeText(clone.innerText || clone.textContent || "", 70000);
     const base = /userside/i.test(location.hostname) ? detectUsersideContext(text) : detectBillingContext(text);
+    const userSideAddress = /userside/i.test(location.hostname) ? textOf("#ref_adr") : "";
+    const userSideName = /userside/i.test(location.hostname) ? safeText(document.title.split("-")[0], 140) : "";
+    const ipMacText = /userside/i.test(location.hostname) ? textOf("#ref_ip_mac") : "";
     return {
       ...base,
-      fullName: labelValue(/(?:ФИО|ПІБ|Абонент|Клиент|Клієнт)\s*/i, 140),
-      address: labelValue(/(?:Адрес|Адреса)\s*/i, 180),
-      mac: normalizeMac(labelValue(/MAC(?:\s+(?:ONU|ONT|роутера|router))?\s*/i, 180) || text),
+      fullName: userSideName || labelValue(/(?:ФИО|ПІБ|Абонент|Клиент|Клієнт)\s*/i, 140),
+      address: userSideAddress || labelValue(/(?:Адрес|Адреса)\s*/i, 180),
+      mac: normalizeMac(ipMacText || labelValue(/MAC(?:\s+(?:ONU|ONT|роутера|router))?\s*/i, 180) || text),
       href: location.href,
       key: [location.hostname, location.pathname, base.login, base.billingId, base.customerId].join("|")
     };
@@ -150,15 +161,7 @@
 
   try { state.issue = safeText(sessionStorage.getItem(ISSUE_KEY) || "", 600); } catch (_) {}
 
-  globalThis.__SIMNET_WORKBENCH_CORE__ = {
-    version: "0.2.0",
-    getState,
-    setIssue,
-    runDiagnostic,
-    stopDiagnostic,
-    refresh: publish,
-    subscribe
-  };
+  globalThis.__SIMNET_WORKBENCH_CORE__ = { version: "0.2.1", getState, setIssue, runDiagnostic, stopDiagnostic, refresh: publish, subscribe };
 
   const observer = new MutationObserver(() => {
     clearTimeout(observer.timer);
