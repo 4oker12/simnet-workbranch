@@ -1,12 +1,14 @@
 {
   "manifest_version": 3,
   "name": "SIMNET / LOOKNET Diagnostic Workbench",
-  "version": "0.6.9",
-  "minimum_chrome_version": "111",
+  "version": "0.7.0",
+  "minimum_chrome_version": "116",
   "description": "Chrome Extension build of Diagnostic Workbench for SIMNET, LOOKNET and the shared UserSide.",
   "permissions": [
     "storage",
-    "unlimitedStorage"
+    "unlimitedStorage",
+    "sidePanel",
+    "tabs"
   ],
   "host_permissions": [
     "https://userside.simnet.kiev.ua/*",
@@ -15,7 +17,13 @@
     "https://admin.looknet.kiev.ua/*"
   ],
   "background": {
-    "service_worker": "src/service-worker.js"
+    "service_worker": "src/service-worker-entry.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "Открыть Workbench"
   },
   "content_scripts": [
     {
@@ -65,7 +73,8 @@
         "src/workbench.js",
         "src/training-mentor.js",
         "src/workbench-core-bridge.js",
-        "src/mentor-shell.js"
+        "src/core-sidepanel-adapter.js",
+        "src/sidepanel-launcher.js"
       ],
       "run_at": "document_idle",
       "world": "ISOLATED"
