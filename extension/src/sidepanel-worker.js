@@ -54,8 +54,8 @@ function openForSender(sender, requestedMode = "live") {
   const mode = normalizeMode(requestedMode);
   modes.set(tabId, mode);
 
-  // Важно: open вызывается сразу в обработчике пользовательского клика.
-  // Нельзя ставить await перед ним — Chrome может потерять user gesture.
+  // open вызывается сразу в обработчике пользовательского клика.
+  // Перед ним нет асинхронных операций, поэтому Chrome сохраняет user gesture.
   void configurePanel(tabId);
   const opening = chrome.sidePanel.open({ windowId });
 
