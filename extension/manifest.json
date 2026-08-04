@@ -3,7 +3,7 @@
   "name": "SIMNET / LOOKNET Diagnostic Workbench",
   "version": "0.7.1",
   "minimum_chrome_version": "116",
-  "description": "Chrome Extension build of Diagnostic Workbench for SIMNET, LOOKNET and the shared UserSide.",
+  "description": "Live operator assistant for SIMNET, LOOKNET and the shared UserSide.",
   "permissions": [
     "storage",
     "unlimitedStorage",
