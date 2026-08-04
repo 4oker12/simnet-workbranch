@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Workbench Mentor</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div>
+        <span class="eyebrow">WORKBENCH</span>
+        <h1>Live Mentor</h1>
+      </div>
+      <div class="mode-switch" role="tablist">
+        <button data-mode="mentor" class="active">Наставник</button>
+        <button data-mode="quick">Факты</button>
+      </div>
+    </header>
+
+    <section class="subscriber-card">
+      <div class="subscriber-main">
+        <div class="avatar">A</div>
+        <div class="subscriber-copy">
+          <strong id="subscriberTitle">Ожидаю карточку</strong>
+          <span id="subscriberMeta">Открой Billing или UserSide</span>
+        </div>
+      </div>
+      <div class="chips" id="chips"></div>
+    </section>
+
+    <section id="mentorView" class="view">
+      <div class="status-line">
+        <span class="dot" id="statusDot"></span>
+        <strong id="stageText">Готов к работе</strong>
+        <span id="statusText">Контекст не получен</span>
+      </div>
+
+      <section class="mentor-focus">
+        <span class="eyebrow">Сейчас важно</span>
+        <strong id="focusTitle">Открой карточку абонента</strong>
+        <p id="focusText">Наставник покажет следующий проверяемый шаг.</p>
+      </section>
+
+      <section class="checklist" id="checklist"></section>
+
+      <section class="compact-actions">
+        <button id="runBtn" class="primary">Запустить диагностику</button>
+        <button id="stopBtn" class="secondary" hidden>Стоп</button>
+      </section>
+    </section>
+
+    <section id="quickView" class="view" hidden>
+      <div class="quick-head">
+        <div>
+          <span class="eyebrow">Технический слой</span>
+          <strong>Краткие факты</strong>
+        </div>
+        <button id="refreshBtn" class="icon-btn" title="Обновить">↻</button>
+      </div>
+      <div id="facts" class="facts"></div>
+    </section>
+  </main>
+  <script src="sidepanel.js"></script>
+</body>
+</html>
