@@ -13,9 +13,29 @@
   const svg = name => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icons[name]}"></path></svg>`;
   const open = mode => chrome.runtime.sendMessage({ type: OPEN_PANEL, mode }).catch(() => {});
 
+  function reservePage() {
+    if (!document.body || document.body.dataset.simnetDockReserved === "1") return;
+    const base = getComputedStyle(document.body).paddingRight || "0px";
+    document.body.dataset.simnetDockReserved = "1";
+    document.body.dataset.simnetDockBasePadding = base;
+    document.body.style.setProperty("padding-right", `calc(${base} + 48px)`, "important");
+    document.body.style.setProperty("box-sizing", "border-box", "important");
+  }
+
+  function restorePage() {
+    if (!document.body || document.body.dataset.simnetDockReserved !== "1") return;
+    const base = document.body.dataset.simnetDockBasePadding || "";
+    if (base) document.body.style.setProperty("padding-right", base, "important");
+    else document.body.style.removeProperty("padding-right");
+    document.body.style.removeProperty("box-sizing");
+    delete document.body.dataset.simnetDockReserved;
+    delete document.body.dataset.simnetDockBasePadding;
+  }
+
   function install() {
     document.getElementById("simnet-mentor-shell")?.remove();
     document.getElementById(HOST_ID)?.remove();
+    reservePage();
     const host = document.createElement("div");
     host.id = HOST_ID;
     const root = host.attachShadow({ mode: "open" });
@@ -41,7 +61,8 @@
     (document.body || document.documentElement).appendChild(host);
   }
 
-  globalThis.__SIMNET_SIDE_PANEL_LAUNCHER__ = { version: "0.1.0", open };
+  globalThis.__SIMNET_SIDE_PANEL_LAUNCHER__ = { version: "0.1.1", open };
+  window.addEventListener("pagehide", restorePage, { once: true });
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", install, { once: true });
   else install();
 })();
