@@ -13,6 +13,7 @@
     revision: 0,
     updatedAt: 0
   };
+  let rememberedIdentity = null;
 
   const safeText = (value, max = 240) => String(value || "").replace(/\s+/g, " ").trim().slice(0, max);
   const extractLogins = text => [...new Set((String(text || "").match(/\babon\d{3,12}\b/ig) || []).map(value => value.toLowerCase()))];
@@ -30,7 +31,7 @@
   }
 
   function textOf(selector) {
-    return safeText(document.querySelector(selector)?.textContent || "", 1000);
+    return safeText(document.querySelector(selector)?.textContent || "", 1400);
   }
 
   function pageText() {
@@ -40,17 +41,21 @@
     clone.querySelector("#dp-panel")?.remove();
     clone.querySelector("#simnet-mentor-shell")?.remove();
     clone.querySelector("#simnet-workbench-dock")?.remove();
+    clone.querySelector("#simnet-wb-highlight-overlay")?.remove();
     return safeText(clone.textContent || "", 250000);
   }
 
-  function controlValue(selector) {
-    const control = document.querySelector(selector);
+  function selectedControlText(control) {
     if (!control) return "";
     if (control.tagName === "SELECT") {
       const option = control.options?.[control.selectedIndex];
-      return safeText(option?.textContent || control.value || "", 180);
+      return safeText(option?.textContent || control.value || "", 220);
     }
-    return safeText(control.value || control.textContent || "", 180);
+    return safeText(control.value || control.textContent || "", 220);
+  }
+
+  function controlValue(selector) {
+    return selectedControlText(document.querySelector(selector));
   }
 
   function labelValue(labelPattern, max = 180) {
@@ -84,6 +89,93 @@
     };
   }
 
+  function technologyFromText(value) {
+    const text = safeText(value, 500).toLowerCase();
+    if (!text) return "";
+    if (/huawei/.test(text)) return "huawei";
+    if (/gcom/.test(text)) return "gcom";
+    if (/gpon/.test(text)) return "gpon";
+    if (/epon/.test(text)) return "epon";
+    return "";
+  }
+
+  function pollerForTechnology(technology) {
+    return ({ huawei: "poller-huawei", gcom: "poller-gcom", gpon: "poller-gpon", epon: "poller-epon" })[technology] || "";
+  }
+
+  function isEmptySelection(value) {
+    const text = safeText(value, 220);
+    return !text || /^(?:0|нет|не выбрано|не указано|выберите|—|-|none|null)$/i.test(text);
+  }
+
+  function billingOltInfo() {
+    const oltControl = document.querySelector("select[name='dopfield_29'],input[name='dopfield_29']");
+    const techControl = document.querySelector("select[name='dopfield_39'],input[name='dopfield_39']");
+    const name = selectedControlText(oltControl);
+    const technologyLabel = selectedControlText(techControl);
+    const present = Boolean(oltControl && !isEmptySelection(name));
+    const technology = technologyFromText(`${name} ${technologyLabel}`);
+    return {
+      status: !oltControl ? "unknown" : present ? "present" : "missing",
+      present,
+      name: present ? name : "",
+      ip: present ? (extractIps(name)[0] || "") : "",
+      technology,
+      technologyLabel,
+      poller: pollerForTechnology(technology),
+      source: present ? "Billing: технические данные" : ""
+    };
+  }
+
+  function usersideTmcInfo() {
+    const candidates = [];
+    const selector = "tr,li,section,article,.item,.table_block,.card,.panel,div";
+    for (const element of document.querySelectorAll(selector)) {
+      if (element.closest("#dp-panel,#simnet-mentor-shell,#simnet-workbench-dock")) continue;
+      const text = safeText(element.textContent, 3200);
+      if (!/Найдено\s+на\s+OLT/i.test(text)) continue;
+      if (text.length > 2800) continue;
+      const rect = element.getBoundingClientRect();
+      candidates.push({ element, text, area: Math.max(1, rect.width * rect.height) });
+    }
+    candidates.sort((a, b) => a.text.length - b.text.length || a.area - b.area);
+    const hit = candidates[0];
+    if (!hit) {
+      return {
+        status: "unknown",
+        found: false,
+        name: "",
+        ip: "",
+        port: "",
+        technology: "",
+        updatedAtText: "",
+        source: ""
+      };
+    }
+
+    const text = hit.text;
+    const ips = extractIps(text);
+    const port = (text.match(/\b(?:gpon|epon)\s*\d+(?:[\/:.-]\d+){1,4}\b/i) || [""])[0];
+    const updatedAtText = (text.match(/\b\d{2}[.\/-]\d{2}[.\/-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?\b/) || [""])[0];
+    const afterLabel = safeText((text.split(/Найдено\s+на\s+OLT\s*:?/i)[1] || ""), 500);
+    let name = afterLabel;
+    if (ips[0]) name = safeText(name.split(ips[0])[0], 220);
+    if (port) name = safeText(name.split(port)[0], 220);
+    name = safeText(name.replace(/^[\s:—|\-]+|[\s:—|\-]+$/g, ""), 180);
+    const technology = technologyFromText(`${name} ${port} ${text}`);
+
+    return {
+      status: "found",
+      found: true,
+      name,
+      ip: ips[0] || "",
+      port,
+      technology,
+      updatedAtText,
+      source: "UserSide: ТМЦ / «Найдено на OLT»"
+    };
+  }
+
   function toneFrom(value, negativePattern, positivePattern = null) {
     const text = safeText(value, 220).toLowerCase();
     if (!text) return "unknown";
@@ -102,40 +194,37 @@
     const startDayMatch = String(startDayRaw).match(/-?\d+/);
     const startDayNumber = startDayMatch ? Number(startDayMatch[0]) : null;
 
-    const checks = [
-      {
-        id: "access",
-        label: "Доступ",
-        value: access,
-        state: toneFrom(access, /запрещ|deny|disabled|заблок|нет доступа/i, /разреш|allow|enabled|актив/i)
-      },
-      {
-        id: "block",
-        label: "Блокировка",
-        value: block,
-        state: toneFrom(block, /^(?!.*(?:нет|отсутств)).*(?:есть|да|заблок|block)/i, /нет|отсутств/i)
-      },
-      {
-        id: "group",
-        label: "Группа",
-        value: group,
-        state: toneFrom(group, /удал[её]н|deleted|неактив/i)
-      },
-      {
-        id: "tariff",
-        label: "Тариф",
-        value: tariff || serviceState,
-        state: toneFrom(`${tariff} ${serviceState}`, /заблок|blocked|отключ|неактив|stop/i)
-      },
-      {
-        id: "start-day",
-        label: "День начала",
-        value: startDayRaw,
-        state: startDayNumber == null ? "unknown" : startDayNumber < 0 ? "warn" : "ok"
-      }
+    return [
+      { id: "access", label: "Доступ", value: access, state: toneFrom(access, /запрещ|deny|disabled|заблок|нет доступа/i, /разреш|allow|enabled|актив/i) },
+      { id: "block", label: "Блокировка", value: block, state: toneFrom(block, /^(?!.*(?:нет|отсутств)).*(?:есть|да|заблок|block)/i, /нет|отсутств/i) },
+      { id: "group", label: "Группа", value: group, state: toneFrom(group, /удал[её]н|deleted|неактив/i) },
+      { id: "tariff", label: "Тариф", value: tariff || serviceState, state: toneFrom(`${tariff} ${serviceState}`, /заблок|blocked|отключ|неактив|stop/i) },
+      { id: "start-day", label: "День начала", value: startDayRaw, state: startDayNumber == null ? "unknown" : startDayNumber < 0 ? "warn" : "ok" }
     ];
+  }
 
-    return checks;
+  function billingRoutes(billingId) {
+    if (!billingId) return { main: "", technical: "", userside: "" };
+    const base = new URL(location.href);
+    const main = new URL(base.href);
+    main.searchParams.set("a", "user");
+    main.searchParams.set("id", billingId);
+    main.searchParams.delete("parent_type");
+    main.searchParams.delete("tmpl");
+
+    const technical = new URL(base.href);
+    technical.searchParams.set("a", "dopdata");
+    technical.searchParams.set("parent_type", "0");
+    technical.searchParams.set("id", billingId);
+    technical.searchParams.set("tmpl", "1");
+
+    const usersideLink = [...document.querySelectorAll("a[href]")]
+      .find(link => /userside/i.test(link.textContent || "") || /userside\.simnet\.kiev\.ua/i.test(link.href || ""));
+    return {
+      main: main.href,
+      technical: technical.href,
+      userside: usersideLink?.href || ""
+    };
   }
 
   function detectBillingContext(text) {
@@ -145,7 +234,7 @@
     const loginElement = findLoginElement();
     const rowData = billingRowData(loginElement);
     const fallbackLogin = extractLogins(text)[0] || "";
-    const login = safeText(loginElement?.value || loginElement?.textContent || fallbackLogin, 80).toLowerCase();
+    let login = safeText(loginElement?.value || loginElement?.textContent || fallbackLogin, 80).toLowerCase();
 
     const gotouser = document.querySelector("a[href*='userside.simnet.kiev.ua/script/gotouser.php']");
     let routeIp = "";
@@ -154,10 +243,17 @@
     } catch (_) {}
 
     const labeledIp = labelValue(/IP(?:-адрес)?\s*/i, 80);
-    const ip = rowData.ip || routeIp || extractIps(labeledIp)[0] || "";
-    const contract = login.replace(/^abon/i, "");
-    const isSubscriberPage = action === "user" || action === "dopdata" || Boolean(login || billingId);
+    let ip = rowData.ip || routeIp || extractIps(labeledIp)[0] || "";
+    let contract = login.replace(/^abon/i, "");
 
+    if (!contract && rememberedIdentity && rememberedIdentity.billingId === billingId) {
+      login = rememberedIdentity.login;
+      contract = rememberedIdentity.contract;
+      ip = ip || rememberedIdentity.ip;
+    }
+    if (contract || billingId) rememberedIdentity = { system: "billing", login, contract, billingId, ip };
+
+    const isSubscriberPage = action === "user" || action === "dopdata" || Boolean(login || billingId);
     return {
       system: "billing",
       kind: action === "dopdata" ? "billing_technical" : action === "user" ? "billing_user" : "billing_other",
@@ -167,18 +263,16 @@
       billingId,
       customerId: "",
       ip,
-      accessChecks: billingAccessChecks()
+      accessChecks: billingAccessChecks(),
+      olt: billingOltInfo(),
+      tmc: null,
+      routes: billingRoutes(billingId)
     };
   }
 
   function detectUsersideContext(text) {
     const customerId = (location.pathname.match(/^\/customer\/(\d+)/) || [])[1] || "";
-    const cardText = [
-      document.title,
-      textOf("#customer-card-customer-id"),
-      textOf("#slider_content_id"),
-      text
-    ].join(" ");
+    const cardText = [document.title, textOf("#customer-card-customer-id"), textOf("#slider_content_id"), text].join(" ");
     const login = extractLogins(cardText)[0] || "";
     const ipMacText = textOf("#ref_ip_mac") || cardText;
     const ips = extractIps(ipMacText).filter(value => !/^172\.16\.|^127\.|^0\./.test(value));
@@ -191,7 +285,10 @@
       billingId: "",
       customerId,
       ip: ips[0] || "",
-      accessChecks: []
+      accessChecks: [],
+      olt: { status: "unknown", present: false, name: "", ip: "", technology: "", poller: "", source: "" },
+      tmc: usersideTmcInfo(),
+      routes: { main: "", technical: "", userside: location.href }
     };
   }
 
@@ -226,15 +323,16 @@
   function collectFacts(context) {
     const out = [];
     for (const check of context.accessChecks || []) {
-      if (!check.value) continue;
-      out.push(`${check.label}: ${check.value}`);
+      if (check.value) out.push(`${check.label}: ${check.value}`);
     }
+    if (context.olt?.present) out.push(`OLT Billing: ${[context.olt.name, context.olt.ip, context.olt.technologyLabel].filter(Boolean).join(" · ")}`);
+    if (context.tmc?.found) out.push(`OLT ТМЦ: ${[context.tmc.name, context.tmc.ip, context.tmc.port, context.tmc.updatedAtText].filter(Boolean).join(" · ")}`);
     for (const node of panel()?.querySelectorAll("#dp-results tr,#dp-results details,#dp-results .dp-result-row,#dp-results [data-dp-result]") || []) {
       const text = safeText(node.textContent, 260);
       if (!text || /ожидани|номер договора|рандом|пуск/i.test(text)) continue;
       if (!/(договор|адрес|mac|ip|onu|olt|сигнал|сесси|баланс|услуг|доступ|тариф|блокиров|группа)/i.test(text)) continue;
       if (!out.includes(text)) out.push(text);
-      if (out.length >= 16) break;
+      if (out.length >= 18) break;
     }
     return out;
   }
@@ -258,9 +356,7 @@
   function publish() {
     Object.assign(state, snapshot());
     for (const listener of subscribers) {
-      try {
-        listener(getState());
-      } catch (_) {}
+      try { listener(getState()); } catch (_) {}
     }
   }
 
@@ -270,9 +366,7 @@
 
   function setIssue(value) {
     state.issue = safeText(value, 600);
-    try {
-      sessionStorage.setItem(ISSUE_KEY, state.issue);
-    } catch (_) {}
+    try { sessionStorage.setItem(ISSUE_KEY, state.issue); } catch (_) {}
     publish();
   }
 
@@ -301,12 +395,10 @@
     return () => subscribers.delete(listener);
   }
 
-  try {
-    state.issue = safeText(sessionStorage.getItem(ISSUE_KEY) || "", 600);
-  } catch (_) {}
+  try { state.issue = safeText(sessionStorage.getItem(ISSUE_KEY) || "", 600); } catch (_) {}
 
   globalThis.__SIMNET_WORKBENCH_CORE__ = {
-    version: "0.3.0",
+    version: "0.4.0",
     getState,
     setIssue,
     runDiagnostic,
@@ -317,7 +409,7 @@
 
   const observer = new MutationObserver(() => {
     clearTimeout(observer.timer);
-    observer.timer = setTimeout(publish, 120);
+    observer.timer = setTimeout(publish, 140);
   });
   observer.observe(document.documentElement, {
     childList: true,
