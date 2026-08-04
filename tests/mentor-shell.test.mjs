@@ -9,6 +9,7 @@ const worker = readFileSync(new URL("../extension/src/sidepanel-worker.js", impo
 const livePanel = readFileSync(new URL("../extension/live-panel.js", import.meta.url), "utf8");
 const livePanelHtml = readFileSync(new URL("../extension/live-panel.html", import.meta.url), "utf8");
 const livePanelCss = readFileSync(new URL("../extension/live-panel.css", import.meta.url), "utf8");
+const routeCss = readFileSync(new URL("../extension/live-route.css", import.meta.url), "utf8");
 const manifest = JSON.parse(readFileSync(new URL("../extension/manifest.json", import.meta.url), "utf8"));
 
 test("launcher reserves 48px only on subscriber workspaces", () => {
@@ -36,7 +37,7 @@ test("launcher click gives visible opening and error states", () => {
 });
 
 test("side panel open happens before any awaited work", () => {
-  const openFunction = worker.slice(worker.indexOf("function openForSender"), worker.indexOf("chrome.runtime.onConnect"));
+  const openFunction = worker.slice(worker.indexOf("function openForSender"), worker.indexOf("function workflowKeyFromState"));
   assert.match(openFunction, /chrome\.sidePanel\.open\(\{ windowId \}\)/);
   assert.doesNotMatch(openFunction.split("chrome.sidePanel.open")[0], /await /);
   assert.match(openFunction, /void configurePanel\(tabId\)/);
@@ -75,16 +76,21 @@ test("native live panel is opened from the launcher", () => {
   assert.equal(manifest.side_panel.default_path, "live-panel.html");
 });
 
-test("live panel consumes core state and sends diagnostic commands", () => {
-  assert.match(adapter, /__SIMNET_WORKBENCH_CORE__/);
-  assert.match(adapter, /core\.subscribe/);
-  assert.match(adapter, /SIMNET_WB_CORE_STATE/);
-  assert.match(livePanel, /SIMNET_WB_GET_ACTIVE_STATE/);
-  assert.match(livePanel, /SIMNET_WB_CORE_COMMAND/);
-  assert.match(livePanel, /Live Assistant/);
+test("core bridge owns subscriber context and OLT evidence", () => {
+  assert.match(bridge, /__SIMNET_WORKBENCH_CORE__/);
+  assert.match(bridge, /function detectContext\(\)/);
+  assert.match(bridge, /function billingOltInfo\(\)/);
+  assert.match(bridge, /dopfield_29/);
+  assert.match(bridge, /dopfield_39/);
+  assert.match(bridge, /function usersideTmcInfo\(\)/);
+  assert.match(bridge, /Найдено\\s\+на\\s\+OLT/);
+  assert.match(bridge, /function billingRoutes\(billingId\)/);
+  assert.match(bridge, /function runDiagnostic\(\)/);
+  assert.match(bridge, /function stopDiagnostic\(\)/);
+  assert.match(bridge, /function subscribe\(listener\)/);
 });
 
-test("billing bridge detects the card from URL and the visible login row", () => {
+test("billing bridge detects the card from URL and visible login row", () => {
   assert.match(bridge, /function findLoginElement\(\)/);
   assert.match(bridge, /function billingRowData\(loginElement\)/);
   assert.match(bridge, /action === "user"/);
@@ -101,26 +107,50 @@ test("authorization guidance includes billing access checks", () => {
   assert.match(bridge, /Группа/);
   assert.match(bridge, /Тариф/);
   assert.match(livePanel, /accessSummary/);
-  assert.match(livePanel, /Проверь доступ, блокировку, группу, тариф и день начала/);
 });
 
-test("line guidance highlights all poll choices and explains technology selection", () => {
-  assert.match(adapter, /simnet-wb-highlight-overlay/);
-  assert.match(adapter, /BDCOM\\s\+EPON/);
-  assert.match(adapter, /BDCOM\\s\+GPON/);
-  assert.match(adapter, /GCOM/);
-  assert.match(adapter, /HUAWEI\\s\+OLT/);
-  assert.match(adapter, /rgba\(3,7,12,\.56\)/);
-  assert.match(livePanel, /Показать опросы/);
-  assert.match(livePanel, /Уточни технологию в «Технических данных»/);
+test("OLT highlighting blocks pollers until Billing OLT is known", () => {
+  assert.match(adapter, /function createBlockedOverlay\(/);
+  assert.match(adapter, /Сначала определить OLT/);
+  assert.match(adapter, /context\.olt\?\.present/);
+  assert.match(adapter, /billing-olt-field/);
+  assert.match(adapter, /billing-userside/);
+  assert.match(adapter, /userside-tmc/);
+  assert.match(adapter, /poller-huawei/);
+  assert.match(adapter, /poller-gpon/);
 });
 
-test("core bridge owns context, status and diagnostic commands", () => {
-  assert.match(bridge, /__SIMNET_WORKBENCH_CORE__/);
-  assert.match(bridge, /function detectContext\(\)/);
-  assert.match(bridge, /function runDiagnostic\(\)/);
-  assert.match(bridge, /function stopDiagnostic\(\)/);
-  assert.match(bridge, /function subscribe\(listener\)/);
+test("service worker persists and reconciles OLT workflow across tabs", () => {
+  assert.match(worker, /SIMNET_WB_WORKFLOW_COMMAND/);
+  assert.match(worker, /SIMNET_WB_WORKFLOW_STATE/);
+  assert.match(worker, /simnet_wb_olt_workflows_v1/);
+  assert.match(worker, /chrome\.storage\.session/);
+  assert.match(worker, /chrome\.tabs\.onActivated/);
+  assert.match(worker, /billingTabId/);
+  assert.match(worker, /usersideTabId/);
+  assert.match(worker, /userside_tmc_found/);
+  assert.match(worker, /billing_fill_olt/);
+});
+
+test("Live Assistant renders one compact OLT route step at a time", () => {
+  assert.match(livePanelHtml, /id="oltRouteCard"/);
+  assert.match(livePanelHtml, /id="oltRouteActions"/);
+  assert.match(livePanelHtml, /live-route\.css/);
+  assert.match(livePanel, /function routeDefinition\(\)/);
+  assert.match(livePanel, /data-workflow-action/);
+  assert.match(livePanel, /Вернуться в Billing/);
+  assert.match(livePanel, /Подсветить ТМЦ/);
+  assert.match(livePanel, /Подсветить поле OLT/);
+  assert.match(routeCss, /\.route-card/);
+  assert.match(routeCss, /\.route-actions/);
+});
+
+test("live panel consumes core state and sends diagnostic commands", () => {
+  assert.match(adapter, /core\.subscribe/);
+  assert.match(adapter, /SIMNET_WB_CORE_STATE/);
+  assert.match(livePanel, /SIMNET_WB_GET_ACTIVE_STATE/);
+  assert.match(livePanel, /SIMNET_WB_CORE_COMMAND/);
+  assert.match(livePanel, /Live Assistant/);
 });
 
 test("manifest loads bridge, adapter and launcher in order", () => {
