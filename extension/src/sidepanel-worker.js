@@ -5,6 +5,8 @@ const CORE_COMMAND = "SIMNET_WB_CORE_COMMAND";
 const OPEN_PANEL = "SIMNET_WB_OPEN_SIDE_PANEL";
 const GET_ACTIVE_STATE = "SIMNET_WB_GET_ACTIVE_STATE";
 const SET_PANEL_MODE = "SIMNET_WB_SET_PANEL_MODE";
+const PANEL_VISIBILITY = "SIMNET_WB_PANEL_VISIBILITY";
+const PANEL_PORT_NAME = "SIMNET_WB_SIDE_PANEL_PORT";
 const PANEL_PATH = "live-panel.html";
 
 const snapshots = new Map();
@@ -24,6 +26,16 @@ async function activeTab() {
   return tab || null;
 }
 
+async function setLauncherVisible(tabId, visible) {
+  if (!Number.isInteger(tabId)) return false;
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: PANEL_VISIBILITY, visible: Boolean(visible) });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 async function openForSender(sender, requestedMode = "live") {
   const tabId = sender?.tab?.id;
   const windowId = sender?.tab?.windowId;
@@ -32,18 +44,27 @@ async function openForSender(sender, requestedMode = "live") {
   modes.set(tabId, mode);
   await chrome.sidePanel.setOptions({ tabId, path: PANEL_PATH, enabled: true });
   await chrome.sidePanel.open({ windowId });
+  await setLauncherVisible(tabId, false);
   chrome.runtime.sendMessage({ type: "SIMNET_WB_PANEL_MODE_CHANGED", tabId, mode }).catch(() => {});
   return true;
 }
 
+chrome.runtime.onConnect.addListener(port => {
+  if (port.name !== PANEL_PORT_NAME) return;
+  let connectedTabId = null;
+  void activeTab().then(tab => {
+    connectedTabId = Number.isInteger(tab?.id) ? tab.id : null;
+    return setLauncherVisible(connectedTabId, false);
+  });
+  port.onDisconnect.addListener(() => {
+    void setLauncherVisible(connectedTabId, true);
+  });
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === CORE_STATE && Number.isInteger(sender?.tab?.id)) {
     snapshots.set(sender.tab.id, message.state || null);
-    chrome.runtime.sendMessage({
-      type: CORE_STATE,
-      tabId: sender.tab.id,
-      state: message.state || null
-    }).catch(() => {});
+    chrome.runtime.sendMessage({ type: CORE_STATE, tabId: sender.tab.id, state: message.state || null }).catch(() => {});
     sendResponse({ ok: true });
     return false;
   }
