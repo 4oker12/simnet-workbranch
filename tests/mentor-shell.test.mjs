@@ -11,11 +11,13 @@ const livePanelHtml = readFileSync(new URL("../extension/live-panel.html", impor
 const livePanelCss = readFileSync(new URL("../extension/live-panel.css", import.meta.url), "utf8");
 const manifest = JSON.parse(readFileSync(new URL("../extension/manifest.json", import.meta.url), "utf8"));
 
-test("closed launcher stays pinned to the right and reserves only 48px", () => {
+test("launcher reserves 48px only on subscriber workspaces", () => {
   assert.match(launcher, /const RAIL_WIDTH = 48/);
-  assert.match(launcher, /right:0/);
+  assert.match(launcher, /function isSubscriberWorkspace\(\)/);
+  assert.match(launcher, /state\.layout === "full"/);
   assert.match(launcher, /padding-right/);
-  assert.doesNotMatch(launcher, /ANCHOR_WIDTH|FLYOUT_WIDTH/);
+  assert.match(launcher, /data-layout="compact"/);
+  assert.match(launcher, /USERSIDE_HEADER_HEIGHT = 48/);
 });
 
 test("launcher exposes only live assistant and quick facts", () => {
@@ -23,6 +25,21 @@ test("launcher exposes only live assistant and quick facts", () => {
   assert.match(launcher, /data-mode="quick"/);
   assert.doesNotMatch(launcher, /data-mode="mentor"/);
   assert.doesNotMatch(launcher, /Обучение|Live Call<\/span>/);
+});
+
+test("launcher click gives visible opening and error states", () => {
+  assert.match(launcher, /classList\.add\("opening"\)/);
+  assert.match(launcher, /showError\(/);
+  assert.match(launcher, /response\?\.ok/);
+  assert.match(launcher, /event\.preventDefault\(\)/);
+  assert.match(launcher, /event\.stopPropagation\(\)/);
+});
+
+test("side panel open happens before any awaited work", () => {
+  const openFunction = worker.slice(worker.indexOf("function openForSender"), worker.indexOf("chrome.runtime.onConnect"));
+  assert.match(openFunction, /chrome\.sidePanel\.open\(\{ windowId \}\)/);
+  assert.doesNotMatch(openFunction.split("chrome.sidePanel.open")[0], /await /);
+  assert.match(openFunction, /void configurePanel\(tabId\)/);
 });
 
 test("native panel keeps the rail at the far right and workspace to its left", () => {
