@@ -45,6 +45,10 @@
     return smallestVisible(candidates);
   }
 
+  function fieldContainer(control) {
+    return control?.closest("tr,.item,.table_block,fieldset,dl") || control?.parentElement || control;
+  }
+
   function uniqueElements(items) {
     const seen = new Set();
     return items.filter(element => {
@@ -89,9 +93,35 @@
       return uniqueElements([
         findByText(/^Juniper$/i),
         findByText(/^Juniper\s*\(NEW\)$/i),
+        findByText(/^Juniper\s*2$/i),
         document.querySelector("#ref_ip_mac"),
-        document.querySelector("iframe[src*='juniper']")
+        document.querySelector("iframe[src*='juniper' i]")
       ]).filter(isVisible).slice(0, 4);
+    }
+
+    if (kind === "billing-access") {
+      const control = document.querySelector("select[name='state'],input[name='state']");
+      return uniqueElements([fieldContainer(control), control, findByText(/^Доступ$/i)]).filter(isVisible).slice(0, 2);
+    }
+
+    if (kind === "billing-block") {
+      const control = document.querySelector("[name*='block' i],[id*='block' i]");
+      return uniqueElements([fieldContainer(control), control, findByText(/Блокировк/i)]).filter(isVisible).slice(0, 2);
+    }
+
+    if (kind === "billing-group") {
+      const control = document.querySelector("select[name*='group' i],input[name*='group' i]");
+      return uniqueElements([fieldContainer(control), control, findByText(/^Группа$/i)]).filter(isVisible).slice(0, 2);
+    }
+
+    if (kind === "billing-tariff") {
+      const control = document.querySelector("select[name*='tarif' i],select[name*='tariff' i],select[name='cstate'],input[name*='tarif' i]");
+      return uniqueElements([fieldContainer(control), control, findByText(/Тариф|Состояние услуги/i)]).filter(isVisible).slice(0, 2);
+    }
+
+    if (kind === "billing-start-day") {
+      const control = document.querySelector("input[name='start_day'],select[name='start_day']");
+      return uniqueElements([fieldContainer(control), control, findByText(/День начала потребления услуг/i)]).filter(isVisible).slice(0, 2);
     }
 
     if (kind === "billing-technical") {
@@ -104,7 +134,7 @@
     if (kind === "billing-olt-field") {
       const control = document.querySelector("select[name='dopfield_29'],input[name='dopfield_29']");
       return uniqueElements([
-        control?.closest("tr") || control?.parentElement,
+        fieldContainer(control),
         control,
         findByText(/^OLT$/i)
       ]).filter(isVisible).slice(0, 2);
@@ -128,10 +158,7 @@
     }
 
     if (kind === "pollers-all") return pollerTargets();
-    if (/^poller-(?:epon|gpon|gcom|huawei)$/.test(kind)) {
-      return [pollerTarget(kind)].filter(isVisible);
-    }
-
+    if (/^poller-(?:epon|gpon|gcom|huawei)$/.test(kind)) return [pollerTarget(kind)].filter(isVisible);
     return [];
   }
 
@@ -210,9 +237,7 @@
 
   function planFor(target) {
     const context = core.getState()?.context || {};
-    if (target !== "line") {
-      return { focus: targetsFor(target), blocked: [], note: "" };
-    }
+    if (target !== "line") return { focus: targetsFor(target), blocked: [], note: "" };
 
     if (context.system === "billing" && context.olt?.present) {
       const poller = context.olt.poller || "";
@@ -310,5 +335,5 @@
   const unsubscribe = core.subscribe(publish);
   window.addEventListener("pagehide", unsubscribe, { once: true });
   publish();
-  globalThis.__SIMNET_CORE_SIDE_PANEL_ADAPTER__ = { version: "0.4.0", publish, highlight, clearHighlight };
+  globalThis.__SIMNET_CORE_SIDE_PANEL_ADAPTER__ = { version: "0.4.1", publish, highlight, clearHighlight };
 })();
