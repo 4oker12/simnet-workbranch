@@ -36,7 +36,7 @@
 
   function findByText(pattern) {
     const candidates = [];
-    for (const element of document.querySelectorAll("a,button,[onclick],[role='button'],td,th,div,span,b,strong")) {
+    for (const element of document.querySelectorAll("a,button,[onclick],[role='button'],td,th,div,span,b,strong,label")) {
       if (!isVisible(element)) continue;
       const text = cleanText(element.textContent);
       if (!text || !pattern.test(text)) continue;
@@ -52,6 +52,24 @@
       seen.add(element);
       return true;
     });
+  }
+
+  function pollerTargets() {
+    return uniqueElements([
+      findByText(/BDCOM\s+EPON/i),
+      findByText(/BDCOM\s+GPON/i),
+      findByText(/^GCOM(?:\s|\(|$)/i),
+      findByText(/HUAWEI\s+OLT/i)
+    ]).filter(isVisible);
+  }
+
+  function pollerTarget(kind) {
+    return ({
+      "poller-epon": findByText(/BDCOM\s+EPON/i),
+      "poller-gpon": findByText(/BDCOM\s+GPON/i),
+      "poller-gcom": findByText(/^GCOM(?:\s|\(|$)/i),
+      "poller-huawei": findByText(/HUAWEI\s+OLT/i)
+    })[kind] || null;
   }
 
   function targetsFor(kind) {
@@ -76,16 +94,42 @@
       ]).filter(isVisible).slice(0, 4);
     }
 
-    if (kind === "line") {
+    if (kind === "billing-technical") {
       return uniqueElements([
         findByText(/^Технические данные$/i),
-        findByText(/BDCOM\s+EPON/i),
-        findByText(/BDCOM\s+GPON/i),
-        findByText(/^GCOM(?:\s|\(|$)/i),
-        findByText(/HUAWEI\s+OLT/i),
-        document.querySelector("#tableListData"),
-        document.querySelector(".table_port")
-      ]).filter(isVisible).slice(0, 7);
+        document.querySelector("a[href*='a=dopdata']")
+      ]).filter(isVisible).slice(0, 2);
+    }
+
+    if (kind === "billing-olt-field") {
+      const control = document.querySelector("select[name='dopfield_29'],input[name='dopfield_29']");
+      return uniqueElements([
+        control?.closest("tr") || control?.parentElement,
+        control,
+        findByText(/^OLT$/i)
+      ]).filter(isVisible).slice(0, 2);
+    }
+
+    if (kind === "billing-userside") {
+      return uniqueElements([
+        findByText(/^USERSIDE$/i),
+        document.querySelector("a[href*='userside.simnet.kiev.ua']"),
+        document.querySelector("a[href*='gotouser.php']")
+      ]).filter(isVisible).slice(0, 2);
+    }
+
+    if (kind === "userside-tmc") {
+      return uniqueElements([
+        findByText(/^ТМЦ$/i),
+        findByText(/Товарно.?материаль/i),
+        findByText(/^Оборудование$/i),
+        findByText(/Найдено\s+на\s+OLT/i)
+      ]).filter(isVisible).slice(0, 3);
+    }
+
+    if (kind === "pollers-all") return pollerTargets();
+    if (/^poller-(?:epon|gpon|gcom|huawei)$/.test(kind)) {
+      return [pollerTarget(kind)].filter(isVisible);
     }
 
     return [];
@@ -115,12 +159,99 @@
     root.appendChild(frame);
   }
 
+  function createBlockedOverlay(element, root) {
+    const rect = element.getBoundingClientRect();
+    const block = document.createElement("div");
+    Object.assign(block.style, {
+      position: "fixed",
+      left: `${Math.max(1, rect.left)}px`,
+      top: `${Math.max(1, rect.top)}px`,
+      width: `${Math.max(12, rect.width)}px`,
+      height: `${Math.max(12, rect.height)}px`,
+      display: "grid",
+      placeItems: "center",
+      padding: "3px",
+      color: "#d0d7e2",
+      background: "rgba(4,8,13,.78)",
+      border: "1px solid rgba(154,169,187,.45)",
+      borderRadius: "5px",
+      font: "700 9px Segoe UI,Arial,sans-serif",
+      letterSpacing: ".02em",
+      zIndex: "2147483647",
+      pointerEvents: "none"
+    });
+    block.textContent = "Сначала определить OLT";
+    root.appendChild(block);
+  }
+
+  function createNote(root, text) {
+    if (!text) return;
+    const note = document.createElement("div");
+    Object.assign(note.style, {
+      position: "fixed",
+      left: "50%",
+      bottom: "22px",
+      maxWidth: "520px",
+      transform: "translateX(-50%)",
+      padding: "10px 14px",
+      color: "#eef4fb",
+      background: "#101927",
+      border: "1px solid #40526a",
+      borderRadius: "9px",
+      boxShadow: "0 12px 38px rgba(0,0,0,.42)",
+      font: "600 12px/1.4 Segoe UI,Arial,sans-serif",
+      textAlign: "center",
+      zIndex: "2147483647",
+      pointerEvents: "none"
+    });
+    note.textContent = text;
+    root.appendChild(note);
+  }
+
+  function planFor(target) {
+    const context = core.getState()?.context || {};
+    if (target !== "line") {
+      return { focus: targetsFor(target), blocked: [], note: "" };
+    }
+
+    if (context.system === "billing" && context.olt?.present) {
+      const poller = context.olt.poller || "";
+      return {
+        focus: targetsFor(poller),
+        blocked: [],
+        note: poller
+          ? `В Billing указана OLT «${context.olt.name}». Подсвечен соответствующий способ опроса.`
+          : "OLT указана, но технология не распознана. Уточни тип подключения в технических данных."
+      };
+    }
+
+    if (context.system === "userside") {
+      return {
+        focus: targetsFor("userside-tmc"),
+        blocked: [],
+        note: "Открой ТМЦ и найди блок «Найдено на OLT»: название, IP, порт и время обновления."
+      };
+    }
+
+    const focus = context.kind === "billing_technical"
+      ? targetsFor("billing-olt-field")
+      : targetsFor("billing-technical");
+    return {
+      focus,
+      blocked: pollerTargets(),
+      note: "OLT в технических данных не указана. Опросы пока недоступны: сначала найди голову через UserSide ТМЦ."
+    };
+  }
+
   function highlight(target) {
     clearHighlight();
-    const elements = targetsFor(target);
-    if (!elements.length) return { ok: false, count: 0 };
+    const plan = planFor(target);
+    const focus = uniqueElements(plan.focus || []).filter(isVisible);
+    const blocked = uniqueElements(plan.blocked || []).filter(isVisible);
+    if (!focus.length && !blocked.length) return { ok: false, count: 0 };
 
-    elements[0].scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    const first = focus[0] || blocked[0];
+    first?.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
 
     window.setTimeout(() => {
       clearHighlight();
@@ -137,24 +268,26 @@
       Object.assign(shade.style, {
         position: "absolute",
         inset: "0",
-        background: "rgba(3,7,12,.56)",
-        backdropFilter: "brightness(.72)",
+        background: "rgba(3,7,12,.58)",
+        backdropFilter: "brightness(.70)",
         pointerEvents: "none"
       });
       root.appendChild(shade);
 
-      elements.filter(isVisible).forEach((element, index) => createFrame(element, root, index));
+      focus.filter(isVisible).forEach((element, index) => createFrame(element, root, index));
+      blocked.filter(isVisible).forEach(element => createBlockedOverlay(element, root));
+      createNote(root, plan.note);
       document.documentElement.appendChild(root);
 
       const clear = () => clearHighlight();
-      window.setTimeout(clear, 4600);
+      window.setTimeout(clear, 6200);
       window.addEventListener("keydown", event => {
         if (event.key === "Escape") clear();
       }, { once: true, capture: true });
       window.addEventListener("pointerdown", clear, { once: true, capture: true });
     }, 260);
 
-    return { ok: true, count: elements.length };
+    return { ok: true, count: focus.length + blocked.length };
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -177,5 +310,5 @@
   const unsubscribe = core.subscribe(publish);
   window.addEventListener("pagehide", unsubscribe, { once: true });
   publish();
-  globalThis.__SIMNET_CORE_SIDE_PANEL_ADAPTER__ = { version: "0.3.0", publish, highlight, clearHighlight };
+  globalThis.__SIMNET_CORE_SIDE_PANEL_ADAPTER__ = { version: "0.4.0", publish, highlight, clearHighlight };
 })();
