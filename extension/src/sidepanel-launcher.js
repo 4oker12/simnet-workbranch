@@ -5,8 +5,9 @@
 
   const HOST_ID = "simnet-workbench-dock";
   const OPEN_PANEL = "SIMNET_WB_OPEN_SIDE_PANEL";
+  const PANEL_VISIBILITY = "SIMNET_WB_PANEL_VISIBILITY";
   const RAIL_WIDTH = 48;
-  const state = { basePaddingRight: "0px", observer: null };
+  const state = { basePaddingRight: "0px", observer: null, host: null, visible: true };
   const icons = {
     live: "M12 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14ZM9 21h6M12 17v4M9.5 10.5l1.6 1.6 3.5-4",
     quick: "M13 2 5 14h7l-1 8 8-12h-7z"
@@ -14,10 +15,21 @@
   const svg = name => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icons[name]}"></path></svg>`;
   const open = mode => chrome.runtime.sendMessage({ type: OPEN_PANEL, mode: mode === "quick" ? "quick" : "live" }).catch(() => {});
 
-  function reserveRailSpace() {
+  function applyPageSpacing() {
     if (!document.body) return;
-    document.body.style.setProperty("padding-right", `calc(${state.basePaddingRight} + ${RAIL_WIDTH}px)`, "important");
-    document.body.style.setProperty("box-sizing", "border-box", "important");
+    if (state.visible) {
+      document.body.style.setProperty("padding-right", `calc(${state.basePaddingRight} + ${RAIL_WIDTH}px)`, "important");
+      document.body.style.setProperty("box-sizing", "border-box", "important");
+    } else {
+      document.body.style.setProperty("padding-right", state.basePaddingRight, "important");
+      document.body.style.removeProperty("box-sizing");
+    }
+  }
+
+  function setRailVisible(visible) {
+    state.visible = Boolean(visible);
+    if (state.host) state.host.style.setProperty("display", state.visible ? "block" : "none", "important");
+    applyPageSpacing();
   }
 
   function hideLegacyRuntime() {
@@ -64,8 +76,7 @@
       button:hover,button:focus-visible{color:#fff;background:#192638;outline:none}button.primary{color:#d7c2ff;background:#2a2040;border:1px solid #5a4680}.spacer{flex:1}
       svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
       .tip{position:absolute;right:46px;top:50%;padding:5px 7px;color:#fff;background:#101826;border:1px solid #34465e;border-radius:6px;opacity:0;visibility:hidden;transform:translateY(-50%);white-space:nowrap;font:11px "Segoe UI",Arial,sans-serif;pointer-events:none}
-      button:hover .tip{opacity:1;visibility:visible}
-      .live-dot{position:absolute;right:5px;bottom:5px;width:6px;height:6px;background:#58d690;border:1px solid #0b1510;border-radius:50%}
+      button:hover .tip{opacity:1;visibility:visible}.live-dot{position:absolute;right:5px;bottom:5px;width:6px;height:6px;background:#58d690;border:1px solid #0b1510;border-radius:50%}
     </style><nav aria-label="Workbench Live Assistant">
       <button class="primary" data-mode="live">${svg("live")}<span class="live-dot"></span><span class="tip">Live Assistant</span></button>
       <button data-mode="quick">${svg("quick")}<span class="tip">Быстрые факты</span></button>
@@ -76,21 +87,28 @@
       if (button) open(button.dataset.mode);
     });
     (document.body || document.documentElement).appendChild(host);
+    state.host = host;
+    setRailVisible(state.visible);
   }
 
   function install() {
     if (document.body) state.basePaddingRight = getComputedStyle(document.body).paddingRight || "0px";
     installRail();
-    reserveRailSpace();
     hideLegacyRuntime();
     state.observer = new MutationObserver(() => {
       hideLegacyRuntime();
-      reserveRailSpace();
+      applyPageSpacing();
     });
     state.observer.observe(document.documentElement, { childList: true, subtree: true });
   }
 
-  globalThis.__SIMNET_SIDE_PANEL_LAUNCHER__ = { version: "0.2.0", open };
+  chrome.runtime.onMessage.addListener(message => {
+    if (message?.type !== PANEL_VISIBILITY) return false;
+    setRailVisible(message.visible);
+    return false;
+  });
+
+  globalThis.__SIMNET_SIDE_PANEL_LAUNCHER__ = { version: "0.3.0", open, setRailVisible };
   window.addEventListener("pagehide", () => state.observer?.disconnect(), { once: true });
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", install, { once: true });
   else install();
