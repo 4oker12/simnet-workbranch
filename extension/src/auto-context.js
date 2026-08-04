@@ -44,6 +44,16 @@
     return parts.every(part => part >= 0 && part <= 255) ? match[1] : "";
   }
 
+  function normalizeMac(value) {
+    const raw = String(value || "").toUpperCase();
+    const colon = raw.match(/\b(?:[0-9A-F]{2}[:-]){5}[0-9A-F]{2}\b/);
+    if (colon) return colon[0].replace(/-/g, ":");
+    const dotted = raw.match(/\b[0-9A-F]{4}(?:\.[0-9A-F]{4}){2}\b/);
+    if (!dotted) return "";
+    const compact = dotted[0].replace(/\./g, "");
+    return compact.match(/.{2}/g).join(":");
+  }
+
   function urlValue(names) {
     const url = new URL(location.href);
     for (const name of names) {
@@ -74,6 +84,24 @@
     return false;
   }
 
+  function pageRows() {
+    return [...document.querySelectorAll("tr, .item, .row, dl")]
+      .filter(node => !node.closest(PANEL_SELECTOR))
+      .slice(0, 650);
+  }
+
+  function rowValue(labelPattern, validator = value => value) {
+    for (const row of pageRows()) {
+      const text = safeText(row.textContent, 700);
+      const label = text.match(labelPattern);
+      if (!label) continue;
+      const raw = safeText(text.slice((label.index || 0) + label[0].length).replace(/^[\s:—\-|]+/, ""), 240);
+      const value = validator(raw || text);
+      if (value) return value;
+    }
+    return "";
+  }
+
   function contractFromControls() {
     const selectors = [
       'input[name*="contract" i]',
@@ -81,10 +109,11 @@
       'input[name*="dogovor" i]',
       'input[id*="contract" i]',
       'input[id*="agreement" i]',
-      '[data-contract]',
-      '[data-agreement]'
+      "[data-contract]",
+      "[data-agreement]"
     ];
     for (const node of document.querySelectorAll(selectors.join(","))) {
+      if (node.closest(PANEL_SELECTOR)) continue;
       const candidate = normalizeContract(node.value || node.dataset?.contract || node.dataset?.agreement || node.textContent);
       if (candidate) return candidate;
     }
@@ -92,17 +121,7 @@
   }
 
   function contractFromRows() {
-    const rows = [...document.querySelectorAll("tr, .item, .row, dl")].slice(0, 500);
-    for (const row of rows) {
-      if (row.closest(PANEL_SELECTOR)) continue;
-      const text = safeText(row.textContent, 500);
-      if (!/(?:договор|договір|контракт|agreement|логин|login)/i.test(text)) continue;
-      const abon = text.match(/\babon\s*[-_:]?\s*(\d{4,14})\b/i);
-      if (abon) return abon[1];
-      const labeled = text.match(/(?:договор|договір|контракт|agreement|логин|login)\D{0,40}(\d{4,14})/i);
-      if (labeled) return labeled[1];
-    }
-    return "";
+    return rowValue(/(?:номер\s+договора|номер\s+договору|договор|договір|контракт|agreement|логин|login)\s*/i, normalizeContract);
   }
 
   function contractFromPageText(text) {
@@ -110,6 +129,30 @@
     if (abon) return abon[1];
     const labeled = text.match(/(?:номер\s+договора|номер\s+договору|договор|договір|контракт|agreement)\D{0,50}(\d{4,14})/i);
     return labeled ? labeled[1] : "";
+  }
+
+  function nameFromRows() {
+    return rowValue(/(?:ФИО|ПІБ|абонент|клиент|клієнт)\s*/i, raw => {
+      const clean = safeText(raw.replace(/\b(?:abon)?\d{4,14}\b/ig, ""), 120);
+      if (clean.length < 3 || !/[A-Za-zА-Яа-яЁёІіЇїЄє]/.test(clean)) return "";
+      if (/^(?:статус|адрес|тариф|договор|логин|ip|mac)\b/i.test(clean)) return "";
+      return clean;
+    });
+  }
+
+  function addressFromRows() {
+    return rowValue(/(?:адрес|адреса)\s*/i, raw => {
+      const clean = safeText(raw, 180);
+      return clean.length >= 4 ? clean : "";
+    });
+  }
+
+  function ipFromRows() {
+    return rowValue(/(?:IP(?:-адрес)?|IPv4)\s*/i, validIp);
+  }
+
+  function macFromRows() {
+    return rowValue(/(?:MAC(?:\s+(?:ONU|ONT|роутера|router))?)\s*/i, normalizeMac);
   }
 
   function detectContext() {
@@ -126,16 +169,20 @@
       1,
       14
     );
-    const ip = validIp(urlValue(["ip", "user_ip", "address"])) || validIp(text);
+    const ip = validIp(urlValue(["ip", "user_ip", "address"])) || ipFromRows() || validIp(text);
+    const mac = macFromRows() || normalizeMac(text);
     const page = subscriberPage(system);
     return {
       system,
       contract,
       userId,
       ip,
+      mac,
+      name: nameFromRows(),
+      address: addressFromRows(),
       page,
       href: location.href,
-      key: [location.hostname, location.pathname, contract, userId, ip].join("|"),
+      key: [location.hostname, location.pathname, contract, userId, ip, mac].join("|"),
       autoStarted: false,
       detectedAt: Date.now()
     };
@@ -236,7 +283,7 @@
   }
 
   globalThis.__SIMNET_AUTO_CONTEXT__ = {
-    version: "0.1.0",
+    version: "0.2.0",
     runtime,
     current: () => runtime.context ? { ...runtime.context } : null,
     refresh: () => scheduleSync(0)
