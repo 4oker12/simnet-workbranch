@@ -1,10 +1,10 @@
 {
   "name": "simnet-workbranch",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "private": true,
   "description": "SIMNET / LOOKNET Diagnostic Workbench Chrome extension and related UserSide tooling.",
   "scripts": {
-    "check:syntax": "node --check extension/src/service-worker.js && node --check extension/src/dev-reload-page-hook.js && node --check extension/src/gm-compat.js && node --check extension/src/billing-provider.js && node --check extension/src/page-hook.js && node --check extension/src/userside-task-staff-ui.js && node --check extension/src/training-knowledge.js && node --check extension/src/training-mentor.js && node --check extension/src/workbench.js",
+    "check:syntax": "node --check extension/src/service-worker.js && node --check extension/src/dev-reload-page-hook.js && node --check extension/src/gm-compat.js && node --check extension/src/billing-provider.js && node --check extension/src/page-hook.js && node --check extension/src/userside-task-staff-ui.js && node --check extension/src/training-knowledge.js && node --check extension/src/training-mentor.js && node --check extension/src/workbench.js && node --check extension/src/mentor-shell.js",
     "test": "npm run check:syntax && node --test --test-concurrency=1",
     "package:extension": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-extension.ps1",
     "update:workbench": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sync-workbench.ps1"
