@@ -4,8 +4,10 @@
   if (window.top !== window.self || globalThis.__SIMNET_WORKBENCH_CORE__) return;
 
   const subscribers = new Set();
+  const ISSUE_KEY = "simnet_workbench_current_issue_v1";
   const state = {
     context: null,
+    issue: "",
     status: { running: false, text: "", stage: "idle" },
     facts: [],
     revision: 0,
@@ -40,7 +42,8 @@
   function detectUsersideContext(text) {
     const customerId = (location.pathname.match(/^\/customer\/(\d+)/) || [])[1] || "";
     const login = extractLogins(`${document.title} ${text}`)[0] || "";
-    return { system: "userside", login, contract: login.replace(/^abon/i, ""), billingId: "", customerId, ip: extractIps(text).find(value => !/^172\.16\.|^127\.|^0\./.test(value)) || "" };
+    const publicIps = extractIps(text).filter(value => !/^172\.16\.|^127\.|^0\./.test(value));
+    return { system: "userside", login, contract: login.replace(/^abon/i, ""), billingId: "", customerId, ip: publicIps[0] || "" };
   }
 
   function labelValue(labelPattern, max = 180) {
@@ -89,7 +92,7 @@
       if (!text || /ожидани|номер договора|рандом|пуск/i.test(text)) continue;
       if (!/(договор|адрес|mac|ip|onu|olt|сигнал|сесси|баланс|услуг|доступ|тариф)/i.test(text)) continue;
       if (!out.includes(text)) out.push(text);
-      if (out.length >= 10) break;
+      if (out.length >= 12) break;
     }
     return out;
   }
@@ -101,6 +104,7 @@
     const running = Boolean(stop && !stop.disabled);
     return {
       context: detectContext(),
+      issue: state.issue,
       status: { running, text: statusText, stage: stageFromStatus(statusText, running) },
       facts: collectFacts(),
       revision: state.revision + 1,
@@ -116,6 +120,11 @@
   }
 
   function getState() { return JSON.parse(JSON.stringify(state)); }
+  function setIssue(value) {
+    state.issue = safeText(value, 600);
+    try { sessionStorage.setItem(ISSUE_KEY, state.issue); } catch (_) {}
+    publish();
+  }
   function runDiagnostic() {
     const p = panel();
     const input = p?.querySelector("#dp-input");
@@ -139,7 +148,17 @@
     return () => subscribers.delete(listener);
   }
 
-  globalThis.__SIMNET_WORKBENCH_CORE__ = { version: "0.1.0", getState, runDiagnostic, stopDiagnostic, refresh: publish, subscribe };
+  try { state.issue = safeText(sessionStorage.getItem(ISSUE_KEY) || "", 600); } catch (_) {}
+
+  globalThis.__SIMNET_WORKBENCH_CORE__ = {
+    version: "0.2.0",
+    getState,
+    setIssue,
+    runDiagnostic,
+    stopDiagnostic,
+    refresh: publish,
+    subscribe
+  };
 
   const observer = new MutationObserver(() => {
     clearTimeout(observer.timer);
