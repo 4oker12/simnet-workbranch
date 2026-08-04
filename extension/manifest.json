@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET / LOOKNET Diagnostic Workbench",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "minimum_chrome_version": "111",
   "description": "Chrome Extension build of Diagnostic Workbench for SIMNET, LOOKNET and the shared UserSide.",
   "permissions": [
@@ -64,6 +64,7 @@
         "src/training-knowledge.js",
         "src/workbench.js",
         "src/training-mentor.js",
+        "src/auto-context.js",
         "src/rail-shell.js"
       ],
       "run_at": "document_idle",
