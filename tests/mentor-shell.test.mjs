@@ -2,23 +2,33 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const shell = readFileSync(new URL("../extension/src/mentor-shell.js", import.meta.url), "utf8");
+const launcher = readFileSync(new URL("../extension/src/sidepanel-launcher.js", import.meta.url), "utf8");
 const bridge = readFileSync(new URL("../extension/src/workbench-core-bridge.js", import.meta.url), "utf8");
+const adapter = readFileSync(new URL("../extension/src/core-sidepanel-adapter.js", import.meta.url), "utf8");
+const worker = readFileSync(new URL("../extension/src/sidepanel-worker.js", import.meta.url), "utf8");
+const sidepanel = readFileSync(new URL("../extension/sidepanel.js", import.meta.url), "utf8");
 const manifest = JSON.parse(readFileSync(new URL("../extension/manifest.json", import.meta.url), "utf8"));
 
-test("mentor shell stays pinned to the right and opens modules left", () => {
-  assert.match(shell, /const RAIL_WIDTH = 48/);
-  assert.match(shell, /const ANCHOR_WIDTH = 280/);
-  assert.match(shell, /right:\$\{EXPANDED_WIDTH\}px/);
+test("launcher stays pinned to the right and reserves only 48px", () => {
+  assert.match(launcher, /width:48px/);
+  assert.match(launcher, /right:0/);
+  assert.match(launcher, /padding-right/);
+  assert.doesNotMatch(launcher, /ANCHOR_WIDTH|FLYOUT_WIDTH/);
 });
 
-test("mentor shell is a pure client of the core bridge", () => {
-  assert.match(shell, /const core = globalThis\.__SIMNET_WORKBENCH_CORE__/);
-  assert.match(shell, /core\.subscribe/);
-  assert.match(shell, /core\.runDiagnostic\(\)/);
-  assert.match(shell, /core\.stopDiagnostic\(\)/);
-  assert.doesNotMatch(shell, /querySelectorAll\("tr,\.item/);
-  assert.doesNotMatch(shell, /extractLogins|extractIps|normalizeMac/);
+test("native side panel is opened from the launcher", () => {
+  assert.match(launcher, /SIMNET_WB_OPEN_SIDE_PANEL/);
+  assert.match(worker, /chrome\.sidePanel\.open/);
+  assert.match(worker, /chrome\.sidePanel\.setOptions/);
+  assert.equal(manifest.side_panel.default_path, "sidepanel.html");
+});
+
+test("side panel consumes core state through a message adapter", () => {
+  assert.match(adapter, /__SIMNET_WORKBENCH_CORE__/);
+  assert.match(adapter, /core\.subscribe/);
+  assert.match(adapter, /SIMNET_WB_CORE_STATE/);
+  assert.match(sidepanel, /SIMNET_WB_GET_ACTIVE_STATE/);
+  assert.match(sidepanel, /SIMNET_WB_CORE_COMMAND/);
 });
 
 test("core bridge owns context, status and diagnostic commands", () => {
@@ -29,16 +39,14 @@ test("core bridge owns context, status and diagnostic commands", () => {
   assert.match(bridge, /function subscribe\(listener\)/);
 });
 
-test("legacy panel remains hidden runtime", () => {
-  assert.match(shell, /class="legacy-runtime"/);
-  assert.match(shell, /left:-100000px/);
-});
-
-test("manifest loads bridge between workbench and shell", () => {
+test("manifest loads bridge, adapter and launcher in order", () => {
   const isolated = manifest.content_scripts.find(entry => entry.world === "ISOLATED");
   const workbench = isolated.js.indexOf("src/workbench.js");
   const bridgeIndex = isolated.js.indexOf("src/workbench-core-bridge.js");
-  const shellIndex = isolated.js.indexOf("src/mentor-shell.js");
+  const adapterIndex = isolated.js.indexOf("src/core-sidepanel-adapter.js");
+  const launcherIndex = isolated.js.indexOf("src/sidepanel-launcher.js");
   assert.ok(bridgeIndex > workbench);
-  assert.ok(shellIndex > bridgeIndex);
+  assert.ok(adapterIndex > bridgeIndex);
+  assert.ok(launcherIndex > adapterIndex);
+  assert.equal(isolated.js.includes("src/mentor-shell.js"), false);
 });
