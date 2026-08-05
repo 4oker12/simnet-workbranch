@@ -15,8 +15,10 @@ test("Manifest V3 references existing local scripts and only approved hosts", as
   assert.equal(packageJson.version, manifest.version);
   assert.deepEqual(
     [...manifest.permissions].sort(),
-    ["storage", "unlimitedStorage"]
+    ["sidePanel", "storage", "tabs", "unlimitedStorage"]
   );
+  assert.equal(manifest.side_panel.default_path, "live-panel.html");
+  assert.equal(manifest.background.service_worker, "src/service-worker-entry.js");
 
   const approvedHosts = [
     "http://admin.looknet.kiev.ua/*",
@@ -26,14 +28,17 @@ test("Manifest V3 references existing local scripts and only approved hosts", as
   ];
   assert.deepEqual([...manifest.host_permissions].sort(), approvedHosts);
 
-  const scripts = [
+  const resources = [
     manifest.background.service_worker,
+    manifest.side_panel.default_path,
+    "live-panel.css",
+    "live-panel.js",
     ...manifest.content_scripts.flatMap((entry) => entry.js)
   ];
 
-  for (const script of new Set(scripts)) {
-    const stat = await fs.stat(new URL(script, extensionUrl));
-    assert.ok(stat.isFile(), `manifest script is missing: ${script}`);
+  for (const resource of new Set(resources)) {
+    const stat = await fs.stat(new URL(resource, extensionUrl));
+    assert.ok(stat.isFile(), `manifest resource is missing: ${resource}`);
   }
 
   const taskStaffEntry = manifest.content_scripts.find((entry) =>

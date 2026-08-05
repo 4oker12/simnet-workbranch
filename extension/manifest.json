@@ -1,12 +1,14 @@
 {
   "manifest_version": 3,
   "name": "SIMNET / LOOKNET Diagnostic Workbench",
-  "version": "0.6.4",
-  "minimum_chrome_version": "111",
-  "description": "Chrome Extension build of Diagnostic Workbench for SIMNET, LOOKNET and the shared UserSide.",
+  "version": "0.8.4",
+  "minimum_chrome_version": "116",
+  "description": "Live operator assistant for SIMNET, LOOKNET and the shared UserSide.",
   "permissions": [
     "storage",
-    "unlimitedStorage"
+    "unlimitedStorage",
+    "sidePanel",
+    "tabs"
   ],
   "host_permissions": [
     "https://userside.simnet.kiev.ua/*",
@@ -15,7 +17,13 @@
     "https://admin.looknet.kiev.ua/*"
   ],
   "background": {
-    "service_worker": "src/service-worker.js"
+    "service_worker": "src/service-worker-entry.js"
+  },
+  "side_panel": {
+    "default_path": "live-panel.html"
+  },
+  "action": {
+    "default_title": "Открыть Workbench Dock"
   },
   "content_scripts": [
     {
@@ -63,7 +71,21 @@
         "src/billing-provider.js",
         "src/training-knowledge.js",
         "src/workbench.js",
-        "src/training-mentor.js"
+        "src/training-mentor.js",
+        "src/workbench-core-bridge.js",
+        "src/context-sanitizer.js",
+        "src/mentor-evidence.js",
+        "src/onu-evidence.js",
+        "src/persistent-evidence-bridge.js",
+        "src/core-sidepanel-adapter.js",
+        "src/highlight-lifecycle-fix.js",
+        "src/mentor-route-controller.js",
+        "src/sidepanel-launcher.js",
+        "src/dock-layout-fix.js",
+        "src/dock-route-ui.js",
+        "src/basic-diagnostic-route.js",
+        "src/basic-route-state-guard.js",
+        "src/subscriber-state-engine.js"
       ],
       "run_at": "document_idle",
       "world": "ISOLATED"
