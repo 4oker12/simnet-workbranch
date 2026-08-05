@@ -17,15 +17,16 @@
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
   })[char]);
 
+  function signatureFor() {
+    return route?.active
+      ? `${route.revision}:${route.management?.stage}:${route.action?.id}:${route.action?.target}:${route.action?.command}`
+      : "inactive";
+  }
+
   function buttonFor(action) {
     if (!action || action.type === "complete") return "";
-    if (action.type === "wait") {
-      return `<button type="button" class="action-btn primary route-primary" data-mentor-route-command="refresh"><span>${escapeHtml(action.label || "Обновить")}</span></button>`;
-    }
-    if (action.type === "highlight") {
-      return `<button type="button" class="action-btn primary route-primary" data-mentor-route-command="highlight"><span>${escapeHtml(action.label || "Подсветить")}</span></button>`;
-    }
-    return `<button type="button" class="action-btn primary route-primary" data-mentor-route-command="${escapeHtml(action.command || "")}"><span>${escapeHtml(action.label || "Продолжить")}</span></button>`;
+    const command = action.type === "highlight" ? "highlight" : action.command || "refresh";
+    return `<button type="button" class="action-btn primary route-primary" data-mentor-route-command="${escapeHtml(command)}"><span>${escapeHtml(action.label || "Продолжить")}</span></button>`;
   }
 
   function stepsHtml(steps) {
@@ -40,17 +41,37 @@
     }).join("");
   }
 
+  function ensureRouteStyles(root) {
+    if (root.getElementById?.("simnet-route-ui-style") || root.querySelector("#simnet-route-ui-style")) return;
+    const style = document.createElement("style");
+    style.id = "simnet-route-ui-style";
+    style.textContent = `
+      .route-page-chip{justify-self:start;max-width:100%;height:19px;padding:3px 6px;color:#f0c970;background:#2b2414;border:1px solid #6e5a2f;border-radius:999px;font-size:7px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .route-page-chip.matched{color:#a9e8c5;background:#11271d;border-color:#2d6849}
+      .active-task[data-route-stage]{min-height:88px;padding:7px;gap:5px}
+      .active-task[data-route-stage] .task-actions{gap:4px}
+      .active-task[data-route-stage] .action-btn{height:25px;padding:0 6px}
+      .active-task[data-route-stage]+.mini-steps{gap:1px}
+      .active-task[data-route-stage]+.mini-steps .mini-step{min-height:22px;padding:2px 4px}
+      @media(max-height:700px){.active-task[data-route-stage]{min-height:78px}.active-task[data-route-stage]+.mini-steps .mini-step{min-height:20px}}
+    `;
+    root.appendChild(style);
+  }
+
   function applyRouteUi() {
     if (applying || !route?.active || !boundRoot) return;
     const activePane = boundRoot.querySelector('.module-pane[data-pane="active"]');
     if (!activePane) return;
     const taskCard = activePane.querySelector(".active-task");
-    const heading = taskCard?.querySelector(".task-heading span");
-    const title = taskCard?.querySelector(":scope > strong");
-    const help = taskCard?.querySelector(".help");
-    const actions = taskCard?.querySelector(".task-actions");
+    const signature = signatureFor();
+    if (!taskCard || taskCard.dataset.canonicalRouteSignature === signature) return;
+
+    const heading = taskCard.querySelector(".task-heading span");
+    const title = taskCard.querySelector(":scope > strong");
+    const help = taskCard.querySelector(".help");
+    const actions = taskCard.querySelector(".task-actions");
     const steps = activePane.querySelector(".mini-steps");
-    if (!taskCard || !heading || !title || !actions || !steps) return;
+    if (!heading || !title || !actions || !steps) return;
 
     applying = true;
     try {
@@ -60,6 +81,7 @@
       taskCard.classList.remove("severity-info", "severity-warning", "severity-critical", "severity-ok");
       taskCard.classList.add(`severity-${route.ui?.severity || "warning"}`);
       taskCard.dataset.routeStage = management.stage || "";
+      taskCard.dataset.canonicalRouteSignature = signature;
       heading.textContent = `Маршрут OLT · ${progress.current}/${progress.total}`;
       title.textContent = action.title || "Продолжи маршрут";
       title.title = action.title || "";
@@ -86,13 +108,14 @@
     if (!root || root === boundRoot) return;
     shadowObserver?.disconnect();
     boundRoot = root;
+    ensureRouteStyles(root);
+
     root.addEventListener("click", event => {
       const routeButton = event.target.closest?.("[data-mentor-route-command]");
       if (routeButton) {
         event.preventDefault();
         event.stopImmediatePropagation();
-        const command = routeButton.dataset.mentorRouteCommand || "";
-        routeApi.execute(command).catch(() => {});
+        routeApi.execute(routeButton.dataset.mentorRouteCommand || "").catch(() => {});
         return;
       }
       if (event.target.closest?.("[data-mentor-route-refresh]")) {
@@ -122,13 +145,7 @@
   hostObserver.observe(document.documentElement, { childList: true, subtree: true });
   findAndBind();
 
-  const style = document.createElement("style");
-  style.textContent = `
-    #${HOST_ID}{--simnet-route-ui:1}
-  `;
-  (document.head || document.documentElement).appendChild(style);
-
-  globalThis.__SIMNET_DOCK_ROUTE_UI__ = { version: "0.1.0", apply: applyRouteUi };
+  globalThis.__SIMNET_DOCK_ROUTE_UI__ = { version: "0.1.1", apply: applyRouteUi };
   window.addEventListener("pagehide", () => {
     unsubscribe?.();
     hostObserver?.disconnect();
