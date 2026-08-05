@@ -9,7 +9,30 @@
   if (!adapter?.highlight || !adapter?.clearHighlight) return;
 
   const baseHighlight = adapter.highlight.bind(adapter);
+  const nativeSetTimeout = window.setTimeout;
+  let suppressExpiryUntil = 0;
+  let restoreTimer = 0;
   let detachLifecycle = null;
+
+  function patchedTimeout(callback, delay, ...args) {
+    if (Number(delay) === 6800 && Date.now() < suppressExpiryUntil) return 0;
+    return nativeSetTimeout.call(window, callback, delay, ...args);
+  }
+
+  function restoreTimerApi() {
+    if (Date.now() < suppressExpiryUntil) {
+      restoreTimer = nativeSetTimeout.call(window, restoreTimerApi, Math.max(40, suppressExpiryUntil - Date.now() + 20));
+      return;
+    }
+    window.setTimeout = nativeSetTimeout;
+    restoreTimer = 0;
+  }
+
+  function suppressLegacyExpiry() {
+    suppressExpiryUntil = Math.max(suppressExpiryUntil, Date.now() + 760);
+    window.setTimeout = patchedTimeout;
+    if (!restoreTimer) restoreTimer = nativeSetTimeout.call(window, restoreTimerApi, 800);
+  }
 
   function dispatchCleared(reason) {
     window.dispatchEvent(new CustomEvent(CLEARED_EVENT, { detail: { reason } }));
@@ -73,24 +96,8 @@
 
   function highlight(target) {
     clearHighlight("replace");
-
-    const nativeSetTimeout = window.setTimeout;
-    let timeoutRestored = false;
-    window.setTimeout = function patchedTimeout(callback, delay, ...args) {
-      if (Number(delay) === 6800) return 0;
-      return nativeSetTimeout.call(window, callback, delay, ...args);
-    };
-
-    let result;
-    try {
-      result = baseHighlight(target);
-    } finally {
-      nativeSetTimeout.call(window, () => {
-        if (timeoutRestored) return;
-        timeoutRestored = true;
-        window.setTimeout = nativeSetTimeout;
-      }, 720);
-    }
+    suppressLegacyExpiry();
+    const result = baseHighlight(target);
 
     nativeSetTimeout.call(window, () => {
       const root = document.getElementById(ROOT_ID);
@@ -104,10 +111,10 @@
 
   adapter.highlight = highlight;
   adapter.clearHighlight = clearHighlight;
-  adapter.version = "0.5.0";
+  adapter.version = "0.5.1";
 
   globalThis.__SIMNET_HIGHLIGHT_LIFECYCLE_FIX__ = {
-    version: "0.1.0",
+    version: "0.1.1",
     highlight,
     clearHighlight
   };
