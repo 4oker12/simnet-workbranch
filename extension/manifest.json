@@ -76,6 +76,7 @@
         "src/context-sanitizer.js",
         "src/mentor-evidence.js",
         "src/onu-evidence.js",
+        "src/persistent-evidence-bridge.js",
         "src/core-sidepanel-adapter.js",
         "src/highlight-lifecycle-fix.js",
         "src/mentor-route-controller.js",
