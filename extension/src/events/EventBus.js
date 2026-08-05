@@ -140,6 +140,14 @@ export const EVENT_TYPES = Object.freeze({
   ON_BILLING_PP_UPDATE: 'billing:pp:update',
   ON_BILLING_SESSION_EXPIRE: 'billing:session:expire',
   
+  // События сессии биллинга (новые)
+  ON_BILLING_SESSION_CONFIRMED: 'billing:session:confirmed',
+  ON_BILLING_SESSION_RESTORED: 'billing:session:restored',
+  ON_BILLING_SESSION_UPDATED: 'billing:session:updated',
+  ON_BILLING_SESSION_LOST: 'billing:session:lost',
+  ON_BILLING_SESSION_CLEARED: 'billing:session:cleared',
+  ON_BILLING_SESSION_EXPIRING: 'billing:session:expiring',
+  
   // События от UI
   ON_UI_DOCK_TOGGLE: 'ui:dock:toggle',
   ON_UI_EXPAND_COLLAPSE: 'ui:expand:collapse',
