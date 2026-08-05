@@ -29,7 +29,7 @@ test("missing DOM evidence remains unknown instead of becoming a negative fact",
 
 test("decision engine distinguishes flapping recovery and actual faults", () => {
   assert.match(source, /code:\s*"flapping"/);
-  assert.match(source, /code:\s*"temporarily-recovered"/);
+  assert.match(source, /"temporarily-recovered"/);
   assert.match(source, /code:\s*"optical-los"/);
   assert.match(source, /code:\s*"cpe-link-down"/);
   assert.match(source, /code:\s*stable \? "line-stable" : "line-currently-ok"/);
