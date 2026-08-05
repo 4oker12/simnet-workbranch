@@ -23,10 +23,13 @@ test("Billing navigation and pollers prefer exact CSS selectors", () => {
   assert.match(adapter, /function exactOrFallback\(/);
 });
 
-test("highlight frame pulses and keeps fallback behavior", () => {
+test("highlight frame pulses and the selected region stays bright", () => {
   assert.match(adapter, /@keyframes simnetWbPulse/);
+  assert.match(adapter, /@keyframes simnetWbGroupPulse/);
   assert.match(adapter, /animation: `simnetWbPulse/);
-  assert.match(adapter, /background: "rgba\(168,238,36,\.055\)"/);
+  assert.match(adapter, /background: "rgba\(244,255,226,\.14\)"/);
+  assert.match(adapter, /background: "rgba\(244,255,226,\.24\)"/);
+  assert.match(adapter, /backdropFilter: "brightness\(1\.9\)/);
   assert.match(adapter, /backdropFilter: "brightness\(\.76\) saturate\(\.82\)"/);
   assert.match(adapter, /findByText/);
 });
