@@ -13,12 +13,15 @@ const mentorModel = readFileSync(new URL("../extension/live-mentor-model.js", im
 const panelHtml = readFileSync(new URL("../extension/live-panel.html", import.meta.url), "utf8");
 const manifest = JSON.parse(readFileSync(new URL("../extension/manifest.json", import.meta.url), "utf8"));
 
-test("launcher exposes the native Live and Facts rail", () => {
+test("launcher exposes the 48px hover slide dock", () => {
   assert.match(launcher, /const RAIL_WIDTH = 48/);
-  assert.match(launcher, /data-mode="live"/);
-  assert.match(launcher, /data-mode="quick"/);
+  assert.match(launcher, /const FLYOUT_WIDTH = 280/);
+  assert.match(launcher, /data-module="\$\{module\.id\}"/);
+  assert.match(launcher, /Active Case/);
+  assert.match(launcher, /Live Metrics/);
+  assert.match(launcher, /Talk Scripts/);
+  assert.match(launcher, /Case Matrix/);
   assert.match(launcher, /SIMNET_WB_OPEN_SIDE_PANEL/);
-  assert.doesNotMatch(launcher, /data-mode="mentor"/);
 });
 
 test("side panel opens before awaited work", () => {
