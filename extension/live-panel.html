@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="live-panel.css">
   <link rel="stylesheet" href="live-route.css">
   <link rel="stylesheet" href="live-skip.css">
+  <link rel="stylesheet" href="live-compact.css">
 </head>
 <body>
   <main class="side-shell">
@@ -24,10 +25,10 @@
 
       <section class="subscriber-card">
         <div class="subscriber-row">
-          <div class="avatar" id="subscriberAvatar">A</div>
+          <div class="avatar" id="subscriberAvatar" hidden>A</div>
           <div class="subscriber-copy">
             <strong id="subscriberTitle">Ожидаю карточку</strong>
-            <span id="subscriberMeta">Открой Billing или UserSide</span>
+            <span id="subscriberMeta" hidden>Открой Billing или UserSide</span>
           </div>
           <span class="source-badge" id="sourceBadge">Нет контекста</span>
         </div>
@@ -35,14 +36,14 @@
       </section>
 
       <section id="liveView" class="panel-view">
-        <div class="status-strip">
+        <aside class="status-strip" hidden aria-hidden="true">
           <span class="status-dot" id="statusDot"></span>
           <div class="status-copy">
             <strong id="stageText">Готов к работе</strong>
             <span id="statusText">Контекст не получен</span>
           </div>
           <button type="button" id="refreshBtn" class="icon-action" title="Обновить состояние" aria-label="Обновить состояние">↻</button>
-        </div>
+        </aside>
 
         <section class="focus-card">
           <div class="focus-head">
