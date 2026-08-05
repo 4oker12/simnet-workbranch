@@ -6,7 +6,7 @@
   const baseCore = globalThis.__SIMNET_WORKBENCH_CORE__;
   if (!baseCore?.getState || !baseCore?.subscribe) return;
 
-  const VERSION = "0.1.1";
+  const VERSION = "0.1.2";
   const STORAGE_KEY = "simnet_wb_verified_evidence_v2";
   const EVIDENCE_TTL_MS = 30 * 60 * 1000;
   const listeners = new Set();
@@ -76,18 +76,22 @@
     }
   }
 
+  async function persistNow() {
+    const json = JSON.stringify(cache);
+    if (json === lastPersistedJson) return;
+    lastPersistedJson = json;
+    try {
+      await chrome.storage.session.set({ [STORAGE_KEY]: cache });
+    } catch (_) {
+      try { await chrome.storage.local.set({ [STORAGE_KEY]: cache }); } catch (_) {}
+    }
+  }
+
   function schedulePersist() {
     window.clearTimeout(persistTimer);
-    persistTimer = window.setTimeout(async () => {
+    persistTimer = window.setTimeout(() => {
       persistTimer = 0;
-      const json = JSON.stringify(cache);
-      if (json === lastPersistedJson) return;
-      lastPersistedJson = json;
-      try {
-        await chrome.storage.session.set({ [STORAGE_KEY]: cache });
-      } catch (_) {
-        try { await chrome.storage.local.set({ [STORAGE_KEY]: cache }); } catch (_) {}
-      }
+      void persistNow();
     }, 80);
   }
 
@@ -274,6 +278,8 @@
 
   window.addEventListener("pagehide", () => {
     window.clearTimeout(persistTimer);
+    persistTimer = 0;
+    void persistNow();
     listeners.clear();
     try { unsubscribeBase?.(); } catch (_) {}
   }, { once: true });
