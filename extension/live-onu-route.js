@@ -23,22 +23,20 @@
 
   renderFocus = function renderFocusWithOnuRoute(task) {
     previousRenderFocus(task);
-    if (task?.id !== "poll-onu") return;
+    if (task?.stepId !== "line" && task?.id !== "line" && task?.id !== "poll-onu") return;
     decorateLineAction(document.querySelector("#focusActions") || document);
   };
 
   renderChecklist = function renderChecklistWithOnuRoute(steps) {
     previousRenderChecklist(steps);
-    for (const row of document.querySelectorAll("#checklist .step")) {
-      const title = row.querySelector(".step-copy strong")?.textContent?.trim();
-      if (title !== "Линия и ONU") continue;
-      decorateLineAction(row);
-      break;
-    }
+    const lineRow = document.querySelector('#checklist .step[data-step-id="line"]')
+      || [...document.querySelectorAll("#checklist .step")]
+        .find(row => row.querySelector(".step-copy strong")?.textContent?.trim() === "Линия и ONU");
+    if (lineRow) decorateLineAction(lineRow);
   };
 
   globalThis.__SIMNET_LIVE_ONU_ROUTE__ = {
-    version: "0.1.0",
+    version: "0.2.0",
     decorateLineAction
   };
 
