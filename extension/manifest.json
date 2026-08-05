@@ -83,7 +83,8 @@
         "src/dock-layout-fix.js",
         "src/dock-route-ui.js",
         "src/basic-diagnostic-route.js",
-        "src/basic-route-state-guard.js"
+        "src/basic-route-state-guard.js",
+        "src/subscriber-state-engine.js"
       ],
       "run_at": "document_idle",
       "world": "ISOLATED"
