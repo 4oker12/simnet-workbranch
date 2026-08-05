@@ -6,8 +6,8 @@
   const ROUTE_STATE = "SIMNET_WB_MENTOR_ROUTE_STATE";
   const CORE_STATE_MESSAGE = "SIMNET_WB_CORE_STATE";
   const CORE_COMMAND_MESSAGE = "SIMNET_WB_CORE_COMMAND";
-  const routeRevisions = new Map();
-  const autoStarting = new Set();
+  const revisions = new Map();
+  const starting = new Set();
 
   const safe = (value, max = 240) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 
@@ -42,14 +42,13 @@
     return "";
   }
 
-  function workflowForTab(tab, state) {
+  function currentWorkflow(tab, state) {
     try { return workflowFor(state, tab?.id) || null; } catch (_) { return null; }
   }
 
-  function routeEvidence(state, workflow) {
+  function proofFor(state, workflow) {
     const context = state?.context || {};
     const checkpoints = state?.checkpoints || {};
-    const evidence = state?.evidence || {};
     const billingOlt = context.olt?.present
       ? context.olt
       : workflow?.billingOlt?.present
@@ -60,17 +59,15 @@
       : workflow?.tmc?.found
         ? workflow.tmc
         : null;
-    const poller = billingOlt?.poller || pollerFrom(`${billingOlt?.name || ""} ${billingOlt?.technology || ""}`);
     return {
       context,
       checkpoints,
-      evidence,
       billingOlt,
       tmc,
-      oltKnown: Boolean(billingOlt?.present || checkpoints.oltKnown),
       tmcFound: Boolean(tmc?.found),
+      oltKnown: Boolean(billingOlt?.present || checkpoints.oltKnown),
       onuPolled: Boolean(checkpoints.onuPolled),
-      poller
+      poller: billingOlt?.poller || pollerFrom(`${billingOlt?.name || ""} ${billingOlt?.technology || ""}`)
     };
   }
 
@@ -105,16 +102,16 @@
     };
   }
 
-  function routeSteps(stage, proof) {
-    const order = [
-      { id: "detect", label: "OLT", detail: "обнаружено отсутствие" },
+  function stepsFor(stage, proof) {
+    const steps = [
+      { id: "detect", label: "OLT", detail: "отсутствие обнаружено" },
       { id: "billing-main", label: "Billing", detail: "основная карточка" },
       { id: "userside", label: "UserSide", detail: "ТМЦ и найденная OLT" },
-      { id: "fill", label: "Привязка", detail: "OLT в технических данных" },
+      { id: "fill", label: "Привязка", detail: "поле OLT" },
       { id: "poll", label: "Опрос", detail: "правильный poller" },
-      { id: "result", label: "Результат", detail: "статус и оптика ONU" }
+      { id: "result", label: "Результат", detail: "статус и оптика" }
     ];
-    const rank = {
+    const rank = ({
       "go-billing-main": 1,
       "open-userside": 2,
       "find-tmc": 2,
@@ -125,198 +122,107 @@
       "poll-onu": 5,
       "wait-poll-result": 5,
       complete: 6
-    }[stage] ?? 1;
-    return order.map((step, index) => ({
+    })[stage] ?? 1;
+    return steps.map((step, index) => ({
       ...step,
       complete: index < rank || (step.id === "fill" && proof.oltKnown),
-      active: index === Math.min(rank, order.length - 1) && stage !== "complete"
+      active: index === Math.min(rank, steps.length - 1) && stage !== "complete"
     }));
   }
 
-  function routeStateFor(tab, state, workflow = workflowForTab(tab, state)) {
-    const proof = routeEvidence(state, workflow);
-    const currentPage = pageKind(tab, state);
-    const routeActive = Boolean(workflow?.active && workflow?.type === "olt-discovery");
-    if (!routeActive) return inactiveRoute(tab, state);
+  function action(id, type, command, target, title, detail, label, pageMatched) {
+    return { id, type, command, target, title, detail, label, pageMatched };
+  }
 
+  function routeStateFor(tab, state, workflow = currentWorkflow(tab, state)) {
+    if (!workflow?.active || workflow.type !== "olt-discovery") return inactiveRoute(tab, state);
+
+    const proof = proofFor(state, workflow);
+    const currentPage = pageKind(tab, state);
     let stage = "go-billing-main";
     let expectedPage = "billing-user";
-    let action = {
-      id: "billing-main",
-      type: "navigate",
-      command: "billing-main",
-      target: "",
-      title: "Перейди на основную карточку Billing",
-      detail: "Нужный элемент находится на другой странице. Сначала открой карточку абонента.",
-      label: "На карточку Billing",
-      pageMatched: false
-    };
+    let next = action(
+      "billing-main",
+      "navigate",
+      "billing-main",
+      "",
+      "Перейди на основную карточку Billing",
+      "Нужный элемент находится на другой странице. Сначала открой карточку абонента.",
+      "На карточку Billing",
+      false
+    );
 
     if (proof.onuPolled) {
       stage = "complete";
       expectedPage = currentPage;
-      action = {
-        id: "complete",
-        type: "complete",
-        command: "",
-        target: "",
-        title: "Маршрут OLT и опрос ONU завершены",
-        detail: "Получен структурированный результат live-опроса ONU.",
-        label: "Готово",
-        pageMatched: true
-      };
+      next = action("complete", "complete", "", "", "Маршрут OLT и опрос ONU завершены", "Получен структурированный результат live-опроса ONU.", "Готово", true);
     } else if (currentPage === "billing-poller") {
       stage = "wait-poll-result";
       expectedPage = "billing-poller";
-      action = {
-        id: "wait-poll-result",
-        type: "wait",
-        command: "refresh",
-        target: "",
-        title: "Дождись результата опроса ONU",
-        detail: "Чекпоинт закроется только после появления структурированного результата: статус, порт, идентификатор или оптические значения.",
-        label: "Обновить",
-        pageMatched: true
-      };
+      next = action("wait-poll-result", "wait", "refresh", "", "Дождись результата опроса ONU", "Чекпоинт закроется только после структурированного результата: статус, порт, идентификатор или оптика.", "Обновить", true);
     } else if (currentPage === "billing-technical") {
       if (proof.billingOlt?.present) {
         stage = "return-for-poll";
         expectedPage = "billing-user";
-        action = {
-          id: "billing-main",
-          type: "navigate",
-          command: "billing-main",
-          target: "",
-          title: "OLT подтверждена — вернись к способам опроса",
-          detail: "На основной карточке будет подсвечен poller, соответствующий технологии OLT.",
-          label: "К способам опроса",
-          pageMatched: false
-        };
+        next = action("billing-main", "navigate", "billing-main", "", "OLT подтверждена — вернись к способам опроса", "На основной карточке Workbench подсветит нужный poller.", "К способам опроса", false);
       } else if (proof.tmcFound) {
         stage = "fill-olt";
         expectedPage = "billing-technical";
-        action = {
-          id: "fill-olt",
-          type: "highlight",
-          command: "highlight",
-          target: "billing-olt-field",
-          title: "Заполни поле OLT в технических данных",
-          detail: "OLT уже найдена в ТМЦ. Сейчас подсвечивается только точное поле OLT на текущей странице.",
-          label: "Подсветить OLT",
-          pageMatched: true
-        };
+        next = action("fill-olt", "highlight", "highlight", "billing-olt-field", "Заполни поле OLT в технических данных", "Подсвечивается только точное поле OLT на текущей странице.", "Подсветить OLT", true);
       } else {
         stage = "go-billing-main";
         expectedPage = "billing-user";
-        action = {
-          id: "billing-main",
-          type: "navigate",
-          command: "billing-main",
-          target: "",
-          title: "Для поиска OLT вернись на карточку Billing",
-          detail: "На технической странице нет перехода по следующему этапу. После возврата Workbench подсветит UserSide.",
-          label: "На карточку Billing",
-          pageMatched: false
-        };
+        next = action("billing-main", "navigate", "billing-main", "", "Для поиска OLT вернись на карточку Billing", "После возврата система подсветит переход в UserSide.", "На карточку Billing", false);
       }
     } else if (currentPage === "billing-user") {
       if (proof.billingOlt?.present) {
         stage = "poll-onu";
         expectedPage = "billing-user";
-        action = {
-          id: "poll-onu",
-          type: "highlight",
-          command: "highlight",
-          target: proof.poller || "line",
-          title: "Запусти live-опрос ONU",
-          detail: proof.poller
-            ? "Подсвечен способ опроса, соответствующий подтверждённой технологии OLT."
-            : "OLT подтверждена, но технология не распознана. Уточни тип подключения перед опросом.",
-          label: "Подсветить опрос",
-          pageMatched: true
-        };
+        next = action("poll-onu", "highlight", "highlight", proof.poller || "line", "Запусти live-опрос ONU", proof.poller ? "Подсвечен poller подтверждённой технологии OLT." : "Технология OLT не распознана — уточни тип подключения.", "Подсветить опрос", true);
       } else if (proof.tmcFound) {
         stage = "open-technical";
         expectedPage = "billing-user";
-        action = {
-          id: "billing-technical",
-          type: "page-action",
-          command: "billing-technical",
-          target: "billing-technical",
-          title: "Открой технические данные",
-          detail: "На этой странице подсвечивается точная вкладка. После перехода Workbench автоматически выделит поле OLT.",
-          label: "Открыть техданные",
-          pageMatched: true
-        };
+        next = action("billing-technical", "page-action", "billing-technical", "billing-technical", "Открой технические данные", "На этой странице подсвечивается точная вкладка. После перехода будет выделено поле OLT.", "Открыть техданные", true);
       } else {
         stage = "open-userside";
         expectedPage = "billing-user";
-        action = {
-          id: "userside",
-          type: "page-action",
-          command: "userside",
-          target: "billing-userside",
-          title: "Перейди в UserSide и проверь ТМЦ",
-          detail: "На текущей карточке подсвечивается только точный переход в UserSide.",
-          label: "Открыть UserSide",
-          pageMatched: true
-        };
+        next = action("userside", "page-action", "userside", "billing-userside", "Перейди в UserSide и проверь ТМЦ", "На текущей карточке подсвечивается только точный переход в UserSide.", "Открыть UserSide", true);
       }
     } else if (currentPage === "userside-customer") {
       if (proof.tmcFound) {
         stage = "return-billing";
         expectedPage = "billing-user";
-        action = {
-          id: "return-billing",
-          type: "navigate",
-          command: "return-billing",
-          target: "",
-          title: "OLT найдена — вернись в Billing",
-          detail: "После возврата Workbench направит в технические данные и подсветит поле OLT.",
-          label: "Вернуться в Billing",
-          pageMatched: false
-        };
+        next = action("return-billing", "navigate", "return-billing", "", "OLT найдена — вернись в Billing", "После возврата система направит в технические данные.", "Вернуться в Billing", false);
       } else {
         stage = "find-tmc";
         expectedPage = "userside-customer";
-        action = {
-          id: "find-tmc",
-          type: "highlight",
-          command: "highlight",
-          target: "userside-tmc",
-          title: "Открой ТМЦ и найди «Найдено на OLT»",
-          detail: "Подсвечивается только раздел ТМЦ на текущей карточке UserSide.",
-          label: "Подсветить ТМЦ",
-          pageMatched: true
-        };
+        next = action("find-tmc", "highlight", "highlight", "userside-tmc", "Открой ТМЦ и найди «Найдено на OLT»", "Подсвечивается только раздел ТМЦ текущей карточки UserSide.", "Подсветить ТМЦ", true);
       }
     }
 
-    const revisionKey = `${subscriberKey(state)}:${stage}:${currentPage}:${action.target}:${action.command}`;
-    let revision = routeRevisions.get(revisionKey);
-    if (!revision) {
-      revision = Date.now();
-      routeRevisions.set(revisionKey, revision);
-    }
+    const revisionKey = `${subscriberKey(state)}:${stage}:${currentPage}:${next.target}:${next.command}`;
+    if (!revisions.has(revisionKey)) revisions.set(revisionKey, Date.now());
+    const steps = stepsFor(stage, proof);
+    const progressCurrent = stage === "complete"
+      ? steps.length
+      : Math.min(steps.length, Math.max(1, steps.filter(step => step.complete).length + 1));
 
-    const steps = routeSteps(stage, proof);
-    const current = Math.max(1, steps.filter(step => step.complete).length + (stage === "complete" ? 0 : 1));
     return {
       active: true,
-      revision,
+      revision: revisions.get(revisionKey),
       subscriberKey: subscriberKey(state),
       management: {
         routeId: "olt-discovery",
         stage,
         currentPage,
         expectedPage,
-        progress: { current: Math.min(current, steps.length), total: steps.length },
+        progress: { current: progressCurrent, total: steps.length },
         steps
       },
-      action,
+      action: next,
       ui: {
         severity: stage === "complete" ? "ok" : stage === "wait-poll-result" ? "info" : "warning",
-        autoHighlight: Boolean(action.pageMatched && action.target),
+        autoHighlight: Boolean(next.pageMatched && next.target),
         blockForeignHighlights: true
       },
       evidence: {
@@ -329,34 +235,30 @@
     };
   }
 
-  async function ensureAutomaticOltRoute(tab, state) {
+  async function ensureAutomaticRoute(tab, state) {
     const context = state?.context || {};
     const evidence = state?.evidence || {};
     const key = subscriberKey(state);
-    if (key === "no-context" || autoStarting.has(key)) return workflowForTab(tab, state);
-    const existing = workflowForTab(tab, state);
-    if (existing?.active) return existing;
+    const existing = currentWorkflow(tab, state);
+    if (existing?.active || key === "no-context" || starting.has(key)) return existing;
+
     const shouldStart = context.kind === "billing_technical"
       && evidence.pon?.isPon
       && context.olt?.status === "missing"
       && !state?.checkpoints?.onuPolled;
     if (!shouldStart) return existing;
 
-    autoStarting.add(key);
-    try {
-      return await startOltWorkflow(tab);
-    } catch (_) {
-      return null;
-    } finally {
-      autoStarting.delete(key);
-    }
+    starting.add(key);
+    try { return await startOltWorkflow(tab); }
+    catch (_) { return null; }
+    finally { starting.delete(key); }
   }
 
-  async function publishRoute(tab, state = null) {
-    if (!Number.isInteger(tab?.id)) return inactiveRoute(tab, state);
-    const resolvedState = state || snapshots.get(tab.id) || null;
-    const workflow = await ensureAutomaticOltRoute(tab, resolvedState);
-    const route = routeStateFor(tab, resolvedState, workflow || workflowForTab(tab, resolvedState));
+  async function publishRoute(tab, suppliedState = null) {
+    if (!Number.isInteger(tab?.id)) return inactiveRoute(tab, suppliedState);
+    const state = suppliedState || snapshots.get(tab.id) || null;
+    const workflow = await ensureAutomaticRoute(tab, state) || currentWorkflow(tab, state);
+    const route = routeStateFor(tab, state, workflow);
     chrome.tabs.sendMessage(tab.id, { type: ROUTE_STATE, route }).catch(() => {});
     chrome.runtime.sendMessage({ type: ROUTE_STATE, tabId: tab.id, route }).catch(() => {});
     return route;
@@ -397,46 +299,38 @@
     const tab = await activeTab();
     if (!Number.isInteger(tab?.id)) throw new Error("Активная вкладка не найдена");
     const state = snapshots.get(tab.id) || null;
-    const workflow = workflowForTab(tab, state) || await ensureAutomaticOltRoute(tab, state);
+    const workflow = currentWorkflow(tab, state) || await ensureAutomaticRoute(tab, state);
     const route = routeStateFor(tab, state, workflow);
     if (!route.active) throw new Error("Активный маршрут отсутствует");
 
-    const requested = message.command || route.action.command || "";
-    if (requested === "highlight") {
-      if (!route.action.pageMatched || !route.action.target) {
-        throw new Error("Нужный элемент находится на другой странице");
-      }
+    const command = message.command || route.action.command || "";
+    if (command === "highlight") {
+      if (!route.action.pageMatched || !route.action.target) throw new Error("Нужный элемент находится на другой странице");
       return chrome.tabs.sendMessage(tab.id, {
         type: CORE_COMMAND_MESSAGE,
         action: "highlight",
         target: route.action.target
       });
     }
-
-    if (requested === "refresh") {
+    if (command === "refresh") {
       await chrome.tabs.sendMessage(tab.id, { type: CORE_COMMAND_MESSAGE, action: "refresh" }).catch(() => {});
       return { ok: true };
     }
-
-    if (["billing-main", "billing-technical", "return-billing"].includes(requested)) {
-      return handleWorkflowCommand({ action: requested });
+    if (["billing-main", "billing-technical", "return-billing"].includes(command)) {
+      return handleWorkflowCommand({ action: command });
     }
-
-    if (requested === "userside") {
+    if (command === "userside") {
       await openUserside(tab, state, workflow);
       return { ok: true };
     }
-
     throw new Error("Неизвестное действие маршрута");
   }
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === CORE_STATE_MESSAGE && Number.isInteger(sender?.tab?.id)) {
-      window.setTimeout?.(() => {}, 0);
       Promise.resolve().then(() => publishRoute(sender.tab, message.state || null));
       return false;
     }
-
     if (message?.type === ROUTE_GET) {
       activeTab()
         .then(tab => publishRoute(tab))
@@ -444,31 +338,24 @@
         .catch(error => sendResponse({ ok: false, error: String(error?.message || error) }));
       return true;
     }
-
     if (message?.type === ROUTE_COMMAND) {
       executeRoute(message)
         .then(result => sendResponse(result || { ok: true }))
         .catch(error => sendResponse({ ok: false, error: String(error?.message || error) }));
       return true;
     }
-
     return false;
   });
 
   chrome.tabs.onActivated.addListener(activeInfo => {
-    chrome.tabs.get(activeInfo.tabId)
-      .then(tab => publishRoute(tab))
-      .catch(() => {});
+    chrome.tabs.get(activeInfo.tabId).then(tab => publishRoute(tab)).catch(() => {});
   });
-
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    if (!changeInfo.status || changeInfo.status === "complete") {
-      publishRoute(tab || { id: tabId }).catch(() => {});
-    }
+    if (!changeInfo.status || changeInfo.status === "complete") publishRoute(tab || { id: tabId }).catch(() => {});
   });
 
   globalThis.__SIMNET_MENTOR_ROUTE_WORKER__ = {
-    version: "0.1.0",
+    version: "0.1.1",
     routeStateFor,
     publishRoute
   };
