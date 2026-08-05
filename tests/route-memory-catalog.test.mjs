@@ -51,29 +51,26 @@ test("route registry covers billing, Juniper, pollers, UserSide and logs", () =>
   ]) assert.match(registry, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
 
-test("route catalog renders two columns with persistent editable notes", () => {
+test("route catalog source remains available for isolated redesign", () => {
   assert.match(catalog, /Точки маршрута \/ элемент \/ endpoint/);
   assert.match(catalog, /Мои правки/);
-  assert.match(catalog, /<colgroup><col style="width:64%"><col style="width:36%"><\/colgroup>/);
   assert.match(catalog, /contenteditable="true"/);
-  assert.match(catalog, /chrome\.storage\.local\.set/);
   assert.match(catalog, /CATALOG_WIDTH = 720/);
-  assert.match(catalog, /data-route-catalog/);
-  assert.match(catalog, /data-catalog-highlight/);
 });
 
-test("manifest loads lifecycle and catalog layers in dependency order", () => {
+test("manifest loads stable mentor layers but excludes route catalog runtime", () => {
   const scripts = manifest.content_scripts.at(-1).js;
-  const order = names => names.map(name => scripts.indexOf(name));
-  const indexes = order([
+  const stable = [
     "src/core-sidepanel-adapter.js",
     "src/highlight-lifecycle-fix.js",
     "src/mentor-route-controller.js",
-    "src/route-registry.js",
     "src/sidepanel-launcher.js",
-    "src/route-catalog-ui.js"
-  ]);
+    "src/dock-route-ui.js"
+  ];
+  const indexes = stable.map(name => scripts.indexOf(name));
   assert.ok(indexes.every(index => index >= 0));
   assert.deepEqual(indexes, indexes.slice().sort((a, b) => a - b));
-  assert.equal(manifest.version, "0.8.3");
+  assert.equal(scripts.includes("src/route-registry.js"), false);
+  assert.equal(scripts.includes("src/route-catalog-ui.js"), false);
+  assert.equal(manifest.version, "0.8.4");
 });
