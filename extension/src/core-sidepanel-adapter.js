@@ -29,16 +29,20 @@
     try { return document.querySelector(selector); } catch (_) { return null; }
   }
 
-  function exactTarget(name) {
-    const element = safeQuery(EXACT_SELECTORS[name]);
-    return isVisible(element) ? element : null;
-  }
-
   function isVisible(element) {
     if (!element || !element.isConnected) return false;
     const rect = element.getBoundingClientRect();
     const style = getComputedStyle(element);
-    return rect.width > 8 && rect.height > 8 && style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
+    return rect.width > 8
+      && rect.height > 8
+      && style.display !== "none"
+      && style.visibility !== "hidden"
+      && style.opacity !== "0";
+  }
+
+  function exactTarget(name) {
+    const element = safeQuery(EXACT_SELECTORS[name]);
+    return isVisible(element) ? element : null;
   }
 
   function cleanText(value) {
@@ -123,10 +127,7 @@
     }
 
     if (kind === "session-status") {
-      return [exactOrFallback(
-        "juniperStatus",
-        findByText(/\b(?:online|offline)\b/i)
-      )].filter(isVisible);
+      return [exactOrFallback("juniperStatus", findByText(/\b(?:online|offline)\b/i))].filter(isVisible);
     }
 
     if (kind === "billing-access") {
@@ -198,6 +199,10 @@
         0%,100% { transform: scale(1); opacity: .96; box-shadow: 0 0 0 2px rgba(168,238,36,.28), 0 0 18px rgba(168,238,36,.42); }
         50% { transform: scale(1.025); opacity: 1; box-shadow: 0 0 0 7px rgba(168,238,36,.12), 0 0 34px rgba(168,238,36,.78); }
       }
+      @keyframes simnetWbGroupPulse {
+        0%,100% { box-shadow: 0 0 0 2px rgba(168,238,36,.36), 0 0 22px rgba(168,238,36,.48); }
+        50% { box-shadow: 0 0 0 6px rgba(168,238,36,.14), 0 0 36px rgba(168,238,36,.78); }
+      }
       @keyframes simnetWbNoteIn {
         from { opacity: 0; transform: translate(-50%, 8px); }
         to { opacity: 1; transform: translate(-50%, 0); }
@@ -218,7 +223,8 @@
       height: `${Math.max(14, rect.height + 12)}px`,
       border: "3px solid #a8ee24",
       borderRadius: "10px",
-      background: "rgba(168,238,36,.055)",
+      background: "rgba(244,255,226,.14)",
+      backdropFilter: "brightness(1.55) contrast(1.04)",
       transformOrigin: "center",
       animation: `simnetWbPulse 1.15s ease-in-out ${index * 0.12}s infinite`,
       zIndex: "2147483646",
@@ -229,29 +235,42 @@
     root.appendChild(frame);
   }
 
-  function createBlockedOverlay(element, root) {
-    const rect = element.getBoundingClientRect();
-    const block = document.createElement("div");
-    Object.assign(block.style, {
+  function boundsFor(elements, padding = 7) {
+    const rects = elements.filter(isVisible).map(element => element.getBoundingClientRect());
+    if (!rects.length) return null;
+    const left = Math.min(...rects.map(rect => rect.left));
+    const top = Math.min(...rects.map(rect => rect.top));
+    const right = Math.max(...rects.map(rect => rect.right));
+    const bottom = Math.max(...rects.map(rect => rect.bottom));
+    return {
+      left: Math.max(3, left - padding),
+      top: Math.max(3, top - padding),
+      width: Math.max(18, right - left + padding * 2),
+      height: Math.max(18, bottom - top + padding * 2)
+    };
+  }
+
+  function createBlockedGroup(elements, root) {
+    const bounds = boundsFor(elements, 7);
+    if (!bounds) return;
+
+    const group = document.createElement("div");
+    group.className = "simnet-wb-blocked-group";
+    Object.assign(group.style, {
       position: "fixed",
-      left: `${Math.max(1, rect.left)}px`,
-      top: `${Math.max(1, rect.top)}px`,
-      width: `${Math.max(12, rect.width)}px`,
-      height: `${Math.max(12, rect.height)}px`,
-      display: "grid",
-      placeItems: "center",
-      padding: "3px",
-      color: "#d0d7e2",
-      background: "rgba(4,8,13,.80)",
-      border: "1px solid rgba(154,169,187,.55)",
-      borderRadius: "6px",
-      font: "700 9px Segoe UI,Arial,sans-serif",
-      letterSpacing: ".02em",
-      zIndex: "2147483647",
+      left: `${bounds.left}px`,
+      top: `${bounds.top}px`,
+      width: `${bounds.width}px`,
+      height: `${bounds.height}px`,
+      border: "3px solid #a8ee24",
+      borderRadius: "11px",
+      background: "rgba(244,255,226,.24)",
+      backdropFilter: "brightness(1.9) contrast(1.06) saturate(1.08)",
+      animation: "simnetWbGroupPulse 1.2s ease-in-out infinite",
+      zIndex: "2147483646",
       pointerEvents: "none"
     });
-    block.textContent = "Сначала определить OLT";
-    root.appendChild(block);
+    root.appendChild(group);
   }
 
   function createNote(root, text) {
@@ -302,7 +321,9 @@
       };
     }
 
-    const focus = context.kind === "billing_technical" ? targetsFor("billing-olt-field") : targetsFor("billing-technical");
+    const focus = context.kind === "billing_technical"
+      ? targetsFor("billing-olt-field")
+      : targetsFor("billing-technical");
     return {
       focus,
       blocked: pollerTargets(),
@@ -317,14 +338,19 @@
     const blocked = uniqueElements(plan.blocked || []).filter(isVisible);
     if (!focus.length && !blocked.length) return { ok: false, count: 0 };
 
-    const first = focus[0] || blocked[0];
+    const first = blocked[0] || focus[0];
     first?.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
 
     window.setTimeout(() => {
       clearHighlight();
       const root = document.createElement("div");
       root.id = HIGHLIGHT_ROOT_ID;
-      Object.assign(root.style, { position: "fixed", inset: "0", zIndex: "2147483644", pointerEvents: "none" });
+      Object.assign(root.style, {
+        position: "fixed",
+        inset: "0",
+        zIndex: "2147483644",
+        pointerEvents: "none"
+      });
       appendHighlightStyles(root);
 
       const shade = document.createElement("div");
@@ -338,13 +364,15 @@
       root.appendChild(shade);
 
       focus.filter(isVisible).forEach((element, index) => createFrame(element, root, index));
-      blocked.filter(isVisible).forEach(element => createBlockedOverlay(element, root));
+      createBlockedGroup(blocked.filter(isVisible), root);
       createNote(root, plan.note);
       document.documentElement.appendChild(root);
 
       const clear = () => clearHighlight();
       window.setTimeout(clear, 6800);
-      window.addEventListener("keydown", event => { if (event.key === "Escape") clear(); }, { once: true, capture: true });
+      window.addEventListener("keydown", event => {
+        if (event.key === "Escape") clear();
+      }, { once: true, capture: true });
       window.addEventListener("pointerdown", clear, { once: true, capture: true });
     }, 280);
 
@@ -372,7 +400,7 @@
   window.addEventListener("pagehide", unsubscribe, { once: true });
   publish();
   globalThis.__SIMNET_CORE_SIDE_PANEL_ADAPTER__ = {
-    version: "0.4.3",
+    version: "0.4.4",
     publish,
     highlight,
     clearHighlight,
