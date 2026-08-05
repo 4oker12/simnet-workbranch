@@ -6,6 +6,7 @@
   const baseCore = globalThis.__SIMNET_WORKBENCH_CORE__;
   if (!baseCore?.getState || !baseCore?.subscribe) return;
 
+  const JUNIPER_STATUS_SELECTOR = "#maindiv > table:nth-child(2) > tbody > tr > td:nth-child(2) > div.message > table > tbody > tr > td:nth-child(3) > ol > li:nth-child(4)";
   const safe = (value, max = 1200) => String(value || "").replace(/\s+/g, " ").trim().slice(0, max);
   const extractIps = value => [...new Set(String(value || "").match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g) || [])]
     .filter(ip => ip.split(".").every(part => Number(part) >= 0 && Number(part) <= 255));
@@ -64,15 +65,44 @@
     return safe(parts.join(" "), 24000);
   }
 
+  function exactJuniperStatus() {
+    const node = document.querySelector(JUNIPER_STATUS_SELECTOR);
+    const raw = safe(node?.textContent || node?.innerText || "", 320);
+    if (!node || !raw) return { node: null, raw: "", status: "unknown" };
+    if (/\bonline\b/i.test(raw)) return { node, raw, status: "active" };
+    if (/\boffline\b/i.test(raw)) return { node, raw, status: "absent" };
+    return { node, raw, status: "unknown" };
+  }
+
   function sessionEvidence() {
+    const exact = exactJuniperStatus();
     const iframe = document.querySelector("iframe[src*='juniper' i]");
     const tab = [...document.querySelectorAll("a,button,[role='tab'],[onclick],td,span")]
       .find(element => /^Juniper(?:\s*\(NEW\)|\s+NEW|\s*2)?$/i.test(safe(element.textContent, 80)));
     const text = relatedJuniperText();
-    const opened = Boolean((iframe && isVisible(iframe)) || (tab && /active|selected|open|show/i.test(tab.className || "")) || text.length > 40);
+    const opened = Boolean(exact.node || (iframe && isVisible(iframe)) || (tab && /active|selected|open|show/i.test(tab.className || "")) || text.length > 40);
+    const ip = extractIps(`${exact.raw} ${text}`).find(value => !/^127\.|^0\.|^255\./.test(value)) || "";
+    const mac = normalizeMac(`${exact.raw} ${text}`);
+
+    if (exact.status === "active" || exact.status === "absent") {
+      return {
+        status: exact.status,
+        rawStatus: exact.raw,
+        opened: true,
+        loaded: true,
+        resolved: true,
+        active: exact.status === "active",
+        absent: exact.status === "absent",
+        ip,
+        mac,
+        source: "Juniper NEW: точное поле статуса",
+        summary: exact.status === "active"
+          ? "Juniper: статус online"
+          : "Juniper: статус offline"
+      };
+    }
+
     const negative = /(?:нет|отсутствует|не найден[ао]?|не обнаружен[ао]?|no)\s+(?:активн\w*\s+)?сесси|сесси\w*\s+(?:нет|отсутств|не найден)|user\s+not\s+found|no\s+session/i.test(text);
-    const ip = extractIps(text).find(value => !/^127\.|^0\.|^255\./.test(value)) || "";
-    const mac = normalizeMac(text);
     const positive = !negative && opened && (
       Boolean(ip && mac)
       || /(?:active|online|uptime|start(?:ed)?|авторизован|сессия\s+(?:есть|активна|найдена))/i.test(text)
@@ -84,6 +114,7 @@
 
     return {
       status,
+      rawStatus: exact.raw,
       opened,
       loaded,
       resolved: status === "active" || status === "absent",
@@ -176,9 +207,9 @@
       alerts.push({
         id: "session-absent",
         severity: "critical",
-        title: "Сессия не подтверждена",
-        text: "Juniper открыт, активная сессия не найдена.",
-        target: "session",
+        title: "Juniper: статус offline",
+        text: "Активной сессии сейчас нет. Причина ещё не установлена: проверь ограничения Billing, авторизацию/BRAS и состояние ONU.",
+        target: "session-status",
         source: "Juniper NEW"
       });
     }
@@ -225,7 +256,7 @@
 
   const enrichedCore = {
     ...baseCore,
-    version: "0.5.0",
+    version: "0.5.1",
     getState() {
       return enrichState(baseCore.getState());
     },
@@ -236,5 +267,5 @@
   };
 
   globalThis.__SIMNET_WORKBENCH_CORE__ = enrichedCore;
-  globalThis.__SIMNET_MENTOR_EVIDENCE__ = { version: "0.1.0", enrichState };
+  globalThis.__SIMNET_MENTOR_EVIDENCE__ = { version: "0.2.0", enrichState, JUNIPER_STATUS_SELECTOR };
 })();
