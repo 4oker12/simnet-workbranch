@@ -82,7 +82,8 @@
         "src/sidepanel-launcher.js",
         "src/dock-layout-fix.js",
         "src/dock-route-ui.js",
-        "src/basic-diagnostic-route.js"
+        "src/basic-diagnostic-route.js",
+        "src/basic-route-state-guard.js"
       ],
       "run_at": "document_idle",
       "world": "ISOLATED"
