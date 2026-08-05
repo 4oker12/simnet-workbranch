@@ -1,5 +1,21 @@
-dist/*.zip
+```
+# Build artifacts
+dist/
+*.zip
+
+# Dependencies
 node_modules/
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+
+# Logs and temp files
 *.log
-.DS_Store
-Thumbs.db
+*.tmp
+```
