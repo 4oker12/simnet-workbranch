@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET / LOOKNET Diagnostic Workbench",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "minimum_chrome_version": "116",
   "description": "Live operator assistant for SIMNET, LOOKNET and the shared UserSide.",
   "permissions": [
@@ -81,7 +81,8 @@
         "src/mentor-route-controller.js",
         "src/sidepanel-launcher.js",
         "src/dock-layout-fix.js",
-        "src/dock-route-ui.js"
+        "src/dock-route-ui.js",
+        "src/basic-diagnostic-route.js"
       ],
       "run_at": "document_idle",
       "world": "ISOLATED"
