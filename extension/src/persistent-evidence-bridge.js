@@ -6,7 +6,7 @@
   const baseCore = globalThis.__SIMNET_WORKBENCH_CORE__;
   if (!baseCore?.getState || !baseCore?.subscribe) return;
 
-  const VERSION = "0.1.0";
+  const VERSION = "0.1.1";
   const STORAGE_KEY = "simnet_wb_verified_evidence_v2";
   const EVIDENCE_TTL_MS = 30 * 60 * 1000;
   const listeners = new Set();
@@ -67,8 +67,8 @@
   function evidenceFingerprint(entry) {
     try {
       return JSON.stringify({
-        session: entry?.session || null,
-        line: entry?.line || null,
+        session: entry?.session?.evidence || null,
+        line: entry?.line?.evidence || null,
         aliases: entry?.aliases || []
       });
     } catch (_) {
@@ -242,9 +242,13 @@
         loaded = result?.[STORAGE_KEY] || {};
       } catch (_) {}
     }
-    cache = loaded && typeof loaded === "object" && !Array.isArray(loaded) ? loaded : {};
-    lastPersistedJson = JSON.stringify(cache);
+
+    const stored = loaded && typeof loaded === "object" && !Array.isArray(loaded) ? loaded : {};
+    const storedJson = JSON.stringify(stored);
+    cache = { ...stored, ...cache };
+    lastPersistedJson = storedJson;
     cacheLoaded = true;
+    if (JSON.stringify(cache) !== storedJson) schedulePersist();
     publish(lastRawState || baseCore.getState());
   }
 
