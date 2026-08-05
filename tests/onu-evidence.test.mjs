@@ -36,7 +36,8 @@ test("incomplete ONU step exposes a primary route action", () => {
   assert.match(route, /Маршрут OLT/);
   assert.match(route, /data-highlight=\\?"line/);
   assert.match(route, /onu-route-choice/);
-  assert.match(route, /title !== "Линия и ONU"/);
+  assert.match(route, /data-step-id=\\?"line/);
+  assert.match(route, /task\?\.stepId !== "line"/);
 });
 
 test("strict ONU evidence loads after mentor evidence and before adapter", () => {
