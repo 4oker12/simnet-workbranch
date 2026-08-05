@@ -5,15 +5,16 @@
   let skippedByContext = {};
 
   const originalRenderFocus = renderFocus;
-  const originalBuildSteps = buildSteps;
+
+  function canonicalModel() {
+    return globalThis.__SIMNET_LIVE_MENTOR_MODEL__?.build?.() || {
+      steps: [],
+      focusCandidates: [currentTask()]
+    };
+  }
 
   function skipContextKey() {
-    const context = effectiveContext();
-    if (workflow?.key) return workflow.key;
-    if (context.contract) return `contract:${context.contract}`;
-    if (context.billingId) return `billing:${context.billingId}`;
-    if (context.customerId) return `userside:${context.customerId}`;
-    return "no-context";
+    return globalThis.__SIMNET_LIVE_MENTOR_MODEL__?.contextKey?.() || contextKey();
   }
 
   function currentSkipped() {
@@ -21,10 +22,7 @@
   }
 
   function skipIdFor(task) {
-    if (!task) return "";
-    if (task.id === "missing-olt" || task.id === "poll-onu") return "line";
-    if (task.id === "check-session") return "session";
-    return task.skipId || task.id || "";
+    return task?.stepId || task?.id || "";
   }
 
   function isSkipped(task) {
@@ -56,6 +54,7 @@
         [id]: {
           id,
           taskId: task.id,
+          issueId: task.issueId || "",
           title: task.title,
           severity: task.severity || "info",
           skippedAt: Date.now()
@@ -79,98 +78,22 @@
     await persistSkipped();
   }
 
-  function alertTask(alert, context) {
-    if (alert?.id === "missing-olt") {
-      return { ...alert, hints: missingOltHints(context), route: true, skipId: "line" };
-    }
-    return {
-      ...alert,
-      hints: [
-        alert.text,
-        `Источник предупреждения: ${alert.source || "Billing"}.`,
-        "Нажми «Подсветить», чтобы перейти к конкретному полю."
-      ]
-    };
-  }
-
-  function rawTaskCandidates() {
-    const context = effectiveContext();
-    const cp = checkpoints();
-    const session = evidence().session || {};
-
-    if (!context.contract && !context.billingId && !context.customerId) {
-      return [{
-        id: "open-subscriber",
-        severity: "info",
-        title: "Открой карточку абонента",
-        target: "subscriber",
-        hints: ["Live Assistant подхватит договор, IP и доступные данные после открытия карточки Billing или UserSide."],
-        skippable: false
-      }];
-    }
-
-    const tasks = (Array.isArray(snapshot?.alerts) ? snapshot.alerts : [])
-      .map(alert => alertTask(alert, context));
-
-    if (!cp.sessionResolved) {
-      let title = "Проверь сессию в Juniper NEW";
-      let severity = "info";
-      if (session.opened && session.status === "loading") title = "Juniper открыт — жду загрузку";
-      else if (session.opened && session.status === "unknown") {
-        title = "Juniper открыт, результат не распознан";
-        severity = "warning";
-      }
-      tasks.push({
-        id: "check-session",
-        skipId: "session",
-        severity,
-        title,
-        target: "session",
-        hints: sessionHints()
-      });
-    }
-
-    if (!cp.onuPolled) {
-      tasks.push({
-        id: "poll-onu",
-        skipId: "line",
-        severity: "info",
-        title: cp.oltKnown ? "Подтверди состояние ONU" : "Сначала определи OLT",
-        target: "line",
-        hints: cp.oltKnown ? lineHints(context) : missingOltHints(context),
-        route: !cp.oltKnown
-      });
-    }
-
-    if (!tasks.length) {
-      tasks.push({
-        id: "checks-complete",
-        severity: "ok",
-        title: "Основные чекпоинты пройдены",
-        target: "subscriber",
-        hints: ["Абонент определён, авторизация проверена и live-состояние линии получено."],
-        skippable: false
-      });
-    }
-
-    return tasks;
-  }
-
   function activeSkippedRecords() {
-    const activeIds = new Set(rawTaskCandidates().map(skipIdFor));
+    const activeIds = new Set(canonicalModel().focusCandidates.map(skipIdFor));
     return Object.values(currentSkipped())
       .filter(record => activeIds.has(record.id))
       .sort((left, right) => left.skippedAt - right.skippedAt);
   }
 
   currentTask = function currentTaskWithSkip() {
-    const candidates = rawTaskCandidates();
+    const candidates = canonicalModel().focusCandidates;
     const next = candidates.find(task => !isSkipped(task));
     if (next) return next;
 
     const skipped = activeSkippedRecords();
     return {
       id: "skipped-summary",
+      stepId: "skipped-summary",
       severity: "info",
       title: "Оставшиеся проверки отложены",
       target: "",
@@ -182,6 +105,18 @@
       skippable: false,
       paused: true
     };
+  };
+
+  buildSteps = function buildStepsWithSkip() {
+    return canonicalModel().steps.map(step => {
+      const skipped = isSkipped(step.id) && (step.attention || !step.complete);
+      return {
+        ...step,
+        skipped,
+        attention: skipped ? false : step.attention,
+        detail: skipped ? `Отложено оператором · ${step.detail}` : step.detail
+      };
+    });
   };
 
   renderFocus = function renderFocusWithSkip(task) {
@@ -197,7 +132,7 @@
     if (canSkip) {
       actions.insertAdjacentHTML(
         "beforeend",
-        `<button type="button" class="skip-choice" data-skip-task="${escapeHtml(skipIdFor(task))}" data-skip-title="${escapeHtml(task.title)}" data-skip-source="${escapeHtml(task.id)}">Пропустить</button>`
+        `<button type="button" class="skip-choice" data-skip-task="${escapeHtml(skipIdFor(task))}" data-skip-title="${escapeHtml(task.title)}" data-skip-source="${escapeHtml(task.id)}" data-skip-issue="${escapeHtml(task.issueId || "")}">Пропустить</button>`
       );
     }
 
@@ -207,18 +142,6 @@
         `<button type="button" class="primary-choice" data-restore-all-skips>Вернуть пропущенные</button>`
       );
     }
-  };
-
-  buildSteps = function buildStepsWithSkip() {
-    return originalBuildSteps().map(step => {
-      const skipped = !step.complete && isSkipped(step.id);
-      return {
-        ...step,
-        skipped,
-        attention: skipped ? false : step.attention,
-        detail: skipped ? `Отложено оператором · ${step.detail}` : step.detail
-      };
-    });
   };
 
   renderChecklist = function renderChecklistWithSkip(steps) {
@@ -238,13 +161,13 @@
       const marker = step.skipped ? "↷" : step.attention ? "!" : step.complete ? "✓" : index + 1;
       const tool = step.skipped
         ? `<span class="step-tools"><button type="button" data-restore-skip="${escapeHtml(step.id)}">Вернуть</button></span>`
-        : !step.complete
+        : !step.complete || step.attention
           ? `<span class="step-tools"><button type="button" data-highlight="${escapeHtml(step.target)}">Поле</button></span>`
           : "";
-      return `<div class="${classes}"><span class="step-state">${marker}</span><span class="step-copy"><strong>${escapeHtml(step.title)}</strong><span title="${escapeHtml(step.detail)}">${escapeHtml(step.detail)}</span></span>${tool}</div>`;
+      return `<div class="${classes}" data-step-id="${escapeHtml(step.id)}" data-issue-id="${escapeHtml(step.issueId || "")}"><span class="step-state">${marker}</span><span class="step-copy"><strong>${escapeHtml(step.title)}</strong><span title="${escapeHtml(step.detail)}">${escapeHtml(step.detail)}</span></span>${tool}</div>`;
     });
 
-    const mappedIds = new Set(["session", "line"]);
+    const mappedIds = new Set(["subscriber", "session", "line"]);
     const extra = activeSkippedRecords().filter(record => !mappedIds.has(record.id));
     if (extra.length) {
       rows.push(`<div class="skipped-stack"><span class="skipped-stack-title">Отложено</span>${extra.map(record => `
@@ -264,7 +187,8 @@
       event.stopPropagation();
       await skipTask({
         id: skipButton.dataset.skipSource,
-        skipId: skipButton.dataset.skipTask,
+        stepId: skipButton.dataset.skipTask,
+        issueId: skipButton.dataset.skipIssue,
         title: skipButton.dataset.skipTitle,
         severity: document.querySelector(".focus-card")?.classList.contains("severity-critical")
           ? "critical"
