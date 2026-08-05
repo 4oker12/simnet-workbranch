@@ -11,6 +11,7 @@
 
   const EXACT_SELECTORS = Object.freeze({
     juniperNew: "#maindiv > table:nth-child(6) > tbody > tr > td:nth-child(3) > table > tbody > tr:nth-child(2) > td > table > tbody > tr:nth-child(2) > td:nth-child(3) > div:nth-child(1) > div:nth-child(9) > a",
+    juniperStatus: "#maindiv > table:nth-child(2) > tbody > tr > td:nth-child(2) > div.message > table > tbody > tr > td:nth-child(3) > ol > li:nth-child(4)",
     billingTechnical: "#maindiv > table:nth-child(6) > tbody > tr > td:nth-child(3) > table > tbody > tr:nth-child(2) > td > table > tbody > tr:nth-child(2) > td:nth-child(3) > div:nth-child(1) > div.nav3 > a:nth-child(3)",
     billingOltField: "#maindiv > table.width100.pddng > tbody > tr > td:nth-child(2) > div > div > div > div > form > table > tbody > tr:nth-child(6) > td:nth-child(2) > div",
     pollerEpon: "#maindiv > table:nth-child(6) > tbody > tr > td:nth-child(3) > table > tbody > tr:nth-child(2) > td > table > tbody > tr:nth-child(2) > td:nth-child(3) > div:nth-child(1) > div:nth-child(4) > a",
@@ -25,11 +26,7 @@
 
   function safeQuery(selector) {
     if (!selector) return null;
-    try {
-      return document.querySelector(selector);
-    } catch (_) {
-      return null;
-    }
+    try { return document.querySelector(selector); } catch (_) { return null; }
   }
 
   function exactTarget(name) {
@@ -49,18 +46,16 @@
   }
 
   function smallestVisible(candidates) {
-    return candidates
-      .filter(isVisible)
-      .sort((left, right) => {
-        const a = left.getBoundingClientRect();
-        const b = right.getBoundingClientRect();
-        return (a.width * a.height) - (b.width * b.height);
-      })[0] || null;
+    return candidates.filter(isVisible).sort((left, right) => {
+      const a = left.getBoundingClientRect();
+      const b = right.getBoundingClientRect();
+      return (a.width * a.height) - (b.width * b.height);
+    })[0] || null;
   }
 
   function findByText(pattern) {
     const candidates = [];
-    for (const element of document.querySelectorAll("a,button,[onclick],[role='button'],td,th,div,span,b,strong,label")) {
+    for (const element of document.querySelectorAll("a,button,[onclick],[role='button'],td,th,div,span,b,strong,label,li")) {
       if (!isVisible(element)) continue;
       const text = cleanText(element.textContent);
       if (!text || !pattern.test(text)) continue;
@@ -127,6 +122,13 @@
       ]).filter(isVisible).slice(0, 1);
     }
 
+    if (kind === "session-status") {
+      return [exactOrFallback(
+        "juniperStatus",
+        findByText(/\b(?:online|offline)\b/i)
+      )].filter(isVisible);
+    }
+
     if (kind === "billing-access") {
       const control = document.querySelector("select[name='state'],input[name='state']");
       return uniqueElements([fieldContainer(control), control, findByText(/^Доступ$/i)]).filter(isVisible).slice(0, 2);
@@ -153,10 +155,7 @@
     }
 
     if (kind === "billing-technical") {
-      return [exactOrFallback(
-        "billingTechnical",
-        document.querySelector("a[href*='a=dopdata']") || findByText(/^Технические данные$/i)
-      )].filter(isVisible);
+      return [exactOrFallback("billingTechnical", document.querySelector("a[href*='a=dopdata']") || findByText(/^Технические данные$/i))].filter(isVisible);
     }
 
     if (kind === "billing-olt-field") {
@@ -303,9 +302,7 @@
       };
     }
 
-    const focus = context.kind === "billing_technical"
-      ? targetsFor("billing-olt-field")
-      : targetsFor("billing-technical");
+    const focus = context.kind === "billing_technical" ? targetsFor("billing-olt-field") : targetsFor("billing-technical");
     return {
       focus,
       blocked: pollerTargets(),
@@ -327,12 +324,7 @@
       clearHighlight();
       const root = document.createElement("div");
       root.id = HIGHLIGHT_ROOT_ID;
-      Object.assign(root.style, {
-        position: "fixed",
-        inset: "0",
-        zIndex: "2147483644",
-        pointerEvents: "none"
-      });
+      Object.assign(root.style, { position: "fixed", inset: "0", zIndex: "2147483644", pointerEvents: "none" });
       appendHighlightStyles(root);
 
       const shade = document.createElement("div");
@@ -352,9 +344,7 @@
 
       const clear = () => clearHighlight();
       window.setTimeout(clear, 6800);
-      window.addEventListener("keydown", event => {
-        if (event.key === "Escape") clear();
-      }, { once: true, capture: true });
+      window.addEventListener("keydown", event => { if (event.key === "Escape") clear(); }, { once: true, capture: true });
       window.addEventListener("pointerdown", clear, { once: true, capture: true });
     }, 280);
 
@@ -382,7 +372,7 @@
   window.addEventListener("pagehide", unsubscribe, { once: true });
   publish();
   globalThis.__SIMNET_CORE_SIDE_PANEL_ADAPTER__ = {
-    version: "0.4.2",
+    version: "0.4.3",
     publish,
     highlight,
     clearHighlight,
