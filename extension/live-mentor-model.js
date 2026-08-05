@@ -7,6 +7,7 @@
   const EVIDENCE_TTL_MS = 30 * 60 * 1000;
   const rawCheckpoints = checkpoints;
   const rawEvidence = evidence;
+  const rawRouteDataAllowed = routeDataAllowed;
   let progressByContext = {};
   let persistTimer = 0;
 
@@ -19,6 +20,16 @@
     return "no-context";
   }
 
+  function cleanEvidence(value) {
+    if (!value || typeof value !== "object") return {};
+    const { cached, observedAt, ...rest } = value;
+    return rest;
+  }
+
+  function sameEvidence(left, right) {
+    return JSON.stringify(cleanEvidence(left)) === JSON.stringify(cleanEvidence(right));
+  }
+
   function isFresh(record) {
     return Boolean(record?.observedAt && Date.now() - record.observedAt <= EVIDENCE_TTL_MS);
   }
@@ -28,11 +39,11 @@
     persistTimer = window.setTimeout(async () => {
       persistTimer = 0;
       try { await chrome.storage.session.set({ [PROGRESS_KEY]: progressByContext }); } catch (_) {}
-    }, 40);
+    }, 50);
   }
 
   function storeRecord(key, patch) {
-    if (!key || key === "no-context") return;
+    if (!key || key === "no-context" || !Object.keys(patch).length) return;
     const previous = progressByContext[key] || {};
     const next = { ...previous, ...patch };
     if (JSON.stringify(previous) === JSON.stringify(next)) return;
@@ -44,28 +55,29 @@
     const key = modelContextKey();
     if (key === "no-context") return;
     const context = effectiveContext();
+    const previous = progressByContext[key] || {};
     const patch = {};
 
-    if (rawCp.subscriberOpened || context.contract || context.billingId || context.customerId) {
+    if (!previous.subscriberOpened && (rawCp.subscriberOpened || context.contract || context.billingId || context.customerId)) {
       patch.subscriberOpened = true;
     }
-    if (rawCp.oltKnown) patch.oltKnown = true;
+    if (!previous.oltKnown && rawCp.oltKnown) patch.oltKnown = true;
 
     if (rawCp.sessionResolved && rawEv.session?.resolved) {
-      patch.session = {
-        evidence: { ...rawEv.session },
-        observedAt: Date.now()
-      };
+      const nextEvidence = cleanEvidence(rawEv.session);
+      if (!sameEvidence(previous.session?.evidence, nextEvidence)) {
+        patch.session = { evidence: nextEvidence, observedAt: Date.now() };
+      }
     }
 
     if (rawCp.onuPolled && rawEv.line?.polled) {
-      patch.line = {
-        evidence: { ...rawEv.line },
-        observedAt: Date.now()
-      };
+      const nextEvidence = cleanEvidence(rawEv.line);
+      if (!sameEvidence(previous.line?.evidence, nextEvidence)) {
+        patch.line = { evidence: nextEvidence, observedAt: Date.now() };
+      }
     }
 
-    if (Object.keys(patch).length) storeRecord(key, patch);
+    storeRecord(key, patch);
   }
 
   function mergedState() {
@@ -83,21 +95,13 @@
     const session = currentSession.resolved
       ? currentSession
       : cachedSession
-        ? {
-            ...cachedSession.evidence,
-            cached: true,
-            observedAt: cachedSession.observedAt
-          }
+        ? { ...cachedSession.evidence, cached: true, observedAt: cachedSession.observedAt }
         : currentSession;
 
     const line = currentLine.polled
       ? currentLine
       : cachedLine
-        ? {
-            ...cachedLine.evidence,
-            cached: true,
-            observedAt: cachedLine.observedAt
-          }
+        ? { ...cachedLine.evidence, cached: true, observedAt: cachedLine.observedAt }
         : currentLine;
 
     const subscriberOpened = Boolean(
@@ -139,9 +143,21 @@
     return mergedState().checkpoints;
   };
 
+  routeDataAllowed = function canonicalRouteDataAllowed() {
+    return hintLevel("line") >= 4 || rawRouteDataAllowed();
+  };
+
+  function lineNeedsOlt(context, cp, ev) {
+    return Boolean(
+      !cp.oltKnown
+      && !cp.onuPolled
+      && (ev.pon?.isPon || context.olt || workflow?.active)
+    );
+  }
+
   function alertStepId(alert) {
     if (!alert) return "subscriber";
-    if (alert.id === "missing-olt" || alert.target === "line" || alert.target === "billing-olt-field") return "line";
+    if (alert.id === "missing-olt" || alert.id === "line-problem" || alert.target === "line" || alert.target === "billing-olt-field") return "line";
     if (alert.id === "session-absent" || /^session/.test(alert.id || "") || /^session/.test(alert.target || "")) return "session";
     return "subscriber";
   }
@@ -153,7 +169,7 @@
   function normalizedAlerts(context, cp, ev) {
     const alerts = Array.isArray(snapshot?.alerts) ? snapshot.alerts.map(alert => ({ ...alert })) : [];
     const ids = new Set(alerts.map(alert => alert.id));
-    const needsOlt = Boolean(ev.pon?.isPon && !cp.oltKnown);
+    const needsOlt = lineNeedsOlt(context, cp, ev);
 
     if (ev.session?.absent && !ids.has("session-absent")) {
       alerts.push({
@@ -172,7 +188,7 @@
         id: "missing-olt",
         severity: "warning",
         title: "Сначала определи OLT",
-        text: "Для PON не подтверждена техническая привязка. Опрос наугад недостоверен.",
+        text: "Техническая привязка не подтверждена. Опрос наугад недостоверен.",
         target: context.kind === "billing_technical" ? "billing-olt-field" : "line",
         source: "Billing"
       });
@@ -199,7 +215,7 @@
     const accessAlert = alerts.find(alert => alert.stepId === "subscriber");
     const sessionAlert = alerts.find(alert => alert.stepId === "session");
     const lineAlert = alerts.find(alert => alert.stepId === "line");
-    const needsOlt = Boolean(ev.pon?.isPon && !cp.oltKnown);
+    const needsOlt = lineNeedsOlt(context, cp, ev);
 
     return [
       {
@@ -280,7 +296,9 @@
         target: alert.target || "line",
         hints: [
           alert.text,
-          ev.line?.signature?.length ? `Подтверждающие признаки: ${ev.line.signature.join(", ")}.` : `Источник: ${alert.source || "live-опрос"}.`,
+          ev.line?.signature?.length
+            ? `Подтверждающие признаки: ${ev.line.signature.join(", ")}.`
+            : `Источник: ${alert.source || "live-опрос"}.`,
           "Сверь статус ONU, оптические уровни, порт и идентификатор оборудования."
         ]
       };
@@ -301,7 +319,7 @@
     };
   }
 
-  function taskForIncompleteStep(step, context, cp) {
+  function taskForIncompleteStep(step, context, cp, ev) {
     if (step.id === "subscriber") {
       return {
         id: "subscriber",
@@ -319,13 +337,13 @@
         id: "session",
         stepId: "session",
         severity: step.severity || "info",
-        title: evidence().session?.opened ? "Juniper открыт, результат не распознан" : "Проверь сессию в Juniper NEW",
+        title: ev.session?.opened ? "Juniper открыт, результат не распознан" : "Проверь сессию в Juniper NEW",
         target: "session",
         hints: sessionHints()
       };
     }
 
-    const needsOlt = Boolean(evidence().pon?.isPon && !cp.oltKnown);
+    const needsOlt = lineNeedsOlt(context, cp, ev);
     return {
       id: "line",
       stepId: "line",
@@ -347,7 +365,7 @@
 
     for (const step of steps) {
       if (!step.complete && !focusCandidates.some(task => task.stepId === step.id)) {
-        focusCandidates.push(taskForIncompleteStep(step, context, cp));
+        focusCandidates.push(taskForIncompleteStep(step, context, cp, ev));
       }
     }
 
@@ -384,7 +402,7 @@
   }
 
   globalThis.__SIMNET_LIVE_MENTOR_MODEL__ = {
-    version: "0.1.0",
+    version: "0.2.0",
     build: buildMentorModel,
     contextKey: modelContextKey,
     progressKey: PROGRESS_KEY,
