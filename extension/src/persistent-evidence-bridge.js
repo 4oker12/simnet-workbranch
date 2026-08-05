@@ -6,7 +6,7 @@
   const baseCore = globalThis.__SIMNET_WORKBENCH_CORE__;
   if (!baseCore?.getState || !baseCore?.subscribe) return;
 
-  const VERSION = "0.1.2";
+  const VERSION = "0.1.3";
   const STORAGE_KEY = "simnet_wb_verified_evidence_v2";
   const EVIDENCE_TTL_MS = 30 * 60 * 1000;
   const listeners = new Set();
@@ -62,6 +62,34 @@
       if (record && typeof record === "object") return clone(record);
     }
     return null;
+  }
+
+  function newestEvidenceEntry(left, right) {
+    if (!left) return right ? clone(right) : null;
+    if (!right) return clone(left);
+    return Number(right.observedAt || 0) >= Number(left.observedAt || 0)
+      ? clone(right)
+      : clone(left);
+  }
+
+  function mergeRecords(left = {}, right = {}) {
+    return {
+      ...left,
+      ...right,
+      version: Math.max(Number(left.version || 1), Number(right.version || 1)),
+      aliases: [...new Set([...(left.aliases || []), ...(right.aliases || [])])],
+      session: newestEvidenceEntry(left.session, right.session),
+      line: newestEvidenceEntry(left.line, right.line),
+      updatedAt: Math.max(Number(left.updatedAt || 0), Number(right.updatedAt || 0))
+    };
+  }
+
+  function mergeCaches(left = {}, right = {}) {
+    const merged = {};
+    for (const key of new Set([...Object.keys(left || {}), ...Object.keys(right || {})])) {
+      merged[key] = mergeRecords(left?.[key], right?.[key]);
+    }
+    return merged;
   }
 
   function evidenceFingerprint(entry) {
@@ -127,7 +155,7 @@
     }
 
     if (before === evidenceFingerprint(next)) return;
-    for (const alias of aliases) cache[alias] = clone(next);
+    for (const alias of aliases) cache[alias] = mergeRecords(cache[alias], next);
     schedulePersist();
   }
 
@@ -249,7 +277,7 @@
 
     const stored = loaded && typeof loaded === "object" && !Array.isArray(loaded) ? loaded : {};
     const storedJson = JSON.stringify(stored);
-    cache = { ...stored, ...cache };
+    cache = mergeCaches(stored, cache);
     lastPersistedJson = storedJson;
     cacheLoaded = true;
     if (JSON.stringify(cache) !== storedJson) schedulePersist();
@@ -260,8 +288,9 @@
     if (!["session", "local"].includes(areaName)) return;
     const change = changes?.[STORAGE_KEY];
     if (!change || !change.newValue || typeof change.newValue !== "object") return;
-    cache = change.newValue;
-    lastPersistedJson = JSON.stringify(cache);
+    cache = mergeCaches(cache, change.newValue);
+    lastPersistedJson = JSON.stringify(change.newValue);
+    if (JSON.stringify(cache) !== lastPersistedJson) schedulePersist();
     if (cacheLoaded) publish(lastRawState || baseCore.getState());
   });
 
@@ -272,6 +301,8 @@
     identityKeys,
     resolvedSession,
     verifiedLine,
+    mergeRecords,
+    mergeCaches,
     mergePersistentEvidence,
     getCache: () => clone(cache)
   };
