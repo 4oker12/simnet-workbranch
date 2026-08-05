@@ -6,8 +6,16 @@
   const ROUTE_STATE = "SIMNET_WB_MENTOR_ROUTE_STATE";
   const CORE_STATE_MESSAGE = "SIMNET_WB_CORE_STATE";
   const CORE_COMMAND_MESSAGE = "SIMNET_WB_CORE_COMMAND";
+  const ROUTE_MEMORY_KEY = "simnet_wb_mentor_route_memory_v2";
+  const ROUTE_MEMORY_TTL_MS = 4 * 60 * 60 * 1000;
   const revisions = new Map();
   const starting = new Set();
+  const writtenSignatures = new Map();
+  let routeMemory = {};
+
+  const memoryReady = chrome.storage.session.get({ [ROUTE_MEMORY_KEY]: {} })
+    .then(result => { routeMemory = result?.[ROUTE_MEMORY_KEY] || {}; })
+    .catch(() => { routeMemory = {}; });
 
   const safe = (value, max = 240) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 
@@ -46,28 +54,52 @@
     try { return workflowFor(state, tab?.id) || null; } catch (_) { return null; }
   }
 
-  function proofFor(state, workflow) {
+  function memoryForKey(key) {
+    if (!key || key === "no-context") return null;
+    const item = routeMemory[key] || null;
+    if (!item) return null;
+    if (Date.now() - Number(item.updatedAt || 0) <= ROUTE_MEMORY_TTL_MS) return item;
+    delete routeMemory[key];
+    chrome.storage.session.set({ [ROUTE_MEMORY_KEY]: routeMemory }).catch(() => {});
+    return null;
+  }
+
+  async function persistMemory() {
+    try { await chrome.storage.session.set({ [ROUTE_MEMORY_KEY]: routeMemory }); } catch (_) {}
+  }
+
+  function proofFor(state, workflow, memory = memoryForKey(subscriberKey(state))) {
     const context = state?.context || {};
     const checkpoints = state?.checkpoints || {};
+    const remembered = memory?.evidence || {};
     const billingOlt = context.olt?.present
       ? context.olt
       : workflow?.billingOlt?.present
         ? workflow.billingOlt
-        : null;
+        : remembered.billingOlt?.present
+          ? remembered.billingOlt
+          : null;
     const tmc = context.tmc?.found
       ? context.tmc
       : workflow?.tmc?.found
         ? workflow.tmc
-        : null;
+        : remembered.tmc?.found
+          ? remembered.tmc
+          : null;
+    const onuPolled = Boolean(checkpoints.onuPolled || remembered.onuPolled || memory?.status === "complete");
+    const oltKnown = Boolean(billingOlt?.present || tmc?.found || checkpoints.oltKnown || remembered.oltKnown);
+    const poller = billingOlt?.poller
+      || remembered.poller
+      || pollerFrom(`${billingOlt?.name || ""} ${billingOlt?.technology || ""}`);
     return {
       context,
       checkpoints,
       billingOlt,
       tmc,
       tmcFound: Boolean(tmc?.found),
-      oltKnown: Boolean(billingOlt?.present || checkpoints.oltKnown),
-      onuPolled: Boolean(checkpoints.onuPolled),
-      poller: billingOlt?.poller || pollerFrom(`${billingOlt?.name || ""} ${billingOlt?.technology || ""}`)
+      oltKnown,
+      onuPolled,
+      poller
     };
   }
 
@@ -134,10 +166,12 @@
     return { id, type, command, target, title, detail, label, pageMatched };
   }
 
-  function routeStateFor(tab, state, workflow = currentWorkflow(tab, state)) {
-    if (!workflow?.active || workflow.type !== "olt-discovery") return inactiveRoute(tab, state);
+  function routeStateFor(tab, state, workflow = currentWorkflow(tab, state), suppliedMemory = memoryForKey(subscriberKey(state))) {
+    const hasWorkflow = Boolean(workflow?.active && workflow.type === "olt-discovery");
+    const hasMemory = Boolean(suppliedMemory && ["active", "complete"].includes(suppliedMemory.status));
+    if (!hasWorkflow && !hasMemory) return inactiveRoute(tab, state);
 
-    const proof = proofFor(state, workflow);
+    const proof = proofFor(state, workflow, suppliedMemory);
     const currentPage = pageKind(tab, state);
     let stage = "go-billing-main";
     let expectedPage = "billing-user";
@@ -155,7 +189,7 @@
     if (proof.onuPolled) {
       stage = "complete";
       expectedPage = currentPage;
-      next = action("complete", "complete", "", "", "Маршрут OLT и опрос ONU завершены", "Получен структурированный результат live-опроса ONU.", "Готово", true);
+      next = action("complete", "complete", "", "", "Маршрут OLT и опрос ONU завершены", "Получен структурированный результат live-опроса ONU. Перезагрузка страницы не сбросит этот результат.", "Готово", true);
     } else if (currentPage === "billing-poller") {
       stage = "wait-poll-result";
       expectedPage = "billing-poller";
@@ -201,7 +235,10 @@
     }
 
     const revisionKey = `${subscriberKey(state)}:${stage}:${currentPage}:${next.target}:${next.command}`;
-    if (!revisions.has(revisionKey)) revisions.set(revisionKey, Date.now());
+    if (!revisions.has(revisionKey)) {
+      const rememberedRevision = suppliedMemory?.stage === stage ? Number(suppliedMemory.revision || 0) : 0;
+      revisions.set(revisionKey, rememberedRevision || Date.now());
+    }
     const steps = stepsFor(stage, proof);
     const progressCurrent = stage === "complete"
       ? steps.length
@@ -235,18 +272,52 @@
     };
   }
 
+  async function rememberRoute(route) {
+    const key = route?.subscriberKey;
+    if (!route?.active || !key || key === "no-context") return;
+    const previous = memoryForKey(key) || {};
+    const material = {
+      routeId: route.management?.routeId || "olt-discovery",
+      status: route.management?.stage === "complete" ? "complete" : "active",
+      stage: route.management?.stage || "",
+      revision: route.revision || 0,
+      progress: route.management?.progress || { current: 0, total: 0 },
+      evidence: {
+        billingOlt: route.evidence?.billingOlt || previous.evidence?.billingOlt || null,
+        tmc: route.evidence?.tmc || previous.evidence?.tmc || null,
+        oltKnown: Boolean(route.evidence?.oltKnown || previous.evidence?.oltKnown),
+        onuPolled: Boolean(route.evidence?.onuPolled || previous.evidence?.onuPolled),
+        poller: route.evidence?.poller || previous.evidence?.poller || ""
+      },
+      autoStartConsumed: true,
+      startedAt: previous.startedAt || Date.now(),
+      completedAt: route.management?.stage === "complete" ? (previous.completedAt || Date.now()) : 0
+    };
+    const signature = JSON.stringify(material);
+    if (writtenSignatures.get(key) === signature) return;
+    writtenSignatures.set(key, signature);
+    routeMemory[key] = { ...material, updatedAt: Date.now() };
+    await persistMemory();
+  }
+
   async function ensureAutomaticRoute(tab, state) {
+    await memoryReady;
     const context = state?.context || {};
     const evidence = state?.evidence || {};
     const key = subscriberKey(state);
     const existing = currentWorkflow(tab, state);
     if (existing?.active || key === "no-context" || starting.has(key)) return existing;
 
+    const remembered = memoryForKey(key);
+    if (remembered?.status === "complete") return null;
+
+    const shouldResume = remembered?.status === "active";
     const shouldStart = context.kind === "billing_technical"
       && evidence.pon?.isPon
       && context.olt?.status === "missing"
-      && !state?.checkpoints?.onuPolled;
-    if (!shouldStart) return existing;
+      && !state?.checkpoints?.onuPolled
+      && !remembered?.autoStartConsumed;
+    if (!shouldResume && !shouldStart) return existing;
 
     starting.add(key);
     try { return await startOltWorkflow(tab); }
@@ -255,10 +326,12 @@
   }
 
   async function publishRoute(tab, suppliedState = null) {
+    await memoryReady;
     if (!Number.isInteger(tab?.id)) return inactiveRoute(tab, suppliedState);
     const state = suppliedState || snapshots.get(tab.id) || null;
     const workflow = await ensureAutomaticRoute(tab, state) || currentWorkflow(tab, state);
-    const route = routeStateFor(tab, state, workflow);
+    const route = routeStateFor(tab, state, workflow, memoryForKey(subscriberKey(state)));
+    await rememberRoute(route);
     chrome.tabs.sendMessage(tab.id, { type: ROUTE_STATE, route }).catch(() => {});
     chrome.runtime.sendMessage({ type: ROUTE_STATE, tabId: tab.id, route }).catch(() => {});
     return route;
@@ -296,11 +369,12 @@
   }
 
   async function executeRoute(message) {
+    await memoryReady;
     const tab = await activeTab();
     if (!Number.isInteger(tab?.id)) throw new Error("Активная вкладка не найдена");
     const state = snapshots.get(tab.id) || null;
     const workflow = currentWorkflow(tab, state) || await ensureAutomaticRoute(tab, state);
-    const route = routeStateFor(tab, state, workflow);
+    const route = routeStateFor(tab, state, workflow, memoryForKey(subscriberKey(state)));
     if (!route.active) throw new Error("Активный маршрут отсутствует");
 
     const command = message.command || route.action.command || "";
@@ -355,8 +429,9 @@
   });
 
   globalThis.__SIMNET_MENTOR_ROUTE_WORKER__ = {
-    version: "0.1.1",
+    version: "0.2.0",
     routeStateFor,
-    publishRoute
+    publishRoute,
+    memoryForKey
   };
 })();
