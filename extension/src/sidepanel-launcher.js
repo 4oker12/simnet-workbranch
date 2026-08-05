@@ -32,17 +32,17 @@
   };
 
   const MODULES = Object.freeze([
-    { id: "active", label: "Наставник", short: "Кейс", icon: "mentor", color: "#8f65e8" },
-    { id: "diagnostics", label: "Диагностика", short: "Диагноз", icon: "bolt", color: "#5ad895" },
-    { id: "history", label: "История", short: "История", icon: "history", color: "#f2c15b" },
-    { id: "settings", label: "Настройки", short: "Настр", icon: "settings", color: "#92a2b7" }
+    { id: "active", label: "Active Case", short: "Кейс", icon: "mentor", color: "#8f65e8" },
+    { id: "metrics", label: "Live Metrics", short: "Метрики", icon: "bolt", color: "#5ad895" },
+    { id: "scripts", label: "Talk Scripts", short: "Скрипты", icon: "history", color: "#f2c15b" },
+    { id: "matrix", label: "Case Matrix", short: "Матрица", icon: "settings", color: "#92a2b7" }
   ]);
 
   const FLYOUT_MODULES = Object.freeze([
-    { id: "juniper", label: "Juniper", parent: "diagnostics" },
-    { id: "onu", label: "ONU", parent: "diagnostics" },
-    { id: "ping", label: "Ping", parent: "diagnostics" },
-    { id: "history-full", label: "История", parent: "history" }
+    { id: "juniper", label: "Juniper", parent: "metrics" },
+    { id: "onu", label: "ONU", parent: "metrics" },
+    { id: "ping", label: "Ping", parent: "metrics" },
+    { id: "history-full", label: "История", parent: "scripts" }
   ]);
 
   const CATEGORIES = Object.freeze([
@@ -795,8 +795,8 @@
       if (backBtn) {
         event.preventDefault();
         const parentModule = backBtn.dataset.backTo;
-        if (parentModule === "diagnostics") renderFlyout("metrics");
-        else if (parentModule === "history") renderFlyout("history-full");
+        if (parentModule === "metrics") renderFlyout("metrics");
+        else if (parentModule === "scripts") renderFlyout("scripts");
         return;
       }
 
