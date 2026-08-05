@@ -43,9 +43,9 @@ test("dock exposes four requested high-density modules", () => {
 test("flyout has no free text fields or vertical scrolling", () => {
   assert.doesNotMatch(launcher, /<textarea\b/i);
   assert.doesNotMatch(launcher, /<input\b/i);
-  assert.match(launcher, /\.flyout\{[^}]*overflow:hidden/s);
-  assert.match(launcher, /\.module-stage\{[^}]*overflow:hidden/s);
-  assert.match(launcher, /\.module-pane\{[^}]*overflow:hidden/s);
+  assert.match(launcher, /pointer-events:none;overflow:hidden;transition:opacity/);
+  assert.match(launcher, /\.module-stage\{min-height:0;padding:8px;overflow:hidden\}/);
+  assert.match(launcher, /\.module-pane\{display:grid;align-content:start;gap:8px;height:100%;min-height:0;overflow:hidden\}/);
 });
 
 test("long explanations are moved to hover tooltips", () => {
