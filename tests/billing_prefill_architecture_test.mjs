@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const exists=rel=>fs.existsSync(new URL(`../${rel}`,import.meta.url));
+const read=rel=>fs.readFileSync(new URL(`../${rel}`,import.meta.url),'utf8');
+assert.equal(exists('src/browser/actions/fill-billing-technical.js'),false,'TMC→Billing autofill must stay removed');
+assert.equal(exists('src/browser/actions/show-save-hint.js'),false,'synthetic Save helper must stay removed');
+const manifest=JSON.parse(read('manifest.json'));
+const scripts=manifest.content_scripts?.[0]?.js||[];
+assert.equal(scripts.some(x=>/fill-billing-technical|show-save-hint/.test(x)),false);
+const bootstrap=read('src/content/bootstrap.js');
+const rail=read('src/ui/rail.js');
+assert.doesNotMatch(bootstrap,/fillBillingTechnicalFromTmc|showSaveHint/);
+assert.match(rail,/manual_fill_billing/);
+assert.match(rail,/Заполни поле вручную|переносит.*вручную|данные не внесены/i);
+assert.doesNotMatch(rail,/Открыть и подставить|live-apply-tmc/);
+console.log('billing_prefill_architecture_test: PASS');

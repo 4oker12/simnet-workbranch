@@ -1,0 +1,93 @@
+{
+  "manifest_version": 3,
+  "name": "SIMNET Workbench",
+  "version": "1.7.36.108",
+  "description": "SIMNET Workbench: facts + visits + direct if/else actions, without continuous page rescanning.",
+  "permissions": [
+    "storage",
+    "scripting",
+    "unlimitedStorage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://userside.simnet.kiev.ua/*",
+    "https://admin.simnet.kiev.ua/*",
+    "https://admin.looknet.kiev.ua/*",
+    "https://api.groq.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://userside.simnet.kiev.ua/*",
+        "https://admin.simnet.kiev.ua/*",
+        "https://admin.looknet.kiev.ua/*"
+      ],
+      "js": [
+        "src/content/namespace.js",
+        "src/core/event-bus.js",
+        "src/core/click-debug.js",
+        "src/core/junction-debug.js",
+        "src/parsers/billing/poll-result.js",
+        "src/parsers/billing/technical.js",
+        "src/parsers/userside/tmc.js",
+        "src/parsers/userside/building-core.js",
+        "src/parsers/juniper/session.js",
+        "src/core/billing-navigation.js",
+        "src/core/page-context.js",
+        "src/readers/billing.js",
+        "src/readers/userside.js",
+        "src/browser/actions/focus-userside-tmc.js",
+        "src/core/interaction-guards.js",
+        "src/core/store-client.js",
+        "src/features/call/evidence/observer.js",
+        "src/ui/case-view.js",
+        "src/core/evidence-navigator.js",
+        "src/ui/knowledge-loader.js",
+        "src/core/juniper-prefetch.js",
+        "src/core/handoff.js",
+        "src/ui/poll-terminal-loader.js",
+        "src/ui/call-registration-loader.js",
+        "src/ui/task-form-assistant.js",
+        "src/ui/operator-companion-loader.js",
+        "src/ui/rail-styles.js",
+        "src/ui/rail.js",
+        "src/audit/audit-loader.js",
+        "src/content/bootstrap.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "SIMNET Workbench",
+    "default_popup": "src/ui/popup.html"
+  },
+  "icons": {
+    "16": "assets/icon16.png",
+    "32": "assets/icon32.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/audit/audit.html",
+        "src/audit/audit.css",
+        "src/audit/audit.js",
+        "src/parsers/userside/tmc.js"
+      ],
+      "matches": [
+        "https://userside.simnet.kiev.ua/*",
+        "https://admin.simnet.kiev.ua/*",
+        "https://admin.looknet.kiev.ua/*"
+      ]
+    }
+  ],
+  "version_name": "1.7.36.108-call-live-routing-maintenance",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

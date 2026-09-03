@@ -1,0 +1,29 @@
+{
+  "name": "Real UserSide TMC: FoxGate on BDCOM EPON without Serial",
+  "billing": {
+    "oltName": "BDCOM OLT P3600-16E",
+    "onuMac": "D4:25:CC:05:DE:40",
+    "onuSerial": null
+  },
+  "tmc": {
+    "tmcFound": true,
+    "ponFound": true,
+    "equipmentName": "FoxGate ONU X2011ZR",
+    "serial": null,
+    "mac": "D4:25:CC:05:DE:40",
+    "foundOnOlt": true,
+    "oltName": "BDCOM OLT P3600-16E",
+    "oltDeviceId": "47043",
+    "oltIp": "172.16.1.239",
+    "interface": "epon0/12:55",
+    "onuRx": "-22.4",
+    "onuTx": "2.7",
+    "oltRx": "-25.7"
+  },
+  "expected": {
+    "serialStatus": "optional-missing",
+    "pollType": "EPON",
+    "pollAction": "310",
+    "pollAllowed": true
+  }
+}

@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { derivePonWorkflow } from '../src/workflows/pon.js';
+const bootstrap=fs.readFileSync(new URL('../src/content/bootstrap.js',import.meta.url),'utf8');
+assert.doesNotMatch(bootstrap,/addEventListener\(['"]change|new\s+MutationObserver/,'unsaved form edits must not be promoted by rescanning');
+const fact=(value,source='test')=>({value,source});
+const c={network:{connectionFamily:fact('PON')},pon:{onuMac:fact('AA:BB:CC:DD:EE:FF','billing:onu-mac'),tmcOltName:fact('Huawei MA5800','userside:tmc-olt-name'),tmcOltIp:fact('172.16.1.50','userside:tmc-olt-ip')},contexts:{t:{pageKind:'billing_technical'},u:{pageKind:'userside_customer'}},locator:{sourceStatus:{tmc:{result:'found',details:{oltName:'Huawei MA5800',oltIp:'172.16.1.50'}}},attempts:[],candidates:[]},operations:{poll:{current:null}},live:{}};
+assert.equal(derivePonWorkflow(c).pollAllowed,false);
+c.pon.oltName=fact('Huawei MA5800','billing:olt-selected-option');
+c.pon.oltIp=fact('172.16.1.50','billing:olt-selected-option-ip');
+assert.equal(derivePonWorkflow(c).pollAllowed,true,'only a fresh Billing fact unlocks poll');
+console.log('native_save_gate_behavior_test: PASS');

@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const read=rel=>fs.readFileSync(new URL(`../${rel}`,import.meta.url),'utf8');
+const bootstrap=read('src/content/bootstrap.js');
+const guards=read('src/core/interaction-guards.js');
+const tmc=read('src/browser/actions/focus-userside-tmc.js');
+assert.doesNotMatch(bootstrap,/new\s+MutationObserver/,'main runtime has no permanent DOM observer');
+assert.match(guards,/new\s+MutationObserver/,'interaction guards may watch only the active OLT request');
+assert.match(guards,/pollResponseObserver\?\.disconnect/,'active OLT watcher disconnects explicitly');
+assert.match(guards,/POLL_STALE_TIMEOUT_MS/,'active OLT watcher is deadline-bounded');
+assert.match(tmc,/new\s+MutationObserver/,'TMC may use one targeted bounded wait');
+assert.match(tmc,/observer\.disconnect\(\)/);
+assert.match(tmc,/setTimeout\(\(\) => finish/);
+assert.match(tmc,/waitInFlight/,'parallel TMC waits share one observer');
+console.log('hidden_observer_lifecycle_integration_test: PASS');

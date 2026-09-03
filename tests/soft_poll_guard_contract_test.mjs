@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const guard=fs.readFileSync(new URL('../src/core/interaction-guards.js',import.meta.url),'utf8');
+const reader=fs.readFileSync(new URL('../src/readers/billing.js',import.meta.url),'utf8');
+const rail=fs.readFileSync(new URL('../src/ui/rail.js',import.meta.url),'utf8');
+assert.match(guard,/poll-action-mismatch/);
+assert.match(guard,/poll-olt-mismatch/);
+assert.match(guard,/poll-billing-mismatch/);
+assert.match(guard,/rememberPollRequest\(info, verdict\)/,'conflicting native click is still tracked and allowed');
+assert.doesNotMatch(guard,/CONFLICT_RETRY_COOLDOWN_MS|poll-conflict-cooldown/,'conflict no longer creates a second-click cooldown');
+assert.doesNotMatch(guard,/event\.preventDefault\(\)|event\.stopImmediatePropagation\(\)/,'poll guard never cancels native operator clicks');
+assert.match(guard,/warning-only:/,'proven conflict remains visible as warning-only evidence');
+assert.match(reader,/attemptCanonicalPollAction\s*\|\|\s*activeExpectedPollAction\s*\|\|\s*attemptExpectedPollAction/,'wrong-tech click cannot redefine canonical Billing poll type');
+assert.match(rail,/3600/,'conflict toast remains visible for about 3-4 seconds');
+assert.match(rail,/Конфликт данных · источники не совпадают/,'current Billing/TMC mismatch is visible in LIVE');
+console.log('soft_poll_guard_contract_test: PASS');

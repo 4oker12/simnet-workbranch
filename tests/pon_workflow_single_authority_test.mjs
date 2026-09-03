@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import { derivePonWorkflow,PonWorkflowState } from '../src/workflows/pon.js';
+const fact=(value,source='test')=>({value,source,confidence:.99});
+const c={id:'login:abon',network:{connectionFamily:fact('PON')},pon:{},contexts:{},locator:{sourceStatus:{},candidates:[],evidence:[],attempts:[],hypotheses:[]},operations:{poll:{current:null}},live:{}};
+let w=derivePonWorkflow(c); assert.equal(w.state,PonWorkflowState.OPEN_TECHNICAL);
+c.contexts.tech={pageKind:'billing_technical'}; w=derivePonWorkflow(c); assert.equal(w.state,PonWorkflowState.CHECK_TMC);
+c.contexts.us={pageKind:'userside_customer'};c.pon.tmcOltName=fact('BDCOM EPON','userside:tmc-olt-name');c.pon.tmcOltIp=fact('172.16.13.120','userside:tmc-olt-ip');c.pon.tmcOnuMac=fact('D4:25:CC:1B:8B:96','userside:tmc-onu-mac');c.locator.sourceStatus.tmc={result:'found',details:{oltName:'BDCOM EPON',oltIp:'172.16.13.120',onuMac:'D4:25:CC:1B:8B:96'}};
+w=derivePonWorkflow(c);assert.equal(w.state,PonWorkflowState.FILL_TECHNICAL);assert.equal(w.pollAction,'');assert.equal(w.pollAllowed,false);
+c.pon.oltName=fact('BDCOM EPON','billing:olt-selected-option');c.pon.oltIp=fact('172.16.13.120','billing:olt-selected-option-ip');c.pon.onuMac=fact('D4:25:CC:1B:8B:96','billing:onu-mac');w=derivePonWorkflow(c);assert.equal(w.state,PonWorkflowState.READY_FOR_POLL);assert.equal(w.pollAction,'310');assert.equal(w.pollAllowed,true);
+console.log('pon_workflow_single_authority_test: PASS');

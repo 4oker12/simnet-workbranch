@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SIMNET Data Audit</title>
+  <link rel="stylesheet" href="audit.css">
+</head>
+<body>
+  <div id="app" class="app">
+    <header class="topbar">
+      <div class="brand-block">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M5 6h5v5H5zM14 4h5v5h-5zM14 15h5v5h-5zM7.5 11v4m0 0h6.5m0-8.5h-4"/></svg>
+        </div>
+        <div>
+          <div class="brand-title">Data Audit</div>
+          <div id="hostLabel" class="brand-subtitle">SIMNET Workbench · ожидание страницы</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <span id="dbBadge" class="status-chip ok">IndexedDB</span>
+        <button id="expandBtn" class="icon-btn" type="button" title="Развернуть">
+          <svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>
+        </button>
+        <button id="closeBtn" class="icon-btn" type="button" title="Закрыть">
+          <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="content">
+      <aside class="sidebar">
+        <section class="side-section source-section legacy-ui">
+          <div class="section-title">1. Возьми исходный список</div>
+          <button id="captureBillingBtn" class="source-card billing" type="button">
+            <span class="source-icon"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM4 9h16M9 9v10"/></svg></span>
+            <span class="source-copy"><b>Добавить текущую страницу</b><small id="captureHint">Открой любую страницу Billing → listuser. Добавление не делает сетевых запросов.</small></span>
+            <span class="source-arrow">→</span>
+          </button>
+          <button id="manualBtn" class="source-card manual" type="button">
+            <span class="source-icon"><svg viewBox="0 0 24 24"><path d="M7 4h10v16H7zM9 2h6v4H9zM10 10h4M10 14h4"/></svg></span>
+            <span class="source-copy"><b>Вставить договоры</b><small>Добавить временную выборку вручную</small></span>
+            <span class="source-arrow">→</span>
+          </button>
+        </section>
+
+        <section class="side-section library-section">
+          <div class="library-head">
+            <div>
+              <div class="section-title">Сохранённые группы</div>
+              <div id="groupCount" class="section-subtitle">0 сохранено</div>
+            </div>
+            <button id="refreshGroupsBtn" class="mini-icon" type="button" title="Обновить">
+              <svg viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5M18.5 9A7 7 0 0 0 6 6.5L4 11m16 2-2 4.5A7 7 0 0 1 5.5 15"/></svg>
+            </button>
+          </div>
+          <div class="search-wrap">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
+            <input id="groupSearch" type="search" placeholder="Поиск групп">
+          </div>
+          <div id="groupList" class="group-list"></div>
+        </section>
+
+        <section class="storage-card">
+          <div class="storage-head">
+            <span class="storage-dot"></span>
+            <b>Хранилище Workbench</b>
+          </div>
+          <div class="storage-title">IndexedDB · локально</div>
+          <div class="storage-grid">
+            <span>Группы</span><b id="storageGroups">0</b>
+            <span>Правила</span><b id="storageRules">0</b>
+            <span>Запуски</span><b id="storageRuns">0</b>
+            <span>Кэш</span><b id="storageCache">0</b>
+            <span>Журнал</span><b id="storageLogs">0</b>
+          </div>
+          <div class="storage-note">Данные остаются внутри расширения на этом устройстве.</div>
+        </section>
+      </aside>
+
+      <main class="workspace">
+
+        <div id="wizardShell" class="wizard-shell">
+          <div class="wizard-headline">
+            <div>
+              <div class="eyebrow">ПОШАГОВЫЙ РЕЖИМ</div>
+              <h1 id="wizardTitle">Сначала соберём абонентов</h1>
+              <p id="wizardSubtitle">Data Audit ведёт по одному действию за раз. Следующий шаг откроется только после завершения текущего.</p>
+            </div>
+            <div class="wizard-head-actions">
+              <button id="wizardSaveProgressBtn" class="outline-btn small" type="button">Сохранить состояние</button>
+              <button id="wizardJournalBtn" class="outline-btn small" type="button">Журнал</button>
+            </div>
+          </div>
+
+          <nav id="wizardSteps" class="wizard-steps" aria-label="Этапы Data Audit">
+            <button type="button" data-wstep="1" class="wizard-step active"><span>1</span><b>Источник</b></button>
+            <button type="button" data-wstep="2" class="wizard-step" disabled><span>2</span><b>Отбор</b></button>
+            <button type="button" data-wstep="3" class="wizard-step" disabled><span>3</span><b>Группа</b></button>
+            <button type="button" data-wstep="4" class="wizard-step" disabled><span>4</span><b>Проверка</b></button>
+            <button type="button" data-wstep="5" class="wizard-step" disabled><span>5</span><b>Запуск</b></button>
+            <button type="button" data-wstep="6" class="wizard-step" disabled><span>6</span><b>Результат</b></button>
+          </nav>
+
+          <section id="wizardStep1" class="wizard-view active">
+            <div class="wizard-question">
+              <span class="wizard-kicker">ШАГ 1 ИЗ 6</span>
+              <h2>Сколько страниц Billing собрать?</h2>
+              <p>Открой в Billing нужную выборку, например улицу <b>Метрологическая 141</b>. Укажи количество страниц. Текущая страница берётся без запроса, следующие загружаются по очереди.</p>
+            </div>
+            <div class="wizard-card source-wizard-card">
+              <div class="wizard-card-head">
+                <div><b>Billing → listuser</b><small id="wizardSourceHost">Открой страницу списка абонентов.</small></div>
+                <span id="wizardSourceReady" class="wizard-state bad">не готово</span>
+              </div>
+              <div class="page-slider-row">
+                <div class="page-slider-value"><strong id="pageCountValue">5</strong><span>страниц</span></div>
+                <div class="page-slider-control">
+                  <input id="pageCountRange" type="range" min="1" max="20" step="1" value="5">
+                  <div class="range-labels"><span>1</span><span>5</span><span>10</span><span>15</span><span>20</span></div>
+                </div>
+              </div>
+              <div id="pagePlanText" class="human-summary">Открой Billing → listuser, чтобы увидеть план сбора.</div>
+              <button id="wizardCaptureBtn" class="primary-btn wide-btn" type="button" disabled>Собрать 5 страниц</button>
+            </div>
+            <div id="collectionSummary" class="wizard-card result-summary-card">
+              <div class="wizard-card-head"><div><b>Текущий сбор</b><small>Это ещё не группа. Здесь просто накапливаются найденные абоненты.</small></div></div>
+              <div class="summary-metrics"><div><span>Страниц</span><strong id="collectionPages">0</strong></div><div><span>Абонентов</span><strong id="collectionMembers">0</strong></div><div><span>GET</span><strong id="collectionRequests">0</strong></div></div>
+              <div id="collectionStatusText" class="human-summary muted">Сбор ещё не запускался.</div>
+            </div>
+            <div class="wizard-footer"><span></span><button id="wizardStep1Next" class="primary-btn" type="button" disabled>Дальше: кого оставить →</button></div>
+          </section>
+
+          <section id="wizardStep2" class="wizard-view">
+            <div class="wizard-question"><span class="wizard-kicker">ШАГ 2 ИЗ 6</span><h2>Кого оставить из собранных?</h2><p>Выбери простое правило отбора. Исходный сбор не изменяется: мы только формируем список тех, кто пойдёт дальше.</p></div>
+            <div class="choice-grid">
+              <label class="choice-card"><input type="radio" name="wizardFilter" value="pon"><span class="choice-dot"></span><div><b>Оставить только PON</b><small>Для каждого абонента прочитаем техданные Billing и оставим тех, у кого определяется PON / GPON / EPON / GCOM / Huawei.</small></div></label>
+              <label class="choice-card"><input type="radio" name="wizardFilter" value="all"><span class="choice-dot"></span><div><b>Оставить всех</b><small>Ничего не фильтровать. Все собранные абоненты попадут в группу.</small></div></label>
+            </div>
+            <div id="filterHumanText" class="human-summary attention">Сначала выбери, кого оставить. До этого запуск недоступен.</div>
+            <div id="filterPlan" class="wizard-plan-grid"><div><span>Собрано</span><strong id="filterPlanMembers">0</strong></div><div><span>Billing GET</span><strong id="filterPlanRequests">0</strong></div><div><span>Параллелизм</span><strong>1</strong></div></div>
+            <button id="wizardFilterRun" class="primary-btn wide-btn" type="button" disabled>Применить отбор</button>
+            <div id="filterResultSummary" class="human-summary success" hidden></div>
+            <div class="wizard-footer"><button id="wizardStep2Back" class="outline-btn" type="button">← Назад</button><button id="wizardStep2Next" class="primary-btn" type="button" disabled>Дальше: создать группу →</button></div>
+          </section>
+
+          <section id="wizardStep3" class="wizard-view">
+            <div class="wizard-question"><span class="wizard-kicker">ШАГ 3 ИЗ 6</span><h2>Сохрани отобранных как группу</h2><p>Группа — это постоянный список абонентов. Проверки потом будут добавлять к ней отметки и историю, но состав сам по себе не меняется.</p></div>
+            <div class="wizard-card form-card">
+              <div class="group-count-banner"><strong id="wizardGroupCount">0</strong><span>абонентов попадут в группу</span></div>
+              <label>Название группы <em>обязательно</em><input id="wizardGroupName" type="text" placeholder="Например: Метрологическая 141 · PON"></label>
+              <label>Для чего <small>необязательно</small><input id="wizardGroupPurpose" type="text" placeholder="Например: сверка ONU Serial/MAC с ТМЦ"></label>
+              <label>Цвет</label>
+              <div id="wizardColorPicker" class="color-picker">
+                <button class="color-option blue active" data-wizard-color="blue" type="button" title="Синий"></button>
+                <button class="color-option green" data-wizard-color="green" type="button" title="Зелёный"></button>
+                <button class="color-option purple" data-wizard-color="purple" type="button" title="Фиолетовый"></button>
+                <button class="color-option amber" data-wizard-color="amber" type="button" title="Жёлтый"></button>
+                <button class="color-option red" data-wizard-color="red" type="button" title="Красный"></button>
+              </div>
+              <button id="wizardGroupSave" class="primary-btn wide-btn" type="button" disabled>Создать группу</button>
+              <div id="wizardGroupSaved" class="human-summary success" hidden></div>
+            </div>
+            <div class="wizard-footer"><button id="wizardStep3Back" class="outline-btn" type="button">← Назад</button><button id="wizardStep3Next" class="primary-btn" type="button" disabled>Дальше: выбрать проверку →</button></div>
+          </section>
+
+          <section id="wizardStep4" class="wizard-view">
+            <div class="wizard-question"><span class="wizard-kicker">ШАГ 4 ИЗ 6</span><h2>Что проверить в этой группе?</h2><p id="wizardCheckGroupLabel">Сначала должна быть создана или выбрана сохранённая группа.</p></div>
+            <div class="choice-grid">
+              <label class="choice-card"><input type="radio" name="wizardCheck" value="onu_identity_compare"><span class="choice-dot"></span><div><b>OLT + готовность ONU: Billing ↔ ТМЦ</b><small>Основная проверка. Для каждого абонента идём Billing → ТМЦ: подтверждаем фактическую OLT и одновременно сверяем/добираем S/N и ONU MAC. Если ТМЦ не дала данных — в результате появится совет перейти к поиску MAC по оборудованию.</small></div></label>
+              <label class="choice-card"><input type="radio" name="wizardCheck" value="olt_compare"><span class="choice-dot"></span><div><b>Только OLT: Billing ↔ ТМЦ</b><small>Узкая проверка только OLT без оценки заполненности S/N и ONU MAC.</small></div></label>
+            </div>
+            <div id="checkHumanText" class="human-summary attention">Выбери тип проверки. Состав группы не изменится.</div>
+            <div class="wizard-footer"><button id="wizardStep4Back" class="outline-btn" type="button">← Назад</button><button id="wizardStep4Next" class="primary-btn" type="button" disabled>Дальше: посмотреть нагрузку →</button></div>
+          </section>
+
+          <section id="wizardStep5" class="wizard-view">
+            <div class="wizard-question"><span class="wizard-kicker">ШАГ 5 ИЗ 6</span><h2>Проверь план и запусти</h2><p>Это верхняя оценка. Кэш может уменьшить реальное число запросов. Новые запросы запускаются строго по одному.</p></div>
+            <div class="wizard-plan-grid large"><div><span>Абонентов</span><strong id="wizardPlanMembers">0</strong></div><div><span>Billing</span><strong id="wizardPlanBilling">0</strong><small>до 1 GET/абонента</small></div><div><span>UserSide / ТМЦ</span><strong id="wizardPlanTmc">0</strong><small>gotouser + fallback + ТМЦ, до 4 GET/абонента</small></div><div><span>Максимум</span><strong id="wizardPlanMax">0</strong></div><div><span>Параллелизм</span><strong>1</strong></div></div>
+            <div id="wizardPlanHuman" class="human-summary"></div>
+            <button id="wizardRunCheck" class="primary-btn wide-btn" type="button">Запустить проверку</button>
+            <div class="wizard-footer"><button id="wizardStep5Back" class="outline-btn" type="button">← Назад</button><span></span></div>
+          </section>
+
+          <section id="wizardStep6" class="wizard-view">
+            <div class="wizard-question"><span class="wizard-kicker">ШАГ 6 ИЗ 6</span><h2>Результат проверки</h2><p id="wizardResultSubtitle">Проверка ещё не запускалась.</p></div>
+            <div class="stats-grid wizard-stats"><div class="stat"><span>Проверено</span><strong id="wizardStatChecked">0</strong></div><div class="stat warn"><span>Проблем</span><strong id="wizardStatProblems">0</strong></div><div class="stat"><span>Ошибок</span><strong id="wizardStatErrors">0</strong></div><div class="stat"><span>Кэш</span><strong id="wizardStatCache">0</strong></div></div>
+            <div id="wizardNetworkSummary" class="human-summary muted">Сетевая статистика появится после запуска.</div>
+            <div class="result-toolbar"><label class="check-row"><input id="wizardProblemsOnly" type="checkbox"> только проблемы</label><div class="search-wrap result-search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg><input id="wizardResultSearch" type="search" placeholder="Договор / OLT / MAC / Serial"></div></div>
+            <div class="table-wrap"><table><thead><tr><th>Абонент</th><th>Billing OLT</th><th>ТМЦ OLT</th><th>Serial</th><th>ONU MAC</th><th>Итог / следующий шаг</th></tr></thead><tbody id="wizardResultBody"><tr class="empty-table"><td colspan="6">Нет результата.</td></tr></tbody></table></div>
+            <div class="result-actions wizard-result-actions"><button id="wizardFixResult" class="primary-btn" type="button">Зафиксировать проверку в группе</button><button id="wizardOpenGroup" class="outline-btn" type="button">Открыть группу / историю</button><button id="wizardExportCsv" class="outline-btn" type="button">CSV</button></div>
+            <div class="wizard-footer"><span></span><div class="wizard-result-actions"><button id="wizardRepeatAudit" class="outline-btn" type="button">Новая проверка на этой группе</button><button id="wizardNewAudit" class="outline-btn" type="button">Начать заново</button></div></div>
+          </section>
+
+          <section id="wizardJournalPanel" class="wizard-journal-panel" hidden>
+            <div class="wizard-journal-head"><div><b>Журнал Data Audit</b><small>Пишем смысл действий: что выбрано, что запущено, что остановлено и что сохранено. Строку можно раскрыть.</small></div><div class="wizard-result-actions"><button id="wizardJournalTxt" class="outline-btn small" type="button">Экспорт TXT</button><button id="wizardJournalJson" class="outline-btn small" type="button">Экспорт JSON</button><button id="wizardJournalClose" class="outline-btn small" type="button">Закрыть</button></div></div>
+            <div class="table-wrap journal-wrap"><table><thead><tr><th>Время</th><th>Тип</th><th>Что произошло</th></tr></thead><tbody id="wizardJournalBody"><tr class="empty-table"><td colspan="3">Журнал пока пуст.</td></tr></tbody></table></div>
+          </section>
+        </div>
+        <nav class="steps legacy-ui" aria-label="Этапы аудита">
+          <button class="step active" data-view="builder" type="button"><span>1</span><b>Набор</b></button>
+          <button class="step" data-view="rules" type="button"><span>2</span><b>Правила</b></button>
+          <button class="step" data-view="results" type="button"><span>3</span><b>Результат</b></button>
+          <button class="step" data-view="journal" type="button"><span>4</span><b>Журнал</b></button>
+        </nav>
+
+        <section id="builderView" class="view legacy-ui active">
+          <div class="view-head">
+            <div>
+              <div class="eyebrow">ШАГ 1</div>
+              <h1>Что будем проверять?</h1>
+              <p>Открывай нужные страницы Billing и добавляй их в один текущий сбор. Когда абонентов достаточно — сохрани как группу.</p>
+            </div>
+            <button id="clearWorkspaceBtn" class="text-btn" type="button">Очистить</button>
+          </div>
+
+          <div id="dropZone" class="drop-zone">
+            <div id="selectedGroups" class="selected-groups"></div>
+            <div id="emptyDrop" class="empty-drop">
+              <svg viewBox="0 0 24 24"><path d="M4 7h6l2 2h8v10H4z"/><path d="M12 12v5m-2-2 2 2 2-2"/></svg>
+              <b>Здесь появятся выбранные абоненты</b>
+              <small>Каждая нажатая страница Billing добавляется в тот же текущий сбор с удалением повторов.</small>
+            </div>
+          </div>
+
+          <div class="concept-note">
+            <div><b>Текущий сбор</b><span>накапливай любые страницы Billing, пока количества достаточно.</span></div>
+            <div><b>Группа</b><span>после сохранения состав фиксируется; аудит только добавляет пометки, но не удаляет абонентов.</span></div>
+          </div>
+
+<div id="mixSection" hidden>
+          <div class="block-title" id="mixTitle">Если списков несколько — как их смешать</div>
+          <div id="modeHelp" class="section-subtitle mode-help">С одним списком этот шаг не нужен.</div>
+          <div id="modeCards" class="mode-cards">
+            <button class="mode-card active" data-mode="union" type="button">
+              <span class="mode-check">✓</span>
+              <span class="mode-icon union"><svg viewBox="0 0 24 24"><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/></svg></span>
+              <b>Объединить списки</b>
+              <code>A + B + C</code>
+              <small>Берём всех из A, B, C. Повторы удаляем. Потом проверяем общий список.</small>
+            </button>
+            <button class="mode-card" data-mode="intersection" type="button">
+              <span class="mode-check">✓</span>
+              <span class="mode-icon intersection"><svg viewBox="0 0 24 24"><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/><path d="M12 7a6 6 0 0 1 0 10"/></svg></span>
+              <b>Только общие</b>
+              <code>A ∩ B ∩ C</code>
+              <small>Оставляем только абонентов, которые одновременно есть во всех выбранных списках.</small>
+            </button>
+            <button class="mode-card" data-mode="difference" type="button">
+              <span class="mode-check">✓</span>
+              <span class="mode-icon difference"><svg viewBox="0 0 24 24"><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/><path d="M4 12h10"/></svg></span>
+              <b>Исключить</b>
+              <code>A − B</code>
+              <small>Берём A и убираем тех, кто есть в B. Если списков больше: A − (B + C + …).</small>
+            </button>
+          </div>
+
+          <div class="flow-note">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/></svg>
+            <div><b>Сначала формируем общий набор.</b><span>Правила проверки применяются уже к получившемуся списку.</span></div>
+          </div>
+
+          <div class="preview-card">
+            <div class="preview-label">Что получится до проверки</div>
+            <div id="mixPreview" class="mix-preview">Добавь хотя бы одну группу.</div>
+            <div id="mixResult" class="mix-result"><strong>0</strong><span>уникальных абонентов</span></div>
+          </div>
+          </div>
+
+          <div class="view-footer">
+            <button id="toRulesBtn" class="primary-btn" type="button">Дальше: задать правила <span>→</span></button>
+          </div>
+        </section>
+
+        <section id="rulesView" class="view legacy-ui">
+          <div class="view-head">
+            <div>
+              <div class="eyebrow">ШАГ 2</div>
+              <h1>Задай условия проверки</h1>
+              <p>Сначала читаем Billing. UserSide / ТМЦ подключаем только если он нужен.</p>
+            </div>
+            <button id="saveRuleBtn" class="text-btn" type="button">Сохранить правило</button>
+          </div>
+
+          <div class="audit-type-card">
+            <label for="auditType"><b>Что проверить</b></label>
+            <select id="auditType">
+              <option value="onu_identity_compare">Проверить OLT + готовность ONU: Billing ↔ ТМЦ</option>
+              <option value="olt_compare">Сверить только OLT: Billing ↔ UserSide / ТМЦ</option>
+              <option value="custom">Отфильтровать абонентов по Billing</option>
+            </select>
+            <small id="auditTypeHint">Основной режим подтверждает фактическую OLT и показывает, какие S/N / ONU MAC нужно дозаполнить в Billing. Если ТМЦ не дала данных, следующий источник — поиск MAC по оборудованию.</small>
+          </div>
+
+          <div id="customRulesWrap" class="custom-rules-wrap">          <div class="source-flow">
+            <div class="source-stage active"><span>1</span><div><b>Billing → техданные</b><small>Технология · OLT · ONU Serial · ONU MAC · MAC абонента</small></div></div>
+            <div class="flow-arrow">→</div>
+            <div class="source-stage"><span>2</span><div><b>Отбор по условиям</b><small>Фильтруем локально, без новых запросов</small></div></div>
+            <div class="flow-arrow">→</div>
+            <div class="source-stage optional"><span>3</span><div><b>UserSide / ТМЦ</b><small>Только для прошедших первичный отбор</small></div></div>
+          </div>
+
+          <div class="quick-presets">
+            <span>Быстрый отбор:</span>
+            <button id="ponPresetBtn" class="outline-btn small" type="button">Только PON</button>
+          </div>
+
+          <div class="rule-section">
+            <div class="rule-section-head">
+              <div><div class="block-title">Условия отбора</div><div class="section-subtitle">Все строки объединяются через AND</div></div>
+              <button id="addRuleBtn" class="outline-btn small" type="button">+ Условие</button>
+            </div>
+            <div id="rulesList" class="rules-list"></div>
+            <div id="ruleSummary" class="rule-summary"></div>
+          </div>
+
+          <div class="after-section">
+            <div class="block-title">После отбора</div>
+            <label class="radio-row"><input type="radio" name="afterMode" value="billing" checked><span><b>Только собрать результат Billing</b><small>Никаких запросов в UserSide.</small></span></label>
+            <label class="radio-row"><input type="radio" name="afterMode" value="tmc"><span><b>Сверить найденных в UserSide / ТМЦ</b><small>Дополнительно получить OLT, Serial, MAC и Interface.</small></span></label>
+            <div id="tmcFields" class="tmc-fields disabled">
+              <label><input type="checkbox" value="olt" checked> OLT</label>
+              <label><input type="checkbox" value="onuMac" checked> ONU MAC</label>
+              <label><input type="checkbox" value="onuSerial" checked> Serial</label>
+              <label><input type="checkbox" value="interface" checked> Interface</label>
+            </div>
+          </div>
+          </div>
+
+          <div class="request-plan">
+            <div><span>Абонентов</span><strong id="planMembers">0</strong><small>будет проверено</small></div>
+            <div><span>Billing</span><strong id="planBillingRequests">0–0</strong><small>GET-запросов</small></div>
+            <div><span>UserSide / ТМЦ</span><strong id="planTmcRequests">0</strong><small>до 4 GET/абонента при fallback</small></div>
+            <div><span>Максимум</span><strong id="planRequests">0</strong><small>до кэша</small></div>
+            <div id="planLoadCard" class="load-card low"><span>Нагрузка</span><strong id="planLoad">низкая</strong><small id="planLoadNote">1 запрос за раз</small></div>
+          </div>
+          <div class="load-note">Оценка показывает верхнюю границу клиентских GET-запросов. Кэш может уменьшить фактическое число. Data Audit запускает запросы последовательно — параллелизм 1.</div>
+
+          <div class="view-footer split-actions">
+            <button id="backToBuilderBtn" class="outline-btn" type="button">← Набор</button>
+            <button id="collectBtn" class="outline-btn" type="button">Собрать Billing</button>
+            <button id="runBtn" class="primary-btn" type="button">Запустить проверку <span>▶</span></button>
+          </div>
+        </section>
+
+        <section id="resultsView" class="view legacy-ui">
+          <div class="view-head results-head">
+            <div>
+              <div class="eyebrow">ШАГ 3</div>
+              <h1>Результат аудита</h1>
+              <p id="resultSubtitle">Запусти проверку, чтобы получить выборку.</p>
+            </div>
+            <div class="result-actions">
+              <button id="exportCsvBtn" class="outline-btn small" type="button">CSV</button>
+              <button id="saveFilteredGroupBtn" class="outline-btn small" type="button" hidden>Сохранить отобранных как группу</button>
+              <button id="saveResultBtn" class="primary-btn small" type="button">Зафиксировать проверку</button>
+            </div>
+          </div>
+
+          <div class="stats-grid">
+            <div class="stat"><span>Проверено</span><strong id="statChecked">0</strong></div>
+            <div class="stat warn"><span id="statMatchedLabel">Расхождения / проблемы</span><strong id="statMatched">0</strong></div>
+            <div class="stat"><span>Billing ошибок</span><strong id="statErrors">0</strong></div>
+            <div class="stat"><span>Кэш</span><strong id="statCache">0</strong></div>
+          </div>
+
+          <div class="result-toolbar">
+            <label class="check-row"><input id="problemsOnly" type="checkbox"> <span id="problemsOnlyLabel">только проблемы / расхождения</span></label>
+            <div class="search-wrap result-search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg><input id="resultSearch" type="search" placeholder="Договор / OLT / MAC"></div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Абонент</th><th>Billing OLT</th><th>ТМЦ OLT</th><th>ONU Serial</th><th>ONU MAC</th><th>Итог / следующий шаг</th></tr></thead>
+              <tbody id="resultBody"></tbody>
+            </table>
+          </div>
+
+          <div class="view-footer">
+            <button id="backToRulesBtn" class="outline-btn" type="button">← Изменить правила</button>
+          </div>
+        </section>
+        <section id="journalView" class="view legacy-ui">
+          <div class="view-head results-head">
+            <div>
+              <div class="eyebrow">ЖУРНАЛ</div>
+              <h1>История действий Data Audit</h1>
+              <p>Семантические события: что было добавлено, сохранено, запущено, остановлено и зафиксировано.</p>
+            </div>
+            <button id="refreshJournalBtn" class="outline-btn small" type="button">Обновить</button>
+          </div>
+          <div class="table-wrap journal-wrap">
+            <table>
+              <thead><tr><th>Время</th><th>Тип</th><th>Что произошло</th></tr></thead>
+              <tbody id="journalBody"><tr class="empty-table"><td colspan="3">Журнал пока пуст.</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <footer class="statusbar">
+      <div class="run-controls">
+        <button id="pauseBtn" type="button" disabled><span>Ⅱ</span> Пауза</button>
+        <button id="resumeBtn" type="button" disabled><span>▶</span> Продолжить</button>
+        <button id="finishHereBtn" class="finish" type="button" disabled hidden><span>✓</span> Хватит — взять собранное</button>
+        <button id="stopBtn" class="stop" type="button" disabled><span>■</span> Отменить</button>
+      </div>
+      <div class="progress-area">
+        <div class="progress-top"><span id="progressText">Готов к работе</span><b id="progressCount">0 / 0</b></div>
+        <div class="progress-track"><span id="progressBar"></span></div>
+      </div>
+      <div class="status-meta">
+        <span id="requestCounter">запросы: 0</span>
+        <span id="requestBreakdown">Billing: 0 · UserSide: 0</span>
+        <span id="loadCounter">нагрузка: готов</span>
+        <span id="resolverCounter">gotouser: 0/0 · fallback: 0</span>
+        <span id="cacheCounter">кэш: 0</span>
+        <span class="safe-chip">read-only</span>
+      </div>
+    </footer>
+  </div>
+
+  <div id="modalRoot"></div>
+  <script src="../parsers/userside/tmc.js"></script>
+  <script type="module" src="audit.js"></script>
+</body>
+</html>

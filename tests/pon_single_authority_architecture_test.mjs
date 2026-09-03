@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const read=rel=>fs.readFileSync(new URL(`../${rel}`,import.meta.url),'utf8');
+const workflow=read('src/workflows/pon.js'); const diagnostic=read('src/workflows/diagnostic.js'); const bootstrap=read('src/content/bootstrap.js'); const background=read('src/background.js');
+assert.match(workflow,/complete PON product route in one place/i);
+assert.match(workflow,/never copies them into/i);
+assert.match(workflow,/Billing\. If Billing is missing required values/i);
+assert.match(workflow,/Poll becomes available only after a fresh/i);
+assert.match(workflow,/Billing document confirms the required values/i);
+assert.match(diagnostic,/derivePonWorkflow\(caseData\)/);
+assert.doesNotMatch(bootstrap,/fillBillingTechnicalFromTmc|new\s+MutationObserver/);
+assert.doesNotMatch(background,/route\.checkpoints|route\.resume|route\.controller|routeGeneration/);
+assert.doesNotMatch(read('src/state/case-model.js'),/result\.route\.checkpoints|result\.route\.resume/);
+assert.match(read('src/core/juniper-prefetch.js'),/readOnly:\s*true/);
+console.log('pon_single_authority_architecture_test: PASS');
