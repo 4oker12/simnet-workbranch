@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET Workbench",
-  "version": "1.7.36.108",
+  "version": "1.7.36.109",
   "description": "SIMNET Workbench: facts + visits + direct if/else actions, without continuous page rescanning.",
   "permissions": [
     "storage",
@@ -13,10 +13,13 @@
     "https://userside.simnet.kiev.ua/*",
     "https://admin.simnet.kiev.ua/*",
     "https://admin.looknet.kiev.ua/*",
+    "https://pbx.simnet.kiev.ua/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*",
     "https://api.groq.com/*"
   ],
   "background": {
-    "service_worker": "src/background.js",
+    "service_worker": "src/background-entry.js",
     "type": "module"
   },
   "content_scripts": [
@@ -51,6 +54,7 @@
         "src/core/handoff.js",
         "src/ui/poll-terminal-loader.js",
         "src/ui/call-registration-loader.js",
+        "src/ui/call-transcription-assistant.js",
         "src/ui/task-form-assistant.js",
         "src/ui/operator-companion-loader.js",
         "src/ui/rail-styles.js",
@@ -86,7 +90,7 @@
       ]
     }
   ],
-  "version_name": "1.7.36.108-call-live-routing-maintenance",
+  "version_name": "1.7.36.109-call-transcript-evidence",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }
