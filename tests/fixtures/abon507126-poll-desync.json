@@ -1,0 +1,3691 @@
+{
+  "caseVersion": 35,
+  "complaint": {
+    "category": "",
+    "text": "",
+    "source": "",
+    "capturedAt": "2026-08-22T09:16:02.789Z",
+    "updatedAt": "2026-08-22T09:16:02.789Z"
+  },
+  "conflicts": [
+    {
+      "accepted": true,
+      "at": "2026-08-22T09:19:04.655Z",
+      "count": 1,
+      "field": "pon.oltIp",
+      "newConfidence": 0.97,
+      "newSource": "billing:olt-selected-option-ip",
+      "newValue": "172.16.13.70",
+      "oldConfidence": 0.97,
+      "oldSource": "billing:olt-selected-option-ip",
+      "oldValue": "172.16.1.50"
+    },
+    {
+      "accepted": true,
+      "at": "2026-08-22T09:19:04.655Z",
+      "count": 1,
+      "field": "pon.oltId",
+      "newConfidence": 0.9,
+      "newSource": "billing:olt-select-value",
+      "newValue": "52",
+      "oldConfidence": 0.9,
+      "oldSource": "billing:olt-select-value",
+      "oldValue": "87"
+    },
+    {
+      "accepted": true,
+      "at": "2026-08-22T09:19:04.655Z",
+      "count": 1,
+      "field": "pon.oltName",
+      "newConfidence": 0.97,
+      "newSource": "billing:olt-selected-option",
+      "newValue": "Avtozavodska-29А-GPON",
+      "oldConfidence": 0.97,
+      "oldSource": "billing:olt-selected-option",
+      "oldValue": "Sim36-OLT-Huawei Huawei"
+    },
+    {
+      "accepted": true,
+      "at": "2026-08-22T09:22:41.005Z",
+      "count": 2,
+      "field": "pon.oltIp",
+      "newConfidence": 0.97,
+      "newSource": "billing:olt-selected-option-ip",
+      "newValue": "172.16.1.50",
+      "oldConfidence": 0.97,
+      "oldSource": "billing:olt-selected-option-ip",
+      "oldValue": "172.16.13.70"
+    },
+    {
+      "accepted": true,
+      "at": "2026-08-22T09:22:41.005Z",
+      "count": 2,
+      "field": "pon.oltId",
+      "newConfidence": 0.9,
+      "newSource": "billing:olt-select-value",
+      "newValue": "87",
+      "oldConfidence": 0.9,
+      "oldSource": "billing:olt-select-value",
+      "oldValue": "52"
+    },
+    {
+      "accepted": true,
+      "at": "2026-08-22T09:22:41.005Z",
+      "count": 2,
+      "field": "pon.oltName",
+      "newConfidence": 0.97,
+      "newSource": "billing:olt-selected-option",
+      "newValue": "Sim36-OLT-Huawei Huawei",
+      "oldConfidence": 0.97,
+      "oldSource": "billing:olt-selected-option",
+      "oldValue": "Avtozavodska-29А-GPON"
+    }
+  ],
+  "contexts": {
+    "billing|billing_onu_poll|50712|a311|abon507126": {
+      "correlation": {
+        "caseId": "login:abon507126",
+        "caseVersion": 0,
+        "documentId": "EE08B53AD2C3CBFF1F530D27BA4006D0",
+        "episodeId": "episode_2hhp4r_20260822091602",
+        "pollAttemptId": "",
+        "reason": "correlation-match",
+        "requestId": "",
+        "verdict": "accepted"
+      },
+      "entityId": "50712",
+      "key": "billing|billing_onu_poll|50712|a311|abon507126",
+      "meta": {
+        "documentId": "436a943a-a342-4316-99fd-e433084d5ccf",
+        "locatorObservations": [],
+        "pageInstanceId": "3099235a-4403-4d63-aae7-b2983a044aed",
+        "pageInstanceStartedAt": 1787390196830,
+        "poll": {
+          "attemptAction": "311",
+          "commandBlocks": [],
+          "evidence": "Адміністрування Данные клиента Рахунок Клієнт: abon507126 (10.7.19.121) Адміністратор: zyatyev (id=193, 31.134.123.120) Головна Платежі Сеанси роботи Трафік подобово Трафік Повідомлення Замовлення тарифного плану Способи оплати Оплата Приват24 Оплата Visa / MasterCard Робота в кредит График Отправка SMS BDCOM EPON (1G) BDCOM GPON (2.5G) GCOM (2.5G) HUAWEI OLT Зміна паролю Реєстрація MAC пристроя IPTV / OmegaTV Sweet.TV MEGOGO. Кіно та TV ПАУЗА (призупинка послуг) Juniper (NEW) Договір (оферта) Вихід Главная test Тех.підтримка: Багатоканальний - (044) 224-84-34 Київстар - (098) 6-4444-71 Vodafone - (066) 6-4444-70 Lifecell - (093) 6-4444-70 www.simnet.ua - Наш сайт Статистика GPON (2.5G) Выбор OLT для запроса - abon507126 (ip 10.7.19.121) OLT SN ONU Мак-адрес абонента Источник Полный Сигнал Порт Reboot Avtozavodska-29А-GPON (172.16.13.70) XPON:501205DB 64:EE:B7:EE:D9:45 профиль пользователя Запрос OLT → Запрос SIG → Запрос GPON → reboot ONU →",
+          "expectedPollAction": "311",
+          "interface": "",
+          "lateResponseRecovery": false,
+          "matchedBy": [],
+          "openedAction": "311",
+          "openedTab": "GPON",
+          "outcome": "unknown",
+          "pending": false,
+          "ready": false,
+          "requestObserved": false,
+          "responseEvidence": false,
+          "snapshot": {
+            "distance": "",
+            "duplex": "",
+            "evidence": [],
+            "historySummary": "",
+            "identityAssessment": "unverified",
+            "identityConflicts": [],
+            "interface": "",
+            "learnedMacs": [],
+            "linkState": "",
+            "matchedBy": [],
+            "observedOnuMac": "",
+            "observedOnuSerial": "",
+            "observedSubscriberMac": "",
+            "offlineDuration": "",
+            "offlineDurationMs": null,
+            "offlineSince": "",
+            "oltIp": "",
+            "oltName": "",
+            "oltRx": "",
+            "onuMac": "",
+            "onuSerial": "",
+            "onuStatus": "",
+            "outcome": "unknown",
+            "parserKey": "GPON",
+            "pollAction": "311",
+            "pollType": "GPON",
+            "responseSummary": "Адміністрування Данные клиента Рахунок Клієнт: abon507126 (10.7.19.121) Адміністратор: zyatyev (id=193, 31.134.123.120) Головна Платежі Сеанси роботи Трафік подобово Трафік Повідомлення Замовлення тарифного плану Способи оплати Оплата Приват24 Оплата Visa / MasterCard Робота в кредит График Отправка SMS BDCOM EPON (1G) BDCOM GPON (2.5G) GCOM (2.5G) HUAWEI OLT Зміна паролю Реєстрація MAC пристроя IPTV / OmegaTV Sweet.TV MEGOGO. Кіно та TV ПАУЗА (призупинка послуг) Juniper (NEW) Договір (оферта) Вихід Главная test Тех.підтримка: Багатоканальний - (044) 224-84-34 Київстар - (098) 6-4444-71 Vodafone - (066) 6-4444-70 Lifecell - (093) 6-4444-70 www.simnet.ua - Наш сайт Статистика GPON (2.5G) Выбор OLT для запроса - abon507126 (ip 10.7.19.121) OLT SN ONU Мак-адрес абонента Источник Полный Сигнал Порт Reboot Avtozavodska-29А-GPON (172.16.13.70) XPON:501205DB 64:EE:B7:EE:D9:45 профиль пользователя Запрос OLT → Запрос SIG → Запрос GPON → reboot ONU →",
+            "rx": "",
+            "schemaVersion": 1,
+            "speedMbps": null,
+            "subscriberMac": "",
+            "tx": "",
+            "vlan": null
+          },
+          "tabIsEvidence": false,
+          "terminalResponded": false,
+          "uiStable": true,
+          "wrongPollTab": false
+        },
+        "reader": "billing"
+      },
+      "observedAt": "2026-08-22T09:16:40.875Z",
+      "pageKind": "billing_onu_poll",
+      "quality": {
+        "parser": "billing-onu-poll-v3",
+        "trustedPage": true
+      },
+      "routeRelation": "supporting",
+      "subview": "a311",
+      "system": "billing",
+      "title": "Особистий кабінет Сімнет (Simnet)",
+      "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/stat.pl?uu=zyatyev&pp=%5Bredacted%5D&id=50712&a=311"
+    },
+    "billing|billing_onu_poll|50712|a312|abon507126": {
+      "correlation": {
+        "caseId": "login:abon507126",
+        "caseVersion": 12,
+        "documentId": "2C9A9E44EA9AF149F912F222F1747D68",
+        "episodeId": "episode_2hhp4r_20260822091602",
+        "pollAttemptId": "eff79a75-147b-4af5-979d-204ab574cba0",
+        "reason": "correlation-match",
+        "requestId": "",
+        "verdict": "accepted"
+      },
+      "entityId": "50712",
+      "key": "billing|billing_onu_poll|50712|a312|abon507126",
+      "meta": {
+        "documentId": "64046540-edc7-4402-845f-98127618db06",
+        "locatorObservations": [
+          {
+            "correlation": {
+              "caseId": "login:abon507126",
+              "caseVersion": 12,
+              "documentId": "2C9A9E44EA9AF149F912F222F1747D68",
+              "episodeId": "episode_2hhp4r_20260822091602",
+              "pollAttemptId": "eff79a75-147b-4af5-979d-204ab574cba0",
+              "reason": "correlation-match",
+              "requestId": "",
+              "verdict": "accepted"
+            },
+            "details": {
+              "activeExpectedPollAction": "",
+              "attemptExpectedPollAction": "312",
+              "expected": {
+                "interface": "",
+                "onuMac": "",
+                "onuSerial": "",
+                "subscriberMac": ""
+              },
+              "expectedPollAction": "313",
+              "identityAssessment": "unverified",
+              "identityConflicts": [],
+              "interface": "",
+              "lateResponseRecovery": false,
+              "matchedBy": [],
+              "observed": {
+                "interface": "",
+                "onuMac": "",
+                "onuSerial": "",
+                "subscriberMac": ""
+              },
+              "observedOnuMac": "",
+              "observedOnuSerial": "",
+              "oltIp": "172.16.13.70",
+              "oltName": "",
+              "onuMac": "",
+              "onuSerial": "",
+              "pollAction": "312",
+              "pollAttemptId": "eff79a75-147b-4af5-979d-204ab574cba0",
+              "pollCompleted": false,
+              "pollResponded": false,
+              "rawPollResponded": false,
+              "requestObserved": true,
+              "responseEvidence": false,
+              "source": "billing-poll",
+              "subscriberMac": "",
+              "technology": "GCOM",
+              "terminalBlockCount": 0,
+              "terminalResponded": false,
+              "uiStable": true,
+              "wrongPollTab": true
+            },
+            "matchedBy": [],
+            "method": "direct_olt_poll",
+            "passive": true,
+            "passiveReason": "uncorrelated-poll-result",
+            "producerPassive": true,
+            "producerRouteRelation": "",
+            "result": "unknown",
+            "routeRelation": "off_route",
+            "source": "billing",
+            "summary": "Опрос запущен на вкладке другой технологии; результат сохранён только как пассивный контекст.",
+            "type": "POLL_RESULT"
+          }
+        ],
+        "pageInstanceId": "1f6f92f2-48e2-47c5-b689-2cad624a6bef",
+        "pageInstanceStartedAt": 1787390242610,
+        "poll": {
+          "attemptAction": "312",
+          "commandBlocks": [],
+          "evidence": "Адміністрування Данные клиента Рахунок Клієнт: abon507126 (10.7.19.121) Адміністратор: zyatyev (id=193, 31.134.123.120) Головна Платежі Сеанси роботи Трафік подобово Трафік Повідомлення Замовлення тарифного плану Способи оплати Оплата Приват24 Оплата Visa / MasterCard Робота в кредит График Отправка SMS BDCOM EPON (1G) BDCOM GPON (2.5G) GCOM (2.5G) HUAWEI OLT Зміна паролю Реєстрація MAC пристроя IPTV / OmegaTV Sweet.TV MEGOGO. Кіно та TV ПАУЗА (призупинка послуг) Juniper (NEW) Договір (оферта) Вихід Главная test Тех.підтримка: Багатоканальний - (044) 224-84-34 Київстар - (098) 6-4444-71 Vodafone - (066) 6-4444-70 Lifecell - (093) 6-4444-70 www.simnet.ua - Наш сайт Статистика GCOM (2.5G) Выбор OLT для запроса - abon507126 (ip 10.7.19.121) OLT SN ONU Мак-адрес абонента Источник Полный Сигнал Порт Reboot Avtozavodska-29А-GPON (172.16.13.70) XPON:501205DB 64:EE:B7:EE:D9:45 профиль пользователя Запрос OLT → Запрос SIG → Запрос GPON → reboot ONU →",
+          "expectedPollAction": "313",
+          "interface": "",
+          "lateResponseRecovery": false,
+          "matchedBy": [],
+          "openedAction": "312",
+          "openedTab": "GCOM",
+          "outcome": "unknown",
+          "pending": false,
+          "ready": false,
+          "requestObserved": true,
+          "responseEvidence": false,
+          "snapshot": {
+            "distance": "",
+            "duplex": "",
+            "evidence": [],
+            "historySummary": "",
+            "identityAssessment": "unverified",
+            "identityConflicts": [],
+            "interface": "",
+            "learnedMacs": [],
+            "linkState": "",
+            "matchedBy": [],
+            "observedOnuMac": "",
+            "observedOnuSerial": "",
+            "observedSubscriberMac": "",
+            "offlineDuration": "",
+            "offlineDurationMs": null,
+            "offlineSince": "",
+            "oltIp": "172.16.13.70",
+            "oltName": "",
+            "oltRx": "",
+            "onuMac": "",
+            "onuSerial": "",
+            "onuStatus": "",
+            "outcome": "unknown",
+            "parserKey": "GCOM",
+            "pollAction": "312",
+            "pollType": "GCOM",
+            "responseSummary": "Адміністрування Данные клиента Рахунок Клієнт: abon507126 (10.7.19.121) Адміністратор: zyatyev (id=193, 31.134.123.120) Головна Платежі Сеанси роботи Трафік подобово Трафік Повідомлення Замовлення тарифного плану Способи оплати Оплата Приват24 Оплата Visa / MasterCard Робота в кредит График Отправка SMS BDCOM EPON (1G) BDCOM GPON (2.5G) GCOM (2.5G) HUAWEI OLT Зміна паролю Реєстрація MAC пристроя IPTV / OmegaTV Sweet.TV MEGOGO. Кіно та TV ПАУЗА (призупинка послуг) Juniper (NEW) Договір (оферта) Вихід Главная test Тех.підтримка: Багатоканальний - (044) 224-84-34 Київстар - (098) 6-4444-71 Vodafone - (066) 6-4444-70 Lifecell - (093) 6-4444-70 www.simnet.ua - Наш сайт Статистика GCOM (2.5G) Выбор OLT для запроса - abon507126 (ip 10.7.19.121) OLT SN ONU Мак-адрес абонента Источник Полный Сигнал Порт Reboot Avtozavodska-29А-GPON (172.16.13.70) XPON:501205DB 64:EE:B7:EE:D9:45 профиль пользователя Запрос OLT → Запрос SIG → Запрос GPON → reboot ONU →",
+            "rx": "",
+            "schemaVersion": 1,
+            "speedMbps": null,
+            "subscriberMac": "",
+            "tx": "",
+            "vlan": null
+          },
+          "tabIsEvidence": false,
+          "terminalResponded": false,
+          "uiStable": true,
+          "wrongPollTab": true
+        },
+        "reader": "billing"
+      },
+      "observedAt": "2026-08-22T09:17:26.698Z",
+      "pageKind": "billing_onu_poll",
+      "quality": {
+        "parser": "billing-onu-poll-v3",
+        "trustedPage": true
+      },
+      "routeRelation": "off_route",
+      "subview": "a312",
+      "system": "billing",
+      "title": "Особистий кабінет Сімнет (Simnet)",
+      "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/stat.pl?pp=%5Bredacted%5D&a=312&id=50712&act=askolt&olt_ip=172.16.13.70"
+    },
+    "billing|billing_onu_poll|50712|a313|abon507126": {
+      "key": "billing|billing_onu_poll|50712|a313|abon507126",
+      "system": "billing",
+      "pageKind": "billing_onu_poll",
+      "entityId": "50712",
+      "subview": "a313",
+      "title": "Особистий кабінет Сімнет (Simnet)",
+      "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/stat.pl?pp=%5Bredacted%5D&a=313&id=50712",
+      "meta": {
+        "documentId": "1df38082-9b4a-4357-8f0b-51056080538d",
+        "pageInstanceId": "52e45045-b283-4437-9653-17c688c39e32",
+        "pageInstanceStartedAt": 1787390560012,
+        "reader": "billing",
+        "poll": {
+          "openedTab": "Huawei",
+          "openedAction": "313",
+          "tabIsEvidence": false,
+          "outcome": "unknown",
+          "ready": false,
+          "pending": false,
+          "requestObserved": false,
+          "uiStable": true,
+          "expectedPollAction": "313",
+          "attemptAction": "313",
+          "wrongPollTab": false,
+          "terminalResponded": false,
+          "responseEvidence": false,
+          "lateResponseRecovery": false,
+          "snapshot": {
+            "schemaVersion": 1,
+            "outcome": "unknown",
+            "pollAction": "313",
+            "pollType": "Huawei",
+            "parserKey": "Huawei",
+            "oltName": "",
+            "oltIp": "172.16.1.50",
+            "onuStatus": "",
+            "onuMac": "",
+            "onuSerial": "",
+            "observedOnuMac": "",
+            "observedOnuSerial": "",
+            "subscriberMac": "",
+            "observedSubscriberMac": "",
+            "learnedMacs": [],
+            "interface": "",
+            "rx": "",
+            "tx": "",
+            "distance": "",
+            "oltRx": "",
+            "linkState": "",
+            "speedMbps": null,
+            "duplex": "",
+            "vlan": null,
+            "identityAssessment": "unverified",
+            "identityConflicts": [],
+            "matchedBy": [],
+            "responseSummary": "Адміністрування Данные клиента Рахунок Клієнт: abon507126 (10.7.19.121) Адміністратор: zyatyev (id=193, 31.134.123.120) Головна Платежі Сеанси роботи Трафік подобово Трафік Повідомлення Замовлення тарифного плану Способи оплати Оплата Приват24 Оплата Visa / MasterCard Робота в кредит График Отправка SMS BDCOM EPON (1G) BDCOM GPON (2.5G) GCOM (2.5G) HUAWEI OLT Зміна паролю Реєстрація MAC пристроя IPTV / OmegaTV Sweet.TV MEGOGO. Кіно та TV ПАУЗА (призупинка послуг) Juniper (NEW) Договір (оферта) Вихід Главная test Тех.підтримка: Багатоканальний - (044) 224-84-34 Київстар - (098) 6-4444-71 Vodafone - (066) 6-4444-70 Lifecell - (093) 6-4444-70 www.simnet.ua - Наш сайт Статистика HUAWEI OLT Выбор OLT для запроса - abon507126 (ip 10.7.19.121) OLT SN ONU MAC ONU Мак-адрес абонента Источник Полный Autofind Порт Reboot Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 профиль пользователя Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU → Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 группа 1 Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU →",
+            "historySummary": "",
+            "offlineSince": "",
+            "offlineDuration": "",
+            "offlineDurationMs": null,
+            "evidence": []
+          },
+          "matchedBy": [],
+          "interface": "",
+          "commandBlocks": [],
+          "evidence": "Адміністрування Данные клиента Рахунок Клієнт: abon507126 (10.7.19.121) Адміністратор: zyatyev (id=193, 31.134.123.120) Головна Платежі Сеанси роботи Трафік подобово Трафік Повідомлення Замовлення тарифного плану Способи оплати Оплата Приват24 Оплата Visa / MasterCard Робота в кредит График Отправка SMS BDCOM EPON (1G) BDCOM GPON (2.5G) GCOM (2.5G) HUAWEI OLT Зміна паролю Реєстрація MAC пристроя IPTV / OmegaTV Sweet.TV MEGOGO. Кіно та TV ПАУЗА (призупинка послуг) Juniper (NEW) Договір (оферта) Вихід Главная test Тех.підтримка: Багатоканальний - (044) 224-84-34 Київстар - (098) 6-4444-71 Vodafone - (066) 6-4444-70 Lifecell - (093) 6-4444-70 www.simnet.ua - Наш сайт Статистика HUAWEI OLT Выбор OLT для запроса - abon507126 (ip 10.7.19.121) OLT SN ONU MAC ONU Мак-адрес абонента Источник Полный Autofind Порт Reboot Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 профиль пользователя Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU → Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 группа 1 Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU →"
+        },
+        "locatorObservations": []
+      },
+      "quality": {
+        "trustedPage": true,
+        "parser": "billing-onu-poll-v3"
+      },
+      "routeRelation": "supporting",
+      "correlation": {
+        "caseId": "login:abon507126",
+        "episodeId": "episode_2hhp4r_20260822091602",
+        "caseVersion": 0,
+        "documentId": "D0E190A91611168EBCBECD342569AD1C",
+        "requestId": "",
+        "pollAttemptId": "",
+        "verdict": "accepted",
+        "reason": "correlation-match"
+      },
+      "observedAt": "2026-08-22T09:22:40.061Z"
+    },
+    "billing|billing_other|||": {
+      "correlation": {
+        "caseId": "login:abon507126",
+        "caseVersion": 0,
+        "documentId": "8F7421B684B5E82E3ADB56649736E921",
+        "episodeId": "episode_2hhp4r_20260822091602",
+        "pollAttemptId": "",
+        "reason": "correlation-match",
+        "requestId": "",
+        "verdict": "accepted"
+      },
+      "entityId": "",
+      "key": "billing|billing_other|||",
+      "meta": {
+        "documentId": "e9214fa8-5e75-4b90-841e-21b94efb8dfb",
+        "ignoredPage": "billing_other",
+        "pageInstanceId": "a1c8f852-1fbf-4d7e-b023-5c1c8a03b08b",
+        "pageInstanceStartedAt": 1787390311752,
+        "reader": "billing"
+      },
+      "observedAt": "2026-08-22T09:18:31.784Z",
+      "pageKind": "billing_other",
+      "quality": {
+        "trustedPage": false
+      },
+      "routeRelation": "supporting",
+      "subview": "",
+      "system": "billing",
+      "title": "Simnet",
+      "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/adm.pl"
+    },
+    "billing|billing_technical|50712|technical|abon507126": {
+      "key": "billing|billing_technical|50712|technical|abon507126",
+      "system": "billing",
+      "pageKind": "billing_technical",
+      "entityId": "50712",
+      "subview": "technical",
+      "title": "Simnet",
+      "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/adm.pl?pp=%5Bredacted%5D&a=dopdata&parent_type=0&id=50712&tmpl=1&copy=0&id=50712&updated=1",
+      "meta": {
+        "documentId": "3dd18d0f-32ba-4ae8-bc9e-54cc0982d223",
+        "pageInstanceId": "910cc6e7-aad1-4289-924f-ca93fe368de4",
+        "pageInstanceStartedAt": 1787390562339,
+        "reader": "billing",
+        "technical": {
+          "rowCount": 10,
+          "hasSubscriberIdentity": true,
+          "hasOnuIdentity": true,
+          "hasOlt": true,
+          "isPon": true,
+          "pollCandidates": [],
+          "sufficientIdentityForPoll": true
+        }
+      },
+      "quality": {
+        "trustedPage": true,
+        "parser": "billing-technical-v3"
+      },
+      "routeRelation": "supporting",
+      "correlation": {
+        "caseId": "login:abon507126",
+        "episodeId": "episode_2hhp4r_20260822091602",
+        "caseVersion": 0,
+        "documentId": "4DDB2DE563A70025888A3E6267E3F19E",
+        "requestId": "",
+        "pollAttemptId": "",
+        "verdict": "accepted",
+        "reason": "correlation-match"
+      },
+      "observedAt": "2026-08-22T09:22:42.379Z"
+    },
+    "billing|billing_user|50712||abon507126": {
+      "correlation": {
+        "caseId": "login:abon507126",
+        "caseVersion": 0,
+        "documentId": "6A7D02810EDB6BBA468C17940ABD8FF8",
+        "episodeId": "episode_2hhp4r_20260822091602",
+        "pollAttemptId": "",
+        "reason": "correlation-match",
+        "requestId": "",
+        "verdict": "accepted"
+      },
+      "entityId": "50712",
+      "key": "billing|billing_user|50712||abon507126",
+      "meta": {
+        "documentId": "4fd0ab25-17c4-44a0-959d-2a80879be758",
+        "pageInstanceId": "49a991f5-9403-4fec-9377-59a4f0909637",
+        "pageInstanceStartedAt": 1787390351370,
+        "reader": "billing",
+        "technical": {
+          "hasOlt": false,
+          "hasOnuIdentity": false,
+          "hasSubscriberIdentity": true,
+          "isPon": false,
+          "pollCandidates": [
+            {
+              "action": "310",
+              "label": "BDCOM EPON (1G)",
+              "type": "EPON"
+            },
+            {
+              "action": "311",
+              "label": "BDCOM GPON (2.5G)",
+              "type": "GPON"
+            },
+            {
+              "action": "312",
+              "label": "GCOM (2.5G)",
+              "type": "GCOM"
+            },
+            {
+              "action": "313",
+              "label": "HUAWEI OLT",
+              "type": "Huawei"
+            }
+          ],
+          "rowCount": 81,
+          "sufficientIdentityForPoll": false
+        }
+      },
+      "observedAt": "2026-08-22T09:19:11.407Z",
+      "pageKind": "billing_user",
+      "quality": {
+        "parser": "billing-user-v2.1",
+        "trustedPage": true
+      },
+      "routeRelation": "supporting",
+      "subview": "",
+      "system": "billing",
+      "title": "Simnet",
+      "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/adm.pl?pp=%5Bredacted%5D&a=user&id=50712"
+    },
+    "userside|userside_customer|59150||abon507126": {
+      "correlation": {
+        "caseId": "login:abon507126",
+        "caseVersion": 6,
+        "documentId": "EB93C2D21788F0B0255266728542CEBD",
+        "episodeId": "episode_2hhp4r_20260822091602",
+        "pollAttemptId": "",
+        "reason": "correlation-match",
+        "requestId": "",
+        "verdict": "accepted"
+      },
+      "entityId": "59150",
+      "key": "userside|userside_customer|59150||abon507126",
+      "meta": {
+        "connectionPoint": {
+          "classification": "pon_onu_lan_or_non_ethernet",
+          "deviceId": "63098",
+          "deviceIp": "10.7.19.121",
+          "deviceName": "C-DATA ONU xPON FD511G - Сліпченко Ян Васильович - abon507126 Киев, вул. Симиренка (Святошинський), 5 кв. 306 порт: 1 ONU Rx (dBm): -23.01 # Коммутация Порт Линк Трафик 1 Абонент Сліпченко Ян Васильович - abon507126 Киев, вул. Симиренка (Св…",
+          "interface": "",
+          "linkState": "",
+          "ownerMatched": true,
+          "port": "1",
+          "speedMbps": ""
+        },
+        "customerMacs": [
+          {
+            "href": "https://userside.simnet.kiev.ua/customer_list/search_page?search=64%3AEE%3AB7%3AEE%3AD9%3A45&find_typer=machistory",
+            "ip": "",
+            "mac": "64:EE:B7:EE:D9:45",
+            "title": "Поиск по MAC-адресу"
+          }
+        ],
+        "documentId": "e37243fa-325d-41c5-9012-0ab89c61de6d",
+        "ethernetAccessPoint": null,
+        "handoff": {
+          "claimed": true,
+          "purpose": "userside-tmc-focus",
+          "sourceTabId": 1184900939,
+          "token": "[redacted]"
+        },
+        "locatorObservations": [
+          {
+            "correlation": {
+              "caseId": "login:abon507126",
+              "caseVersion": 6,
+              "documentId": "EB93C2D21788F0B0255266728542CEBD",
+              "episodeId": "episode_2hhp4r_20260822091602",
+              "pollAttemptId": "",
+              "reason": "correlation-match",
+              "requestId": "",
+              "verdict": "accepted"
+            },
+            "details": {
+              "confidence": 0.99,
+              "deviceId": "57547",
+              "foundOnOlt": true,
+              "identityCheck": {
+                "isMatch": true,
+                "matchedCurrentSubscriber": true
+              },
+              "interface": "GPON 0/4/6:13",
+              "matchedCurrentSubscriber": true,
+              "oltIp": "172.16.1.50",
+              "oltName": "Huawei MA5800-X15",
+              "onuMac": "c4:CD:50:12:05:DB",
+              "onuSerial": "XPON501205DB",
+              "source": "userside-tmc"
+            },
+            "method": "userside_tmc",
+            "passive": false,
+            "passiveReason": "",
+            "producerPassive": false,
+            "producerRouteRelation": "",
+            "result": "found",
+            "routeRelation": "supporting",
+            "source": "userside",
+            "summary": "OLT найдена в ТМЦ; сохранены только реально доступные в ТМЦ поля ONU/OLT.",
+            "type": "TMC_RESULT"
+          },
+          {
+            "correlation": {
+              "caseId": "login:abon507126",
+              "caseVersion": 6,
+              "documentId": "EB93C2D21788F0B0255266728542CEBD",
+              "episodeId": "episode_2hhp4r_20260822091602",
+              "pollAttemptId": "",
+              "reason": "correlation-match",
+              "requestId": "",
+              "verdict": "accepted"
+            },
+            "details": {
+              "macs": [
+                {
+                  "href": "https://userside.simnet.kiev.ua/customer_list/search_page?search=64%3AEE%3AB7%3AEE%3AD9%3A45&find_typer=machistory",
+                  "ip": "",
+                  "mac": "64:EE:B7:EE:D9:45",
+                  "title": "Поиск по MAC-адресу"
+                }
+              ]
+            },
+            "method": "userside_customer_card",
+            "passive": false,
+            "passiveReason": "",
+            "producerPassive": false,
+            "producerRouteRelation": "",
+            "result": "found",
+            "routeRelation": "supporting",
+            "source": "userside",
+            "summary": "На карточке найдено MAC для поиска: 1.",
+            "type": "CUSTOMER_MACS"
+          }
+        ],
+        "pageInstanceId": "22c74e9c-c559-454f-af92-a7f33a39ab12",
+        "pageInstanceStartedAt": 1787390170471,
+        "reader": "userside",
+        "tmc": {
+          "candidateCount": 1,
+          "checked": true,
+          "found": true,
+          "identityCheck": {
+            "isMatch": true,
+            "matchedCurrentSubscriber": true
+          },
+          "oltIp": "172.16.1.50",
+          "oltName": "Huawei MA5800-X15",
+          "result": "found"
+        }
+      },
+      "observedAt": "2026-08-22T09:16:10.524Z",
+      "pageKind": "userside_customer",
+      "quality": {
+        "parser": "userside-customer-locator-v2.1",
+        "trustedPage": true
+      },
+      "routeRelation": "supporting",
+      "subview": "",
+      "system": "userside",
+      "title": "Сліпченко Ян Васильович - abon507126 - Абоненты - UserSide",
+      "url": "https://userside.simnet.kiev.ua/customer/59150"
+    }
+  },
+  "createdAt": "2026-08-22T09:16:02.789Z",
+  "currentContext": {
+    "key": "billing|billing_technical|50712|technical|abon507126",
+    "system": "billing",
+    "pageKind": "billing_technical",
+    "entityId": "50712",
+    "subview": "technical",
+    "title": "Simnet",
+    "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/adm.pl?pp=%5Bredacted%5D&a=dopdata&parent_type=0&id=50712&tmpl=1&copy=0&id=50712&updated=1",
+    "meta": {
+      "documentId": "3dd18d0f-32ba-4ae8-bc9e-54cc0982d223",
+      "pageInstanceId": "910cc6e7-aad1-4289-924f-ca93fe368de4",
+      "pageInstanceStartedAt": 1787390562339,
+      "reader": "billing",
+      "technical": {
+        "rowCount": 10,
+        "hasSubscriberIdentity": true,
+        "hasOnuIdentity": true,
+        "hasOlt": true,
+        "isPon": true,
+        "pollCandidates": [],
+        "sufficientIdentityForPoll": true
+      }
+    },
+    "quality": {
+      "trustedPage": true,
+      "parser": "billing-technical-v3"
+    },
+    "routeRelation": "supporting",
+    "correlation": {
+      "caseId": "login:abon507126",
+      "episodeId": "episode_2hhp4r_20260822091602",
+      "caseVersion": 0,
+      "documentId": "4DDB2DE563A70025888A3E6267E3F19E",
+      "requestId": "",
+      "pollAttemptId": "",
+      "verdict": "accepted",
+      "reason": "correlation-match"
+    },
+    "observedAt": "2026-08-22T09:22:42.379Z"
+  },
+  "diagnosis": {
+    "conclusion": "",
+    "evidence": [],
+    "status": "not-assessed",
+    "updatedAt": ""
+  },
+  "diagnostic": {
+    "stage": "awaiting-complaint",
+    "completion": 0,
+    "diagnosisStatus": "not-assessed",
+    "diagnosisComplete": false,
+    "locatorStage": "ready-for-poll",
+    "locatorCompletion": 96,
+    "family": "PON",
+    "subtype": "Huawei",
+    "pollAction": "313",
+    "isPon": true,
+    "isEthernet": false,
+    "hasIdentity": true,
+    "hasIp": true,
+    "hasSubscriberMac": true,
+    "hasBillingOnu": true,
+    "hasBillingOnuMac": true,
+    "hasBillingOnuSerial": true,
+    "billingMissingTechnical": [],
+    "requiredTechnicalFields": [
+      "olt",
+      "onuMac"
+    ],
+    "hasTmcOnu": true,
+    "hasOnu": true,
+    "hasBillingOltName": true,
+    "hasTmcOlt": true,
+    "hasOlt": true,
+    "hasValidOltIp": true,
+    "hasLiveResult": false,
+    "pollResponded": false,
+    "bindingVerified": true,
+    "accessReachable": false,
+    "serviceHealthy": false,
+    "serviceState": "unknown",
+    "juniperChecked": true,
+    "juniperReviewed": false,
+    "juniperResult": "online",
+    "juniper": {
+      "details": {
+        "authType": "dhcp",
+        "brasIp": "192.168.9.5",
+        "brasName": "SIM-Juniper",
+        "bytesRaw": "141.4gb / 4.6gb (151785407414 / 4976693210; з 14-08-2026 10:35:21)",
+        "hasTraffic": false,
+        "identityCheck": {
+          "expectedIp": "10.7.19.121",
+          "expectedMac": "",
+          "ipConflict": false,
+          "isMatch": true,
+          "macConflict": false,
+          "observedIp": "10.7.19.121",
+          "observedMac": "64EEB7EED945"
+        },
+        "lastEvent": "Periodic",
+        "lastEventTime": "22-08-2026 12:15:38",
+        "parserVersion": "1.0.0",
+        "preview": true,
+        "readOnly": true,
+        "readSource": "automatic",
+        "reason": "identity:boot",
+        "refreshRequested": false,
+        "router": "",
+        "rxBps": 0,
+        "sessionId": "[redacted]",
+        "sessions": [
+          {
+            "authType": "dhcp",
+            "brasIp": "192.168.9.5",
+            "brasName": "SIM-Juniper",
+            "bytesRaw": "141.4gb / 4.6gb (151785407414 / 4976693210; з 14-08-2026 10:35:21)",
+            "hasTraffic": false,
+            "lastEvent": "Periodic",
+            "lastEventTime": "22-08-2026 12:15:38",
+            "rxBps": 0,
+            "sessionId": "[redacted]",
+            "source": "Radius2 / subscriber_session",
+            "speedRaw": "0bit/s / 0bit/s (0 / 0)",
+            "staleRadius": false,
+            "startTime": "14-08-2026 10:35:21",
+            "status": "online",
+            "statusRaw": "online / active(2)",
+            "subscriberIp": "10.7.19.121",
+            "subscriberMac": "64:EE:B7:EE:D9:45",
+            "txBps": 0,
+            "vendor": "MSFT 5.0",
+            "vlan": "3782:3013"
+          }
+        ],
+        "source": "Radius2 / subscriber_session",
+        "sourceUrl": "https://admin.simnet.kiev.ua/cgi-bin/adm/stat.pl?uu=zyatyev&pp=%5Bredacted%5D&id=50712&a=252",
+        "speedRaw": "0bit/s / 0bit/s (0 / 0)",
+        "staleRadius": false,
+        "startTime": "14-08-2026 10:35:21",
+        "status": "online",
+        "statusRaw": "online / active(2)",
+        "subscriberIp": "10.7.19.121",
+        "subscriberMac": "64:EE:B7:EE:D9:45",
+        "txBps": 0,
+        "username": "64ee.b7ee.d945",
+        "vendor": "MSFT 5.0",
+        "vlan": "3782:3013"
+      },
+      "method": "billing-juniper-prefetch",
+      "observedAt": "2026-08-22T09:16:03.876Z",
+      "preview": true,
+      "readOnly": true,
+      "result": "online",
+      "summary": "juniper: %D1%81%D0%B5%D1%81%D1%81%D0%B8%D1%8F online, %D0%BD%D0%BE %D0%B2 %D0%BC%D0%BE%D0%BC%D0%B5%D0%BD%D1%82 %D1%81%D0%BD%D0%B8%D0%BC%D0%BA%D0%B0 %D0%B7%D0%B0%D0%BC%D0%B5%D1%82%D0%BD%D0%BE%D0%B3%D0%BE %D0%BE%D0%B1%D0%BC%D0%B5%D0%BD%D0%B0 %D0%BF%D0%B0%D0%BA%D0%B5%D1%82%D0%B0%D0%BC%D0%B8 %D0%BD%D0%B5%D1%82. %D0%9D%D1%83%D0%BB%D0%B5%D0%B2%D0%B0%D1%8F %D0%BC%D0%B3%D0%BD%D0%BE%D0%B2%D0%B5%D0%BD%D0%BD%D0%B0%D1%8F %D1%81%D0%BA%D0%BE%D1%80%D0%BE%D1%81%D1%82%D1%8C %D1%81%D0%B0%D0%BC%D0%B0 %D0%BF%D0%BE %D1%81%D0%B5%D0%B1%D0%B5 %D0%BD%D0%B5 %D0%B4%D0%BE%D0%BA%D0%B0%D0%B7%D1%8B%D0%B2%D0%B0%D0%B5%D1%82 %D0%BD%D0%B5%D0%B8%D1%81%D0%BF%D1%80%D0%B0%D0%B2%D0%BD%D0%BE%D1%81%D1%82%D1%8C."
+    },
+    "technicalVisited": true,
+    "usersideVisited": true,
+    "readyForOnuPoll": true,
+    "canAttemptOnuPoll": true,
+    "billingTechnicalComplete": true,
+    "currentBindingRejected": false,
+    "locatorState": "candidate_found",
+    "locatorAction": "poll_candidate",
+    "locatorRuleId": "pon.workflow.ready_for_poll",
+    "locatorReason": "Billing Technical содержит сохранённые OLT + ONU MAC; тип poll определён из Billing.",
+    "ponWorkflowState": "ready_for_poll",
+    "ponWorkflowBlockers": [],
+    "ponWorkflowDetails": {
+      "source": "",
+      "fields": [],
+      "expectedTechnical": null,
+      "serialStatus": "known",
+      "tmcChecked": true,
+      "tmcFound": true,
+      "prefillFields": [],
+      "pollDerivedBy": "vendor-or-type",
+      "effectiveOltSource": "billing",
+      "conflicts": [],
+      "warnings": [],
+      "candidate": null,
+      "searchMacs": []
+    },
+    "terminationStatus": "",
+    "termination": null,
+    "bestCandidate": {
+      "confidence": 0.99,
+      "createdAt": "2026-08-22T09:16:10.525Z",
+      "deviceId": "57547",
+      "evidence": [
+        "TMC_RESULT|found|userside_tmc||172.16.1.50|C4CD501205DB||57547|gpon 0/4/6:13|C4CD501205DB||userside_customer"
+      ],
+      "id": "57547|gpon 0/4/6:13|C4CD501205DB",
+      "interface": "GPON 0/4/6:13",
+      "matchedCurrentSubscriber": true,
+      "oltIp": "172.16.1.50",
+      "oltName": "Huawei MA5800-X15",
+      "onuMac": "C4CD501205DB",
+      "onuSerial": "XPON501205DB",
+      "pollAction": "313",
+      "source": "userside-tmc",
+      "status": "candidate",
+      "technology": "Huawei",
+      "updatedAt": "2026-08-22T09:16:10.525Z"
+    },
+    "attemptCount": 2,
+    "candidateCount": 1,
+    "nextRequiredSource": "poll_candidate",
+    "conflictCount": 6,
+    "updatedAt": "2026-08-22T09:22:42.379Z"
+  },
+  "episodeId": "episode_2hhp4r_20260822091602",
+  "id": "login:abon507126",
+  "identity": {
+    "billingId": {
+      "confidence": 0.99,
+      "observedAt": "2026-08-22T09:16:02.786Z",
+      "source": "billing:url-id",
+      "value": "50712"
+    },
+    "contract": {
+      "confidence": 0.98,
+      "observedAt": "2026-08-22T09:16:10.524Z",
+      "source": "handoff:billing-contract",
+      "value": "507126"
+    },
+    "customerId": {
+      "confidence": 0.98,
+      "observedAt": "2026-08-22T09:16:10.514Z",
+      "source": "url:path",
+      "value": "59150"
+    },
+    "login": {
+      "confidence": 0.98,
+      "observedAt": "2026-08-22T09:16:02.786Z",
+      "source": "billing:exact-login",
+      "value": "abon507126"
+    }
+  },
+  "journal": [
+    {
+      "at": "2026-08-22T09:19:04.655Z",
+      "details": {
+        "confidence": 0.97,
+        "field": "pon.oltIp",
+        "from": "172.16.1.50",
+        "source": "billing:olt-selected-option-ip",
+        "to": "172.16.13.70"
+      },
+      "id": "mt4628jz-ksia2v",
+      "message": "Обновлено pon.oltIp: 172.16.13.70",
+      "signature": "j2_nlqq9d",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:19:04.655Z",
+      "details": {
+        "confidence": 0.9,
+        "field": "pon.oltId",
+        "from": "87",
+        "source": "billing:olt-select-value",
+        "to": "52"
+      },
+      "id": "mt4628jz-02ykt4",
+      "message": "Обновлено pon.oltId: 52",
+      "signature": "j2_17pmcn9",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:19:04.655Z",
+      "details": {
+        "confidence": 0.97,
+        "field": "pon.oltName",
+        "from": "Sim36-OLT-Huawei Huawei",
+        "source": "billing:olt-selected-option",
+        "to": "Avtozavodska-29А-GPON"
+      },
+      "id": "mt4628jz-uaztuq",
+      "message": "Обновлено pon.oltName: Avtozavodska-29А-GPON",
+      "signature": "j2_1ggwlm7",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:19:02.633Z",
+      "details": {
+        "completion": 96,
+        "nextRequiredSource": "wait_poll",
+        "readyForOnuPoll": false
+      },
+      "id": "mt4626zt-misbaz",
+      "message": "Этап поиска/проверки линии: polling",
+      "signature": "j2_1tbzo0n",
+      "type": "diagnostic"
+    },
+    {
+      "at": "2026-08-22T09:19:00.262Z",
+      "details": {
+        "caseId": "login:abon507126",
+        "caseVersion": 25,
+        "documentId": "8E79956D5F34EC7A7F9229F7B83FC645",
+        "episodeId": "episode_2hhp4r_20260822091602",
+        "pollAttemptId": "35f88cd1-9c9c-4c66-9eaa-8c7e291f37cb",
+        "reason": "correlation-match",
+        "requestId": "",
+        "verdict": "accepted"
+      },
+      "id": "mt46255y-n91y0t",
+      "message": "POLL CORRELATION · ACCEPTED",
+      "signature": "j2_1ywiyiv",
+      "type": "correlation"
+    },
+    {
+      "at": "2026-08-22T09:18:44.917Z",
+      "details": {
+        "entityId": "50712",
+        "subview": "a313",
+        "title": "Особистий кабінет Сімнет (Simnet)"
+      },
+      "id": "mt461tbp-eu8da1",
+      "message": "Контекст: billing / billing_onu_poll",
+      "signature": "j2_15sm0n",
+      "type": "navigation"
+    },
+    {
+      "at": "2026-08-22T09:18:32.158Z",
+      "details": {
+        "completion": 96,
+        "nextRequiredSource": "poll_candidate",
+        "readyForOnuPoll": true
+      },
+      "id": "mt461jha-yjswyq",
+      "message": "Этап поиска/проверки линии: ready-for-poll",
+      "signature": "j2_pyps0q",
+      "type": "diagnostic"
+    },
+    {
+      "at": "2026-08-22T09:18:32.156Z",
+      "details": {
+        "confidence": 0.97,
+        "field": "pon.oltIp",
+        "from": "172.16.13.70",
+        "source": "billing:olt-selected-option-ip",
+        "to": "172.16.1.50"
+      },
+      "id": "mt461jh8-4d0rmw",
+      "message": "Обновлено pon.oltIp: 172.16.1.50",
+      "signature": "j2_15frwiy",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:18:32.155Z",
+      "details": {
+        "confidence": 0.9,
+        "field": "pon.oltId",
+        "from": "52",
+        "source": "billing:olt-select-value",
+        "to": "87"
+      },
+      "id": "mt461jh7-bpscyz",
+      "message": "Обновлено pon.oltId: 87",
+      "signature": "j2_ri6zxj",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:18:32.155Z",
+      "details": {
+        "confidence": 0.97,
+        "field": "pon.oltName",
+        "from": "Avtozavodska-29А-GPON",
+        "source": "billing:olt-selected-option",
+        "to": "Sim36-OLT-Huawei Huawei"
+      },
+      "id": "mt461jh7-pvexrs",
+      "message": "Обновлено pon.oltName: Sim36-OLT-Huawei Huawei",
+      "signature": "j2_ab2dna",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:17:37.461Z",
+      "details": {
+        "caseId": "login:abon507126",
+        "caseVersion": 12,
+        "documentId": "9B3F70D33BEA83EE8031FE52866C49BD",
+        "episodeId": "episode_2hhp4r_20260822091602",
+        "pollAttemptId": "eff79a75-147b-4af5-979d-204ab574cba0",
+        "reason": "stale-document",
+        "requestId": "",
+        "verdict": "stale"
+      },
+      "id": "mt460d9x-u1ut9l",
+      "message": "POLL CORRELATION · STALE",
+      "signature": "j2_1j3j9c5",
+      "type": "correlation"
+    },
+    {
+      "at": "2026-08-22T09:17:31.611Z",
+      "details": {
+        "caseId": "login:abon507126",
+        "caseVersion": 12,
+        "documentId": "2C9A9E44EA9AF149F912F222F1747D68",
+        "episodeId": "episode_2hhp4r_20260822091602",
+        "pollAttemptId": "eff79a75-147b-4af5-979d-204ab574cba0",
+        "reason": "correlation-match",
+        "requestId": "",
+        "verdict": "accepted"
+      },
+      "id": "mt4608rf-s4pb6h",
+      "message": "POLL CORRELATION · ACCEPTED",
+      "signature": "j2_1ek005e",
+      "type": "correlation"
+    },
+    {
+      "at": "2026-08-22T09:17:26.699Z",
+      "details": {
+        "details": {
+          "activeExpectedPollAction": "",
+          "attemptExpectedPollAction": "312",
+          "expected": {
+            "interface": "",
+            "onuMac": "",
+            "onuSerial": "",
+            "subscriberMac": ""
+          },
+          "expectedPollAction": "313",
+          "identityAssessment": "unverified",
+          "identityConflicts": [],
+          "interface": "",
+          "lateResponseRecovery": false,
+          "matchedBy": [],
+          "observed": {
+            "interface": "",
+            "onuMac": "",
+            "onuSerial": "",
+            "subscriberMac": ""
+          },
+          "observedOnuMac": "",
+          "observedOnuSerial": "",
+          "oltIp": "172.16.13.70",
+          "oltName": "",
+          "onuMac": "",
+          "onuSerial": "",
+          "pollAction": "312",
+          "pollAttemptId": "eff79a75-147b-4af5-979d-204ab574cba0",
+          "pollCompleted": false,
+          "pollResponded": false,
+          "rawPollResponded": false,
+          "requestObserved": true,
+          "responseEvidence": false,
+          "source": "billing-poll",
+          "subscriberMac": "",
+          "technology": "GCOM",
+          "terminalBlockCount": 0,
+          "terminalResponded": false,
+          "uiStable": true,
+          "wrongPollTab": true
+        },
+        "method": "direct_olt_poll",
+        "summary": "Опрос запущен на вкладке другой технологии; результат сохранён только как пассивный контекст."
+      },
+      "id": "mt4604yz-rwsyoo",
+      "message": "Поиск абонента: POLL_RESULT → unknown · passive",
+      "signature": "j2_jsz8rk",
+      "type": "locator"
+    },
+    {
+      "at": "2026-08-22T09:17:26.698Z",
+      "details": {
+        "caseId": "login:abon507126",
+        "caseVersion": 12,
+        "documentId": "2C9A9E44EA9AF149F912F222F1747D68",
+        "episodeId": "episode_2hhp4r_20260822091602",
+        "pollAttemptId": "eff79a75-147b-4af5-979d-204ab574cba0",
+        "reason": "correlation-match",
+        "requestId": "",
+        "verdict": "accepted"
+      },
+      "id": "mt4604yy-fdx36t",
+      "message": "CORRELATION · ACCEPTED",
+      "signature": "j2_1ri66w9",
+      "type": "correlation"
+    },
+    {
+      "at": "2026-08-22T09:17:01.618Z",
+      "details": {
+        "caseId": "login:abon507126",
+        "caseVersion": 12,
+        "documentId": "9B3F70D33BEA83EE8031FE52866C49BD",
+        "episodeId": "episode_2hhp4r_20260822091602",
+        "pollAttemptId": "eff79a75-147b-4af5-979d-204ab574cba0",
+        "reason": "correlation-match",
+        "requestId": "",
+        "verdict": "accepted"
+      },
+      "id": "mt45zlma-cjkgwn",
+      "message": "POLL CORRELATION · ACCEPTED",
+      "signature": "j2_1kc544s",
+      "type": "correlation"
+    },
+    {
+      "at": "2026-08-22T09:17:01.588Z",
+      "details": {
+        "actualAction": "312",
+        "actualBillingId": "50712",
+        "actualOltIp": "172.16.13.70",
+        "actualTechnology": "GCOM",
+        "caseId": "login:abon507126",
+        "expectedAction": "313",
+        "expectedBillingId": "50712",
+        "expectedOltIp": "172.16.1.50",
+        "expectedSource": "tmc",
+        "expectedTechnology": "Huawei",
+        "maxShows": 2,
+        "reason": "poll-action-mismatch",
+        "showCount": 1,
+        "target": {
+          "tag": "a",
+          "text": "Запрос OLT →"
+        },
+        "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/stat.pl?uu=zyatyev&pp=%5Bredacted%5D&id=50712&a=312"
+      },
+      "id": "mt45zllg-nq89ox",
+      "message": "GUARD WARN · poll-action-mismatch",
+      "signature": "j2_ufbxbv",
+      "type": "interaction_warning"
+    },
+    {
+      "at": "2026-08-22T09:16:55.643Z",
+      "details": {
+        "entityId": "50712",
+        "subview": "a312",
+        "title": "Особистий кабінет Сімнет (Simnet)"
+      },
+      "id": "mt45zh0b-wbfw7e",
+      "message": "Контекст: billing / billing_onu_poll",
+      "signature": "j2_1865ia4",
+      "type": "navigation"
+    },
+    {
+      "at": "2026-08-22T09:16:40.875Z",
+      "details": {
+        "entityId": "50712",
+        "subview": "a311",
+        "title": "Особистий кабінет Сімнет (Simnet)"
+      },
+      "id": "mt45z5m3-lihvty",
+      "message": "Контекст: billing / billing_onu_poll",
+      "signature": "j2_18yh7ch",
+      "type": "navigation"
+    },
+    {
+      "at": "2026-08-22T09:16:30.440Z",
+      "details": {
+        "completion": 96,
+        "nextRequiredSource": "manual_review",
+        "readyForOnuPoll": false
+      },
+      "id": "mt45yxk8-399fol",
+      "message": "Этап поиска/проверки линии: searching",
+      "signature": "j2_1cua4ma",
+      "type": "diagnostic"
+    },
+    {
+      "at": "2026-08-22T09:16:30.440Z",
+      "details": {
+        "confidence": 0.97,
+        "field": "pon.oltIp",
+        "from": null,
+        "source": "billing:olt-selected-option-ip",
+        "to": "172.16.13.70"
+      },
+      "id": "mt45yxk8-0mqypl",
+      "message": "Обновлено pon.oltIp: 172.16.13.70",
+      "signature": "j2_13rz39x",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:30.440Z",
+      "details": {
+        "confidence": 0.9,
+        "field": "pon.oltId",
+        "from": null,
+        "source": "billing:olt-select-value",
+        "to": "52"
+      },
+      "id": "mt45yxk8-tz0afo",
+      "message": "Обновлено pon.oltId: 52",
+      "signature": "j2_skl0mb",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:30.439Z",
+      "details": {
+        "confidence": 0.97,
+        "field": "pon.oltName",
+        "from": null,
+        "source": "billing:olt-selected-option",
+        "to": "Avtozavodska-29А-GPON"
+      },
+      "id": "mt45yxk7-y2s28p",
+      "message": "Обновлено pon.oltName: Avtozavodska-29А-GPON",
+      "signature": "j2_78dhoz",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:30.063Z",
+      "details": {
+        "entityId": "",
+        "subview": "",
+        "title": "Simnet"
+      },
+      "id": "mt45yx9r-3sfofh",
+      "message": "Контекст: billing / billing_other",
+      "signature": "j2_1vpsjn9",
+      "type": "navigation"
+    },
+    {
+      "at": "2026-08-22T09:16:10.532Z",
+      "details": {
+        "completion": 96,
+        "nextRequiredSource": "manual_fill_billing",
+        "readyForOnuPoll": false
+      },
+      "id": "mt45yi78-7v0ihh",
+      "message": "Этап поиска/проверки линии: need-billing-save",
+      "signature": "j2_qkbdpv",
+      "type": "diagnostic"
+    },
+    {
+      "at": "2026-08-22T09:16:10.532Z",
+      "details": {
+        "details": {
+          "macs": [
+            {
+              "href": "https://userside.simnet.kiev.ua/customer_list/search_page?search=64%3AEE%3AB7%3AEE%3AD9%3A45&find_typer=machistory",
+              "ip": "",
+              "mac": "64:EE:B7:EE:D9:45",
+              "title": "Поиск по MAC-адресу"
+            }
+          ]
+        },
+        "method": "userside_customer_card",
+        "summary": "На карточке найдено MAC для поиска: 1."
+      },
+      "id": "mt45yi78-ct8cqw",
+      "message": "Поиск абонента: CUSTOMER_MACS → found",
+      "signature": "j2_1j7ipoj",
+      "type": "locator"
+    },
+    {
+      "at": "2026-08-22T09:16:10.532Z",
+      "details": {
+        "details": {
+          "confidence": 0.99,
+          "deviceId": "57547",
+          "foundOnOlt": true,
+          "identityCheck": {
+            "isMatch": true,
+            "matchedCurrentSubscriber": true
+          },
+          "interface": "GPON 0/4/6:13",
+          "matchedCurrentSubscriber": true,
+          "oltIp": "172.16.1.50",
+          "oltName": "Huawei MA5800-X15",
+          "onuMac": "c4:CD:50:12:05:DB",
+          "onuSerial": "XPON501205DB",
+          "source": "userside-tmc"
+        },
+        "method": "userside_tmc",
+        "summary": "OLT найдена в ТМЦ; сохранены только реально доступные в ТМЦ поля ONU/OLT."
+      },
+      "id": "mt45yi78-b4tc9u",
+      "message": "Поиск абонента: TMC_RESULT → found",
+      "signature": "j2_1dzj2e1",
+      "type": "locator"
+    },
+    {
+      "at": "2026-08-22T09:16:10.531Z",
+      "details": {
+        "confidence": 0.98,
+        "field": "pon.tmcOltRx",
+        "from": null,
+        "source": "userside:tmc-olt-rx",
+        "to": "-27.39"
+      },
+      "id": "mt45yi77-2w8abw",
+      "message": "Обновлено pon.tmcOltRx: -27.39",
+      "signature": "j2_1693tjd",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:10.530Z",
+      "details": {
+        "confidence": 0.98,
+        "field": "pon.tmcOnuTx",
+        "from": null,
+        "source": "userside:tmc-onu-tx",
+        "to": "1.94"
+      },
+      "id": "mt45yi76-57426k",
+      "message": "Обновлено pon.tmcOnuTx: 1.94",
+      "signature": "j2_yntkia",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:10.530Z",
+      "details": {
+        "confidence": 0.98,
+        "field": "pon.tmcOnuRx",
+        "from": null,
+        "source": "userside:tmc-onu-rx",
+        "to": "-23.01"
+      },
+      "id": "mt45yi76-xdoa90",
+      "message": "Обновлено pon.tmcOnuRx: -23.01",
+      "signature": "j2_mtm7ta",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:10.530Z",
+      "details": {
+        "confidence": 0.99,
+        "field": "pon.tmcFoundOnOlt",
+        "from": null,
+        "source": "userside:tmc-found-on-olt",
+        "to": "true"
+      },
+      "id": "mt45yi76-0vm9yu",
+      "message": "Обновлено pon.tmcFoundOnOlt: true",
+      "signature": "j2_31qo8y",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:10.530Z",
+      "details": {
+        "confidence": 0.98,
+        "field": "pon.tmcEquipmentName",
+        "from": null,
+        "source": "userside:tmc-equipment-name",
+        "to": "C-DATA ONU xPON FD511G"
+      },
+      "id": "mt45yi76-xius40",
+      "message": "Обновлено pon.tmcEquipmentName: C-DATA ONU xPON FD511G",
+      "signature": "j2_1wkvr1x",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:10.530Z",
+      "details": {
+        "confidence": 0.96,
+        "field": "pon.tmcPort",
+        "from": null,
+        "source": "userside:tmc-interface",
+        "to": "GPON 0/4/6:13"
+      },
+      "id": "mt45yi76-6acymg",
+      "message": "Обновлено pon.tmcPort: GPON 0/4/6:13",
+      "signature": "j2_j02o8w",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:10.530Z",
+      "details": {
+        "confidence": 0.97,
+        "field": "pon.tmcOltDeviceId",
+        "from": null,
+        "source": "userside:tmc-olt-device-id",
+        "to": "57547"
+      },
+      "id": "mt45yi76-0zxigr",
+      "message": "Обновлено pon.tmcOltDeviceId: 57547",
+      "signature": "j2_a8icdg",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:10.529Z",
+      "details": {
+        "confidence": 0.98,
+        "field": "pon.tmcOltIp",
+        "from": null,
+        "source": "userside:tmc-olt-ip",
+        "to": "172.16.1.50"
+      },
+      "id": "mt45yi75-ayn45f",
+      "message": "Обновлено pon.tmcOltIp: 172.16.1.50",
+      "signature": "j2_1hnszt4",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:10.529Z",
+      "details": {
+        "confidence": 0.98,
+        "field": "pon.tmcOltName",
+        "from": null,
+        "source": "userside:tmc-olt-name",
+        "to": "Huawei MA5800-X15"
+      },
+      "id": "mt45yi75-i6ajtx",
+      "message": "Обновлено pon.tmcOltName: Huawei MA5800-X15",
+      "signature": "j2_114yz72",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:10.529Z",
+      "details": {
+        "confidence": 0.98,
+        "field": "pon.tmcOnuMac",
+        "from": null,
+        "source": "userside:tmc-onu-mac",
+        "to": "c4:CD:50:12:05:DB"
+      },
+      "id": "mt45yi75-hvqqbf",
+      "message": "Обновлено pon.tmcOnuMac: C4:CD:50:12:05:DB",
+      "signature": "j2_1i4pmgd",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:10.527Z",
+      "details": {
+        "confidence": 0.98,
+        "field": "pon.tmcOnuSerial",
+        "from": null,
+        "source": "userside:tmc-onu-serial",
+        "to": "XPON501205DB"
+      },
+      "id": "mt45yi73-50q8y3",
+      "message": "Обновлено pon.tmcOnuSerial: XPON501205DB",
+      "signature": "j2_1g4h6di",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:10.527Z",
+      "details": {
+        "confidence": 0.99,
+        "field": "pon.onuLanPort",
+        "from": null,
+        "source": "userside:onu-lan-port",
+        "to": "1"
+      },
+      "id": "mt45yi73-r8mr8k",
+      "message": "Обновлено pon.onuLanPort: 1",
+      "signature": "j2_psw66x",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:10.527Z",
+      "details": {
+        "confidence": 0.98,
+        "field": "pon.onuDeviceIp",
+        "from": null,
+        "source": "userside:onu-device-ip",
+        "to": "10.7.19.121"
+      },
+      "id": "mt45yi73-0isrzv",
+      "message": "Обновлено pon.onuDeviceIp: 10.7.19.121",
+      "signature": "j2_wskcl9",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:10.527Z",
+      "details": {
+        "confidence": 0.97,
+        "field": "pon.onuDeviceName",
+        "from": null,
+        "source": "userside:onu-device-name",
+        "to": "C-DATA ONU xPON FD511G - Сліпченко Ян Васильович - abon507126 Киев, вул. Симиренка (Святошинський), 5 кв. 306 порт: 1 ONU Rx (dBm): -23.01 # Коммутация Порт Линк Трафик 1 Абонент Сліпченко Ян Васильович - abon507126 Киев, вул. Симиренка (Св…"
+      },
+      "id": "mt45yi73-zp1u8p",
+      "message": "Обновлено pon.onuDeviceName: C-DATA ONU xPON FD511G - Сліпченко Ян Васильович - abon507126 Киев, вул. Симиренка (Святошинський), …",
+      "signature": "j2_1xra7fu",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:10.527Z",
+      "details": {
+        "confidence": 0.99,
+        "field": "pon.onuDeviceId",
+        "from": null,
+        "source": "userside:onu-device-id",
+        "to": "63098"
+      },
+      "id": "mt45yi73-eayin8",
+      "message": "Обновлено pon.onuDeviceId: 63098",
+      "signature": "j2_1ll3k4w",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:10.526Z",
+      "details": {
+        "confidence": 0.98,
+        "field": "identity.customerId",
+        "from": null,
+        "source": "url:path",
+        "to": "59150"
+      },
+      "id": "mt45yi72-536aah",
+      "message": "Обновлено identity.customerId: 59150",
+      "signature": "j2_1xyzr2",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:10.526Z",
+      "details": {
+        "purpose": "userside-tmc-focus",
+        "sourceTabId": 1184900939,
+        "targetTabId": 1184901153
+      },
+      "id": "mt45yi72-r7qtwv",
+      "message": "Billing → UserSide: контекст прикреплён к текущему кейсу",
+      "signature": "j2_14j9nup",
+      "type": "handoff"
+    },
+    {
+      "at": "2026-08-22T09:16:10.526Z",
+      "details": {
+        "entityId": "59150",
+        "subview": "",
+        "title": "Сліпченко Ян Васильович - abon507126 - Абоненты - UserSide"
+      },
+      "id": "mt45yi72-d35tns",
+      "message": "Контекст: userside / userside_customer",
+      "signature": "j2_1hb0e7x",
+      "type": "navigation"
+    },
+    {
+      "at": "2026-08-22T09:16:08.722Z",
+      "details": {
+        "command": "",
+        "purpose": "userside-navigation",
+        "sourceTabId": 1184900939,
+        "subscriberIp": "10.7.19.121"
+      },
+      "id": "mt45ygsy-ipknun",
+      "message": "Подготовлен переход Billing → UserSide",
+      "signature": "j2_migetl",
+      "type": "handoff"
+    },
+    {
+      "at": "2026-08-22T09:16:08.682Z",
+      "details": {
+        "command": "userside-tmc-focus",
+        "purpose": "userside-tmc-focus",
+        "sourceTabId": 1184900939,
+        "subscriberIp": "10.7.19.121"
+      },
+      "id": "mt45ygru-qol4kz",
+      "message": "Подготовлен переход Billing → UserSide",
+      "signature": "j2_1dp29o2",
+      "type": "handoff"
+    },
+    {
+      "at": "2026-08-22T09:16:05.922Z",
+      "details": {
+        "completion": 68,
+        "nextRequiredSource": "check_tmc",
+        "readyForOnuPoll": false
+      },
+      "id": "mt45yen6-1628mc",
+      "message": "Этап поиска/проверки линии: locating-subscriber",
+      "signature": "j2_15pwhl5",
+      "type": "diagnostic"
+    },
+    {
+      "at": "2026-08-22T09:16:05.922Z",
+      "details": {
+        "confidence": 0.96,
+        "field": "pon.onuSerial",
+        "from": null,
+        "source": "billing:onu-serial",
+        "to": "xpon:501205DB"
+      },
+      "id": "mt45yen6-awmp3r",
+      "message": "Обновлено pon.onuSerial: XPON:501205DB",
+      "signature": "j2_14phh6e",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:05.922Z",
+      "details": {
+        "confidence": 0.96,
+        "field": "pon.onuMac",
+        "from": null,
+        "source": "billing:onu-mac",
+        "to": "c4:CD:50:12:05:DB"
+      },
+      "id": "mt45yen6-ydhpm5",
+      "message": "Обновлено pon.onuMac: C4:CD:50:12:05:DB",
+      "signature": "j2_vvnxph",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:05.922Z",
+      "details": {
+        "confidence": 0.92,
+        "field": "network.connectionRaw",
+        "from": null,
+        "source": "billing:connection-type-raw",
+        "to": "PON"
+      },
+      "id": "mt45yen6-707iyo",
+      "message": "Обновлено network.connectionRaw: PON",
+      "signature": "j2_tagg0j",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:05.922Z",
+      "details": {
+        "confidence": 0.96,
+        "field": "network.connectionFamily",
+        "from": null,
+        "source": "billing:connection-type",
+        "to": "PON"
+      },
+      "id": "mt45yen6-hsxoc4",
+      "message": "Обновлено network.connectionFamily: PON",
+      "signature": "j2_33udcg",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:05.922Z",
+      "details": {
+        "entityId": "50712",
+        "subview": "technical",
+        "title": "Simnet"
+      },
+      "id": "mt45yen6-budg19",
+      "message": "Контекст: billing / billing_technical",
+      "signature": "j2_19r016w",
+      "type": "navigation"
+    },
+    {
+      "at": "2026-08-22T09:16:03.876Z",
+      "details": {
+        "authType": "dhcp",
+        "bras": "SIM-Juniper · 192.168.9.5",
+        "hasTraffic": false,
+        "lastEvent": "22-08-2026 12:15:38 · Periodic",
+        "method": "billing-juniper-prefetch",
+        "readOnly": true,
+        "sessionId": "[redacted]",
+        "source": "Radius2 / subscriber_session",
+        "speedRaw": "0bit/s / 0bit/s (0 / 0)",
+        "staleRadius": false,
+        "startTime": "14-08-2026 10:35:21",
+        "status": "online",
+        "subscriberIp": "10.7.19.121",
+        "subscriberMac": "64:EE:B7:EE:D9:45",
+        "summary": "juniper: %D1%81%D0%B5%D1%81%D1%81%D0%B8%D1%8F online, %D0%BD%D0%BE %D0%B2 %D0%BC%D0%BE%D0%BC%D0%B5%D0%BD%D1%82 %D1%81%D0%BD%D0%B8%D0%BC%D0%BA%D0%B0 %D0%B7%D0%B0%D0%BC%D0%B5%D1%82%D0%BD%D0%BE%D0%B3%D0%BE %D0%BE%D0%B1%D0%BC%D0%B5%D0%BD%D0%B0 %D0%BF%D0%B0%D0%BA%D0%B5%D1%82%D0%B0%D0%BC%D0%B8 %D0%BD%D0%B5%D1%82. %D0%9D%D1%83%D0%BB%D0%B5%D0%B2%D0%B0%D1%8F %D0%BC%D0%B3%D0%BD%D0%BE%D0%B2%D0%B5%D0%BD%D0%BD%D0%B0%D1%8F %D1%81%D0%BA%D0%BE%D1%80%D0%BE%D1%81%D1%82%D1%8C %D1%81%D0%B0%D0%BC%D0%B0 %D0%BF%D0%BE %D1%81%D0%B5%D0%B1%D0%B5 %D0%BD%D0%B5 %D0%B4%D0%BE%D0%BA%D0%B0%D0%B7%D1%8B%D0%B2%D0%B0%D0%B5%D1%82 %D0%BD%D0%B5%D0%B8%D1%81%D0%BF%D1%80%D0%B0%D0%B2%D0%BD%D0%BE%D1%81%D1%82%D1%8C.",
+        "vlan": "3782:3013"
+      },
+      "id": "mt45yd2c-yfyybt",
+      "message": "JUNIPER · online · passive",
+      "signature": "j2_1o5a5ij",
+      "type": "juniper"
+    },
+    {
+      "at": "2026-08-22T09:16:03.876Z",
+      "details": {
+        "details": {
+          "authType": "dhcp",
+          "brasIp": "192.168.9.5",
+          "brasName": "SIM-Juniper",
+          "bytesRaw": "141.4gb / 4.6gb (151785407414 / 4976693210; з 14-08-2026 10:35:21)",
+          "hasTraffic": false,
+          "identityCheck": {
+            "expectedIp": "10.7.19.121",
+            "expectedMac": "",
+            "ipConflict": false,
+            "isMatch": true,
+            "macConflict": false,
+            "observedIp": "10.7.19.121",
+            "observedMac": "64EEB7EED945"
+          },
+          "lastEvent": "Periodic",
+          "lastEventTime": "22-08-2026 12:15:38",
+          "parserVersion": "1.0.0",
+          "preview": true,
+          "readOnly": true,
+          "readSource": "automatic",
+          "reason": "identity:boot",
+          "refreshRequested": false,
+          "router": "",
+          "rxBps": 0,
+          "sessionId": "[redacted]",
+          "sessions": [
+            {
+              "authType": "dhcp",
+              "brasIp": "192.168.9.5",
+              "brasName": "SIM-Juniper",
+              "bytesRaw": "141.4gb / 4.6gb (151785407414 / 4976693210; з 14-08-2026 10:35:21)",
+              "hasTraffic": false,
+              "lastEvent": "Periodic",
+              "lastEventTime": "22-08-2026 12:15:38",
+              "rxBps": 0,
+              "sessionId": "[redacted]",
+              "source": "Radius2 / subscriber_session",
+              "speedRaw": "0bit/s / 0bit/s (0 / 0)",
+              "staleRadius": false,
+              "startTime": "14-08-2026 10:35:21",
+              "status": "online",
+              "statusRaw": "online / active(2)",
+              "subscriberIp": "10.7.19.121",
+              "subscriberMac": "64:EE:B7:EE:D9:45",
+              "txBps": 0,
+              "vendor": "MSFT 5.0",
+              "vlan": "3782:3013"
+            }
+          ],
+          "source": "Radius2 / subscriber_session",
+          "sourceUrl": "https://admin.simnet.kiev.ua/cgi-bin/adm/stat.pl?uu=zyatyev&pp=%5Bredacted%5D&id=50712&a=252",
+          "speedRaw": "0bit/s / 0bit/s (0 / 0)",
+          "staleRadius": false,
+          "startTime": "14-08-2026 10:35:21",
+          "status": "online",
+          "statusRaw": "online / active(2)",
+          "subscriberIp": "10.7.19.121",
+          "subscriberMac": "64:EE:B7:EE:D9:45",
+          "txBps": 0,
+          "username": "64ee.b7ee.d945",
+          "vendor": "MSFT 5.0",
+          "vlan": "3782:3013"
+        },
+        "method": "billing-juniper-prefetch",
+        "summary": "juniper: %D1%81%D0%B5%D1%81%D1%81%D0%B8%D1%8F online, %D0%BD%D0%BE %D0%B2 %D0%BC%D0%BE%D0%BC%D0%B5%D0%BD%D1%82 %D1%81%D0%BD%D0%B8%D0%BC%D0%BA%D0%B0 %D0%B7%D0%B0%D0%BC%D0%B5%D1%82%D0%BD%D0%BE%D0%B3%D0%BE %D0%BE%D0%B1%D0%BC%D0%B5%D0%BD%D0%B0 %D0%BF%D0%B0%D0%BA%D0%B5%D1%82%D0%B0%D0%BC%D0%B8 %D0%BD%D0%B5%D1%82. %D0%9D%D1%83%D0%BB%D0%B5%D0%B2%D0%B0%D1%8F %D0%BC%D0%B3%D0%BD%D0%BE%D0%B2%D0%B5%D0%BD%D0%BD%D0%B0%D1%8F %D1%81%D0%BA%D0%BE%D1%80%D0%BE%D1%81%D1%82%D1%8C %D1%81%D0%B0%D0%BC%D0%B0 %D0%BF%D0%BE %D1%81%D0%B5%D0%B1%D0%B5 %D0%BD%D0%B5 %D0%B4%D0%BE%D0%BA%D0%B0%D0%B7%D1%8B%D0%B2%D0%B0%D0%B5%D1%82 %D0%BD%D0%B5%D0%B8%D1%81%D0%BF%D1%80%D0%B0%D0%B2%D0%BD%D0%BE%D1%81%D1%82%D1%8C."
+      },
+      "id": "mt45yd2c-17wagz",
+      "message": "Поиск абонента: JUNIPER_SESSION → online · passive",
+      "signature": "j2_1e0guci",
+      "type": "locator"
+    },
+    {
+      "at": "2026-08-22T09:16:03.876Z",
+      "details": {
+        "caseId": "login:abon507126",
+        "caseVersion": 1,
+        "documentId": "FE39A30072A9B8186ABD25B0E768ED22",
+        "episodeId": "episode_2hhp4r_20260822091602",
+        "pollAttemptId": "",
+        "reason": "juniper-background-preview",
+        "requestId": "4caa1409-3e24-43d5-a92f-e86dea4b9b6a",
+        "verdict": "passive"
+      },
+      "id": "mt45yd2c-65x4jy",
+      "message": "CORRELATION · PASSIVE",
+      "signature": "j2_1c347ig",
+      "type": "correlation"
+    },
+    {
+      "at": "2026-08-22T09:16:02.804Z",
+      "details": {
+        "caseId": "login:abon507126",
+        "caseVersion": 1,
+        "documentId": "FE39A30072A9B8186ABD25B0E768ED22",
+        "episodeId": "episode_2hhp4r_20260822091602",
+        "pollAttemptId": "",
+        "reason": "correlation-match",
+        "requestId": "4caa1409-3e24-43d5-a92f-e86dea4b9b6a",
+        "verdict": "accepted"
+      },
+      "id": "mt45yc8k-dfz1s8",
+      "message": "JUNIPER CORRELATION · ACCEPTED",
+      "signature": "j2_19sgm3c",
+      "type": "correlation"
+    },
+    {
+      "at": "2026-08-22T09:16:02.790Z",
+      "details": {
+        "completion": 23,
+        "nextRequiredSource": "wait_context",
+        "readyForOnuPoll": false
+      },
+      "id": "mt45yc86-kwwsmi",
+      "message": "Этап поиска/проверки линии: need-technical-data",
+      "signature": "j2_29nrxx",
+      "type": "diagnostic"
+    },
+    {
+      "at": "2026-08-22T09:16:02.790Z",
+      "details": {
+        "confidence": 0.84,
+        "field": "profile.tariff",
+        "from": null,
+        "source": "billing:labeled-tariff",
+        "to": "OmegaTV - FreeTV"
+      },
+      "id": "mt45yc86-qmanh4",
+      "message": "Обновлено profile.tariff: OmegaTV - FreeTV",
+      "signature": "j2_mzerzc",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:02.790Z",
+      "details": {
+        "confidence": 0.84,
+        "field": "profile.fullName",
+        "from": null,
+        "source": "billing:labeled-name",
+        "to": "Сліпченко Ян Васильович"
+      },
+      "id": "mt45yc86-i3q0o8",
+      "message": "Обновлено profile.fullName: Сліпченко Ян Васильович",
+      "signature": "j2_29uwh1",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:02.790Z",
+      "details": {
+        "confidence": 0.96,
+        "field": "network.ip",
+        "from": null,
+        "source": "billing:userside-handoff-ip",
+        "to": "10.7.19.121"
+      },
+      "id": "mt45yc86-po84z4",
+      "message": "Обновлено network.ip: 10.7.19.121",
+      "signature": "j2_8phplg",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:02.790Z",
+      "details": {
+        "confidence": 0.99,
+        "field": "identity.billingId",
+        "from": null,
+        "source": "billing:url-id",
+        "to": "50712"
+      },
+      "id": "mt45yc86-s0ezy0",
+      "message": "Обновлено identity.billingId: 50712",
+      "signature": "j2_luvcfz",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:02.790Z",
+      "details": {
+        "confidence": 0.96,
+        "field": "identity.contract",
+        "from": null,
+        "source": "derived:billing-login",
+        "to": "507126"
+      },
+      "id": "mt45yc86-vypbyb",
+      "message": "Обновлено identity.contract: 507126",
+      "signature": "j2_1la15cy",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:02.790Z",
+      "details": {
+        "confidence": 0.98,
+        "field": "identity.login",
+        "from": null,
+        "source": "billing:exact-login",
+        "to": "abon507126"
+      },
+      "id": "mt45yc86-z2vq60",
+      "message": "Обновлено identity.login: abon507126",
+      "signature": "j2_axfv0k",
+      "type": "fact"
+    },
+    {
+      "at": "2026-08-22T09:16:02.790Z",
+      "details": {
+        "entityId": "50712",
+        "subview": "",
+        "title": "Simnet"
+      },
+      "id": "mt45yc86-gqwg7e",
+      "message": "Контекст: billing / billing_user",
+      "signature": "j2_b090nt",
+      "type": "navigation"
+    }
+  ],
+  "juniper": {
+    "autoReadAt": "2026-08-22T09:16:03.876Z",
+    "dataStatus": "available",
+    "details": {
+      "authType": "dhcp",
+      "brasIp": "192.168.9.5",
+      "brasName": "SIM-Juniper",
+      "bytesRaw": "141.4gb / 4.6gb (151785407414 / 4976693210; з 14-08-2026 10:35:21)",
+      "hasTraffic": false,
+      "identityCheck": {
+        "expectedIp": "10.7.19.121",
+        "expectedMac": "",
+        "ipConflict": false,
+        "isMatch": true,
+        "macConflict": false,
+        "observedIp": "10.7.19.121",
+        "observedMac": "64EEB7EED945"
+      },
+      "lastEvent": "Periodic",
+      "lastEventTime": "22-08-2026 12:15:38",
+      "parserVersion": "1.0.0",
+      "preview": true,
+      "readOnly": true,
+      "readSource": "automatic",
+      "reason": "identity:boot",
+      "refreshRequested": false,
+      "router": "",
+      "rxBps": 0,
+      "sessionId": "[redacted]",
+      "sessions": [
+        {
+          "authType": "dhcp",
+          "brasIp": "192.168.9.5",
+          "brasName": "SIM-Juniper",
+          "bytesRaw": "141.4gb / 4.6gb (151785407414 / 4976693210; з 14-08-2026 10:35:21)",
+          "hasTraffic": false,
+          "lastEvent": "Periodic",
+          "lastEventTime": "22-08-2026 12:15:38",
+          "rxBps": 0,
+          "sessionId": "[redacted]",
+          "source": "Radius2 / subscriber_session",
+          "speedRaw": "0bit/s / 0bit/s (0 / 0)",
+          "staleRadius": false,
+          "startTime": "14-08-2026 10:35:21",
+          "status": "online",
+          "statusRaw": "online / active(2)",
+          "subscriberIp": "10.7.19.121",
+          "subscriberMac": "64:EE:B7:EE:D9:45",
+          "txBps": 0,
+          "vendor": "MSFT 5.0",
+          "vlan": "3782:3013"
+        }
+      ],
+      "source": "Radius2 / subscriber_session",
+      "sourceUrl": "https://admin.simnet.kiev.ua/cgi-bin/adm/stat.pl?uu=zyatyev&pp=%5Bredacted%5D&id=50712&a=252",
+      "speedRaw": "0bit/s / 0bit/s (0 / 0)",
+      "staleRadius": false,
+      "startTime": "14-08-2026 10:35:21",
+      "status": "online",
+      "statusRaw": "online / active(2)",
+      "subscriberIp": "10.7.19.121",
+      "subscriberMac": "64:EE:B7:EE:D9:45",
+      "txBps": 0,
+      "username": "64ee.b7ee.d945",
+      "vendor": "MSFT 5.0",
+      "vlan": "3782:3013"
+    },
+    "evidence": {
+      "opened": null,
+      "read": {
+        "at": "2026-08-22T09:16:03.876Z",
+        "kind": "JUNIPER_READ",
+        "method": "billing-juniper-prefetch",
+        "requestId": "4caa1409-3e24-43d5-a92f-e86dea4b9b6a",
+        "result": "online",
+        "source": "automatic"
+      },
+      "verified": {
+        "at": "2026-08-22T09:16:03.876Z",
+        "identityCheck": {
+          "expectedIp": "10.7.19.121",
+          "expectedMac": "",
+          "ipConflict": false,
+          "isMatch": true,
+          "macConflict": false,
+          "observedIp": "10.7.19.121",
+          "observedMac": "64EEB7EED945"
+        },
+        "kind": "JUNIPER_VERIFIED",
+        "result": "online",
+        "source": "correlation+parser"
+      }
+    },
+    "failureReason": "",
+    "lastReadAt": "2026-08-22T09:16:03.876Z",
+    "method": "billing-juniper-prefetch",
+    "openedAt": "",
+    "operatorOpened": false,
+    "preview": true,
+    "readAt": "2026-08-22T09:16:03.876Z",
+    "readOnly": true,
+    "readSource": "automatic",
+    "requestDocumentId": "FE39A30072A9B8186ABD25B0E768ED22",
+    "requestId": "4caa1409-3e24-43d5-a92f-e86dea4b9b6a",
+    "requestTabId": 1184900939,
+    "result": "online",
+    "reviewStatus": "required",
+    "summary": "juniper: %D1%81%D0%B5%D1%81%D1%81%D0%B8%D1%8F online, %D0%BD%D0%BE %D0%B2 %D0%BC%D0%BE%D0%BC%D0%B5%D0%BD%D1%82 %D1%81%D0%BD%D0%B8%D0%BC%D0%BA%D0%B0 %D0%B7%D0%B0%D0%BC%D0%B5%D1%82%D0%BD%D0%BE%D0%B3%D0%BE %D0%BE%D0%B1%D0%BC%D0%B5%D0%BD%D0%B0 %D0%BF%D0%B0%D0%BA%D0%B5%D1%82%D0%B0%D0%BC%D0%B8 %D0%BD%D0%B5%D1%82. %D0%9D%D1%83%D0%BB%D0%B5%D0%B2%D0%B0%D1%8F %D0%BC%D0%B3%D0%BD%D0%BE%D0%B2%D0%B5%D0%BD%D0%BD%D0%B0%D1%8F %D1%81%D0%BA%D0%BE%D1%80%D0%BE%D1%81%D1%82%D1%8C %D1%81%D0%B0%D0%BC%D0%B0 %D0%BF%D0%BE %D1%81%D0%B5%D0%B1%D0%B5 %D0%BD%D0%B5 %D0%B4%D0%BE%D0%BA%D0%B0%D0%B7%D1%8B%D0%B2%D0%B0%D0%B5%D1%82 %D0%BD%D0%B5%D0%B8%D1%81%D0%BF%D1%80%D0%B0%D0%B2%D0%BD%D0%BE%D1%81%D1%82%D1%8C.",
+    "updatedAt": "2026-08-22T09:16:03.876Z",
+    "verified": true,
+    "verifiedAt": "2026-08-22T09:16:03.876Z"
+  },
+  "live": {
+    "oltSnapshot": null
+  },
+  "locator": {
+    "attempts": [
+      {
+        "at": "2026-08-22T09:16:10.525Z",
+        "bindingFingerprint": "unknown-olt|unknown-onu|",
+        "details": {
+          "macs": [
+            {
+              "href": "https://userside.simnet.kiev.ua/customer_list/search_page?search=64%3AEE%3AB7%3AEE%3AD9%3A45&find_typer=machistory",
+              "ip": "",
+              "mac": "64:EE:B7:EE:D9:45",
+              "title": "Поиск по MAC-адресу"
+            }
+          ]
+        },
+        "method": "userside_customer_card",
+        "pageKind": "userside_customer",
+        "result": "found",
+        "searchMode": "",
+        "signature": "CUSTOMER_MACS|found|userside_customer_card||unknown-olt|unknown-onu||unknown-device|unknown-interface|unknown||userside_customer",
+        "source": "userside",
+        "summary": "На карточке найдено MAC для поиска: 1.",
+        "type": "CUSTOMER_MACS"
+      },
+      {
+        "at": "2026-08-22T09:16:10.525Z",
+        "bindingFingerprint": "172.16.1.50|C4CD501205DB|",
+        "details": {
+          "confidence": 0.99,
+          "deviceId": "57547",
+          "foundOnOlt": true,
+          "identityCheck": {
+            "isMatch": true,
+            "matchedCurrentSubscriber": true
+          },
+          "interface": "GPON 0/4/6:13",
+          "matchedCurrentSubscriber": true,
+          "oltIp": "172.16.1.50",
+          "oltName": "Huawei MA5800-X15",
+          "onuMac": "c4:CD:50:12:05:DB",
+          "onuSerial": "XPON501205DB",
+          "source": "userside-tmc"
+        },
+        "method": "userside_tmc",
+        "pageKind": "userside_customer",
+        "result": "found",
+        "searchMode": "",
+        "signature": "TMC_RESULT|found|userside_tmc||172.16.1.50|C4CD501205DB||57547|gpon 0/4/6:13|C4CD501205DB||userside_customer",
+        "source": "userside",
+        "summary": "OLT найдена в ТМЦ; сохранены только реально доступные в ТМЦ поля ONU/OLT.",
+        "type": "TMC_RESULT"
+      }
+    ],
+    "candidates": [
+      {
+        "confidence": 0.99,
+        "createdAt": "2026-08-22T09:16:10.525Z",
+        "deviceId": "57547",
+        "evidence": [
+          "TMC_RESULT|found|userside_tmc||172.16.1.50|C4CD501205DB||57547|gpon 0/4/6:13|C4CD501205DB||userside_customer"
+        ],
+        "id": "57547|gpon 0/4/6:13|C4CD501205DB",
+        "interface": "GPON 0/4/6:13",
+        "matchedCurrentSubscriber": true,
+        "oltIp": "172.16.1.50",
+        "oltName": "Huawei MA5800-X15",
+        "onuMac": "C4CD501205DB",
+        "onuSerial": "XPON501205DB",
+        "pollAction": "313",
+        "source": "userside-tmc",
+        "status": "candidate",
+        "technology": "Huawei",
+        "updatedAt": "2026-08-22T09:16:10.525Z"
+      }
+    ],
+    "currentBinding": null,
+    "evidence": [
+      {
+        "at": "2026-08-22T09:17:26.698Z",
+        "details": {
+          "activeExpectedPollAction": "",
+          "attemptExpectedPollAction": "312",
+          "expected": {
+            "interface": "",
+            "onuMac": "",
+            "onuSerial": "",
+            "subscriberMac": ""
+          },
+          "expectedPollAction": "313",
+          "identityAssessment": "unverified",
+          "identityConflicts": [],
+          "interface": "",
+          "lateResponseRecovery": false,
+          "matchedBy": [],
+          "observed": {
+            "interface": "",
+            "onuMac": "",
+            "onuSerial": "",
+            "subscriberMac": ""
+          },
+          "observedOnuMac": "",
+          "observedOnuSerial": "",
+          "oltIp": "172.16.13.70",
+          "oltName": "",
+          "onuMac": "",
+          "onuSerial": "",
+          "pollAction": "312",
+          "pollAttemptId": "eff79a75-147b-4af5-979d-204ab574cba0",
+          "pollCompleted": false,
+          "pollResponded": false,
+          "rawPollResponded": false,
+          "requestObserved": true,
+          "responseEvidence": false,
+          "source": "billing-poll",
+          "subscriberMac": "",
+          "technology": "GCOM",
+          "terminalBlockCount": 0,
+          "terminalResponded": false,
+          "uiStable": true,
+          "wrongPollTab": true
+        },
+        "method": "direct_olt_poll",
+        "pageKind": "billing_onu_poll",
+        "passive": true,
+        "passiveReason": "uncorrelated-poll-result",
+        "result": "unknown",
+        "routeRelation": "off_route",
+        "signature": "POLL_RESULT|unknown|direct_olt_poll||172.16.13.70|unknown-onu|312|172.16.13.70|unknown-interface|unknown||billing_onu_poll",
+        "source": "billing",
+        "summary": "Опрос запущен на вкладке другой технологии; результат сохранён только как пассивный контекст.",
+        "type": "POLL_RESULT"
+      },
+      {
+        "at": "2026-08-22T09:16:10.525Z",
+        "details": {
+          "macs": [
+            {
+              "href": "https://userside.simnet.kiev.ua/customer_list/search_page?search=64%3AEE%3AB7%3AEE%3AD9%3A45&find_typer=machistory",
+              "ip": "",
+              "mac": "64:EE:B7:EE:D9:45",
+              "title": "Поиск по MAC-адресу"
+            }
+          ]
+        },
+        "method": "userside_customer_card",
+        "pageKind": "userside_customer",
+        "passive": false,
+        "passiveReason": "",
+        "result": "found",
+        "routeRelation": "supporting",
+        "signature": "CUSTOMER_MACS|found|userside_customer_card||unknown-olt|unknown-onu||unknown-device|unknown-interface|unknown||userside_customer",
+        "source": "userside",
+        "summary": "На карточке найдено MAC для поиска: 1.",
+        "type": "CUSTOMER_MACS"
+      },
+      {
+        "at": "2026-08-22T09:16:10.525Z",
+        "details": {
+          "confidence": 0.99,
+          "deviceId": "57547",
+          "foundOnOlt": true,
+          "identityCheck": {
+            "isMatch": true,
+            "matchedCurrentSubscriber": true
+          },
+          "interface": "GPON 0/4/6:13",
+          "matchedCurrentSubscriber": true,
+          "oltIp": "172.16.1.50",
+          "oltName": "Huawei MA5800-X15",
+          "onuMac": "c4:CD:50:12:05:DB",
+          "onuSerial": "XPON501205DB",
+          "source": "userside-tmc"
+        },
+        "method": "userside_tmc",
+        "pageKind": "userside_customer",
+        "passive": false,
+        "passiveReason": "",
+        "result": "found",
+        "routeRelation": "supporting",
+        "signature": "TMC_RESULT|found|userside_tmc||172.16.1.50|C4CD501205DB||57547|gpon 0/4/6:13|C4CD501205DB||userside_customer",
+        "source": "userside",
+        "summary": "OLT найдена в ТМЦ; сохранены только реально доступные в ТМЦ поля ONU/OLT.",
+        "type": "TMC_RESULT"
+      },
+      {
+        "at": "2026-08-22T09:16:03.876Z",
+        "details": {
+          "authType": "dhcp",
+          "brasIp": "192.168.9.5",
+          "brasName": "SIM-Juniper",
+          "bytesRaw": "141.4gb / 4.6gb (151785407414 / 4976693210; з 14-08-2026 10:35:21)",
+          "hasTraffic": false,
+          "identityCheck": {
+            "expectedIp": "10.7.19.121",
+            "expectedMac": "",
+            "ipConflict": false,
+            "isMatch": true,
+            "macConflict": false,
+            "observedIp": "10.7.19.121",
+            "observedMac": "64EEB7EED945"
+          },
+          "lastEvent": "Periodic",
+          "lastEventTime": "22-08-2026 12:15:38",
+          "parserVersion": "1.0.0",
+          "preview": true,
+          "readOnly": true,
+          "readSource": "automatic",
+          "reason": "identity:boot",
+          "refreshRequested": false,
+          "router": "",
+          "rxBps": 0,
+          "sessionId": "[redacted]",
+          "sessions": [
+            {
+              "authType": "dhcp",
+              "brasIp": "192.168.9.5",
+              "brasName": "SIM-Juniper",
+              "bytesRaw": "141.4gb / 4.6gb (151785407414 / 4976693210; з 14-08-2026 10:35:21)",
+              "hasTraffic": false,
+              "lastEvent": "Periodic",
+              "lastEventTime": "22-08-2026 12:15:38",
+              "rxBps": 0,
+              "sessionId": "[redacted]",
+              "source": "Radius2 / subscriber_session",
+              "speedRaw": "0bit/s / 0bit/s (0 / 0)",
+              "staleRadius": false,
+              "startTime": "14-08-2026 10:35:21",
+              "status": "online",
+              "statusRaw": "online / active(2)",
+              "subscriberIp": "10.7.19.121",
+              "subscriberMac": "64:EE:B7:EE:D9:45",
+              "txBps": 0,
+              "vendor": "MSFT 5.0",
+              "vlan": "3782:3013"
+            }
+          ],
+          "source": "Radius2 / subscriber_session",
+          "sourceUrl": "https://admin.simnet.kiev.ua/cgi-bin/adm/stat.pl?uu=zyatyev&pp=%5Bredacted%5D&id=50712&a=252",
+          "speedRaw": "0bit/s / 0bit/s (0 / 0)",
+          "staleRadius": false,
+          "startTime": "14-08-2026 10:35:21",
+          "status": "online",
+          "statusRaw": "online / active(2)",
+          "subscriberIp": "10.7.19.121",
+          "subscriberMac": "64:EE:B7:EE:D9:45",
+          "txBps": 0,
+          "username": "64ee.b7ee.d945",
+          "vendor": "MSFT 5.0",
+          "vlan": "3782:3013"
+        },
+        "method": "billing-juniper-prefetch",
+        "pageKind": "billing_user",
+        "passive": true,
+        "passiveReason": "juniper-background-preview",
+        "result": "online",
+        "routeRelation": "supporting",
+        "signature": "JUNIPER_SESSION|online|billing-juniper-prefetch||unknown-olt|64:ee:b7:ee:d9:45||unknown-device|unknown-interface|64EEB7EED945||billing_user",
+        "source": "billing-juniper",
+        "summary": "juniper: %D1%81%D0%B5%D1%81%D1%81%D0%B8%D1%8F online, %D0%BD%D0%BE %D0%B2 %D0%BC%D0%BE%D0%BC%D0%B5%D0%BD%D1%82 %D1%81%D0%BD%D0%B8%D0%BC%D0%BA%D0%B0 %D0%B7%D0%B0%D0%BC%D0%B5%D1%82%D0%BD%D0%BE%D0%B3%D0%BE %D0%BE%D0%B1%D0%BC%D0%B5%D0%BD%D0%B0 %D0%BF%D0%B0%D0%BA%D0%B5%D1%82%D0%B0%D0%BC%D0%B8 %D0%BD%D0%B5%D1%82. %D0%9D%D1%83%D0%BB%D0%B5%D0%B2%D0%B0%D1%8F %D0%BC%D0%B3%D0%BD%D0%BE%D0%B2%D0%B5%D0%BD%D0%BD%D0%B0%D1%8F %D1%81%D0%BA%D0%BE%D1%80%D0%BE%D1%81%D1%82%D1%8C %D1%81%D0%B0%D0%BC%D0%B0 %D0%BF%D0%BE %D1%81%D0%B5%D0%B1%D0%B5 %D0%BD%D0%B5 %D0%B4%D0%BE%D0%BA%D0%B0%D0%B7%D1%8B%D0%B2%D0%B0%D0%B5%D1%82 %D0%BD%D0%B5%D0%B8%D1%81%D0%BF%D1%80%D0%B0%D0%B2%D0%BD%D0%BE%D1%81%D1%82%D1%8C.",
+        "type": "JUNIPER_SESSION"
+      }
+    ],
+    "hypotheses": [],
+    "lastObservationAt": "2026-08-22T09:17:26.698Z",
+    "recommendation": null,
+    "schemaVersion": 1,
+    "sourceStatus": {
+      "customer_macs": {
+        "macs": [
+          {
+            "href": "https://userside.simnet.kiev.ua/customer_list/search_page?search=64%3AEE%3AB7%3AEE%3AD9%3A45&find_typer=machistory",
+            "ip": "",
+            "mac": "64:EE:B7:EE:D9:45",
+            "title": "Поиск по MAC-адресу"
+          }
+        ],
+        "result": "found",
+        "updatedAt": "2026-08-22T09:16:10.525Z"
+      },
+      "juniperPreview": {
+        "details": {
+          "authType": "dhcp",
+          "brasIp": "192.168.9.5",
+          "brasName": "SIM-Juniper",
+          "bytesRaw": "141.4gb / 4.6gb (151785407414 / 4976693210; з 14-08-2026 10:35:21)",
+          "hasTraffic": false,
+          "identityCheck": {
+            "expectedIp": "10.7.19.121",
+            "expectedMac": "",
+            "ipConflict": false,
+            "isMatch": true,
+            "macConflict": false,
+            "observedIp": "10.7.19.121",
+            "observedMac": "64EEB7EED945"
+          },
+          "lastEvent": "Periodic",
+          "lastEventTime": "22-08-2026 12:15:38",
+          "parserVersion": "1.0.0",
+          "preview": true,
+          "readOnly": true,
+          "readSource": "automatic",
+          "reason": "identity:boot",
+          "refreshRequested": false,
+          "router": "",
+          "rxBps": 0,
+          "sessionId": "[redacted]",
+          "sessions": [
+            {
+              "authType": "dhcp",
+              "brasIp": "192.168.9.5",
+              "brasName": "SIM-Juniper",
+              "bytesRaw": "141.4gb / 4.6gb (151785407414 / 4976693210; з 14-08-2026 10:35:21)",
+              "hasTraffic": false,
+              "lastEvent": "Periodic",
+              "lastEventTime": "22-08-2026 12:15:38",
+              "rxBps": 0,
+              "sessionId": "[redacted]",
+              "source": "Radius2 / subscriber_session",
+              "speedRaw": "0bit/s / 0bit/s (0 / 0)",
+              "staleRadius": false,
+              "startTime": "14-08-2026 10:35:21",
+              "status": "online",
+              "statusRaw": "online / active(2)",
+              "subscriberIp": "10.7.19.121",
+              "subscriberMac": "64:EE:B7:EE:D9:45",
+              "txBps": 0,
+              "vendor": "MSFT 5.0",
+              "vlan": "3782:3013"
+            }
+          ],
+          "source": "Radius2 / subscriber_session",
+          "sourceUrl": "https://admin.simnet.kiev.ua/cgi-bin/adm/stat.pl?uu=zyatyev&pp=%5Bredacted%5D&id=50712&a=252",
+          "speedRaw": "0bit/s / 0bit/s (0 / 0)",
+          "staleRadius": false,
+          "startTime": "14-08-2026 10:35:21",
+          "status": "online",
+          "statusRaw": "online / active(2)",
+          "subscriberIp": "10.7.19.121",
+          "subscriberMac": "64:EE:B7:EE:D9:45",
+          "txBps": 0,
+          "username": "64ee.b7ee.d945",
+          "vendor": "MSFT 5.0",
+          "vlan": "3782:3013"
+        },
+        "method": "billing-juniper-prefetch",
+        "observedAt": "2026-08-22T09:16:03.876Z",
+        "preview": true,
+        "readOnly": true,
+        "result": "online",
+        "summary": "juniper: %D1%81%D0%B5%D1%81%D1%81%D0%B8%D1%8F online, %D0%BD%D0%BE %D0%B2 %D0%BC%D0%BE%D0%BC%D0%B5%D0%BD%D1%82 %D1%81%D0%BD%D0%B8%D0%BC%D0%BA%D0%B0 %D0%B7%D0%B0%D0%BC%D0%B5%D1%82%D0%BD%D0%BE%D0%B3%D0%BE %D0%BE%D0%B1%D0%BC%D0%B5%D0%BD%D0%B0 %D0%BF%D0%B0%D0%BA%D0%B5%D1%82%D0%B0%D0%BC%D0%B8 %D0%BD%D0%B5%D1%82. %D0%9D%D1%83%D0%BB%D0%B5%D0%B2%D0%B0%D1%8F %D0%BC%D0%B3%D0%BD%D0%BE%D0%B2%D0%B5%D0%BD%D0%BD%D0%B0%D1%8F %D1%81%D0%BA%D0%BE%D1%80%D0%BE%D1%81%D1%82%D1%8C %D1%81%D0%B0%D0%BC%D0%B0 %D0%BF%D0%BE %D1%81%D0%B5%D0%B1%D0%B5 %D0%BD%D0%B5 %D0%B4%D0%BE%D0%BA%D0%B0%D0%B7%D1%8B%D0%B2%D0%B0%D0%B5%D1%82 %D0%BD%D0%B5%D0%B8%D1%81%D0%BF%D1%80%D0%B0%D0%B2%D0%BD%D0%BE%D1%81%D1%82%D1%8C."
+      },
+      "tmc": {
+        "details": {
+          "confidence": 0.99,
+          "deviceId": "57547",
+          "foundOnOlt": true,
+          "identityCheck": {
+            "isMatch": true,
+            "matchedCurrentSubscriber": true
+          },
+          "interface": "GPON 0/4/6:13",
+          "matchedCurrentSubscriber": true,
+          "oltIp": "172.16.1.50",
+          "oltName": "Huawei MA5800-X15",
+          "onuMac": "c4:CD:50:12:05:DB",
+          "onuSerial": "XPON501205DB",
+          "source": "userside-tmc"
+        },
+        "identityCheck": {
+          "isMatch": true,
+          "matchedCurrentSubscriber": true
+        },
+        "observedResult": "found",
+        "result": "found",
+        "updatedAt": "2026-08-22T09:16:10.525Z"
+      }
+    },
+    "state": "candidate_found",
+    "termination": null,
+    "updatedAt": "2026-08-22T09:22:42.379Z"
+  },
+  "meta": {
+    "journalFormat": 2,
+    "processedEventIds": [
+      "ddc1dfe0-7b6e-40d9-8fd4-977e71b6b12e",
+      "2af9ade5-a828-4d83-a79d-dc1d83240f8b",
+      "6293d01c-157c-4e2d-b45d-a06f1d86e0b0",
+      "aa93d1c7-b90c-4b1f-b510-6d77d5ac302b",
+      "24d2611a-8bf0-4f47-b87a-9826b1b9c61a",
+      "65f67192-2352-472c-af45-2fd603b994c0",
+      "8e83d397-dc80-410c-bbfc-b6dab4d2feb5",
+      "7bf8b912-cc67-49e8-ae22-46f57e977c9a",
+      "c5e5fa35-3c17-4978-adc6-4bf06ffb9d4c",
+      "9d3de6fb-d0e3-4efa-b77d-f92ceb56285c",
+      "376549e8-2818-488a-ad51-f56c1b4ef7c4",
+      "6fd2b949-d036-4daa-9864-f2a7c6ba4528",
+      "81d5b9db-9b64-4c32-8912-9b515e9cb128",
+      "06779f11-93a3-4dc7-8ab6-d12901ecbb59",
+      "8ecba7f0-fa15-4b15-aba4-bdba0544988b",
+      "00ddd837-238d-496f-8500-6b8d886cf21a",
+      "94c394ec-8813-4e5b-9408-e9500de2392a",
+      "d6fe04df-bc1d-414d-ac63-6fb6878d2572",
+      "0a54e77d-ee8e-4e4a-b77f-2f857a2d4737",
+      "21469de3-ebc8-41aa-8c22-52416f0b7d56",
+      "1208ab56-c2fd-400c-8efc-ba80b6efbe93",
+      "9b572b23-3593-42b8-a22b-d904887ad356",
+      "547e0dc2-2265-41e2-87e6-17224b4a6a15",
+      "7dd15b6e-9fb1-47ea-a11b-fdf07469cc95",
+      "1602b0db-3007-4a3b-aeb0-ce91b4c440c8",
+      "95d6bbce-fb8e-484f-8a9b-8fd0222477b3",
+      "325670b8-aab8-432e-90f7-22ecdc498a5e",
+      "23619ff8-11c4-4bd2-b6bc-c3cc1a13a8e2",
+      "3f4b63f3-37f3-4f42-8f66-a9dc76dc9985",
+      "bc3e1c49-c8af-4a95-b947-1c6bac25e7de",
+      "8a22d6a4-babc-4b6e-ad3d-d54445ba01ba"
+    ]
+  },
+  "navigation": {
+    "handoffs": [
+      {
+        "claimedAt": "2026-08-22T09:16:10.493Z",
+        "preparedAt": "2026-08-22T09:16:08.682Z",
+        "purpose": "userside-tmc-focus",
+        "sourceTabId": 1184900939,
+        "targetTabId": 1184901153,
+        "token": "[redacted]"
+      }
+    ]
+  },
+  "network": {
+    "connectionFamily": {
+      "confidence": 0.96,
+      "observedAt": "2026-08-22T09:16:05.914Z",
+      "source": "billing:connection-type",
+      "value": "PON"
+    },
+    "connectionRaw": {
+      "confidence": 0.92,
+      "observedAt": "2026-08-22T09:16:05.914Z",
+      "source": "billing:connection-type-raw",
+      "value": "PON"
+    },
+    "ip": {
+      "confidence": 0.96,
+      "observedAt": "2026-08-22T09:16:02.786Z",
+      "source": "billing:userside-handoff-ip",
+      "value": "10.7.19.121"
+    },
+    "mac": {
+      "confidence": 0.94,
+      "observedAt": "2026-08-22T09:16:03.876Z",
+      "source": "billing:juniper",
+      "value": "64:EE:B7:EE:D9:45"
+    }
+  },
+  "operations": {
+    "poll": {
+      "current": {
+        "action": "313",
+        "attemptId": "35f88cd1-9c9c-4c66-9eaa-8c7e291f37cb",
+        "billingId": "50712",
+        "bindingFingerprint": "sim36-olt-huawei huawei|172.16.1.50|C4CD501205DB|xpon:501205db||",
+        "caseId": "login:abon507126",
+        "caseVersion": 25,
+        "documentId": "8e85294a-6b87-4a0c-97ca-32aac0759b4e",
+        "episodeId": "episode_2hhp4r_20260822091602",
+        "expectedAction": "313",
+        "expectedOltIp": "172.16.1.50",
+        "href": "https://admin.simnet.kiev.ua/cgi-bin/adm/stat.pl?pp=%5Bredacted%5D&a=313&id=50712&act=askolt&olt_ip=172.16.1.50",
+        "identityFingerprint": "abon507126|507126|50712|59150|64EEB7EED945",
+        "navigationStartedAt": 1787390340259,
+        "oltIp": "172.16.1.50",
+        "pending": true,
+        "pollAttemptId": "35f88cd1-9c9c-4c66-9eaa-8c7e291f37cb",
+        "requestDocumentId": "8E79956D5F34EC7A7F9229F7B83FC645",
+        "requestTabId": 1184900939,
+        "stage": "REQUEST_STARTED",
+        "startedAt": 1787390340258,
+        "status": "pending",
+        "updatedAt": "2026-08-22T09:19:00.295Z",
+        "warningReason": ""
+      },
+      "history": [
+        {
+          "action": "312",
+          "attemptId": "eff79a75-147b-4af5-979d-204ab574cba0",
+          "billingId": "50712",
+          "bindingFingerprint": "avtozavodska-29а-gpon|172.16.13.70|C4CD501205DB|xpon:501205db||",
+          "caseId": "login:abon507126",
+          "caseVersion": 12,
+          "completedAt": "",
+          "documentId": "06cb6305-a519-4b5b-89a8-bfc33e4b5516",
+          "episodeId": "episode_2hhp4r_20260822091602",
+          "expectedAction": "313",
+          "expectedOltIp": "172.16.1.50",
+          "failureReason": "poll-response-timeout",
+          "href": "https://admin.simnet.kiev.ua/cgi-bin/adm/stat.pl?pp=%5Bredacted%5D&a=312&id=50712&act=askolt&olt_ip=172.16.13.70",
+          "identityFingerprint": "abon507126|507126|50712|59150|64EEB7EED945",
+          "navigationStartedAt": 1787390221587,
+          "oltIp": "172.16.13.70",
+          "outcome": "timeout",
+          "pending": false,
+          "pollAttemptId": "eff79a75-147b-4af5-979d-204ab574cba0",
+          "requestDocumentId": "2C9A9E44EA9AF149F912F222F1747D68",
+          "requestTabId": 1184900939,
+          "resolvedAt": 1787390251607,
+          "responseDocumentId": "2C9A9E44EA9AF149F912F222F1747D68",
+          "stage": "TIMEOUT",
+          "startedAt": 1787390221586,
+          "status": "timeout",
+          "updatedAt": "2026-08-22T09:17:31.610Z",
+          "warningReason": "poll-action-mismatch"
+        }
+      ]
+    }
+  },
+  "pon": {
+    "oltId": {
+      "value": "87",
+      "source": "billing:olt-select-value",
+      "confidence": 0.9,
+      "observedAt": "2026-08-22T09:22:41.000Z"
+    },
+    "oltIp": {
+      "value": "172.16.1.50",
+      "source": "billing:olt-selected-option-ip",
+      "confidence": 0.97,
+      "observedAt": "2026-08-22T09:22:41.000Z"
+    },
+    "oltName": {
+      "value": "Sim36-OLT-Huawei Huawei",
+      "source": "billing:olt-selected-option",
+      "confidence": 0.97,
+      "observedAt": "2026-08-22T09:22:41.000Z"
+    },
+    "onuDeviceId": {
+      "confidence": 0.99,
+      "observedAt": "2026-08-22T09:16:10.520Z",
+      "source": "userside:onu-device-id",
+      "value": "63098"
+    },
+    "onuDeviceIp": {
+      "confidence": 0.98,
+      "observedAt": "2026-08-22T09:16:10.520Z",
+      "source": "userside:onu-device-ip",
+      "value": "10.7.19.121"
+    },
+    "onuDeviceName": {
+      "confidence": 0.97,
+      "observedAt": "2026-08-22T09:16:10.520Z",
+      "source": "userside:onu-device-name",
+      "value": "C-DATA ONU xPON FD511G - Сліпченко Ян Васильович - abon507126 Киев, вул. Симиренка (Святошинський), 5 кв. 306 порт: 1 ONU Rx (dBm): -23.01 # Коммутация Порт Линк Трафик 1 Абонент Сліпченко Ян Васильович - abon507126 Киев, вул. Симиренка (Св…"
+    },
+    "onuLanPort": {
+      "confidence": 0.99,
+      "observedAt": "2026-08-22T09:16:10.520Z",
+      "source": "userside:onu-lan-port",
+      "value": "1"
+    },
+    "onuMac": {
+      "confidence": 0.96,
+      "observedAt": "2026-08-22T09:16:05.914Z",
+      "source": "billing:onu-mac",
+      "value": "c4:CD:50:12:05:DB"
+    },
+    "onuSerial": {
+      "confidence": 0.96,
+      "observedAt": "2026-08-22T09:16:05.914Z",
+      "source": "billing:onu-serial",
+      "value": "xpon:501205DB"
+    },
+    "tmcEquipmentName": {
+      "confidence": 0.98,
+      "observedAt": "2026-08-22T09:16:10.520Z",
+      "source": "userside:tmc-equipment-name",
+      "value": "C-DATA ONU xPON FD511G"
+    },
+    "tmcFoundOnOlt": {
+      "confidence": 0.99,
+      "observedAt": "2026-08-22T09:16:10.520Z",
+      "source": "userside:tmc-found-on-olt",
+      "value": "true"
+    },
+    "tmcOltDeviceId": {
+      "confidence": 0.97,
+      "observedAt": "2026-08-22T09:16:10.520Z",
+      "source": "userside:tmc-olt-device-id",
+      "value": "57547"
+    },
+    "tmcOltIp": {
+      "confidence": 0.98,
+      "observedAt": "2026-08-22T09:16:10.520Z",
+      "source": "userside:tmc-olt-ip",
+      "value": "172.16.1.50"
+    },
+    "tmcOltName": {
+      "confidence": 0.98,
+      "observedAt": "2026-08-22T09:16:10.520Z",
+      "source": "userside:tmc-olt-name",
+      "value": "Huawei MA5800-X15"
+    },
+    "tmcOltRx": {
+      "confidence": 0.98,
+      "observedAt": "2026-08-22T09:16:10.520Z",
+      "source": "userside:tmc-olt-rx",
+      "value": "-27.39"
+    },
+    "tmcOnuMac": {
+      "confidence": 0.98,
+      "observedAt": "2026-08-22T09:16:10.520Z",
+      "source": "userside:tmc-onu-mac",
+      "value": "c4:CD:50:12:05:DB"
+    },
+    "tmcOnuRx": {
+      "confidence": 0.98,
+      "observedAt": "2026-08-22T09:16:10.520Z",
+      "source": "userside:tmc-onu-rx",
+      "value": "-23.01"
+    },
+    "tmcOnuSerial": {
+      "confidence": 0.98,
+      "observedAt": "2026-08-22T09:16:10.520Z",
+      "source": "userside:tmc-onu-serial",
+      "value": "XPON501205DB"
+    },
+    "tmcOnuTx": {
+      "confidence": 0.98,
+      "observedAt": "2026-08-22T09:16:10.520Z",
+      "source": "userside:tmc-onu-tx",
+      "value": "1.94"
+    },
+    "tmcPort": {
+      "confidence": 0.96,
+      "observedAt": "2026-08-22T09:16:10.520Z",
+      "source": "userside:tmc-interface",
+      "value": "GPON 0/4/6:13"
+    }
+  },
+  "profile": {
+    "fullName": {
+      "confidence": 0.84,
+      "observedAt": "2026-08-22T09:16:02.786Z",
+      "source": "billing:labeled-name",
+      "value": "Сліпченко Ян Васильович"
+    },
+    "tariff": {
+      "confidence": 0.84,
+      "observedAt": "2026-08-22T09:16:02.786Z",
+      "source": "billing:labeled-tariff",
+      "value": "OmegaTV - FreeTV"
+    }
+  },
+  "progress": {
+    "juniperRead": {
+      "at": "2026-08-22T09:16:03.876Z",
+      "details": null,
+      "done": true,
+      "source": "juniper-result"
+    },
+    "technicalChecked": {
+      "at": "2026-08-22T09:16:05.922Z",
+      "details": null,
+      "done": true,
+      "source": "billing-context"
+    },
+    "tmcChecked": {
+      "at": "2026-08-22T09:16:10.526Z",
+      "details": {
+        "result": "found"
+      },
+      "done": true,
+      "source": "userside-context"
+    }
+  },
+  "schemaVersion": 5,
+  "telephony": {
+    "callBindings": [],
+    "schema": "simnet-case-call-bindings-v1"
+  },
+  "updatedAt": "2026-08-22T09:22:42.379Z",
+  "viewsByTab": {
+    "1184900939": {
+      "8E79956D5F34EC7A7F9229F7B83FC645": {
+        "correlation": {
+          "caseId": "login:abon507126",
+          "caseVersion": 0,
+          "documentId": "8E79956D5F34EC7A7F9229F7B83FC645",
+          "episodeId": "episode_2hhp4r_20260822091602",
+          "pollAttemptId": "",
+          "reason": "correlation-match",
+          "requestId": "",
+          "verdict": "accepted"
+        },
+        "documentId": "8E79956D5F34EC7A7F9229F7B83FC645",
+        "entityId": "50712",
+        "key": "billing|billing_onu_poll|50712|a313|abon507126",
+        "meta": {
+          "documentId": "8e85294a-6b87-4a0c-97ca-32aac0759b4e",
+          "locatorObservations": [],
+          "pageInstanceId": "bd851945-4986-4d7b-a96c-08bc93e21bf1",
+          "pageInstanceStartedAt": 1787390335640,
+          "poll": {
+            "attemptAction": "313",
+            "commandBlocks": [],
+            "evidence": "Адміністрування Данные клиента Рахунок Клієнт: abon507126 (10.7.19.121) Адміністратор: zyatyev (id=193, 31.134.123.120) Головна Платежі Сеанси роботи Трафік подобово Трафік Повідомлення Замовлення тарифного плану Способи оплати Оплата Приват24 Оплата Visa / MasterCard Робота в кредит График Отправка SMS BDCOM EPON (1G) BDCOM GPON (2.5G) GCOM (2.5G) HUAWEI OLT Зміна паролю Реєстрація MAC пристроя IPTV / OmegaTV Sweet.TV MEGOGO. Кіно та TV ПАУЗА (призупинка послуг) Juniper (NEW) Договір (оферта) Вихід Главная test Тех.підтримка: Багатоканальний - (044) 224-84-34 Київстар - (098) 6-4444-71 Vodafone - (066) 6-4444-70 Lifecell - (093) 6-4444-70 www.simnet.ua - Наш сайт Статистика HUAWEI OLT Выбор OLT для запроса - abon507126 (ip 10.7.19.121) OLT SN ONU MAC ONU Мак-адрес абонента Источник Полный Autofind Порт Reboot Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 профиль пользователя Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU → Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 группа 1 Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU →",
+            "expectedPollAction": "313",
+            "interface": "",
+            "lateResponseRecovery": false,
+            "matchedBy": [],
+            "openedAction": "313",
+            "openedTab": "Huawei",
+            "outcome": "unknown",
+            "pending": false,
+            "ready": false,
+            "requestObserved": false,
+            "responseEvidence": false,
+            "snapshot": {
+              "distance": "",
+              "duplex": "",
+              "evidence": [],
+              "historySummary": "",
+              "identityAssessment": "unverified",
+              "identityConflicts": [],
+              "interface": "",
+              "learnedMacs": [],
+              "linkState": "",
+              "matchedBy": [],
+              "observedOnuMac": "",
+              "observedOnuSerial": "",
+              "observedSubscriberMac": "",
+              "offlineDuration": "",
+              "offlineDurationMs": null,
+              "offlineSince": "",
+              "oltIp": "172.16.1.50",
+              "oltName": "",
+              "oltRx": "",
+              "onuMac": "",
+              "onuSerial": "",
+              "onuStatus": "",
+              "outcome": "unknown",
+              "parserKey": "Huawei",
+              "pollAction": "313",
+              "pollType": "Huawei",
+              "responseSummary": "Адміністрування Данные клиента Рахунок Клієнт: abon507126 (10.7.19.121) Адміністратор: zyatyev (id=193, 31.134.123.120) Головна Платежі Сеанси роботи Трафік подобово Трафік Повідомлення Замовлення тарифного плану Способи оплати Оплата Приват24 Оплата Visa / MasterCard Робота в кредит График Отправка SMS BDCOM EPON (1G) BDCOM GPON (2.5G) GCOM (2.5G) HUAWEI OLT Зміна паролю Реєстрація MAC пристроя IPTV / OmegaTV Sweet.TV MEGOGO. Кіно та TV ПАУЗА (призупинка послуг) Juniper (NEW) Договір (оферта) Вихід Главная test Тех.підтримка: Багатоканальний - (044) 224-84-34 Київстар - (098) 6-4444-71 Vodafone - (066) 6-4444-70 Lifecell - (093) 6-4444-70 www.simnet.ua - Наш сайт Статистика HUAWEI OLT Выбор OLT для запроса - abon507126 (ip 10.7.19.121) OLT SN ONU MAC ONU Мак-адрес абонента Источник Полный Autofind Порт Reboot Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 профиль пользователя Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU → Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 группа 1 Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU →",
+              "rx": "",
+              "schemaVersion": 1,
+              "speedMbps": null,
+              "subscriberMac": "",
+              "tx": "",
+              "vlan": null
+            },
+            "tabIsEvidence": false,
+            "terminalResponded": false,
+            "uiStable": true,
+            "wrongPollTab": false
+          },
+          "reader": "billing"
+        },
+        "observedAt": "2026-08-22T09:18:59.696Z",
+        "pageInstanceId": "bd851945-4986-4d7b-a96c-08bc93e21bf1",
+        "pageInstanceStartedAt": 1787390335640,
+        "pageKind": "billing_onu_poll",
+        "quality": {
+          "parser": "billing-onu-poll-v3",
+          "trustedPage": true
+        },
+        "routeRelation": "supporting",
+        "subview": "a313",
+        "system": "billing",
+        "title": "Особистий кабінет Сімнет (Simnet)",
+        "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/stat.pl?pp=%5Bredacted%5D&a=313&id=50712"
+      },
+      "8F7421B684B5E82E3ADB56649736E921": {
+        "correlation": {
+          "caseId": "login:abon507126",
+          "caseVersion": 0,
+          "documentId": "8F7421B684B5E82E3ADB56649736E921",
+          "episodeId": "episode_2hhp4r_20260822091602",
+          "pollAttemptId": "",
+          "reason": "correlation-match",
+          "requestId": "",
+          "verdict": "accepted"
+        },
+        "documentId": "8F7421B684B5E82E3ADB56649736E921",
+        "entityId": "",
+        "key": "billing|billing_other|||",
+        "meta": {
+          "documentId": "e9214fa8-5e75-4b90-841e-21b94efb8dfb",
+          "ignoredPage": "billing_other",
+          "pageInstanceId": "a1c8f852-1fbf-4d7e-b023-5c1c8a03b08b",
+          "pageInstanceStartedAt": 1787390311752,
+          "reader": "billing"
+        },
+        "observedAt": "2026-08-22T09:18:31.784Z",
+        "pageInstanceId": "a1c8f852-1fbf-4d7e-b023-5c1c8a03b08b",
+        "pageInstanceStartedAt": 1787390311752,
+        "pageKind": "billing_other",
+        "quality": {
+          "trustedPage": false
+        },
+        "routeRelation": "supporting",
+        "subview": "",
+        "system": "billing",
+        "title": "Simnet",
+        "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/adm.pl"
+      },
+      "9193BCEE872CE7645D86BF58615C8001": {
+        "correlation": {
+          "caseId": "login:abon507126",
+          "caseVersion": 0,
+          "documentId": "9193BCEE872CE7645D86BF58615C8001",
+          "episodeId": "episode_2hhp4r_20260822091602",
+          "pollAttemptId": "",
+          "reason": "correlation-match",
+          "requestId": "",
+          "verdict": "accepted"
+        },
+        "documentId": "9193BCEE872CE7645D86BF58615C8001",
+        "entityId": "50712",
+        "key": "billing|billing_technical|50712|technical|abon507126",
+        "meta": {
+          "documentId": "1e466ad6-db78-4884-a485-72159f07fb3d",
+          "pageInstanceId": "08d19903-2d1a-4f38-a242-99280efbbf98",
+          "pageInstanceStartedAt": 1787390332096,
+          "reader": "billing",
+          "technical": {
+            "hasOlt": true,
+            "hasOnuIdentity": true,
+            "hasSubscriberIdentity": true,
+            "isPon": true,
+            "pollCandidates": [],
+            "rowCount": 10,
+            "sufficientIdentityForPoll": true
+          }
+        },
+        "observedAt": "2026-08-22T09:18:52.161Z",
+        "pageInstanceId": "08d19903-2d1a-4f38-a242-99280efbbf98",
+        "pageInstanceStartedAt": 1787390332096,
+        "pageKind": "billing_technical",
+        "quality": {
+          "parser": "billing-technical-v3",
+          "trustedPage": true
+        },
+        "routeRelation": "supporting",
+        "subview": "technical",
+        "system": "billing",
+        "title": "Simnet",
+        "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/adm.pl?pp=%5Bredacted%5D&a=dopdata&parent_type=0&id=50712&tmpl=1&copy=0&id=50712&updated=1"
+      },
+      "C39B962A8A0AEEA5FBB855AC03C1C9C5": {
+        "correlation": {
+          "caseId": "login:abon507126",
+          "caseVersion": 0,
+          "documentId": "C39B962A8A0AEEA5FBB855AC03C1C9C5",
+          "episodeId": "episode_2hhp4r_20260822091602",
+          "pollAttemptId": "",
+          "reason": "correlation-match",
+          "requestId": "",
+          "verdict": "accepted"
+        },
+        "documentId": "C39B962A8A0AEEA5FBB855AC03C1C9C5",
+        "entityId": "50712",
+        "key": "billing|billing_onu_poll|50712|a313|abon507126",
+        "meta": {
+          "documentId": "01b95a5b-a675-4699-b24c-e88056572738",
+          "locatorObservations": [],
+          "pageInstanceId": "c4fe688b-3a2e-4e4f-8e42-e8cdf2f3588e",
+          "pageInstanceStartedAt": 1787390320839,
+          "poll": {
+            "attemptAction": "313",
+            "commandBlocks": [],
+            "evidence": "Адміністрування Данные клиента Рахунок Клієнт: abon507126 (10.7.19.121) Адміністратор: zyatyev (id=193, 31.134.123.120) Головна Платежі Сеанси роботи Трафік подобово Трафік Повідомлення Замовлення тарифного плану Способи оплати Оплата Приват24 Оплата Visa / MasterCard Робота в кредит График Отправка SMS BDCOM EPON (1G) BDCOM GPON (2.5G) GCOM (2.5G) HUAWEI OLT Зміна паролю Реєстрація MAC пристроя IPTV / OmegaTV Sweet.TV MEGOGO. Кіно та TV ПАУЗА (призупинка послуг) Juniper (NEW) Договір (оферта) Вихід Главная test Тех.підтримка: Багатоканальний - (044) 224-84-34 Київстар - (098) 6-4444-71 Vodafone - (066) 6-4444-70 Lifecell - (093) 6-4444-70 www.simnet.ua - Наш сайт Статистика HUAWEI OLT Выбор OLT для запроса - abon507126 (ip 10.7.19.121) Данные посланы. Ждите... OLT SN ONU MAC ONU Мак-адрес абонента Источник Полный Autofind Порт Reboot Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 профиль пользователя Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU → Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 группа 1 Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU →",
+            "expectedPollAction": "313",
+            "interface": "",
+            "lateResponseRecovery": false,
+            "matchedBy": [],
+            "openedAction": "313",
+            "openedTab": "Huawei",
+            "outcome": "unknown",
+            "pending": false,
+            "ready": false,
+            "requestObserved": false,
+            "responseEvidence": false,
+            "snapshot": {
+              "distance": "",
+              "duplex": "",
+              "evidence": [],
+              "historySummary": "",
+              "identityAssessment": "unverified",
+              "identityConflicts": [],
+              "interface": "",
+              "learnedMacs": [],
+              "linkState": "",
+              "matchedBy": [],
+              "observedOnuMac": "",
+              "observedOnuSerial": "",
+              "observedSubscriberMac": "",
+              "offlineDuration": "",
+              "offlineDurationMs": null,
+              "offlineSince": "",
+              "oltIp": "172.16.1.50",
+              "oltName": "",
+              "oltRx": "",
+              "onuMac": "",
+              "onuSerial": "",
+              "onuStatus": "",
+              "outcome": "unknown",
+              "parserKey": "Huawei",
+              "pollAction": "313",
+              "pollType": "Huawei",
+              "responseSummary": "Адміністрування Данные клиента Рахунок Клієнт: abon507126 (10.7.19.121) Адміністратор: zyatyev (id=193, 31.134.123.120) Головна Платежі Сеанси роботи Трафік подобово Трафік Повідомлення Замовлення тарифного плану Способи оплати Оплата Приват24 Оплата Visa / MasterCard Робота в кредит График Отправка SMS BDCOM EPON (1G) BDCOM GPON (2.5G) GCOM (2.5G) HUAWEI OLT Зміна паролю Реєстрація MAC пристроя IPTV / OmegaTV Sweet.TV MEGOGO. Кіно та TV ПАУЗА (призупинка послуг) Juniper (NEW) Договір (оферта) Вихід Главная test Тех.підтримка: Багатоканальний - (044) 224-84-34 Київстар - (098) 6-4444-71 Vodafone - (066) 6-4444-70 Lifecell - (093) 6-4444-70 www.simnet.ua - Наш сайт Статистика HUAWEI OLT Выбор OLT для запроса - abon507126 (ip 10.7.19.121) Данные посланы. Ждите... OLT SN ONU MAC ONU Мак-адрес абонента Источник Полный Autofind Порт Reboot Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 профиль пользователя Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU → Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 группа 1 Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU →",
+              "rx": "",
+              "schemaVersion": 1,
+              "speedMbps": null,
+              "subscriberMac": "",
+              "tx": "",
+              "vlan": null
+            },
+            "tabIsEvidence": false,
+            "terminalResponded": false,
+            "uiStable": true,
+            "wrongPollTab": false
+          },
+          "reader": "billing"
+        },
+        "observedAt": "2026-08-22T09:18:44.917Z",
+        "pageInstanceId": "c4fe688b-3a2e-4e4f-8e42-e8cdf2f3588e",
+        "pageInstanceStartedAt": 1787390320839,
+        "pageKind": "billing_onu_poll",
+        "quality": {
+          "parser": "billing-onu-poll-v3",
+          "trustedPage": true
+        },
+        "routeRelation": "supporting",
+        "subview": "a313",
+        "system": "billing",
+        "title": "Особистий кабінет Сімнет (Simnet)",
+        "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/stat.pl?pp=%5Bredacted%5D&a=313&id=50712"
+      },
+      "FF2ACF41E1252577B49BD86F962DACA9": {
+        "correlation": {
+          "caseId": "login:abon507126",
+          "caseVersion": 0,
+          "documentId": "FF2ACF41E1252577B49BD86F962DACA9",
+          "episodeId": "episode_2hhp4r_20260822091602",
+          "pollAttemptId": "",
+          "reason": "correlation-match",
+          "requestId": "",
+          "verdict": "accepted"
+        },
+        "documentId": "FF2ACF41E1252577B49BD86F962DACA9",
+        "entityId": "50712",
+        "key": "billing|billing_technical|50712|technical|abon507126",
+        "meta": {
+          "documentId": "22124c87-6d14-4343-a7b1-e0f330a97ea8",
+          "pageInstanceId": "500cf69c-6228-4a40-8839-1ac479c30923",
+          "pageInstanceStartedAt": 1787390312118,
+          "reader": "billing",
+          "technical": {
+            "hasOlt": true,
+            "hasOnuIdentity": true,
+            "hasSubscriberIdentity": true,
+            "isPon": true,
+            "pollCandidates": [],
+            "rowCount": 10,
+            "sufficientIdentityForPoll": true
+          }
+        },
+        "observedAt": "2026-08-22T09:18:32.154Z",
+        "pageInstanceId": "500cf69c-6228-4a40-8839-1ac479c30923",
+        "pageInstanceStartedAt": 1787390312118,
+        "pageKind": "billing_technical",
+        "quality": {
+          "parser": "billing-technical-v3",
+          "trustedPage": true
+        },
+        "routeRelation": "supporting",
+        "subview": "technical",
+        "system": "billing",
+        "title": "Simnet",
+        "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/adm.pl?pp=%5Bredacted%5D&a=dopdata&parent_type=0&id=50712&tmpl=1&copy=0&id=50712&updated=1"
+      },
+      "D0E190A91611168EBCBECD342569AD1C": {
+        "key": "billing|billing_onu_poll|50712|a313|abon507126",
+        "system": "billing",
+        "pageKind": "billing_onu_poll",
+        "entityId": "50712",
+        "subview": "a313",
+        "title": "Особистий кабінет Сімнет (Simnet)",
+        "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/stat.pl?pp=%5Bredacted%5D&a=313&id=50712",
+        "meta": {
+          "documentId": "1df38082-9b4a-4357-8f0b-51056080538d",
+          "pageInstanceId": "52e45045-b283-4437-9653-17c688c39e32",
+          "pageInstanceStartedAt": 1787390560012,
+          "reader": "billing",
+          "poll": {
+            "openedTab": "Huawei",
+            "openedAction": "313",
+            "tabIsEvidence": false,
+            "outcome": "unknown",
+            "ready": false,
+            "pending": false,
+            "requestObserved": false,
+            "uiStable": true,
+            "expectedPollAction": "313",
+            "attemptAction": "313",
+            "wrongPollTab": false,
+            "terminalResponded": false,
+            "responseEvidence": false,
+            "lateResponseRecovery": false,
+            "snapshot": {
+              "schemaVersion": 1,
+              "outcome": "unknown",
+              "pollAction": "313",
+              "pollType": "Huawei",
+              "parserKey": "Huawei",
+              "oltName": "",
+              "oltIp": "172.16.1.50",
+              "onuStatus": "",
+              "onuMac": "",
+              "onuSerial": "",
+              "observedOnuMac": "",
+              "observedOnuSerial": "",
+              "subscriberMac": "",
+              "observedSubscriberMac": "",
+              "learnedMacs": [],
+              "interface": "",
+              "rx": "",
+              "tx": "",
+              "distance": "",
+              "oltRx": "",
+              "linkState": "",
+              "speedMbps": null,
+              "duplex": "",
+              "vlan": null,
+              "identityAssessment": "unverified",
+              "identityConflicts": [],
+              "matchedBy": [],
+              "responseSummary": "Адміністрування Данные клиента Рахунок Клієнт: abon507126 (10.7.19.121) Адміністратор: zyatyev (id=193, 31.134.123.120) Головна Платежі Сеанси роботи Трафік подобово Трафік Повідомлення Замовлення тарифного плану Способи оплати Оплата Приват24 Оплата Visa / MasterCard Робота в кредит График Отправка SMS BDCOM EPON (1G) BDCOM GPON (2.5G) GCOM (2.5G) HUAWEI OLT Зміна паролю Реєстрація MAC пристроя IPTV / OmegaTV Sweet.TV MEGOGO. Кіно та TV ПАУЗА (призупинка послуг) Juniper (NEW) Договір (оферта) Вихід Главная test Тех.підтримка: Багатоканальний - (044) 224-84-34 Київстар - (098) 6-4444-71 Vodafone - (066) 6-4444-70 Lifecell - (093) 6-4444-70 www.simnet.ua - Наш сайт Статистика HUAWEI OLT Выбор OLT для запроса - abon507126 (ip 10.7.19.121) OLT SN ONU MAC ONU Мак-адрес абонента Источник Полный Autofind Порт Reboot Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 профиль пользователя Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU → Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 группа 1 Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU →",
+              "historySummary": "",
+              "offlineSince": "",
+              "offlineDuration": "",
+              "offlineDurationMs": null,
+              "evidence": []
+            },
+            "matchedBy": [],
+            "interface": "",
+            "commandBlocks": [],
+            "evidence": "Адміністрування Данные клиента Рахунок Клієнт: abon507126 (10.7.19.121) Адміністратор: zyatyev (id=193, 31.134.123.120) Головна Платежі Сеанси роботи Трафік подобово Трафік Повідомлення Замовлення тарифного плану Способи оплати Оплата Приват24 Оплата Visa / MasterCard Робота в кредит График Отправка SMS BDCOM EPON (1G) BDCOM GPON (2.5G) GCOM (2.5G) HUAWEI OLT Зміна паролю Реєстрація MAC пристроя IPTV / OmegaTV Sweet.TV MEGOGO. Кіно та TV ПАУЗА (призупинка послуг) Juniper (NEW) Договір (оферта) Вихід Главная test Тех.підтримка: Багатоканальний - (044) 224-84-34 Київстар - (098) 6-4444-71 Vodafone - (066) 6-4444-70 Lifecell - (093) 6-4444-70 www.simnet.ua - Наш сайт Статистика HUAWEI OLT Выбор OLT для запроса - abon507126 (ip 10.7.19.121) OLT SN ONU MAC ONU Мак-адрес абонента Источник Полный Autofind Порт Reboot Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 профиль пользователя Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU → Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 группа 1 Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU →"
+          },
+          "locatorObservations": []
+        },
+        "quality": {
+          "trustedPage": true,
+          "parser": "billing-onu-poll-v3"
+        },
+        "routeRelation": "supporting",
+        "correlation": {
+          "caseId": "login:abon507126",
+          "episodeId": "episode_2hhp4r_20260822091602",
+          "caseVersion": 0,
+          "documentId": "D0E190A91611168EBCBECD342569AD1C",
+          "requestId": "",
+          "pollAttemptId": "",
+          "verdict": "accepted",
+          "reason": "correlation-match"
+        },
+        "observedAt": "2026-08-22T09:22:40.061Z",
+        "documentId": "D0E190A91611168EBCBECD342569AD1C",
+        "pageInstanceId": "52e45045-b283-4437-9653-17c688c39e32",
+        "pageInstanceStartedAt": 1787390560012
+      },
+      "61BFA35E28A3BC832A408E9C0CD7BF89": {
+        "key": "billing|billing_technical|50712|technical|abon507126",
+        "system": "billing",
+        "pageKind": "billing_technical",
+        "entityId": "50712",
+        "subview": "technical",
+        "title": "Simnet",
+        "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/adm.pl?pp=%5Bredacted%5D&a=dopdata&parent_type=0&id=50712&tmpl=1&copy=0&id=50712&updated=1",
+        "meta": {
+          "documentId": "942e9da7-3a41-4895-9675-a75827c38805",
+          "pageInstanceId": "c6c2dda4-e505-4ec7-80ba-483a3015b600",
+          "pageInstanceStartedAt": 1787390560964,
+          "reader": "billing",
+          "technical": {
+            "rowCount": 10,
+            "hasSubscriberIdentity": true,
+            "hasOnuIdentity": true,
+            "hasOlt": true,
+            "isPon": true,
+            "pollCandidates": [],
+            "sufficientIdentityForPoll": true
+          }
+        },
+        "quality": {
+          "trustedPage": true,
+          "parser": "billing-technical-v3"
+        },
+        "routeRelation": "supporting",
+        "correlation": {
+          "caseId": "login:abon507126",
+          "episodeId": "episode_2hhp4r_20260822091602",
+          "caseVersion": 0,
+          "documentId": "61BFA35E28A3BC832A408E9C0CD7BF89",
+          "requestId": "",
+          "pollAttemptId": "",
+          "verdict": "accepted",
+          "reason": "correlation-match"
+        },
+        "observedAt": "2026-08-22T09:22:41.005Z",
+        "documentId": "61BFA35E28A3BC832A408E9C0CD7BF89",
+        "pageInstanceId": "c6c2dda4-e505-4ec7-80ba-483a3015b600",
+        "pageInstanceStartedAt": 1787390560964
+      },
+      "4DDB2DE563A70025888A3E6267E3F19E": {
+        "key": "billing|billing_technical|50712|technical|abon507126",
+        "system": "billing",
+        "pageKind": "billing_technical",
+        "entityId": "50712",
+        "subview": "technical",
+        "title": "Simnet",
+        "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/adm.pl?pp=%5Bredacted%5D&a=dopdata&parent_type=0&id=50712&tmpl=1&copy=0&id=50712&updated=1",
+        "meta": {
+          "documentId": "3dd18d0f-32ba-4ae8-bc9e-54cc0982d223",
+          "pageInstanceId": "910cc6e7-aad1-4289-924f-ca93fe368de4",
+          "pageInstanceStartedAt": 1787390562339,
+          "reader": "billing",
+          "technical": {
+            "rowCount": 10,
+            "hasSubscriberIdentity": true,
+            "hasOnuIdentity": true,
+            "hasOlt": true,
+            "isPon": true,
+            "pollCandidates": [],
+            "sufficientIdentityForPoll": true
+          }
+        },
+        "quality": {
+          "trustedPage": true,
+          "parser": "billing-technical-v3"
+        },
+        "routeRelation": "supporting",
+        "correlation": {
+          "caseId": "login:abon507126",
+          "episodeId": "episode_2hhp4r_20260822091602",
+          "caseVersion": 0,
+          "documentId": "4DDB2DE563A70025888A3E6267E3F19E",
+          "requestId": "",
+          "pollAttemptId": "",
+          "verdict": "accepted",
+          "reason": "correlation-match"
+        },
+        "observedAt": "2026-08-22T09:22:42.379Z",
+        "documentId": "4DDB2DE563A70025888A3E6267E3F19E",
+        "pageInstanceId": "910cc6e7-aad1-4289-924f-ca93fe368de4",
+        "pageInstanceStartedAt": 1787390562339
+      }
+    },
+    "1184901153": {
+      "EB93C2D21788F0B0255266728542CEBD": {
+        "correlation": {
+          "caseId": "login:abon507126",
+          "caseVersion": 6,
+          "documentId": "EB93C2D21788F0B0255266728542CEBD",
+          "episodeId": "episode_2hhp4r_20260822091602",
+          "pollAttemptId": "",
+          "reason": "correlation-match",
+          "requestId": "",
+          "verdict": "accepted"
+        },
+        "documentId": "EB93C2D21788F0B0255266728542CEBD",
+        "entityId": "59150",
+        "key": "userside|userside_customer|59150||abon507126",
+        "meta": {
+          "connectionPoint": {
+            "classification": "pon_onu_lan_or_non_ethernet",
+            "deviceId": "63098",
+            "deviceIp": "10.7.19.121",
+            "deviceName": "C-DATA ONU xPON FD511G - Сліпченко Ян Васильович - abon507126 Киев, вул. Симиренка (Святошинський), 5 кв. 306 порт: 1 ONU Rx (dBm): -23.01 # Коммутация Порт Линк Трафик 1 Абонент Сліпченко Ян Васильович - abon507126 Киев, вул. Симиренка (Св…",
+            "interface": "",
+            "linkState": "",
+            "ownerMatched": true,
+            "port": "1",
+            "speedMbps": ""
+          },
+          "customerMacs": [
+            {
+              "href": "https://userside.simnet.kiev.ua/customer_list/search_page?search=64%3AEE%3AB7%3AEE%3AD9%3A45&find_typer=machistory",
+              "ip": "",
+              "mac": "64:EE:B7:EE:D9:45",
+              "title": "Поиск по MAC-адресу"
+            }
+          ],
+          "documentId": "e37243fa-325d-41c5-9012-0ab89c61de6d",
+          "ethernetAccessPoint": null,
+          "handoff": {
+            "claimed": true,
+            "purpose": "userside-tmc-focus",
+            "sourceTabId": 1184900939,
+            "token": "[redacted]"
+          },
+          "locatorObservations": [
+            {
+              "correlation": {
+                "caseId": "login:abon507126",
+                "caseVersion": 6,
+                "documentId": "EB93C2D21788F0B0255266728542CEBD",
+                "episodeId": "episode_2hhp4r_20260822091602",
+                "pollAttemptId": "",
+                "reason": "correlation-match",
+                "requestId": "",
+                "verdict": "accepted"
+              },
+              "details": {
+                "confidence": 0.99,
+                "deviceId": "57547",
+                "foundOnOlt": true,
+                "identityCheck": {
+                  "isMatch": true,
+                  "matchedCurrentSubscriber": true
+                },
+                "interface": "GPON 0/4/6:13",
+                "matchedCurrentSubscriber": true,
+                "oltIp": "172.16.1.50",
+                "oltName": "Huawei MA5800-X15",
+                "onuMac": "c4:CD:50:12:05:DB",
+                "onuSerial": "XPON501205DB",
+                "source": "userside-tmc"
+              },
+              "method": "userside_tmc",
+              "passive": false,
+              "passiveReason": "",
+              "producerPassive": false,
+              "producerRouteRelation": "",
+              "result": "found",
+              "routeRelation": "supporting",
+              "source": "userside",
+              "summary": "OLT найдена в ТМЦ; сохранены только реально доступные в ТМЦ поля ONU/OLT.",
+              "type": "TMC_RESULT"
+            },
+            {
+              "correlation": {
+                "caseId": "login:abon507126",
+                "caseVersion": 6,
+                "documentId": "EB93C2D21788F0B0255266728542CEBD",
+                "episodeId": "episode_2hhp4r_20260822091602",
+                "pollAttemptId": "",
+                "reason": "correlation-match",
+                "requestId": "",
+                "verdict": "accepted"
+              },
+              "details": {
+                "macs": [
+                  {
+                    "href": "https://userside.simnet.kiev.ua/customer_list/search_page?search=64%3AEE%3AB7%3AEE%3AD9%3A45&find_typer=machistory",
+                    "ip": "",
+                    "mac": "64:EE:B7:EE:D9:45",
+                    "title": "Поиск по MAC-адресу"
+                  }
+                ]
+              },
+              "method": "userside_customer_card",
+              "passive": false,
+              "passiveReason": "",
+              "producerPassive": false,
+              "producerRouteRelation": "",
+              "result": "found",
+              "routeRelation": "supporting",
+              "source": "userside",
+              "summary": "На карточке найдено MAC для поиска: 1.",
+              "type": "CUSTOMER_MACS"
+            }
+          ],
+          "pageInstanceId": "22c74e9c-c559-454f-af92-a7f33a39ab12",
+          "pageInstanceStartedAt": 1787390170471,
+          "reader": "userside",
+          "tmc": {
+            "candidateCount": 1,
+            "checked": true,
+            "found": true,
+            "identityCheck": {
+              "isMatch": true,
+              "matchedCurrentSubscriber": true
+            },
+            "oltIp": "172.16.1.50",
+            "oltName": "Huawei MA5800-X15",
+            "result": "found"
+          }
+        },
+        "observedAt": "2026-08-22T09:16:10.524Z",
+        "pageInstanceId": "22c74e9c-c559-454f-af92-a7f33a39ab12",
+        "pageInstanceStartedAt": 1787390170471,
+        "pageKind": "userside_customer",
+        "quality": {
+          "parser": "userside-customer-locator-v2.1",
+          "trustedPage": true
+        },
+        "routeRelation": "supporting",
+        "subview": "",
+        "system": "userside",
+        "title": "Сліпченко Ян Васильович - abon507126 - Абоненты - UserSide",
+        "url": "https://userside.simnet.kiev.ua/customer/59150"
+      }
+    },
+    "1184901154": {
+      "452589238CD1CFF1F6EABE06475E1754": {
+        "correlation": {
+          "caseId": "login:abon507126",
+          "caseVersion": 0,
+          "documentId": "452589238CD1CFF1F6EABE06475E1754",
+          "episodeId": "episode_2hhp4r_20260822091602",
+          "pollAttemptId": "",
+          "reason": "correlation-match",
+          "requestId": "",
+          "verdict": "accepted"
+        },
+        "documentId": "452589238CD1CFF1F6EABE06475E1754",
+        "entityId": "50712",
+        "key": "billing|billing_technical|50712|technical|abon507126",
+        "meta": {
+          "documentId": "88aa153a-3b99-4c1a-bb5b-0b934b6a8130",
+          "pageInstanceId": "e095cd99-c367-42a2-aa91-4591044f08ac",
+          "pageInstanceStartedAt": 1787390343874,
+          "reader": "billing",
+          "technical": {
+            "hasOlt": true,
+            "hasOnuIdentity": true,
+            "hasSubscriberIdentity": true,
+            "isPon": true,
+            "pollCandidates": [],
+            "rowCount": 10,
+            "sufficientIdentityForPoll": true
+          }
+        },
+        "observedAt": "2026-08-22T09:19:03.907Z",
+        "pageInstanceId": "e095cd99-c367-42a2-aa91-4591044f08ac",
+        "pageInstanceStartedAt": 1787390343874,
+        "pageKind": "billing_technical",
+        "quality": {
+          "parser": "billing-technical-v3",
+          "trustedPage": true
+        },
+        "routeRelation": "supporting",
+        "subview": "technical",
+        "system": "billing",
+        "title": "Simnet",
+        "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/adm.pl?pp=%5Bredacted%5D&a=dopdata&parent_type=0&id=50712&tmpl=1&copy=0&id=50712&updated=1"
+      },
+      "6A7D02810EDB6BBA468C17940ABD8FF8": {
+        "correlation": {
+          "caseId": "login:abon507126",
+          "caseVersion": 0,
+          "documentId": "6A7D02810EDB6BBA468C17940ABD8FF8",
+          "episodeId": "episode_2hhp4r_20260822091602",
+          "pollAttemptId": "",
+          "reason": "correlation-match",
+          "requestId": "",
+          "verdict": "accepted"
+        },
+        "documentId": "6A7D02810EDB6BBA468C17940ABD8FF8",
+        "entityId": "50712",
+        "key": "billing|billing_user|50712||abon507126",
+        "meta": {
+          "documentId": "4fd0ab25-17c4-44a0-959d-2a80879be758",
+          "pageInstanceId": "49a991f5-9403-4fec-9377-59a4f0909637",
+          "pageInstanceStartedAt": 1787390351370,
+          "reader": "billing",
+          "technical": {
+            "hasOlt": false,
+            "hasOnuIdentity": false,
+            "hasSubscriberIdentity": true,
+            "isPon": false,
+            "pollCandidates": [
+              {
+                "action": "310",
+                "label": "BDCOM EPON (1G)",
+                "type": "EPON"
+              },
+              {
+                "action": "311",
+                "label": "BDCOM GPON (2.5G)",
+                "type": "GPON"
+              },
+              {
+                "action": "312",
+                "label": "GCOM (2.5G)",
+                "type": "GCOM"
+              },
+              {
+                "action": "313",
+                "label": "HUAWEI OLT",
+                "type": "Huawei"
+              }
+            ],
+            "rowCount": 81,
+            "sufficientIdentityForPoll": false
+          }
+        },
+        "observedAt": "2026-08-22T09:19:11.407Z",
+        "pageInstanceId": "49a991f5-9403-4fec-9377-59a4f0909637",
+        "pageInstanceStartedAt": 1787390351370,
+        "pageKind": "billing_user",
+        "quality": {
+          "parser": "billing-user-v2.1",
+          "trustedPage": true
+        },
+        "routeRelation": "supporting",
+        "subview": "",
+        "system": "billing",
+        "title": "Simnet",
+        "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/adm.pl?pp=%5Bredacted%5D&a=user&id=50712"
+      },
+      "A71AA6E89874538D1D0A9FEA65D0E03F": {
+        "correlation": {
+          "caseId": "login:abon507126",
+          "caseVersion": 0,
+          "documentId": "A71AA6E89874538D1D0A9FEA65D0E03F",
+          "episodeId": "episode_2hhp4r_20260822091602",
+          "pollAttemptId": "",
+          "reason": "correlation-match",
+          "requestId": "",
+          "verdict": "accepted"
+        },
+        "documentId": "A71AA6E89874538D1D0A9FEA65D0E03F",
+        "entityId": "50712",
+        "key": "billing|billing_technical|50712|technical|abon507126",
+        "meta": {
+          "documentId": "5984e323-8189-48cd-90c9-27d92dbd5c79",
+          "pageInstanceId": "30a041d3-1bf9-4e25-95b2-446ff0e249f0",
+          "pageInstanceStartedAt": 1787390344626,
+          "reader": "billing",
+          "technical": {
+            "hasOlt": true,
+            "hasOnuIdentity": true,
+            "hasSubscriberIdentity": true,
+            "isPon": true,
+            "pollCandidates": [],
+            "rowCount": 10,
+            "sufficientIdentityForPoll": true
+          }
+        },
+        "observedAt": "2026-08-22T09:19:04.655Z",
+        "pageInstanceId": "30a041d3-1bf9-4e25-95b2-446ff0e249f0",
+        "pageInstanceStartedAt": 1787390344626,
+        "pageKind": "billing_technical",
+        "quality": {
+          "parser": "billing-technical-v3",
+          "trustedPage": true
+        },
+        "routeRelation": "supporting",
+        "subview": "technical",
+        "system": "billing",
+        "title": "Simnet",
+        "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/adm.pl?pp=%5Bredacted%5D&a=dopdata&parent_type=0&id=50712&tmpl=1"
+      },
+      "B5F0A1275FE69557166D7127524E9C87": {
+        "correlation": {
+          "caseId": "login:abon507126",
+          "caseVersion": 0,
+          "documentId": "B5F0A1275FE69557166D7127524E9C87",
+          "episodeId": "episode_2hhp4r_20260822091602",
+          "pollAttemptId": "",
+          "reason": "correlation-match",
+          "requestId": "",
+          "verdict": "accepted"
+        },
+        "documentId": "B5F0A1275FE69557166D7127524E9C87",
+        "entityId": "50712",
+        "key": "billing|billing_user|50712||abon507126",
+        "meta": {
+          "documentId": "ea39bde8-b6b0-49a6-a4ea-dfbeb02367c0",
+          "pageInstanceId": "6eb00199-eb6f-4e2b-b289-81cfec504f0a",
+          "pageInstanceStartedAt": 1787390345910,
+          "reader": "billing",
+          "technical": {
+            "hasOlt": false,
+            "hasOnuIdentity": false,
+            "hasSubscriberIdentity": true,
+            "isPon": false,
+            "pollCandidates": [
+              {
+                "action": "310",
+                "label": "BDCOM EPON (1G)",
+                "type": "EPON"
+              },
+              {
+                "action": "311",
+                "label": "BDCOM GPON (2.5G)",
+                "type": "GPON"
+              },
+              {
+                "action": "312",
+                "label": "GCOM (2.5G)",
+                "type": "GCOM"
+              },
+              {
+                "action": "313",
+                "label": "HUAWEI OLT",
+                "type": "Huawei"
+              }
+            ],
+            "rowCount": 81,
+            "sufficientIdentityForPoll": false
+          }
+        },
+        "observedAt": "2026-08-22T09:19:05.943Z",
+        "pageInstanceId": "6eb00199-eb6f-4e2b-b289-81cfec504f0a",
+        "pageInstanceStartedAt": 1787390345910,
+        "pageKind": "billing_user",
+        "quality": {
+          "parser": "billing-user-v2.1",
+          "trustedPage": true
+        },
+        "routeRelation": "supporting",
+        "subview": "",
+        "system": "billing",
+        "title": "Simnet",
+        "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/adm.pl?pp=%5Bredacted%5D&a=user&id=50712"
+      },
+      "C31A6D6BABF76096B40D0F1A1F617408": {
+        "correlation": {
+          "caseId": "login:abon507126",
+          "caseVersion": 0,
+          "documentId": "C31A6D6BABF76096B40D0F1A1F617408",
+          "episodeId": "episode_2hhp4r_20260822091602",
+          "pollAttemptId": "",
+          "reason": "correlation-match",
+          "requestId": "",
+          "verdict": "accepted"
+        },
+        "documentId": "C31A6D6BABF76096B40D0F1A1F617408",
+        "entityId": "50712",
+        "key": "billing|billing_onu_poll|50712|a313|abon507126",
+        "meta": {
+          "documentId": "321b9f38-19f9-4456-beb9-cfab60d92516",
+          "locatorObservations": [],
+          "pageInstanceId": "1442fbbc-2aeb-48e7-ade6-e1859fd805c5",
+          "pageInstanceStartedAt": 1787390342597,
+          "poll": {
+            "attemptAction": "313",
+            "commandBlocks": [],
+            "evidence": "Адміністрування Данные клиента Рахунок Клієнт: abon507126 (10.7.19.121) Адміністратор: zyatyev (id=193, 31.134.123.120) Головна Платежі Сеанси роботи Трафік подобово Трафік Повідомлення Замовлення тарифного плану Способи оплати Оплата Приват24 Оплата Visa / MasterCard Робота в кредит График Отправка SMS BDCOM EPON (1G) BDCOM GPON (2.5G) GCOM (2.5G) HUAWEI OLT Зміна паролю Реєстрація MAC пристроя IPTV / OmegaTV Sweet.TV MEGOGO. Кіно та TV ПАУЗА (призупинка послуг) Juniper (NEW) Договір (оферта) Вихід Главная test Тех.підтримка: Багатоканальний - (044) 224-84-34 Київстар - (098) 6-4444-71 Vodafone - (066) 6-4444-70 Lifecell - (093) 6-4444-70 www.simnet.ua - Наш сайт Статистика HUAWEI OLT Выбор OLT для запроса - abon507126 (ip 10.7.19.121) OLT SN ONU MAC ONU Мак-адрес абонента Источник Полный Autofind Порт Reboot Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 профиль пользователя Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU → Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 группа 1 Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU →",
+            "expectedPollAction": "313",
+            "interface": "",
+            "lateResponseRecovery": false,
+            "matchedBy": [],
+            "openedAction": "313",
+            "openedTab": "Huawei",
+            "outcome": "unknown",
+            "pending": false,
+            "ready": false,
+            "requestObserved": false,
+            "responseEvidence": false,
+            "snapshot": {
+              "distance": "",
+              "duplex": "",
+              "evidence": [],
+              "historySummary": "",
+              "identityAssessment": "unverified",
+              "identityConflicts": [],
+              "interface": "",
+              "learnedMacs": [],
+              "linkState": "",
+              "matchedBy": [],
+              "observedOnuMac": "",
+              "observedOnuSerial": "",
+              "observedSubscriberMac": "",
+              "offlineDuration": "",
+              "offlineDurationMs": null,
+              "offlineSince": "",
+              "oltIp": "172.16.1.50",
+              "oltName": "",
+              "oltRx": "",
+              "onuMac": "",
+              "onuSerial": "",
+              "onuStatus": "",
+              "outcome": "unknown",
+              "parserKey": "Huawei",
+              "pollAction": "313",
+              "pollType": "Huawei",
+              "responseSummary": "Адміністрування Данные клиента Рахунок Клієнт: abon507126 (10.7.19.121) Адміністратор: zyatyev (id=193, 31.134.123.120) Головна Платежі Сеанси роботи Трафік подобово Трафік Повідомлення Замовлення тарифного плану Способи оплати Оплата Приват24 Оплата Visa / MasterCard Робота в кредит График Отправка SMS BDCOM EPON (1G) BDCOM GPON (2.5G) GCOM (2.5G) HUAWEI OLT Зміна паролю Реєстрація MAC пристроя IPTV / OmegaTV Sweet.TV MEGOGO. Кіно та TV ПАУЗА (призупинка послуг) Juniper (NEW) Договір (оферта) Вихід Главная test Тех.підтримка: Багатоканальний - (044) 224-84-34 Київстар - (098) 6-4444-71 Vodafone - (066) 6-4444-70 Lifecell - (093) 6-4444-70 www.simnet.ua - Наш сайт Статистика HUAWEI OLT Выбор OLT для запроса - abon507126 (ip 10.7.19.121) OLT SN ONU MAC ONU Мак-адрес абонента Источник Полный Autofind Порт Reboot Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 профиль пользователя Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU → Sim36-OLT-Huawei (172.16.1.50) Huawei XPON:501205DB C4:CD:50:12:05:DB 64:EE:B7:EE:D9:45 группа 1 Запрос OLT → Опрос AUTOFIND → Опрос порта GPON → reboot ONU →",
+              "rx": "",
+              "schemaVersion": 1,
+              "speedMbps": null,
+              "subscriberMac": "",
+              "tx": "",
+              "vlan": null
+            },
+            "tabIsEvidence": false,
+            "terminalResponded": false,
+            "uiStable": true,
+            "wrongPollTab": false
+          },
+          "reader": "billing"
+        },
+        "observedAt": "2026-08-22T09:19:02.633Z",
+        "pageInstanceId": "1442fbbc-2aeb-48e7-ade6-e1859fd805c5",
+        "pageInstanceStartedAt": 1787390342597,
+        "pageKind": "billing_onu_poll",
+        "quality": {
+          "parser": "billing-onu-poll-v3",
+          "trustedPage": true
+        },
+        "routeRelation": "supporting",
+        "subview": "a313",
+        "system": "billing",
+        "title": "Особистий кабінет Сімнет (Simnet)",
+        "url": "https://admin.simnet.kiev.ua/cgi-bin/adm/stat.pl?pp=%5Bredacted%5D&a=313&id=50712"
+      }
+    }
+  },
+  "visits": {
+    "billingTechnicalAt": "2026-08-22T09:16:05.920Z",
+    "usersideTmcAt": "2026-08-22T09:16:10.526Z"
+  },
+  "workflow": {}
+}

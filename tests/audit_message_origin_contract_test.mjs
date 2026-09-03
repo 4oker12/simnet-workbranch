@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const launcher = fs.readFileSync(new URL('../src/audit/launcher.js', import.meta.url), 'utf8');
+const audit = fs.readFileSync(new URL('../src/audit/audit.js', import.meta.url), 'utf8');
+assert.doesNotMatch(launcher, /postMessage\([\s\S]{0,220},\s*['"]\*['"]\)/, 'launcher cannot use wildcard targetOrigin');
+assert.doesNotMatch(audit, /postMessage\([\s\S]{0,220},\s*['"]\*['"]\)/, 'audit iframe cannot use wildcard targetOrigin');
+assert.match(launcher, /event\.origin !== AUDIT_ORIGIN/);
+assert.match(audit, /event\.origin !== PARENT_ORIGIN/);
+assert.match(launcher, /parentOrigin/);
+assert.match(audit, /searchParams\.get\('parentOrigin'\)/);
+console.log('audit_message_origin_contract_test: PASS');

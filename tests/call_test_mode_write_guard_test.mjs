@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const ui = fs.readFileSync(new URL('../src/ui/call-registration.js', import.meta.url), 'utf8');
+const submitStart = ui.indexOf('async onSubmit(event)');
+const submitEnd = ui.indexOf('async onClick(event)', submitStart);
+assert.ok(submitStart >= 0 && submitEnd > submitStart);
+const submit = ui.slice(submitStart, submitEnd);
+const testGate = submit.indexOf('if (this.testMode)');
+const bind = submit.indexOf('extensionRequest(PBX_BIND_MESSAGE');
+const save = submit.indexOf('extensionRequest(SUBMIT_MESSAGE');
+assert.ok(testGate >= 0, 'TEST gate missing');
+assert.ok(bind > testGate, 'TEST gate must run before any binding');
+assert.ok(save > testGate, 'TEST gate must run before UserSide save');
+assert.match(ui, /READ ONLY/);
+assert.match(ui, /CALL_FROZEN_REPLAY_QUERY/);
+assert.match(ui, /TEST MODE: UserSide save и CALL binding жёстко отключены/);
+console.log('call_test_mode_write_guard_test: PASS');

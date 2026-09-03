@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SIMNET Workbench</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header><span class="dot" id="workerDot"></span><div><h1>SIMNET Workbench</h1><small id="version">…</small></div></header>
+  <section id="status">Проверка Service Worker…</section>
+  <div class="grid">
+    <button id="exportDiag" type="button">Экспорт ошибок</button>
+    <button id="clearWorkbench" class="danger" type="button">Сброс данных WB</button>
+  </div>
+  <section class="diag-head"><b>Ошибки Workbench</b><span id="diagCount">0</span></section>
+  <div id="diagnostics" class="diagnostics">Загрузка…</div>
+  <details><summary>Текущий Case</summary><pre id="context"></pre></details>
+  <p class="hint">Этот экран читает аварийный журнал напрямую из chrome.storage и остаётся полезным, даже если Service Worker не отвечает. Если сам worker не зарегистрировался, последний источник — chrome://extensions → Workbench → Ошибки.</p>
+  <script src="popup.js"></script>
+</body>
+</html>

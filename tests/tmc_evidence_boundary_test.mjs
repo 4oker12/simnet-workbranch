@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import { tmcTechnicalExpectation, requiredTechnicalFieldsForCase, assessPonTechnical } from '../src/workflows/pon.js';
+import { ensureEvidenceState } from '../src/workflows/discovery.js';
+const fact=value=>({value,source:'test',confidence:.99});
+const c={network:{connectionFamily:fact('PON')},pon:{tmcOltName:fact('Huawei OLT'),tmcOltIp:fact('172.16.1.2'),tmcOnuMac:fact('00:11:22:33:44:55')},locator:{}};
+ensureEvidenceState(c);
+c.locator.sourceStatus.tmc={result:'found',details:{oltName:'Huawei OLT',oltIp:'172.16.1.2',onuMac:'00:11:22:33:44:55',onuSerial:''}};
+assert.deepEqual(tmcTechnicalExpectation(c).fields,['olt','onuMac']);
+assert.equal(assessPonTechnical(c).serialStatus,'optional-missing');
+assert.deepEqual(requiredTechnicalFieldsForCase(c),['olt','onuMac'],'missing serial in real TMC source must not be manufactured as obligation');
+console.log('tmc_source_limited_architecture_test: PASS');

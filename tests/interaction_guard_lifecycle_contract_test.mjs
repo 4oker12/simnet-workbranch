@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const source=fs.readFileSync(new URL('../src/core/interaction-guards.js',import.meta.url),'utf8');
+assert.match(source,/new MutationObserver/,'active OLT request uses a bounded DOM response watcher');
+assert.match(source,/pollResponseObserver\?\.disconnect/,'OLT response watcher is explicitly disconnected');
+assert.match(source,/poll-response-timeout/,'30 s remains only a fallback deadline');
+assert.doesNotMatch(source,/setInterval|domEpoch|lastExternalMutationAt/,'no permanent polling loop or global DOM epoch scanner');
+assert.match(source,/AbortController/);
+assert.doesNotMatch(source,/CONFLICT_RETRY_COOLDOWN_MS|poll-conflict-cooldown/,'no conflict click cooldown remains');
+assert.doesNotMatch(source,/event\.preventDefault\(\)|event\.stopImmediatePropagation\(\)/,'interaction guard is warning-only for native clicks');
+assert.match(source,/guard:warning/,'soft guard emits warnings');
+assert.match(source,/WARNING_MAX_SHOWS\s*=\s*2/,'same warning is shown at most twice per document');
+assert.match(source,/billingTechnicalComplete/,'technology/OLT warnings rely on confirmed Billing technical state');
+assert.match(source,/expectedAction/,'poll attempt keeps canonical expected action separate from clicked action');
+assert.doesNotMatch(source,/poll-case-unavailable|poll-not-ready/,'unknown/not-ready state must not hard-gate operator actions');
+assert.match(source,/destroy\(\)/);
+console.log('interaction_guard_lifecycle_contract_test: PASS');

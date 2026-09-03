@@ -1,0 +1,8 @@
+SIMNET Workbench 1.7.36.8 — обновление распакованного расширения
+
+1. Полностью замени содержимое рабочей папки Workbench файлами этой сборки.
+2. Проверь, что manifest.json находится в корне папки.
+3. Открой chrome://extensions и нажми Reload у SIMNET Workbench.
+4. Один раз обнови уже открытые Billing/UserSide/PBX вкладки: старый content-script после Reload восстановить нельзя.
+
+Case хранится отдельно в chrome.storage.local; для обычного обновления очищать Case не нужно.

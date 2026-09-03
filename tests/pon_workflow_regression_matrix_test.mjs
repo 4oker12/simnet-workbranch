@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import { derivePonWorkflow,PonWorkflowState } from '../src/workflows/pon.js';
+import { computeDiagnosticDecision } from '../src/workflows/diagnostic.js';
+const fact=(value,source='test')=>({value,source,confidence:.99});
+const base=()=>({id:'login:abon1',network:{connectionFamily:fact('PON'),mac:fact('00:11:22:33:44:55')},pon:{},contexts:{tech:{pageKind:'billing_technical'}},locator:{sourceStatus:{},candidates:[],evidence:[],attempts:[],hypotheses:[],recommendation:null,termination:null},operations:{poll:{current:null,history:[]}},live:{}});
+const tmc=c=>{c.contexts.us={pageKind:'userside_customer'};c.pon.tmcOltName=fact('Huawei MA5800-X15','userside:tmc-olt-name');c.pon.tmcOltIp=fact('172.16.1.50','userside:tmc-olt-ip');c.pon.tmcOnuMac=fact('AA:BB:CC:DD:EE:FF','userside:tmc-onu-mac');c.locator.sourceStatus.tmc={result:'found',details:{oltName:'Huawei MA5800-X15',oltIp:'172.16.1.50',onuMac:'AA:BB:CC:DD:EE:FF'}};};
+let c=base(); let w=derivePonWorkflow(c); assert.equal(w.state,PonWorkflowState.CHECK_TMC);
+tmc(c); w=derivePonWorkflow(c); assert.equal(w.state,PonWorkflowState.FILL_TECHNICAL); assert.equal(w.pollAllowed,false); assert.equal(w.pollAction,'');
+c.pon.onuMac=fact('AA:BB:CC:DD:EE:FF','billing:onu-mac'); w=derivePonWorkflow(c); assert.equal(w.state,PonWorkflowState.FILL_TECHNICAL,'ONU MAC alone is not enough');
+c.pon.oltName=fact('Huawei MA5800-X15','billing:olt-selected-option');c.pon.oltIp=fact('172.16.1.50','billing:olt-selected-option-ip');w=derivePonWorkflow(c);assert.equal(w.state,PonWorkflowState.READY_FOR_POLL);assert.equal(w.pollAction,'313');assert.equal(w.pollAllowed,true);
+c.locator.recommendation={action:'poll_candidate',params:{pollAction:'310'}};const d=computeDiagnosticDecision(c);assert.equal(d.pollAction,'313','stale locator recommendation cannot override saved Billing');
+c.locator.termination={status:'confirmed'};w=derivePonWorkflow(c);assert.equal(w.state,PonWorkflowState.READY_FOR_POLL,'legacy locator termination alone cannot close a different/current binding');
+c.live.oltSnapshot={status:'confirmed',pollAction:'313',oltIp:'172.16.1.50'};w=derivePonWorkflow(c);assert.equal(w.state,PonWorkflowState.COMPLETE);assert.equal(w.pollAllowed,false);
+console.log('pon_workflow_regression_matrix_test: PASS');

@@ -1,0 +1,14 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const src = fs.readFileSync(new URL('../src/ui/call-registration.js', import.meta.url), 'utf8');
+assert.match(src, /SIM_CALL_STORAGE_KEY/);
+assert.match(src, /start-sim-call/);
+assert.match(src, /end-sim-call/);
+assert.match(src, /startedAtMs: now/);
+assert.match(src, /endedAtMs/);
+assert.match(src, /SIM_CALL_SETTLE_MS = 45_000/);
+assert.match(src, /SIM_CALL_REFRESH_MS = 5_000/);
+assert.match(src, /endAtMs: Number\(this\.simCall\.endedAtMs \|\| Date\.now\(\)\)/);
+assert.match(src, /границы разговора фиксированы/);
+assert.match(src, /simulatedCall: this\.simCall/);
+console.log('PASS call_simulated_window_contract_test');

@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import vm from 'node:vm'; import fs from 'node:fs';
+const source=fs.readFileSync(new URL('../src/ui/case-view.js',import.meta.url),'utf8');
+const sandbox={globalThis:{}}; sandbox.globalThis=sandbox; vm.createContext(sandbox); vm.runInContext(source,sandbox);
+const P=sandbox.SIMNET_WB.caseView;
+const base=action=>({id:'login:abon1',progress:{technicalChecked:{done:true}},diagnostic:{isPon:true,isEthernet:false,locatorAction:action,nextRequiredSource:action,locatorReason:`workflow:${action}`},locator:{recommendation:{action:'stale'},evidence:[]},identity:{login:{value:'abon1'}},network:{connectionFamily:{value:'PON'}},pon:{},live:{}});
+for(const action of ['check_tmc','manual_fill_billing','poll_candidate']) assert.equal(P.decision(base(action)).action,action);
+assert.equal(P.decision(base('manual_fill_billing')).semanticTargetId,'','manual fill is information, not a navigation CTA');
+const done=base('check_tmc'); done.progress.pollCompleted={done:true,at:'2026-08-21'}; done.locator.termination={status:'confirmed'}; done.live.oltSnapshot={status:'confirmed'}; assert.equal(P.decision(done).action,'check_tmc','PON upstream recommendation must outrank downstream poll evidence');
+const complete=base('complete_confirmed'); complete.progress.pollCompleted={done:true,at:'2026-08-21'}; assert.equal(P.decision(complete).action,'complete_confirmed');
+console.log('case_view_authority_test: PASS');
