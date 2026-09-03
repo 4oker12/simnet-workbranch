@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET Workbench",
-  "version": "1.7.36.109",
+  "version": "1.7.36.108",
   "description": "SIMNET Workbench: facts + visits + direct if/else actions, without continuous page rescanning.",
   "permissions": [
     "storage",
@@ -38,7 +38,6 @@
         "src/parsers/billing/technical.js",
         "src/parsers/userside/tmc.js",
         "src/parsers/userside/building-core.js",
-        "src/parsers/juniper/session.js",
         "src/core/billing-navigation.js",
         "src/core/page-context.js",
         "src/readers/billing.js",
@@ -90,7 +89,7 @@
       ]
     }
   ],
-  "version_name": "1.7.36.109-call-transcript-evidence",
+  "version_name": "1.7.36.108-call-transcript-evidence-preview",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }
