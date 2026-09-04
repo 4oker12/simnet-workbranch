@@ -144,7 +144,7 @@ async function responseJson(response, label) {
   return data;
 }
 
-async function transcriberHealth() {
+export async function transcriberHealth() {
   const config = await readConfig();
   const response = await fetchWithTimeout(`${config.baseUrl}/health`, {
     method: 'GET',
@@ -227,7 +227,16 @@ async function saveTranscript(entry) {
   return entry;
 }
 
-async function transcribeRecord(payload = {}) {
+function progress(onProgress, stage, details = {}) {
+  if (typeof onProgress !== 'function') return Promise.resolve();
+  try {
+    return Promise.resolve(onProgress(stage, details));
+  } catch {
+    return Promise.resolve();
+  }
+}
+
+export async function transcribeRecord(payload = {}, onProgress = null) {
   const recordUrl = normalizeRecordUrl(payload.recordUrl);
   const recordId = recordIdFromUrl(recordUrl);
   const callKey = transcriptKey(payload, recordId);
@@ -236,6 +245,11 @@ async function transcribeRecord(payload = {}) {
   if (payload.force !== true) {
     const cached = await readTranscript({ ...payload, callKey, recordUrl: recordUrl.href });
     if (cached?.pbxRecordId === recordId && cached?.text) {
+      await progress(onProgress, 'TRANSCRIPT_READY', {
+        cached: true,
+        fileBytes: Number(cached.fileBytes || 0),
+        processingSeconds: Number(cached.processingSeconds || 0)
+      });
       return { ...cached, cached: true };
     }
   }
@@ -248,12 +262,24 @@ async function transcribeRecord(payload = {}) {
     ? String(payload.profile).toLowerCase()
     : config.profile;
 
+  await progress(onProgress, 'AUDIO_FETCHING', { recordId });
   const audio = await fetchPbxAudio(recordUrl);
+  await progress(onProgress, 'AUDIO_READY', {
+    recordId,
+    fileBytes: audio.size,
+    contentType: audio.contentType
+  });
+
   const form = new FormData();
   form.append('file', audio.blob, `pbx-${recordId}.mp3`);
   form.append('language', language);
   form.append('profile', profile);
 
+  await progress(onProgress, 'TRANSCRIBING', {
+    recordId,
+    baseUrl: config.baseUrl,
+    fileBytes: audio.size
+  });
   const response = await fetchWithTimeout(`${config.baseUrl}/transcribe`, {
     method: 'POST',
     body: form,
@@ -302,7 +328,16 @@ async function transcribeRecord(payload = {}) {
     analysis: null
   };
 
-  return saveTranscript(entry);
+  const saved = await saveTranscript(entry);
+  await progress(onProgress, 'TRANSCRIPT_READY', {
+    cached: false,
+    fileBytes: saved.fileBytes,
+    processingSeconds: saved.processingSeconds,
+    durationSeconds: saved.durationSeconds,
+    language: saved.language,
+    requestId: saved.requestId
+  });
+  return saved;
 }
 
 async function handle(type, payload = {}) {
