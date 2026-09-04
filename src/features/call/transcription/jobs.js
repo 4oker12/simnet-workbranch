@@ -1,5 +1,6 @@
 import { MessageType } from '../../../shared/messages.js';
-import { transcribeRecord } from './background.js';
+import { readTranscript, transcribeRecord } from './background.js';
+import { writeTranscriptToUserSide } from './userside-writer.js';
 
 const WORKBENCH_STATE_KEY = 'simnet_workbench_state_v5';
 const JOB_STORE_KEY = 'simnet_workbench_transcription_jobs_v1';
@@ -8,6 +9,12 @@ const MAX_JOBS = 40;
 const JOB_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const AUTO_LOCK_WINDOW_MS = 5 * 60 * 1000;
 const PBX_RECORD_BASE = 'https://pbx.simnet.kiev.ua/fop2/getrec.php?id=';
+const USERSIDE_RESUME_STATES = new Set([
+  'TRANSCRIPT_READY',
+  'WAIT_TASK_ID',
+  'USERSIDE_ERROR',
+  'USERSIDE_REVIEW'
+]);
 
 let writeQueue = Promise.resolve();
 const processing = new Set();
@@ -110,8 +117,10 @@ function lockedJobFromState(callKey, binding = {}, call = {}) {
     date: clean(call.date, 20),
     time: clean(call.time, 20),
     duration: clean(call.duration, 20),
+    registeredAt: String(binding.registeredAt || at),
     pbxRecordId: recordId,
     recordUrl: recordId ? `${PBX_RECORD_BASE}${encodeURIComponent(recordId)}` : '',
+    taskId: '',
     transcript: null,
     error: '',
     attempts: 0,
@@ -124,7 +133,7 @@ function lockedJobFromState(callKey, binding = {}, call = {}) {
       audio: step('pending'),
       gpu: step('pending'),
       transcript: step('pending'),
-      userside: step('pending', '', 'запись транскрипта в обращение ещё не подключена')
+      userside: step('pending', '', 'ожидается готовый транскрипт')
     }
   };
 }
@@ -178,6 +187,7 @@ async function onProgress(jobId, stage, details = {}) {
       job.status = 'TRANSCRIPT_READY';
       job.steps.gpu = step('done', at, details.cached ? 'из кеша' : `${Number(details.processingSeconds || 0).toFixed(2)} сек.`);
       job.steps.transcript = step('done', at, details.language ? `язык ${details.language}` : 'текст получен');
+      job.steps.userside = step('waiting', '', 'ищу созданное обращение UserSide');
     }
   });
 }
@@ -186,14 +196,83 @@ function isTranscriberUnavailable(message) {
   return /Failed to fetch|Transcriber|127\.0\.0\.1|localhost|ERR_CONNECTION|таймаут|network/i.test(String(message || ''));
 }
 
+async function processUsersideWrite(jobId, transcriptEntry = null) {
+  const token = `userside:${jobId}`;
+  if (!jobId || processing.has(token)) return;
+  processing.add(token);
+  try {
+    const store = await readStore();
+    const job = store.jobs?.[jobId];
+    if (!job || job.steps?.userside?.status === 'done') return;
+
+    const entry = transcriptEntry?.text
+      ? transcriptEntry
+      : await readTranscript({ callKey: job.callKey });
+    if (!entry?.text) {
+      await updateJob(jobId, current => {
+        current.status = 'TRANSCRIPT_READY';
+        current.steps.userside = step('waiting', '', 'текст транскрипта не найден в локальном хранилище');
+      });
+      return;
+    }
+
+    await updateJob(jobId, current => {
+      current.status = 'WRITING_USERSIDE';
+      current.error = '';
+      current.steps.userside = step('running', nowIso(), 'ищу task регистрации и добавляю комментарий');
+    });
+
+    const result = await writeTranscriptToUserSide(job, entry);
+    await updateJob(jobId, current => {
+      current.status = 'DONE';
+      current.taskId = digits(result.taskId, 14);
+      current.error = '';
+      current.steps.userside = step(
+        'done',
+        nowIso(),
+        result.alreadyWritten
+          ? `task #${current.taskId} уже содержит транскрипт`
+          : `добавлено в task #${current.taskId}`
+      );
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || 'unknown error');
+    await updateJob(jobId, current => {
+      current.error = clean(message, 500);
+      if (/^WAIT_TASK_ID:/i.test(message)) {
+        current.status = 'WAIT_TASK_ID';
+        current.steps.userside = step('waiting', '', message.replace(/^WAIT_TASK_ID:\s*/i, ''));
+      } else if (/^USERSIDE_REVIEW:/i.test(message)) {
+        current.status = 'USERSIDE_REVIEW';
+        current.steps.userside = step('waiting', '', message.replace(/^USERSIDE_REVIEW:\s*/i, ''));
+      } else {
+        current.status = 'USERSIDE_ERROR';
+        current.steps.userside = step('error', nowIso(), message);
+      }
+    });
+  } finally {
+    processing.delete(token);
+  }
+}
+
 async function processJob(jobId, { force = false } = {}) {
-  if (!jobId || processing.has(jobId)) return;
+  if (!jobId) return;
+
+  const initialStore = await readStore();
+  const initialJob = initialStore.jobs?.[jobId];
+  if (!initialJob) return;
+  if (initialJob.status === 'DONE' && !force) return;
+  if (USERSIDE_RESUME_STATES.has(String(initialJob.status || '')) && !force) {
+    await processUsersideWrite(jobId);
+    return;
+  }
+  if (processing.has(jobId)) return;
+
   processing.add(jobId);
   try {
     const store = await readStore();
     const job = store.jobs?.[jobId];
     if (!job || !job.recordUrl) return;
-    if (job.status === 'TRANSCRIPT_READY' && !force) return;
 
     await updateJob(jobId, current => {
       current.attempts = Number(current.attempts || 0) + 1;
@@ -225,8 +304,10 @@ async function processJob(jobId, { force = false } = {}) {
         audioSha256: entry.audioSha256,
         createdAt: entry.createdAt
       };
-      current.steps.userside = step('waiting', '', 'следующий этап: дописать текст в созданное обращение');
+      current.steps.userside = step('waiting', '', 'ищу созданное обращение UserSide');
     });
+
+    await processUsersideWrite(jobId, entry);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error || 'unknown error');
     await updateJob(jobId, current => {
@@ -264,16 +345,32 @@ async function ensureJobsFromWorkbenchState(state = null) {
     if (!job) continue;
 
     let inserted = false;
+    let hydratedPbx = false;
+    let snapshot = null;
     await writeStore(store => {
-      if (store.jobs[job.jobId]) return store.jobs[job.jobId];
+      const existing = store.jobs[job.jobId];
+      if (existing) {
+        if (!existing.registeredAt) existing.registeredAt = job.registeredAt;
+        if (!existing.recordUrl && job.recordUrl) {
+          existing.pbxRecordId = job.pbxRecordId;
+          existing.recordUrl = job.recordUrl;
+          existing.status = 'QUEUED';
+          existing.steps.pbx = step('done', nowIso(), `PBX ${job.pbxRecordId}`);
+          hydratedPbx = true;
+        }
+        snapshot = JSON.parse(JSON.stringify(existing));
+        return existing;
+      }
       store.jobs[job.jobId] = job;
       inserted = true;
+      snapshot = JSON.parse(JSON.stringify(job));
       return job;
     });
-    if (inserted) {
-      created.push(job);
-      await broadcast(job);
-      if (job.recordUrl) queueMicrotask(() => void processJob(job.jobId));
+
+    if (inserted) created.push(job);
+    if (inserted || hydratedPbx) {
+      if (snapshot) await broadcast(snapshot);
+      if (snapshot?.recordUrl) queueMicrotask(() => void processJob(snapshot.jobId));
     }
   }
   return created;
@@ -284,6 +381,18 @@ async function listJobs() {
   return Object.values(store.jobs || {})
     .sort((a, b) => Number(b.createdAtMs || 0) - Number(a.createdAtMs || 0))
     .slice(0, 12);
+}
+
+async function resumePendingJobs() {
+  const jobs = await listJobs();
+  for (const job of jobs) {
+    const status = String(job.status || '');
+    if (status === 'TRANSCRIPT_READY' || status === 'WAIT_TASK_ID') {
+      queueMicrotask(() => void processUsersideWrite(job.jobId));
+    } else if (job.recordUrl && ['QUEUED', 'FETCH_AUDIO', 'AUDIO_READY', 'TRANSCRIBING'].includes(status)) {
+      queueMicrotask(() => void processJob(job.jobId));
+    }
+  }
 }
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -315,6 +424,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-void ensureJobsFromWorkbenchState().catch(error => {
+void (async () => {
+  await ensureJobsFromWorkbenchState();
+  await resumePendingJobs();
+})().catch(error => {
   console.error('[SIMNET WB][CALL JOBS] startup resume failed', error);
 });
