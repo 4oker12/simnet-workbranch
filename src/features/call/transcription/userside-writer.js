@@ -1,3 +1,5 @@
+import { postprocessTranscript } from './ai-postprocessor.js';
+
 const USERSIDE_ORIGIN = 'https://userside.simnet.kiev.ua';
 const SUPPORT_PATH = '/customer/tab';
 const COMMENT_DIALOG_PATH = '/task/dialog_add_comment';
@@ -168,11 +170,39 @@ function commentForm(html, expectedTaskId) {
   return { action: action.href, params };
 }
 
-function transcriptComment(job = {}, transcript = {}) {
+function languageLabel(value) {
+  if (value === 'uk') return 'UK';
+  if (value === 'ru') return 'RU';
+  return 'RU/UK mixed';
+}
+
+function transcriptComment(job = {}, transcript = {}, analysis = {}) {
   const callId = digits(job.usersideCallId || transcript.usersideCallId, 24);
-  const text = String(transcript.text || '').trim();
-  if (!callId || !text) throw new Error('USERSIDE_WRITE: отсутствует CALL id или текст транскрипта');
-  return `Транскрипция звонка ${VERIFY_MARKER_PREFIX}${callId}:\n${text}`;
+  const text = String(analysis.cleanText || '').trim();
+  if (!callId || !text) throw new Error('USERSIDE_WRITE: отсутствует CALL id или AI-транскрипт');
+
+  const lines = [
+    `Транскрипция звонка ${VERIFY_MARKER_PREFIX}${callId}`,
+    `Язык: ${languageLabel(analysis.language)}`,
+    '',
+    'Текст:',
+    text
+  ];
+
+  const summary = clean(analysis.summary, 2000);
+  const issue = clean(analysis.issue, 1600);
+  const actions = clean(analysis.actions, 2000);
+  const result = clean(analysis.result, 1600);
+  const nextStep = clean(analysis.nextStep, 1600);
+  if (summary || issue || actions || result || nextStep) {
+    lines.push('', 'AI-разбор:');
+    if (summary) lines.push(`Суть: ${summary}`);
+    if (issue) lines.push(`Причина обращения: ${issue}`);
+    if (actions) lines.push(`Что сделано: ${actions}`);
+    if (result) lines.push(`Результат: ${result}`);
+    if (nextStep) lines.push(`Дальше: ${nextStep}`);
+  }
+  return lines.join('\n');
 }
 
 async function taskContainsMarker(taskId, marker) {
@@ -191,12 +221,14 @@ export async function writeTranscriptToUserSide(job = {}, transcript = {}) {
   supportUrl.searchParams.set('id', customerId);
   const support = await fetchText(supportUrl.href, {}, 'UserSide support history');
   const task = chooseRegistrationTask(support.text, job);
-  const comment = transcriptComment(job, transcript);
   const marker = `${VERIFY_MARKER_PREFIX}${digits(job.usersideCallId || transcript.usersideCallId, 24)}`;
 
   if (await taskContainsMarker(task.taskId, marker)) {
-    return { taskId: task.taskId, alreadyWritten: true, verified: true };
+    return { taskId: task.taskId, alreadyWritten: true, verified: true, ai: null };
   }
+
+  const analysis = await postprocessTranscript(job, transcript);
+  const comment = transcriptComment(job, transcript, analysis);
 
   const dialogUrl = new URL(COMMENT_DIALOG_PATH, USERSIDE_ORIGIN);
   dialogUrl.searchParams.set('id', task.taskId);
@@ -215,5 +247,14 @@ export async function writeTranscriptToUserSide(job = {}, transcript = {}) {
   if (!verified) {
     throw new Error(`USERSIDE_REVIEW: POST выполнен (HTTP ${post.response.status}), но комментарий не удалось подтвердить чтением task #${task.taskId}`);
   }
-  return { taskId: task.taskId, alreadyWritten: false, verified: true };
+  return {
+    taskId: task.taskId,
+    alreadyWritten: false,
+    verified: true,
+    ai: {
+      language: analysis.language,
+      model: analysis.model,
+      cached: Boolean(analysis.cached)
+    }
+  };
 }
