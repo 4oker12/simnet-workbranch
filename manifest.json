@@ -31,6 +31,7 @@
       ],
       "js": [
         "src/content/namespace.js",
+        "src/ui/debug-log.js",
         "src/core/event-bus.js",
         "src/core/click-debug.js",
         "src/core/junction-debug.js",
