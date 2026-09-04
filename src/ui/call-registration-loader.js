@@ -12,6 +12,19 @@
   const factValue = value => (value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'value')) ? value.value : value;
   const normDigits = value => String(factValue(value) || '').replace(/\D+/g, '');
   const normText = value => String(factValue(value) || '').trim().toLowerCase();
+  const errDetails = error => ({
+    message: String(error?.message || error || 'unknown error').slice(0, 1200),
+    stack: String(error?.stack || '').slice(0, 1800)
+  });
+
+  function caseSummary(caseData = null) {
+    return {
+      caseId: String(caseData?.id || ''),
+      customerId: normDigits(caseData?.identity?.customerId),
+      contract: normDigits(caseData?.identity?.contract || caseData?.identity?.login),
+      login: String(factValue(caseData?.identity?.login) || '').slice(0, 120)
+    };
+  }
 
   function caseMatchesIntent(caseData = null, intent = {}) {
     if (!caseData?.id || !intent?.identity) return false;
@@ -63,12 +76,17 @@
     const dedupeKey = `${callKey}|${identityKey}`;
     if (!callKey || !intent?.identity || routeIntentBusy || (dedupeKey && dedupeKey === lastRouteIntentKey)) return false;
     routeIntentBusy = true;
+    WB.log?.info?.('CALL', 'Открытие регистрации по target-маршруту', { callKey, identityKey });
     try {
       const registration = await ensure();
       const active = await waitForTargetCase(intent);
       lastRouteIntentKey = dedupeKey;
-      await registration.open?.(active, { focusCallKey: callKey, routedIntent: intent });
+      const result = await registration.open?.(active, { focusCallKey: callKey, routedIntent: intent });
+      WB.log?.info?.('CALL', 'Окно регистрации открыто по target-маршруту', { callKey, ...caseSummary(active), result });
       return true;
+    } catch (error) {
+      WB.log?.error?.('CALL', 'Не удалось открыть регистрацию по target-маршруту', { callKey, ...errDetails(error) });
+      throw error;
     } finally {
       routeIntentBusy = false;
     }
@@ -77,12 +95,13 @@
   function onRuntimeMessage(message = {}) {
     if (destroyed || message?.type !== 'CALL_REGISTRATION_OPEN_TARGET') return false;
     void openRouteIntent(message.payload || {}).catch(error => {
-      console.warn('[SIMNET WB][CALL] routed registration did not open', error);
+      WB.log?.error?.('CALL', 'Routed registration did not open', errDetails(error));
     });
     return false;
   }
 
   function injectFeature(feature, force = false, timeoutMs = 6000) {
+    WB.log?.info?.('CALL', 'Загрузка модуля регистрации', { feature, force: Boolean(force) });
     return new Promise((resolve, reject) => {
       let settled = false;
       const finish = (fn, value) => {
@@ -108,6 +127,7 @@
       } catch (e) { finish(reject, e); }
     });
   }
+
   function waitFor(timeoutMs = 8000) {
     const started = Date.now();
     return new Promise((resolve, reject) => {
@@ -119,24 +139,75 @@
       tick();
     });
   }
+
   function ensure() {
     if (!enabled || destroyed) return Promise.reject(new Error('CALL module is disabled'));
     if (WB.__callRegistrationLoaded && WB.callRegistration && !WB.callRegistration.__lazy) return Promise.resolve(WB.callRegistration);
     if (loadPromise) return loadPromise;
     const force = forceNextLoad;
     forceNextLoad = false;
-    loadPromise = (async () => { await injectFeature('call', force); return waitFor(); })()
-      .catch(err => { loadPromise = null; forceNextLoad = true; WB.__callRegistrationLoaded = false; throw err; });
+    loadPromise = (async () => {
+      await injectFeature('call', force);
+      const registration = await waitFor();
+      WB.log?.info?.('CALL', 'Модуль регистрации загружен', { force });
+      return registration;
+    })().catch(err => {
+      loadPromise = null;
+      forceNextLoad = true;
+      WB.__callRegistrationLoaded = false;
+      WB.log?.error?.('CALL', 'Модуль регистрации не загрузился', { force, ...errDetails(err) });
+      throw err;
+    });
     return loadPromise;
   }
+
   chrome.runtime.onMessage.addListener(onRuntimeMessage);
 
   WB.callRegistration = Object.freeze({
-    __lazy: true, ensure,
+    __lazy: true,
+    ensure,
     enable() { if (destroyed) return false; enabled = true; return true; },
     disable() { enabled = false; WB.callRegistration?.close?.(); return true; },
-    open: async (...a) => { if (!enabled || destroyed) return { ok: false, reason: 'call-disabled' }; return (await ensure()).open?.(...a); },
-    close: async (...a) => { if (!WB.__callRegistrationLoaded) return; return (await ensure()).close?.(...a); },
+    open: async (...args) => {
+      const caseData = args[0] || WB.store?.activeCase?.() || null;
+      const options = args[1] || {};
+      if (!enabled || destroyed) {
+        WB.log?.warn?.('CALL', 'Попытка открыть регистрацию при выключенном модуле', caseSummary(caseData));
+        return { ok: false, reason: 'call-disabled' };
+      }
+      WB.log?.info?.('CALL', 'Запрошено окно регистрации звонка', {
+        ...caseSummary(caseData),
+        focusCallKey: String(options?.focusCallKey || '')
+      });
+      try {
+        const registration = await ensure();
+        const result = await registration.open?.(...args);
+        const details = {
+          ...caseSummary(caseData),
+          focusCallKey: String(options?.focusCallKey || ''),
+          result
+        };
+        if (result?.ok === false) WB.log?.warn?.('CALL', 'Окно регистрации вернуло ошибочный результат', details);
+        else WB.log?.info?.('CALL', 'Окно регистрации отработало', details);
+        return result;
+      } catch (error) {
+        WB.log?.error?.('CALL', 'Ошибка при открытии окна регистрации', {
+          ...caseSummary(caseData),
+          focusCallKey: String(options?.focusCallKey || ''),
+          ...errDetails(error)
+        });
+        throw error;
+      }
+    },
+    close: async (...args) => {
+      if (!WB.__callRegistrationLoaded) return;
+      try {
+        return await (await ensure()).close?.(...args);
+      } catch (error) {
+        WB.log?.error?.('CALL', 'Ошибка закрытия окна регистрации', errDetails(error));
+        throw error;
+      }
+    },
     destroy() {
       enabled = false;
       destroyed = true;
@@ -150,7 +221,7 @@
     queueMicrotask(() => {
       void openRouteIntent(hashIntent).then(opened => {
         if (opened && location.hash.startsWith('#simnet-wb-call=')) history.replaceState(null, '', `${location.pathname}${location.search}`);
-      }).catch(error => console.warn('[SIMNET WB][CALL] hash registration did not open', error));
+      }).catch(error => WB.log?.error?.('CALL', 'Hash registration did not open', errDetails(error)));
     });
   }
 })();

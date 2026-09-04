@@ -125,9 +125,12 @@ export function parseUsersideCallListHtml(html, {
     const recordId = rowHtml.match(/getrec\.php\?id=([0-9]{9,12}\.[0-9]{1,12})/i)?.[1] || '';
     const usersideCallId = rowHtml.match(/\/message\/(\d+)\/call_comment_add/i)?.[1]
       || rowHtml.match(/callCommentAdd(\d+)Id/i)?.[1]
+      || rowHtml.match(/loadRecordFile\(\s*(\d+)\s*,/i)?.[1]
+      || rowHtml.match(/audioRecordId(\d+)/i)?.[1]
       || '';
-    // UserSide call id is the canonical identity. A completed row remains valid
-    // even when the optional PBX recording/recordId is absent.
+    // The PBX play link itself also carries the canonical UserSide call id.
+    // This matters when UserSide renders an existing AI/comment block without
+    // the usual call_comment_add anchor in the row.
     if (!usersideCallId) continue;
     const dateAdd = textFromHtml(cellHtml(rowHtml, '_DATEADD_Id'));
     const dateParts = parseDateAdd(dateAdd);

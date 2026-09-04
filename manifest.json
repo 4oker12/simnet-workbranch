@@ -13,10 +13,13 @@
     "https://userside.simnet.kiev.ua/*",
     "https://admin.simnet.kiev.ua/*",
     "https://admin.looknet.kiev.ua/*",
+    "https://pbx.simnet.kiev.ua/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*",
     "https://api.groq.com/*"
   ],
   "background": {
-    "service_worker": "src/background.js",
+    "service_worker": "src/background-entry.js",
     "type": "module"
   },
   "content_scripts": [
@@ -28,6 +31,7 @@
       ],
       "js": [
         "src/content/namespace.js",
+        "src/ui/debug-log.js",
         "src/core/event-bus.js",
         "src/core/click-debug.js",
         "src/core/junction-debug.js",
@@ -35,7 +39,6 @@
         "src/parsers/billing/technical.js",
         "src/parsers/userside/tmc.js",
         "src/parsers/userside/building-core.js",
-        "src/parsers/juniper/session.js",
         "src/core/billing-navigation.js",
         "src/core/page-context.js",
         "src/readers/billing.js",
@@ -51,6 +54,9 @@
         "src/core/handoff.js",
         "src/ui/poll-terminal-loader.js",
         "src/ui/call-registration-loader.js",
+        "src/ui/call-transcription-assistant.js",
+        "src/ui/call-pbx-diagnostic.js",
+        "src/ui/call-transcription-jobs.js",
         "src/ui/task-form-assistant.js",
         "src/ui/operator-companion-loader.js",
         "src/ui/rail-styles.js",
@@ -86,7 +92,7 @@
       ]
     }
   ],
-  "version_name": "1.7.36.108-call-live-routing-maintenance",
+  "version_name": "1.7.36.108-call-transcript-evidence-preview",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }
