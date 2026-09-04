@@ -41,6 +41,9 @@ assert.ok(pbxDiagnostic.includes("verdict: rangeAudio ? 'RANGE_AUDIO_ONLY' : 'NO
 assert.doesNotMatch(pbxDiagnostic, /\/transcribe|save_call|USERSIDE_API_URL/i);
 
 assert.ok(assistant.includes('selectedPbxCall'));
+assert.ok(assistant.includes("PBX_RECENT_CALLS_QUERY"));
+assert.ok(assistant.includes('fresh: true'));
+assert.ok(assistant.includes('forceRefresh: true'));
 assert.ok(assistant.includes('CALL_TRANSCRIBE_RECORD'));
 assert.ok(assistant.includes('textarea[name="comment"]'));
 assert.ok(assistant.includes('Проверь комментарий и регистрируй штатной кнопкой UserSide'));
@@ -48,8 +51,12 @@ assert.ok(!assistant.includes('requestSubmit('));
 assert.ok(!assistant.includes('.submit('));
 
 assert.ok(pbxDiagnosticUi.includes('CALL_PBX_RECORD_PROBE'));
+assert.ok(pbxDiagnosticUi.includes('PBX_RECENT_CALLS_QUERY'));
+assert.ok(pbxDiagnosticUi.includes('fresh: true'));
+assert.ok(pbxDiagnosticUi.includes('forceRefresh: true'));
 assert.ok(pbxDiagnosticUi.includes('Проверить PBX'));
 assert.ok(pbxDiagnosticUi.includes('GPU и регистрация звонка не запускаются'));
+assert.ok(!pbxDiagnosticUi.includes('window.prompt('));
 assert.ok(!pbxDiagnosticUi.includes('CALL_TRANSCRIBE_RECORD'));
 assert.ok(!pbxDiagnosticUi.includes('requestSubmit('));
 assert.ok(!pbxDiagnosticUi.includes('.submit('));
