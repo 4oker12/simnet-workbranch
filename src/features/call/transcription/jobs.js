@@ -6,6 +6,7 @@ const JOB_STORE_KEY = 'simnet_workbench_transcription_jobs_v1';
 const JOB_SCHEMA = 1;
 const MAX_JOBS = 40;
 const JOB_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const AUTO_LOCK_WINDOW_MS = 5 * 60 * 1000;
 const PBX_RECORD_BASE = 'https://pbx.simnet.kiev.ua/fop2/getrec.php?id=';
 
 let writeQueue = Promise.resolve();
@@ -26,6 +27,16 @@ function digits(value, max = 24) {
 function bindingState(binding = {}) {
   const raw = binding?.registrationStatus;
   return raw && typeof raw === 'object' ? String(raw.state || '') : String(raw || '');
+}
+
+function registeredAtMs(binding = {}) {
+  return Date.parse(String(binding.registeredAt || binding.updatedAt || '')) || 0;
+}
+
+function isFreshRegisteredBinding(binding = {}, atMs = Date.now()) {
+  if (bindingState(binding) !== 'registered') return false;
+  const registered = registeredAtMs(binding);
+  return Boolean(registered && atMs - registered >= 0 && atMs - registered <= AUTO_LOCK_WINDOW_MS);
 }
 
 function jobStoreShape(raw = {}) {
@@ -243,9 +254,10 @@ async function ensureJobsFromWorkbenchState(state = null) {
   const bindings = callState?.bindings?.bindings || {};
   const calls = callState?.calls?.calls || {};
   const created = [];
+  const atMs = Date.now();
 
   for (const [callKey, binding] of Object.entries(bindings)) {
-    if (bindingState(binding) !== 'registered') continue;
+    if (!isFreshRegisteredBinding(binding, atMs)) continue;
     const call = calls[callKey];
     if (!call) continue;
     const job = lockedJobFromState(callKey, binding, call);
