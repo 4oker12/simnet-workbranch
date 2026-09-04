@@ -1,6 +1,7 @@
 const DEBUG_KEY = 'simnet_workbench_call_submit_debug_v1';
 const TARGET_ORIGIN = 'https://userside.simnet.kiev.ua';
 const TARGET_PATH = '/message/save_call';
+const SUCCESS_REDIRECT_PATH = '/dashboard';
 const MAX_BODY_CHARS = 6000;
 
 const originalFetch = globalThis.fetch.bind(globalThis);
@@ -27,6 +28,44 @@ async function persist(snapshot) {
   }
 }
 
+function nativeDashboardSuccess(response) {
+  try {
+    const finalUrl = new URL(String(response?.url || ''));
+    return Boolean(
+      response?.ok
+      && response?.redirected
+      && finalUrl.origin === TARGET_ORIGIN
+      && finalUrl.pathname === SUCCESS_REDIRECT_PATH
+    );
+  } catch {
+    return false;
+  }
+}
+
+function normalizeNativeSaveResponse(response) {
+  if (!nativeDashboardSuccess(response)) return response;
+
+  // UserSide's current native /message/save_call success path redirects the POST
+  // to /dashboard and returns the full dashboard HTML. The CALL UI classifier
+  // historically expected a customer redirect or an explicit success banner,
+  // so a real successful save was falling into `unknown`/`review_required`.
+  // Preserve the original Response metadata/body, but expose a synthetic success
+  // marker through text() so the existing classifier can recognize the observed
+  // native success protocol. Native-form/error detection still runs first and wins.
+  return new Proxy(response, {
+    get(target, property) {
+      if (property === 'text') {
+        return async () => {
+          const body = await target.text();
+          return '<div class="success" data-simnet-wb-native-save="dashboard-redirect">Звонок зарегистрирован</div>' + body;
+        };
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    }
+  });
+}
+
 globalThis.fetch = async (...args) => {
   const url = requestUrl(args[0]);
   const watched = Boolean(url && url.origin === TARGET_ORIGIN && url.pathname === TARGET_PATH);
@@ -42,8 +81,9 @@ globalThis.fetch = async (...args) => {
       } catch (error) {
         bodyReadError = error instanceof Error ? error.message : String(error || '');
       }
+      const dashboardSuccess = nativeDashboardSuccess(response);
       const snapshot = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         capturedAt: new Date().toISOString(),
         durationMs: Math.max(0, Date.now() - startedAt),
         request: {
@@ -59,17 +99,19 @@ globalThis.fetch = async (...args) => {
           contentType: String(response.headers.get('content-type') || ''),
           bodyChars: body.length,
           body: compactBody(body),
-          bodyReadError
+          bodyReadError,
+          nativeSuccessProtocol: dashboardSuccess ? 'dashboard-redirect' : ''
         }
       };
       console.log('[SIMNET WB][CALL SUBMIT DEBUG]', snapshot);
       await persist(snapshot);
+      return normalizeNativeSaveResponse(response);
     }
     return response;
   } catch (error) {
     if (watched) {
       const snapshot = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         capturedAt: new Date().toISOString(),
         durationMs: Math.max(0, Date.now() - startedAt),
         request: {
