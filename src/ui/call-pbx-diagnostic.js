@@ -7,6 +7,7 @@
   const HOST_ID = 'simnet-workbench-call-registration-host';
   const PROBE_MESSAGE = 'CALL_PBX_RECORD_PROBE';
   const PBX_QUERY_MESSAGE = 'PBX_RECENT_CALLS_QUERY';
+  const CALL_LIST_DEBUG_MESSAGE = 'CALL_LIST_DEBUG';
   const hookedHosts = new WeakSet();
 
   function selectedCall() {
@@ -124,6 +125,46 @@
     ].filter(Boolean).join(' · ');
   }
 
+  function formPhone(form) {
+    return String(form?.elements?.dopf_13?.value || form?.querySelector?.('input[name="dopf_13"]')?.value || '').trim();
+  }
+
+  function logCallResolution({ local, pbx, debug, phone }) {
+    console.groupCollapsed(`[SIMNET WB][CALL RESOLVE] ${phone || 'без телефона'}`);
+    console.log('selected/local call', local || null);
+    console.log('PBX_RECENT_CALLS_QUERY result', pbx || null);
+    if (debug) {
+      console.log('CALL_LIST_DEBUG request', debug.request || null);
+      console.log('CALL_LIST_DEBUG raw', debug.raw || null);
+      console.log('CALL_LIST_DEBUG parsed', debug.parsed || null);
+      if (Array.isArray(debug.targetRows) && debug.targetRows.length) console.table(debug.targetRows);
+      if (Array.isArray(debug.latestRaw)) console.table(debug.latestRaw);
+      if (Array.isArray(debug.latestParsed)) console.table(debug.latestParsed);
+      console.log('CALL_LIST_DEBUG full', debug);
+    }
+    console.groupEnd();
+  }
+
+  function debugSummary(debug = {}) {
+    const req = debug.request || {};
+    const raw = debug.raw || {};
+    const parsed = debug.parsed || {};
+    const target = Array.isArray(debug.targetRows) ? debug.targetRows[0] : null;
+    const parts = [
+      `HTTP ${Number(req.status || 0) || 'ERR'}`,
+      `${Number(req.bytes || 0)} B`,
+      `rows=${Number(raw.tableItemRows || 0)}`,
+      `getrec=${Number(raw.getrecCount || 0)}`,
+      `6047=${Number(raw.extension6047Count || 0)}`,
+      `parsed=${Number(parsed.ownRows || 0)}`,
+      `ready=${Number(parsed.withRecordId || 0)}`
+    ];
+    if (debug.targetPhone) parts.push(`phone=${raw.targetPhonePresent ? 'raw-found' : 'raw-missing'}`);
+    if (target) parts.push(`target[${target.rejection || 'none'}]`);
+    if (req.redirected) parts.push(`redirect→${req.finalUrl || '?'}`);
+    return parts.join(' · ');
+  }
+
   async function resolveRecordedCall(form, explicitRecordUrl = '') {
     const direct = String(explicitRecordUrl || '').trim();
     if (direct) return { recordUrl: direct };
@@ -131,12 +172,18 @@
     const local = selectedCall();
     if (usableRecordedCall(local)) return local;
 
-    setStatus(form, 'Обновляю UserSide call_list и ищу PBX-ссылку последнего звонка оператора…');
+    const phone = formPhone(form);
+    setStatus(form, `Обновляю UserSide call_list${phone ? ` для ${phone}` : ''} и ищу PBX-ссылку последнего звонка оператора…`);
     const pbx = await runtimeRequest(PBX_QUERY_MESSAGE, {
       fresh: true,
       forceRefresh: true,
       focusCallKey: String(local?.callKey || '')
     });
+
+    console.groupCollapsed(`[SIMNET WB][CALL RESOLVE] PBX query ${phone || ''}`);
+    console.log('selected/local call', local || null);
+    console.log('PBX_RECENT_CALLS_QUERY result', pbx || null);
+    console.groupEnd();
 
     const focus = pbx?.focusCall && typeof pbx.focusCall === 'object' ? pbx.focusCall : null;
     if (focus?.ongoing && !focus?.recordUrl) {
@@ -148,7 +195,16 @@
     const latestRecorded = calls.find(usableRecordedCall) || null;
     if (latestRecorded) return latestRecorded;
 
-    throw new Error('В свежем UserSide call_list не найден завершённый звонок с готовой PBX-записью.');
+    let debug = null;
+    try {
+      debug = await runtimeRequest(CALL_LIST_DEBUG_MESSAGE, { phone });
+      logCallResolution({ local, pbx, debug, phone });
+    } catch (error) {
+      console.error('[SIMNET WB][CALL_LIST DEBUG] failed', error);
+    }
+
+    const suffix = debug ? ` Диагностика: ${debugSummary(debug)}.` : '';
+    throw new Error(`В свежем UserSide call_list не найден завершённый звонок с готовой PBX-записью.${suffix}`);
   }
 
   async function probe(form, button, explicitRecordUrl = '') {
@@ -187,7 +243,7 @@
     button.className = 'action';
     button.dataset.pbxRecordProbe = '1';
     button.textContent = 'Проверить PBX';
-    button.title = 'Сам обновит UserSide call_list и возьмёт getrec.php последнего завершённого звонка. Без Vast, транскрипции и регистрации.';
+    button.title = 'Сам обновит UserSide call_list и возьмёт getrec.php последнего завершённого звонка. При ошибке пишет подробный CALL_LIST DEBUG в Console.';
     button.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
