@@ -59,10 +59,62 @@
     return parts.filter(Boolean).join(' · ');
   }
 
-  async function probe(form, button) {
-    const call = selectedCall();
-    if (!call?.recordUrl) {
-      setStatus(form, 'У выбранного звонка нет recordUrl PBX.', 'error');
+  function logResult(result) {
+    const attempts = Array.isArray(result?.attempts) ? result.attempts : [];
+    console.groupCollapsed(`[SIMNET WB][PBX PROBE] ${result?.recordId || ''}`);
+    console.table(attempts);
+    console.log(result);
+    console.groupEnd();
+    return attempts;
+  }
+
+  function renderResult(form, result) {
+    const attempts = Array.isArray(result?.attempts) ? result.attempts : [];
+    const direct = attempts.find(item => item?.mode === 'direct') || attempts[0] || {};
+    const range = attempts.find(item => item?.mode === 'range') || null;
+
+    if (result?.verdict === 'DIRECT_AUDIO') {
+      setStatus(
+        form,
+        `PBX OK: ${summarizeAttempt(direct)} · прямой GET даёт полный аудиофайл. Можно использовать для транскрипции без открытия PBX/Play.`,
+        'success'
+      );
+      return;
+    }
+
+    if (result?.verdict === 'RANGE_AUDIO_ONLY') {
+      setStatus(
+        form,
+        `PBX частично OK: обычный GET не дал пригодный полный файл; Range-запрос дал аудио. DIRECT: ${summarizeAttempt(direct)}. RANGE: ${summarizeAttempt(range)}.`,
+        'error'
+      );
+      return;
+    }
+
+    const preview = direct?.bodyPreview || range?.bodyPreview || '';
+    setStatus(
+      form,
+      `PBX не отдал аудио. ${attempts.map(summarizeAttempt).join(' | ')}${preview ? ` · ответ: ${preview}` : ''}`,
+      'error'
+    );
+  }
+
+  function resolveRecordUrl(explicitRecordUrl = '') {
+    const direct = String(explicitRecordUrl || '').trim();
+    if (direct) return direct;
+
+    const callUrl = String(selectedCall()?.recordUrl || '').trim();
+    if (callUrl) return callUrl;
+
+    return String(window.prompt(
+      'У выбранного звонка нет recordUrl. Вставь полную ссылку PBX вида https://pbx.simnet.kiev.ua/fop2/getrec.php?id=...'
+    ) || '').trim();
+  }
+
+  async function probe(form, button, explicitRecordUrl = '') {
+    const recordUrl = resolveRecordUrl(explicitRecordUrl);
+    if (!recordUrl) {
+      setStatus(form, 'PBX probe отменён: ссылка записи не указана.', 'error');
       return null;
     }
 
@@ -72,36 +124,9 @@
     setStatus(form, 'Проверяю прямое скачивание записи PBX. GPU и регистрация звонка не запускаются.');
 
     try {
-      const result = await runtimeRequest(PROBE_MESSAGE, { recordUrl: String(call.recordUrl) });
-      const attempts = Array.isArray(result?.attempts) ? result.attempts : [];
-      console.groupCollapsed(`[SIMNET WB][PBX PROBE] ${result?.recordId || ''}`);
-      console.table(attempts);
-      console.log(result);
-      console.groupEnd();
-
-      const direct = attempts.find(item => item?.mode === 'direct') || attempts[0] || {};
-      const range = attempts.find(item => item?.mode === 'range') || null;
-
-      if (result?.verdict === 'DIRECT_AUDIO') {
-        setStatus(
-          form,
-          `PBX OK: ${summarizeAttempt(direct)} · прямой GET даёт полный аудиофайл. Можно использовать для транскрипции без открытия PBX/Play.`,
-          'success'
-        );
-      } else if (result?.verdict === 'RANGE_AUDIO_ONLY') {
-        setStatus(
-          form,
-          `PBX частично OK: обычный GET не дал пригодный полный файл; Range-запрос дал аудио. DIRECT: ${summarizeAttempt(direct)}. RANGE: ${summarizeAttempt(range)}.`,
-          'error'
-        );
-      } else {
-        const preview = direct?.bodyPreview || range?.bodyPreview || '';
-        setStatus(
-          form,
-          `PBX не отдал аудио. ${attempts.map(summarizeAttempt).join(' | ')}${preview ? ` · ответ: ${preview}` : ''}`,
-          'error'
-        );
-      }
+      const result = await runtimeRequest(PROBE_MESSAGE, { recordUrl });
+      logResult(result);
+      renderResult(form, result);
       return result;
     } catch (error) {
       setStatus(form, `PBX probe: ${String(error?.message || error || 'ошибка')}`, 'error');
@@ -162,6 +187,13 @@
       const button = form?.querySelector('[data-pbx-record-probe]');
       if (!form || !button) throw new Error('Открой форму регистрации звонка');
       return probe(form, button);
+    },
+    probeUrl: async recordUrl => {
+      const host = document.getElementById(HOST_ID);
+      const form = host?.shadowRoot?.querySelector('form[data-call-form]');
+      const button = form?.querySelector('[data-pbx-record-probe]');
+      if (!form || !button) throw new Error('Открой форму регистрации звонка');
+      return probe(form, button, String(recordUrl || ''));
     }
   });
 })();
