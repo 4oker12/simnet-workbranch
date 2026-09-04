@@ -72,7 +72,14 @@
   ];
 
   function renderJob(job) {
-    const retry = ['WAIT_TRANSCRIBER', 'PBX_ERROR', 'ERROR'].includes(String(job.status || ''))
+    const retry = [
+      'WAIT_TRANSCRIBER',
+      'PBX_ERROR',
+      'ERROR',
+      'WAIT_TASK_ID',
+      'USERSIDE_ERROR',
+      'USERSIDE_REVIEW'
+    ].includes(String(job.status || ''))
       ? `<button type="button" data-job-retry="${esc(job.jobId)}" style="border:1px solid #d0d5dd;background:#fff;border-radius:7px;padding:4px 8px;cursor:pointer;font-size:11px">Повторить</button>`
       : '';
     const title = [job.time || '', job.phone || '', job.customerLabel || `customer ${job.customerId || ''}`]
@@ -89,7 +96,7 @@
           <div style="font-weight:700;color:#101828">${esc(title || job.callKey)}</div>
           ${retry}
         </div>
-        <div style="margin:3px 0 6px;color:#667085">CALL #${esc(job.usersideCallId)}${job.pbxRecordId ? ` · PBX ${esc(job.pbxRecordId)}` : ''} · ${esc(job.status || '')}</div>
+        <div style="margin:3px 0 6px;color:#667085">CALL #${esc(job.usersideCallId)}${job.pbxRecordId ? ` · PBX ${esc(job.pbxRecordId)}` : ''}${job.taskId ? ` · task #${esc(job.taskId)}` : ''} · ${esc(job.status || '')}</div>
         ${steps}
         ${error}
       </div>`;
