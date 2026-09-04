@@ -199,7 +199,7 @@ function transcriptKey(payload = {}, recordId = '') {
   return recordId ? `pbx:${recordId}` : '';
 }
 
-async function readTranscript(payload = {}) {
+export async function readTranscript(payload = {}) {
   const recordUrl = payload.recordUrl ? normalizeRecordUrl(payload.recordUrl) : null;
   const key = transcriptKey(payload, recordUrl ? recordIdFromUrl(recordUrl) : '');
   if (!key) return null;
