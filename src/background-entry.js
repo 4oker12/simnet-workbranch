@@ -1,3 +1,4 @@
+import './features/call/transcription/submission-debug.js';
 import './background.js';
 import './features/call/transcription/background.js';
 import './features/call/transcription/jobs.js';
