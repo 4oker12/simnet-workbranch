@@ -7,6 +7,7 @@
   const HOST_ID = 'simnet-workbench-call-registration-host';
   const TRANSCRIBE_MESSAGE = 'CALL_TRANSCRIBE_RECORD';
   const HEALTH_MESSAGE = 'CALL_TRANSCRIBER_HEALTH';
+  const PBX_QUERY_MESSAGE = 'PBX_RECENT_CALLS_QUERY';
   const MAX_COMMENT_TRANSCRIPT_CHARS = 12_000;
   const hookedHosts = new WeakSet();
 
@@ -82,20 +83,63 @@
       || null;
   }
 
-  async function transcribe(form, button, force = false) {
-    const call = selectedCall();
-    if (!call?.recordUrl) {
-      setStatus(form, 'У выбранного звонка нет записи PBX.', 'error');
-      return null;
-    }
+  function usableRecordedCall(call) {
+    return Boolean(
+      call
+      && typeof call === 'object'
+      && !call.ongoing
+      && String(call.recordUrl || '').trim()
+    );
+  }
 
+  function describeCall(call = {}) {
+    const callId = String(call.usersideCallId || '').trim();
+    const recordId = String(call.recordId || '').trim();
+    const phone = String(call.callerMasked || call.callerId || '').trim();
+    const when = [call.date, call.time].filter(Boolean).join(' ');
+    return [
+      callId ? `CALL #${callId}` : '',
+      recordId ? `PBX ${recordId}` : '',
+      phone,
+      when
+    ].filter(Boolean).join(' · ');
+  }
+
+  async function resolveRecordedCall(form) {
+    const local = selectedCall();
+    if (usableRecordedCall(local)) return local;
+
+    setStatus(form, 'Обновляю UserSide call_list и ищу запись последнего звонка оператора…');
+    const pbx = await runtimeRequest(PBX_QUERY_MESSAGE, {
+      fresh: true,
+      forceRefresh: true,
+      focusCallKey: String(local?.callKey || '')
+    });
+
+    const focus = pbx?.focusCall && typeof pbx.focusCall === 'object' ? pbx.focusCall : null;
+    if (focus?.ongoing && !focus?.recordUrl) {
+      throw new Error('Текущий звонок ещё идёт или запись PBX ещё не появилась. После завершения нажми «Транскрибировать» ещё раз.');
+    }
+    if (usableRecordedCall(focus)) return focus;
+
+    const calls = Array.isArray(pbx?.calls) ? pbx.calls : [];
+    const latestRecorded = calls.find(usableRecordedCall) || null;
+    if (latestRecorded) return latestRecorded;
+
+    throw new Error('В свежем UserSide call_list не найден завершённый звонок с готовой PBX-записью.');
+  }
+
+  async function transcribe(form, button, force = false) {
     const caseData = WB.store?.activeCase?.() || null;
     const originalText = button.textContent;
     button.disabled = true;
-    button.textContent = 'GPU…';
-    setStatus(form, 'Скачиваю запись PBX и отправляю её в транскрибер…');
+    button.textContent = 'CALL…';
 
     try {
+      const call = await resolveRecordedCall(form);
+      setStatus(form, `Нашёл ${describeCall(call)}. Скачиваю запись PBX и отправляю её в транскрибер…`);
+      button.textContent = 'GPU…';
+
       const entry = await runtimeRequest(TRANSCRIBE_MESSAGE, {
         callKey: String(call.callKey || ''),
         usersideCallId: String(call.usersideCallId || ''),
@@ -140,7 +184,7 @@
     button.className = 'action';
     button.dataset.callTranscribe = '1';
     button.textContent = 'Транскрибировать';
-    button.title = 'Запись PBX → Vast GPU → текст. Shift+клик принудительно распознаёт заново вместо локального кеша.';
+    button.title = 'Сам обновит UserSide call_list, найдёт PBX-запись последнего завершённого звонка → Vast GPU → текст. Shift+клик распознаёт заново.';
     button.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
