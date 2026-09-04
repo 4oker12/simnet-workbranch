@@ -6,6 +6,7 @@
 
   const HOST_ID = 'simnet-workbench-call-registration-host';
   const PROBE_MESSAGE = 'CALL_PBX_RECORD_PROBE';
+  const PBX_QUERY_MESSAGE = 'PBX_RECENT_CALLS_QUERY';
   const hookedHosts = new WeakSet();
 
   function selectedCall() {
@@ -68,15 +69,17 @@
     return attempts;
   }
 
-  function renderResult(form, result) {
+  function renderResult(form, result, call = null) {
     const attempts = Array.isArray(result?.attempts) ? result.attempts : [];
     const direct = attempts.find(item => item?.mode === 'direct') || attempts[0] || {};
     const range = attempts.find(item => item?.mode === 'range') || null;
+    const identity = describeCall(call);
+    const prefix = identity ? `${identity} · ` : '';
 
     if (result?.verdict === 'DIRECT_AUDIO') {
       setStatus(
         form,
-        `PBX OK: ${summarizeAttempt(direct)} · прямой GET даёт полный аудиофайл. Можно использовать для транскрипции без открытия PBX/Play.`,
+        `${prefix}PBX OK: ${summarizeAttempt(direct)} · прямой GET даёт полный аудиофайл. Можно использовать для транскрипции без открытия PBX/Play.`,
         'success'
       );
       return;
@@ -85,7 +88,7 @@
     if (result?.verdict === 'RANGE_AUDIO_ONLY') {
       setStatus(
         form,
-        `PBX частично OK: обычный GET не дал пригодный полный файл; Range-запрос дал аудио. DIRECT: ${summarizeAttempt(direct)}. RANGE: ${summarizeAttempt(range)}.`,
+        `${prefix}PBX частично OK: обычный GET не дал пригодный полный файл; Range-запрос дал аудио. DIRECT: ${summarizeAttempt(direct)}. RANGE: ${summarizeAttempt(range)}.`,
         'error'
       );
       return;
@@ -94,39 +97,75 @@
     const preview = direct?.bodyPreview || range?.bodyPreview || '';
     setStatus(
       form,
-      `PBX не отдал аудио. ${attempts.map(summarizeAttempt).join(' | ')}${preview ? ` · ответ: ${preview}` : ''}`,
+      `${prefix}PBX не отдал аудио. ${attempts.map(summarizeAttempt).join(' | ')}${preview ? ` · ответ: ${preview}` : ''}`,
       'error'
     );
   }
 
-  function resolveRecordUrl(explicitRecordUrl = '') {
+  function usableRecordedCall(call) {
+    return Boolean(
+      call
+      && typeof call === 'object'
+      && !call.ongoing
+      && String(call.recordUrl || '').trim()
+    );
+  }
+
+  function describeCall(call = {}) {
+    const callId = String(call.usersideCallId || '').trim();
+    const recordId = String(call.recordId || '').trim();
+    const phone = String(call.callerMasked || call.callerId || '').trim();
+    const when = [call.date, call.time].filter(Boolean).join(' ');
+    return [
+      callId ? `CALL #${callId}` : '',
+      recordId ? `PBX ${recordId}` : '',
+      phone,
+      when
+    ].filter(Boolean).join(' · ');
+  }
+
+  async function resolveRecordedCall(form, explicitRecordUrl = '') {
     const direct = String(explicitRecordUrl || '').trim();
-    if (direct) return direct;
+    if (direct) return { recordUrl: direct };
 
-    const callUrl = String(selectedCall()?.recordUrl || '').trim();
-    if (callUrl) return callUrl;
+    const local = selectedCall();
+    if (usableRecordedCall(local)) return local;
 
-    return String(window.prompt(
-      'У выбранного звонка нет recordUrl. Вставь полную ссылку PBX вида https://pbx.simnet.kiev.ua/fop2/getrec.php?id=...'
-    ) || '').trim();
+    setStatus(form, 'Обновляю UserSide call_list и ищу PBX-ссылку последнего звонка оператора…');
+    const pbx = await runtimeRequest(PBX_QUERY_MESSAGE, {
+      fresh: true,
+      forceRefresh: true,
+      focusCallKey: String(local?.callKey || '')
+    });
+
+    const focus = pbx?.focusCall && typeof pbx.focusCall === 'object' ? pbx.focusCall : null;
+    if (focus?.ongoing && !focus?.recordUrl) {
+      throw new Error('Текущий звонок ещё идёт или PBX-запись ещё не появилась. После завершения нажми «Проверить PBX» ещё раз.');
+    }
+    if (usableRecordedCall(focus)) return focus;
+
+    const calls = Array.isArray(pbx?.calls) ? pbx.calls : [];
+    const latestRecorded = calls.find(usableRecordedCall) || null;
+    if (latestRecorded) return latestRecorded;
+
+    throw new Error('В свежем UserSide call_list не найден завершённый звонок с готовой PBX-записью.');
   }
 
   async function probe(form, button, explicitRecordUrl = '') {
-    const recordUrl = resolveRecordUrl(explicitRecordUrl);
-    if (!recordUrl) {
-      setStatus(form, 'PBX probe отменён: ссылка записи не указана.', 'error');
-      return null;
-    }
-
     const originalText = button.textContent;
     button.disabled = true;
-    button.textContent = 'PBX…';
-    setStatus(form, 'Проверяю прямое скачивание записи PBX. GPU и регистрация звонка не запускаются.');
+    button.textContent = 'CALL…';
 
     try {
+      const call = await resolveRecordedCall(form, explicitRecordUrl);
+      const recordUrl = String(call?.recordUrl || '').trim();
+      if (!recordUrl) throw new Error('PBX recordUrl не найден');
+
+      button.textContent = 'PBX…';
+      setStatus(form, `${describeCall(call) || 'PBX запись найдена'} · проверяю прямое скачивание. GPU и регистрация звонка не запускаются.`);
       const result = await runtimeRequest(PROBE_MESSAGE, { recordUrl });
       logResult(result);
-      renderResult(form, result);
+      renderResult(form, result, call);
       return result;
     } catch (error) {
       setStatus(form, `PBX probe: ${String(error?.message || error || 'ошибка')}`, 'error');
@@ -148,7 +187,7 @@
     button.className = 'action';
     button.dataset.pbxRecordProbe = '1';
     button.textContent = 'Проверить PBX';
-    button.title = 'Только проверка скачивания getrec.php: без Vast, без транскрипции, без регистрации звонка.';
+    button.title = 'Сам обновит UserSide call_list и возьмёт getrec.php последнего завершённого звонка. Без Vast, транскрипции и регистрации.';
     button.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
