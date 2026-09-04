@@ -47,7 +47,8 @@ assert.ok(background.includes("progress(onProgress, 'TRANSCRIPT_READY'"));
 assert.doesNotMatch(background, /save_call|USERSIDE_API_URL|Cookie:/i);
 
 assert.ok(jobs.includes("const WORKBENCH_STATE_KEY = 'simnet_workbench_state_v5';"));
-assert.ok(jobs.includes("bindingState(binding) !== 'registered'"));
+assert.ok(jobs.includes('AUTO_LOCK_WINDOW_MS'));
+assert.ok(jobs.includes('isFreshRegisteredBinding(binding, atMs)'));
 assert.ok(jobs.includes('call-registration:${usersideCallId}:${customerId}'));
 assert.ok(jobs.includes("status: hasPbx ? 'QUEUED' : 'WAIT_PBX'"));
 assert.ok(jobs.includes("current.status = 'TRANSCRIPT_READY'"));
