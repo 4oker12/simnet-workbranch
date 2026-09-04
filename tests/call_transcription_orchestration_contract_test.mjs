@@ -4,10 +4,12 @@ import fs from 'node:fs';
 const manifest = JSON.parse(fs.readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
 const entry = fs.readFileSync(new URL('../src/background-entry.js', import.meta.url), 'utf8');
 const background = fs.readFileSync(new URL('../src/features/call/transcription/background.js', import.meta.url), 'utf8');
+const jobs = fs.readFileSync(new URL('../src/features/call/transcription/jobs.js', import.meta.url), 'utf8');
 const pbxDiagnostic = fs.readFileSync(new URL('../src/features/call/transcription/pbx-diagnostic.js', import.meta.url), 'utf8');
 const callListDebug = fs.readFileSync(new URL('../src/features/call/transcription/call-list-debug.js', import.meta.url), 'utf8');
 const assistant = fs.readFileSync(new URL('../src/ui/call-transcription-assistant.js', import.meta.url), 'utf8');
 const pbxDiagnosticUi = fs.readFileSync(new URL('../src/ui/call-pbx-diagnostic.js', import.meta.url), 'utf8');
+const jobsUi = fs.readFileSync(new URL('../src/ui/call-transcription-jobs.js', import.meta.url), 'utf8');
 const messages = fs.readFileSync(new URL('../src/shared/messages.js', import.meta.url), 'utf8');
 
 assert.equal(manifest.background.service_worker, 'src/background-entry.js');
@@ -15,15 +17,20 @@ assert.ok(manifest.host_permissions.includes('https://pbx.simnet.kiev.ua/*'));
 assert.ok(manifest.host_permissions.includes('http://127.0.0.1/*'));
 assert.ok(manifest.content_scripts[0].js.includes('src/ui/call-transcription-assistant.js'));
 assert.ok(manifest.content_scripts[0].js.includes('src/ui/call-pbx-diagnostic.js'));
+assert.ok(manifest.content_scripts[0].js.includes('src/ui/call-transcription-jobs.js'));
 
 assert.ok(entry.includes("import './background.js';"));
 assert.ok(entry.includes("import './features/call/transcription/background.js';"));
+assert.ok(entry.includes("import './features/call/transcription/jobs.js';"));
 assert.ok(entry.includes("import './features/call/transcription/pbx-diagnostic.js';"));
 assert.ok(entry.includes("import './features/call/transcription/call-list-debug.js';"));
 
 assert.ok(messages.includes('CALL_TRANSCRIBER_HEALTH'));
 assert.ok(messages.includes('CALL_TRANSCRIBE_RECORD'));
 assert.ok(messages.includes('CALL_TRANSCRIPT_GET'));
+assert.ok(messages.includes('CALL_TRANSCRIPTION_JOB_LIST'));
+assert.ok(messages.includes('CALL_TRANSCRIPTION_JOB_RETRY'));
+assert.ok(messages.includes('CALL_TRANSCRIPTION_JOB_CHANGED'));
 assert.ok(messages.includes('CALL_PBX_RECORD_PROBE'));
 assert.ok(messages.includes('CALL_LIST_DEBUG'));
 
@@ -34,7 +41,20 @@ assert.ok(background.includes("'localhost'"));
 assert.ok(background.includes("kind: 'CALL_TRANSCRIPT'"));
 assert.ok(background.includes('audioSha256'));
 assert.ok(background.includes('analysis: null'));
+assert.ok(background.includes("progress(onProgress, 'AUDIO_FETCHING'"));
+assert.ok(background.includes("progress(onProgress, 'TRANSCRIBING'"));
+assert.ok(background.includes("progress(onProgress, 'TRANSCRIPT_READY'"));
 assert.doesNotMatch(background, /save_call|USERSIDE_API_URL|Cookie:/i);
+
+assert.ok(jobs.includes("const WORKBENCH_STATE_KEY = 'simnet_workbench_state_v5';"));
+assert.ok(jobs.includes("bindingState(binding) !== 'registered'"));
+assert.ok(jobs.includes('call-registration:${usersideCallId}:${customerId}'));
+assert.ok(jobs.includes("status: hasPbx ? 'QUEUED' : 'WAIT_PBX'"));
+assert.ok(jobs.includes("current.status = 'TRANSCRIPT_READY'"));
+assert.ok(jobs.includes("current.steps.userside = step('waiting'"));
+assert.ok(jobs.includes('chrome.storage.onChanged.addListener'));
+assert.ok(jobs.includes('CALL_TRANSCRIPTION_JOB_RETRY'));
+assert.doesNotMatch(jobs, /save_call|Cookie:/i);
 
 assert.ok(pbxDiagnostic.includes("const PBX_RECORD_PATH = '/fop2/getrec.php';"));
 assert.ok(pbxDiagnostic.includes("Range: 'bytes=0-65535'"));
@@ -71,5 +91,12 @@ assert.ok(!pbxDiagnosticUi.includes('window.prompt('));
 assert.ok(!pbxDiagnosticUi.includes('CALL_TRANSCRIBE_RECORD'));
 assert.ok(!pbxDiagnosticUi.includes('requestSubmit('));
 assert.ok(!pbxDiagnosticUi.includes('.submit('));
+
+assert.ok(jobsUi.includes('CALL_TRANSCRIPTION_JOB_LIST'));
+assert.ok(jobsUi.includes('CALL_TRANSCRIPTION_JOB_RETRY'));
+assert.ok(jobsUi.includes('CALL_TRANSCRIPTION_JOB_CHANGED'));
+assert.ok(jobsUi.includes('CALL закреплён'));
+assert.ok(jobsUi.includes('MP3 получен'));
+assert.ok(jobsUi.includes('Запись в UserSide'));
 
 console.log('call transcription orchestration contract: ok');
