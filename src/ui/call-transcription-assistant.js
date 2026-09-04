@@ -8,6 +8,7 @@
   const TRANSCRIBE_MESSAGE = 'CALL_TRANSCRIBE_RECORD';
   const HEALTH_MESSAGE = 'CALL_TRANSCRIBER_HEALTH';
   const PBX_QUERY_MESSAGE = 'PBX_RECENT_CALLS_QUERY';
+  const PBX_RECORD_BASE = 'https://pbx.simnet.kiev.ua/fop2/getrec.php?id=';
   const MAX_COMMENT_TRANSCRIPT_CHARS = 12_000;
   const hookedHosts = new WeakSet();
 
@@ -83,18 +84,29 @@
       || null;
   }
 
+  function recordIdOf(call = {}) {
+    return String(call?.recordId || call?.pbxRecordId || '').match(/^\d{9,12}\.\d{1,12}$/)?.[0] || '';
+  }
+
+  function recordUrlOf(call = {}) {
+    const direct = String(call?.recordUrl || '').trim();
+    if (direct) return direct;
+    const recordId = recordIdOf(call);
+    return recordId ? `${PBX_RECORD_BASE}${encodeURIComponent(recordId)}` : '';
+  }
+
   function usableRecordedCall(call) {
     return Boolean(
       call
       && typeof call === 'object'
       && !call.ongoing
-      && String(call.recordUrl || '').trim()
+      && recordUrlOf(call)
     );
   }
 
   function describeCall(call = {}) {
     const callId = String(call.usersideCallId || '').trim();
-    const recordId = String(call.recordId || '').trim();
+    const recordId = recordIdOf(call);
     const phone = String(call.callerMasked || call.callerId || '').trim();
     const when = [call.date, call.time].filter(Boolean).join(' ');
     return [
@@ -117,7 +129,7 @@
     });
 
     const focus = pbx?.focusCall && typeof pbx.focusCall === 'object' ? pbx.focusCall : null;
-    if (focus?.ongoing && !focus?.recordUrl) {
+    if (focus?.ongoing && !recordUrlOf(focus)) {
       throw new Error('Текущий звонок ещё идёт или запись PBX ещё не появилась. После завершения нажми «Транскрибировать» ещё раз.');
     }
     if (usableRecordedCall(focus)) return focus;
@@ -137,6 +149,8 @@
 
     try {
       const call = await resolveRecordedCall(form);
+      const recordUrl = recordUrlOf(call);
+      if (!recordUrl) throw new Error('PBX recordUrl не найден');
       setStatus(form, `Нашёл ${describeCall(call)}. Скачиваю запись PBX и отправляю её в транскрибер…`);
       button.textContent = 'GPU…';
 
@@ -144,7 +158,7 @@
         callKey: String(call.callKey || ''),
         usersideCallId: String(call.usersideCallId || ''),
         customerId: customerIdOf(caseData),
-        recordUrl: String(call.recordUrl || ''),
+        recordUrl,
         profile: 'simnet',
         language: 'auto',
         force
