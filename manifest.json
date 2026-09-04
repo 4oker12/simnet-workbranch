@@ -55,6 +55,7 @@
         "src/ui/call-registration-loader.js",
         "src/ui/call-transcription-assistant.js",
         "src/ui/call-pbx-diagnostic.js",
+        "src/ui/call-transcription-jobs.js",
         "src/ui/task-form-assistant.js",
         "src/ui/operator-companion-loader.js",
         "src/ui/rail-styles.js",
