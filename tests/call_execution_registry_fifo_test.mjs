@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CallExecutionRegistry } from '../src/features/call/runtime/call-execution-registry.js';
+import { readFileSync } from 'node:fs';
+
+const source = readFileSync(new URL('../src/features/call/runtime/call-execution-registry.js', import.meta.url), 'utf8');
+const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
+const { CallExecutionRegistry } = await import(moduleUrl);
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
