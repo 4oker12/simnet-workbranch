@@ -123,11 +123,16 @@ function legacySteps(call = {}) {
 
 function processingView(call = {}, atMs = Date.now()) {
   const record = CallRecord.from(call);
-  const status = processingStatus(call);
+  const rawStatus = processingStatus(call);
   const p = call.processing || {};
-  const waitSeconds = Math.round(waitAgeMs(call, atMs) / 1000);
-  const waitPbxAttention = status === 'WAIT_PBX' && waitAgeMs(call, atMs) >= WAIT_PBX_ATTENTION_MS;
-  const error = String(p.error || call.writeback?.error || '');
+  const ageMs = waitAgeMs(call, atMs);
+  const waitSeconds = Math.round(ageMs / 1000);
+  const linkedPbxInterrupted = rawStatus === 'WAIT_PBX' && Boolean(recordIdOf(call)) && ageMs >= AUTO_LOCK_WINDOW_MS;
+  const status = linkedPbxInterrupted ? 'STALE' : rawStatus;
+  const waitPbxAttention = rawStatus === 'WAIT_PBX' && ageMs >= WAIT_PBX_ATTENTION_MS;
+  const error = linkedPbxInterrupted
+    ? 'PBX recordId получен, но цепочка обработки не продолжилась.'
+    : String(p.error || call.writeback?.error || '');
   return {
     id: call.callKey,
     callKey: call.callKey,
@@ -150,9 +155,9 @@ function processingView(call = {}, atMs = Date.now()) {
     createdAtMs: Number(call.startedAtMs || 0),
     updatedAt: call.updatedAt || p.updatedAt || '',
     steps: legacySteps(call),
-    needsAttention: waitPbxAttention || record.needsAttention(),
+    needsAttention: linkedPbxInterrupted || waitPbxAttention || record.needsAttention(),
     active: p.state === 'running',
-    canRetry: waitPbxAttention || status === 'WAIT_PBX' || record.canRetry(),
+    canRetry: linkedPbxInterrupted || waitPbxAttention || rawStatus === 'WAIT_PBX' || record.canRetry(),
     canCancel: record.canCancel(),
     waitSeconds,
     processing: { ...p }
@@ -441,7 +446,7 @@ async function retryCall(callKey, force = false) {
   });
   call = await CallStateStore.read(callKey);
 
-  if (call?.transcript?.storageKey && force !== true) {
+  if (call?.transcript?.storageKey) {
     return processUsersideWrite(callKey);
   }
   return processCall(callKey, { force: force === true });
