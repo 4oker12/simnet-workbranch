@@ -1,126 +1,97 @@
 # CALL transcription pipeline
 
-## Purpose
+## Scope
 
-Turn a completed PBX call into reusable Workbench evidence without creating a second call-registration implementation.
+PR #9 keeps one shared audio/transcription stack and exposes it through two operator workflows.
 
-The authoritative identity rules do not change:
-
-1. UserSide `/message/call_list` remains the canonical completed-call source.
-2. The current CALL binding/correlation selects the subscriber.
-3. PBX `getrec.php?id=...` is only the audio source for that already selected call.
-4. The transcript is a derived evidence artifact, not identity evidence by itself.
-5. UserSide registration still goes through the existing native form and `CALL_REGISTRATION_SUBMIT` path.
-
-## Runtime path
+### 1. UserSide registration flow
 
 ```text
 UserSide call_list
-      |
-      | callKey + usersideCallId + recordUrl
-      v
-CALL registration UI
-      |
-      | "Транскрибировать"
-      v
-MV3 service worker
-      |
-      | authenticated GET
-      v
-PBX /fop2/getrec.php?id=...
-      |
-      | audio Blob (memory only)
-      v
-http://127.0.0.1:8000/transcribe
-      |
-      | SSH -L tunnel
-      v
-Vast.ai / faster-whisper large-v3
-      |
-      | simnet-transcript-v1 JSON
-      v
-Workbench transcript evidence store
-      |
-      +--> textarea[name="comment"] in native UserSide form
-      |
-      +--> later: transcript -> structured facts -> Case/AI/Guide
+  -> correlated/selected CALL
+  -> PBX getrec.php recording
+  -> Vast transcriber
+  -> CALL_TRANSCRIPT evidence
+  -> optional review in registration UI
+  -> normal UserSide registration submit
 ```
 
-## Why localhost instead of exposing Vast
+The existing CALL correlation, binding, wrong-card and anti-double-submit rules remain authoritative. Transcript-derived identity must never override a uniquely resolved UserSide customer.
 
-Workbench has host permission only for PBX and local `127.0.0.1/localhost`. The Vast API stays bound to `127.0.0.1:8000`; an SSH local-forward connects the browser machine to it.
+### 2. Manual PBX history analysis
 
-Benefits:
+```text
+PBX call history
+  -> operator explicitly clicks the Workbench icon on one recording
+  -> pbx:<recordId> manual job
+  -> PBX getrec.php recording
+  -> same Vast transcriber
+  -> same transcript storage
+  -> Groq postprocessor
+  -> compact AI result next to that PBX row
+```
 
-- no public unauthenticated ASR port;
-- no PBX/UserSide cookies on Vast;
-- Vast IP/SSH port can change without changing extension code;
-- failure is local and explicit: closed tunnel means transcription is unavailable, while normal CALL registration keeps working.
+This is not a second automatic CALL-correlation contour. PBX history is a manual entry point: the operator chooses which historical call is worth listening to/analyzing. No UserSide registration is performed from this path.
+
+## Audio boundary
+
+Only `https://pbx.simnet.kiev.ua/fop2/getrec.php?id=<recordId>` is accepted as PBX audio source. The MV3 service worker fetches the file using the current PBX session and holds the audio Blob only in memory while sending it to the transcriber.
+
+The transcriber is reachable only through local HTTP (`127.0.0.1`/`localhost`) intended for an SSH `-L` tunnel to the Vast instance.
 
 ## Transcript evidence
 
-Stored under `simnet_workbench_transcripts_v1`, bounded to 120 entries / 14 days.
+Transcript entries are bounded local evidence. They include call key, UserSide call/customer ids where known, PBX record id, text/segments, detected language/probability, ASR profile, duration, processing time, RTF, request id, audio SHA-256 and byte size.
 
-Each entry contains:
+Manual PBX history uses `callKey = pbx:<recordId>` so the result survives page refresh/navigation and can be restored beside the same PBX recording.
 
-- canonical `callKey` when available;
-- `usersideCallId`, `customerId`, PBX record id;
-- full transcript text and segment timestamps;
-- language and probability;
-- ASR profile;
-- audio duration, processing time and realtime factor;
-- transcriber request id;
-- SHA-256 and byte length of the audio actually transcribed;
-- `analysis: null` reserved for the next stage.
+## AI postprocessing
 
-Audio itself is not persisted by Workbench or the transcriber.
+The postprocessor does not invent diagnosis or identity. It cleans ASR output and returns only conversation-grounded fields:
 
-## Operator behavior
+- summary;
+- issue;
+- operator actions;
+- result;
+- explicitly agreed next step;
+- cleaned transcript text.
 
-The transcription assistant injects one secondary button into the existing registration form.
+For the manual PBX workflow these fields are shown in the hover/focus card beside the selected recording. If Groq is unavailable or no local API key is configured, the Whisper transcript remains saved and the row is marked as transcript-ready rather than losing the result.
 
-- normal click: reuse a cached transcript for the same call if present;
-- `Shift+click`: force a new PBX download and ASR pass;
-- empty comment: transcript becomes the draft;
-- existing comment: transcript is appended instead of destroying operator text;
-- very long text: the UserSide draft is capped, while the full transcript stays in local evidence storage;
-- registration is never auto-submitted by the transcription module.
+## Runtime states for manual PBX analysis
 
-The last point is deliberate. Existing binding, wrong-card protection and anti-double-submit logic remain the gatekeeper for the write into UserSide.
-
-## Failure boundaries
-
-### PBX fails
-
-Workbench reports PBX HTTP/auth/audio errors. No call state is changed and the normal registration form remains usable.
-
-### SSH tunnel / Vast fails
-
-Workbench reports transcriber fetch/timeout errors. No public fallback endpoint is attempted.
-
-### ASR fails
-
-No transcript evidence is stored unless a valid non-empty transcription response is returned.
-
-### UserSide registration fails
-
-Handled by the existing CALL registration logic; transcription does not bypass or reinterpret the response.
-
-## Next stage: transcript -> structured facts
-
-The evidence schema intentionally reserves `analysis` for an LLM/structured extraction result. That stage should be implemented after real transcripts are collected and the output schema is fixed.
-
-Recommended shape:
-
-```json
-{
-  "problem": "...",
-  "diagnosticsAlreadyDone": [],
-  "facts": [],
-  "recommendedNextSteps": [],
-  "sentiment": null,
-  "confidence": 0.0
-}
+```text
+✦ -> queued -> DL -> TXT -> AI… -> AI
 ```
 
-Only structured facts that can be tied back to transcript spans should be promoted into Case/LIVE automatically. Recommendations should remain advisory. Transcript-derived identity must never override a unique UserSide `call_list.customerId`.
+- `✦` — not analyzed yet;
+- `DL` — PBX recording download;
+- `TXT` — Whisper transcription;
+- `AI…` — postprocessing;
+- `AI` — analysis ready;
+- `TXT` after completion — transcript ready, AI unavailable/failed;
+- `!` — PBX/transcription failure.
+
+The result is persisted in `chrome.storage.local` by PBX record id and rehydrated when PBX history is opened again.
+
+## Safety/invariants
+
+- manual PBX analysis never calls `save_call`;
+- manual PBX analysis never sends `CALL_REGISTRATION_SUBMIT`;
+- no automatic bulk transcription of the PBX table;
+- processing starts only from an explicit row click;
+- normal CALL registration remains usable if PBX/Vast/Groq is unavailable;
+- PBX audio is not persisted by Workbench after upload to the transcriber.
+
+## Browser smoke test
+
+1. checkout PR #9 branch `feat/transcript-evidence-orchestration`;
+2. reload unpacked Workbench;
+3. open authenticated `pbx.simnet.kiev.ua` call history;
+4. verify `✦` appears next to rows that contain `getrec.php?id=...`;
+5. ensure the local Vast tunnel/transcriber health is reachable;
+6. click `✦` on one short call;
+7. observe `DL -> TXT -> AI… -> AI`;
+8. hover/focus `AI` and verify summary + transcript;
+9. refresh PBX and verify the result is restored for the same `recordId`;
+10. separately smoke-test the existing UserSide registration/transcription path.
