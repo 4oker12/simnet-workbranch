@@ -12,6 +12,7 @@
   let open = false;
   let unreadWarnings = 0;
   let refreshTimer = 0;
+  let stopped = false;
 
   function esc(value) {
     return String(value == null ? '' : value).replace(/[&<>"']/g, char => ({
@@ -22,6 +23,34 @@
   function compact(value, max = 900) {
     const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
     return text.length > max ? `${text.slice(0, max)}…` : text;
+  }
+
+  function isContextInvalidated(error) {
+    if (WB.log?.isContextInvalidated?.(error)) return true;
+    return /Extension context invalidated|context invalidated/i.test(String(error?.message || error || ''));
+  }
+
+  function stopForInvalidatedContext() {
+    if (stopped) return;
+    stopped = true;
+    clearTimeout(refreshTimer);
+    refreshTimer = 0;
+    const node = document.getElementById(HOST_ID);
+    const shadow = node?.shadowRoot;
+    const toggle = shadow?.querySelector('.toggle');
+    const panel = shadow?.querySelector('.panel');
+    if (toggle) {
+      toggle.className = 'toggle warn';
+      toggle.textContent = 'WB LOG · F5';
+      toggle.title = 'Расширение было Reload. Обнови эту вкладку (F5).';
+    }
+    if (panel) {
+      panel.classList.add('open');
+      const list = shadow.querySelector('.list');
+      const meta = shadow.querySelector('.meta');
+      if (meta) meta.textContent = 'Контекст расширения этой вкладки устарел после Reload.';
+      if (list) list.innerHTML = '<div class="empty">Расширение обновлено. Обнови текущую вкладку (F5), чтобы подключить новый Service Worker и восстановить кнопки Workbench.</div>';
+    }
   }
 
   function host() {
@@ -50,26 +79,42 @@
 
     const toggle = shadow.querySelector('.toggle');
     toggle.addEventListener('click', () => {
+      if (stopped) {
+        stopForInvalidatedContext();
+        return;
+      }
       open = !open;
       if (open) unreadWarnings = 0;
       void refresh();
     });
     shadow.querySelector('[data-action="close"]').addEventListener('click', () => {
       open = false;
-      void refresh();
+      if (!stopped) void refresh();
     });
     shadow.querySelector('[data-action="clear"]').addEventListener('click', async () => {
-      await WB.log?.clear?.();
-      unreadWarnings = 0;
-      await refresh();
+      if (stopped) return;
+      try {
+        await WB.log?.clear?.();
+        unreadWarnings = 0;
+        await refresh();
+      } catch (error) {
+        if (isContextInvalidated(error)) stopForInvalidatedContext();
+        else throw error;
+      }
     });
     shadow.querySelector('[data-action="copy"]').addEventListener('click', async () => {
-      const entries = await WB.log?.recent?.(MAX_VISIBLE) || [];
-      const text = JSON.stringify(entries, null, 2);
+      if (stopped) return;
       try {
-        await navigator.clipboard.writeText(text);
-      } catch {
-        console.log('[SIMNET WB][LOG EXPORT]', text);
+        const entries = await WB.log?.recent?.(MAX_VISIBLE) || [];
+        const text = JSON.stringify(entries, null, 2);
+        try {
+          await navigator.clipboard.writeText(text);
+        } catch {
+          console.log('[SIMNET WB][LOG EXPORT]', text);
+        }
+      } catch (error) {
+        if (isContextInvalidated(error)) stopForInvalidatedContext();
+        else throw error;
       }
     });
     return node;
@@ -85,13 +130,29 @@
   }
 
   async function refresh() {
+    if (stopped) return;
     clearTimeout(refreshTimer);
     const node = host();
     const shadow = node.shadowRoot;
     const panel = shadow.querySelector('.panel');
     const toggle = shadow.querySelector('.toggle');
     panel.classList.toggle('open', open);
-    const entries = await WB.log?.recent?.(MAX_VISIBLE) || [];
+
+    let entries = [];
+    try {
+      entries = await WB.log?.recent?.(MAX_VISIBLE) || [];
+      if (WB.log?.contextInvalidated) {
+        stopForInvalidatedContext();
+        return;
+      }
+    } catch (error) {
+      if (isContextInvalidated(error)) {
+        stopForInvalidatedContext();
+        return;
+      }
+      throw error;
+    }
+
     const worst = entries.find(entry => entry.level === 'error') ? 'error'
       : entries.find(entry => entry.level === 'warn') ? 'warn' : '';
     toggle.className = `toggle${worst ? ` ${worst}` : ''}`;
@@ -111,12 +172,18 @@
   }
 
   function scheduleRefresh() {
+    if (stopped) return;
     clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(() => void refresh(), 50);
+    refreshTimer = setTimeout(() => {
+      void refresh().catch(error => {
+        if (isContextInvalidated(error)) stopForInvalidatedContext();
+        else console.warn('[SIMNET WB][LOG UI] refresh failed', error);
+      });
+    }, 50);
   }
 
   function logSubmitCapture(snapshot = {}) {
-    if (!snapshot?.capturedAt) return;
+    if (stopped || !snapshot?.capturedAt) return;
     const details = {
       method: snapshot?.request?.method || '',
       path: snapshot?.request?.path || '',
@@ -134,12 +201,13 @@
   }
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== 'local') return;
+    if (stopped || areaName !== 'local') return;
     if (changes?.[SUBMIT_DEBUG_KEY]?.newValue) logSubmitCapture(changes[SUBMIT_DEBUG_KEY].newValue);
     if (changes?.[LOG_KEY]) scheduleRefresh();
   });
 
   window.addEventListener('simnet-workbench-log', event => {
+    if (stopped) return;
     if (!open && ['warn', 'error'].includes(String(event?.detail?.level || ''))) unreadWarnings += 1;
     scheduleRefresh();
   });
@@ -147,6 +215,12 @@
   window.addEventListener('error', event => {
     const message = String(event?.error?.message || event?.message || 'window error');
     if (/ResizeObserver loop/i.test(message)) return;
+    if (isContextInvalidated(event?.error || message)) {
+      event.preventDefault?.();
+      stopForInvalidatedContext();
+      return;
+    }
+    if (stopped) return;
     WB.log?.error?.('PAGE', 'Необработанная ошибка страницы Workbench', {
       message,
       source: event?.filename || '',
@@ -158,6 +232,12 @@
 
   window.addEventListener('unhandledrejection', event => {
     const reason = event?.reason;
+    if (isContextInvalidated(reason)) {
+      event.preventDefault?.();
+      stopForInvalidatedContext();
+      return;
+    }
+    if (stopped) return;
     WB.log?.error?.('PAGE', 'Unhandled Promise rejection', {
       message: String(reason?.message || reason || 'unknown rejection').slice(0, 1200),
       stack: String(reason?.stack || '').slice(0, 1800)
@@ -165,6 +245,20 @@
   });
 
   host();
-  void refresh();
-  WB.debugLogUi = Object.freeze({ open: () => { open = true; unreadWarnings = 0; return refresh(); }, refresh });
+  void refresh().catch(error => {
+    if (isContextInvalidated(error)) stopForInvalidatedContext();
+    else console.warn('[SIMNET WB][LOG UI] initial refresh failed', error);
+  });
+  WB.debugLogUi = Object.freeze({
+    open: () => {
+      open = true;
+      unreadWarnings = 0;
+      if (stopped) {
+        stopForInvalidatedContext();
+        return Promise.resolve();
+      }
+      return refresh();
+    },
+    refresh
+  });
 })();
