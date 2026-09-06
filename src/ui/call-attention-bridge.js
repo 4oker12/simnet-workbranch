@@ -26,6 +26,8 @@
   let refreshPromise = null;
   let waitTimer = 0;
   let filter = 'attention';
+  let boundShadow = null;
+  const autoResumeKeys = new Set();
 
   const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, char => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -272,7 +274,8 @@
   function eventTitle(call = {}) {
     const status = String(call.status || '');
     const stage = String(call.processing?.stage || '');
-    if (status === 'WAIT_PBX' && call.needsAttention) return 'PBX не найдена';
+    if (status === 'WAIT_PBX' && call.needsAttention && !call.pbxRecordId) return 'PBX не найдена';
+    if (status === 'WAIT_PBX' && call.pbxRecordId) return 'PBX найден · обработка ожидает запуска';
     if (status === 'WAIT_TRANSCRIBER') return 'Транскрибер недоступен';
     if (status === 'USERSIDE_ERROR') return 'Ошибка записи в UserSide';
     if (status === 'USERSIDE_REVIEW') return 'Нужна проверка UserSide';
@@ -292,6 +295,7 @@
     const status = String(call.status || '');
     if (call.error) return String(call.error);
     if (status === 'WAIT_PBX') {
+      if (call.pbxRecordId) return 'PBX recordId уже есть. Workbench возобновляет цепочку обработки.';
       return call.needsAttention
         ? `PBX recordId не появился за ${Math.max(1, Number(call.waitSeconds || 0))} сек.`
         : 'Ожидается связывание звонка с записью PBX.';
@@ -336,7 +340,7 @@
   function callRow(call = {}) {
     const state = stateView(call);
     const retry = call.canRetry
-      ? `<button type="button" class="call-event-action primary" data-call-action="retry" data-call-key="${esc(call.callKey)}">Повторить</button>`
+      ? `<button type="button" class="call-event-action primary" data-call-action="retry" data-call-key="${esc(call.callKey)}" data-call-force="${call.status === 'CANCELLED' ? '1' : '0'}">Повторить</button>`
       : '';
     const cancel = call.canCancel
       ? `<button type="button" class="call-event-action danger" data-call-action="cancel" data-call-key="${esc(call.callKey)}">Отменить</button>`
@@ -408,6 +412,26 @@
     }, Math.min(90_000, nearest * 1000 + 150));
   }
 
+  function maybeResumeLinkedCalls() {
+    for (const call of calls) {
+      const key = String(call?.callKey || '');
+      if (!key) continue;
+      const shouldResume = call.status === 'WAIT_PBX' && Boolean(call.pbxRecordId) && !call.active;
+      if (!shouldResume) {
+        autoResumeKeys.delete(key);
+        continue;
+      }
+      if (autoResumeKeys.has(key)) continue;
+      autoResumeKeys.add(key);
+      void request(RETRY, { callKey: key })
+        .then(() => refresh())
+        .catch(error => {
+          autoResumeKeys.delete(key);
+          console.warn('[SIMNET WB][CALL ATTENTION] auto-resume failed', key, error);
+        });
+    }
+  }
+
   async function refresh() {
     if (refreshPromise) return refreshPromise;
     refreshPromise = request(LIST)
@@ -415,6 +439,7 @@
         calls = Array.isArray(result) ? result : [];
         scheduleWaitRefresh();
         rail.syncAttention();
+        maybeResumeLinkedCalls();
         return calls;
       })
       .catch(error => {
@@ -425,9 +450,46 @@
     return refreshPromise;
   }
 
+  function handleShadowClick(event) {
+    const filterButton = event.target.closest?.('[data-call-filter]');
+    if (filterButton) {
+      filter = String(filterButton.dataset.callFilter || 'attention');
+      rail.syncAttention();
+      return;
+    }
+
+    const button = event.target.closest?.('[data-call-action][data-call-key]');
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const action = String(button.dataset.callAction || '');
+    const callKey = String(button.dataset.callKey || '');
+    if (!callKey) return;
+
+    button.disabled = true;
+    const type = action === 'retry' ? RETRY : action === 'cancel' ? CANCEL : DISMISS;
+    const payload = {
+      callKey,
+      ...(action === 'retry' && button.dataset.callForce === '1' ? { force: true } : {})
+    };
+    void request(type, payload)
+      .then(() => refresh())
+      .catch(error => rail.toast?.(`CALL: ${String(error?.message || error)}`, 3500, 'error'))
+      .finally(() => { button.disabled = false; });
+  }
+
+  function ensureBindings() {
+    ensureStyles();
+    if (!rail.shadow || boundShadow === rail.shadow) return;
+    if (boundShadow) boundShadow.removeEventListener('click', handleShadowClick, true);
+    rail.shadow.addEventListener('click', handleShadowClick, true);
+    boundShadow = rail.shadow;
+  }
+
   rail.syncAttention = function syncAttentionWithCalls() {
     if (!this.shadow) return;
-    ensureStyles();
+    ensureBindings();
 
     const baseItems = baseAttentionItems();
     const callAttention = calls.filter(call => call.needsAttention);
@@ -479,31 +541,6 @@
     popup.hidden = false;
   };
 
-  rail.shadow?.addEventListener('click', event => {
-    const filterButton = event.target.closest?.('[data-call-filter]');
-    if (filterButton) {
-      filter = String(filterButton.dataset.callFilter || 'attention');
-      rail.syncAttention();
-      return;
-    }
-
-    const button = event.target.closest?.('[data-call-action][data-call-key]');
-    if (!button) return;
-    event.preventDefault();
-    event.stopPropagation();
-
-    const action = String(button.dataset.callAction || '');
-    const callKey = String(button.dataset.callKey || '');
-    if (!callKey) return;
-
-    button.disabled = true;
-    const type = action === 'retry' ? RETRY : action === 'cancel' ? CANCEL : DISMISS;
-    void request(type, { callKey })
-      .then(() => refresh())
-      .catch(error => rail.toast?.(`CALL: ${String(error?.message || error)}`, 3500, 'error'))
-      .finally(() => { button.disabled = false; });
-  }, true);
-
   chrome.runtime.onMessage.addListener(message => {
     if (message?.type !== CHANGED) return false;
     void refresh();
@@ -513,6 +550,8 @@
   const originalDestroy = rail.destroy.bind(rail);
   rail.destroy = function destroyWithCallAttention() {
     clearTimeout(waitTimer);
+    if (boundShadow) boundShadow.removeEventListener('click', handleShadowClick, true);
+    boundShadow = null;
     bridgeStyle.remove();
     return originalDestroy();
   };
@@ -522,6 +561,6 @@
     get calls() { return calls.slice(); }
   });
 
-  ensureStyles();
+  ensureBindings();
   void refresh();
 })();
