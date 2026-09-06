@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET Workbench",
-  "version": "1.7.36.109",
+  "version": "1.7.36.110",
   "description": "SIMNET Workbench: facts + visits + direct if/else actions, without continuous page rescanning.",
   "permissions": [
     "storage",
@@ -80,6 +80,10 @@
     "default_title": "SIMNET Workbench",
     "default_popup": "src/ui/popup.html"
   },
+  "options_ui": {
+    "page": "src/ui/settings.html",
+    "open_in_tab": true
+  },
   "icons": {
     "16": "assets/icon16.png",
     "32": "assets/icon32.png",
@@ -101,7 +105,7 @@
       ]
     }
   ],
-  "version_name": "1.7.36.109-call-transcript-pbx-manual-analysis",
+  "version_name": "1.7.36.110-ai-settings",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }
