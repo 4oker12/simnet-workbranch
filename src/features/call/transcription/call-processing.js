@@ -85,8 +85,7 @@ function processingStatus(call = {}) {
     return 'QUEUED';
   }
   if (state === 'waiting') {
-    if (!call.pbxRecordId) return 'WAIT_PBX';
-    if (stage === 'pbx' && String(p.lastSuccessfulStage || '') !== 'pbx') return 'WAIT_PBX';
+    if (stage === 'pbx' || !call.pbxRecordId) return 'WAIT_PBX';
     if (stage === 'whisper' && error) return 'WAIT_TRANSCRIBER';
     if (stage === 'userside') {
       if (/review|проверк/i.test(error)) return 'USERSIDE_REVIEW';
@@ -152,7 +151,7 @@ function processingView(call = {}, atMs = Date.now()) {
     updatedAt: call.updatedAt || p.updatedAt || '',
     steps: legacySteps(call),
     needsAttention: waitPbxAttention || record.needsAttention(),
-    active: p.state === 'running' || status === 'QUEUED',
+    active: p.state === 'running',
     canRetry: waitPbxAttention || status === 'WAIT_PBX' || record.canRetry(),
     canCancel: record.canCancel(),
     waitSeconds,
