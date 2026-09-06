@@ -3,7 +3,7 @@
   if (window.top !== window.self) return;
 
   const existing = globalThis.SIMNET_WB;
-  if (existing?.version === '1.7.36.111') return;
+  if (existing?.version === '1.7.36.113') return;
 
   const pageInstanceStartedAt = Date.now();
   const LOG_KEY = 'simnet_workbench_debug_log_v1';
@@ -127,7 +127,7 @@
   };
 
   globalThis.SIMNET_WB = {
-    version: '1.7.36.111',
+    version: '1.7.36.113',
     stateKey: 'simnet_workbench_state_v5',
     utils: {},
     log: {
@@ -150,7 +150,7 @@
 
   queueMicrotask(() => {
     emitLog('info', 'BOOT', 'Workbench page context initialized', {
-      version: '1.7.36.111',
+      version: '1.7.36.113',
       documentId: runtime.documentId
     });
   });
