@@ -7,6 +7,7 @@ const JOB_SCHEMA = 1;
 const MAX_JOBS = 120;
 const RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 const PBX_RECORD_BASE = 'https://pbx.simnet.kiev.ua/fop2/getrec.php?id=';
+const ACTIVE_STATUSES = new Set(['queued', 'downloading', 'transcribing', 'analyzing']);
 const running = new Map();
 
 function nowIso() {
@@ -16,6 +17,16 @@ function nowIso() {
 function clean(value, max = 500) {
   const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
   return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function abortError(message = 'Отменено оператором') {
+  const error = new Error(message);
+  error.name = 'AbortError';
+  return error;
+}
+
+function isAbort(error, signal = null) {
+  return Boolean(signal?.aborted || error?.name === 'AbortError');
 }
 
 function recordIdOf(value) {
@@ -94,10 +105,41 @@ async function writeJob(recordId, patch = {}) {
   return next;
 }
 
+async function reconcileInterruptedJobs() {
+  const jobs = await readJobs();
+  let changed = false;
+  const now = nowIso();
+  for (const [recordId, job] of Object.entries(jobs)) {
+    if (!ACTIVE_STATUSES.has(job?.status) || running.has(recordId)) continue;
+    jobs[recordId] = {
+      ...job,
+      status: 'interrupted',
+      error: 'Обработка была прервана или Service Worker перезапустился. Нажмите ↻, чтобы продолжить.',
+      completedAt: now,
+      updatedAt: now
+    };
+    changed = true;
+  }
+  if (changed) await chrome.storage.local.set({ [JOBS_KEY]: prune(jobs) });
+  return jobs;
+}
+
+async function markCancelled(recordId) {
+  return writeJob(recordId, {
+    status: 'cancelled',
+    error: '',
+    aiError: '',
+    cancelledAt: nowIso(),
+    completedAt: nowIso()
+  });
+}
+
 async function process(call, { forceTranscribe = false, forceAnalysis = false } = {}) {
   const recordId = call.recordId;
-  if (running.has(recordId)) return running.get(recordId);
+  if (running.has(recordId)) return running.get(recordId).promise;
 
+  const controller = new AbortController();
+  const signal = controller.signal;
   const promise = (async () => {
     await writeJob(recordId, {
       call,
@@ -108,6 +150,7 @@ async function process(call, { forceTranscribe = false, forceAnalysis = false } 
     });
 
     try {
+      if (signal.aborted) throw abortError();
       const transcript = await transcribeRecord({
         callKey: call.callKey,
         recordUrl: call.recordUrl,
@@ -115,6 +158,7 @@ async function process(call, { forceTranscribe = false, forceAnalysis = false } 
         language: 'auto',
         force: Boolean(forceTranscribe)
       }, async (stage, details = {}) => {
+        if (signal.aborted) return;
         if (stage === 'AUDIO_FETCHING') {
           await writeJob(recordId, { status: 'downloading' });
         } else if (stage === 'TRANSCRIBING') {
@@ -132,8 +176,9 @@ async function process(call, { forceTranscribe = false, forceAnalysis = false } 
             }
           });
         }
-      });
+      }, signal);
 
+      if (signal.aborted) throw abortError();
       await writeJob(recordId, {
         status: 'analyzing',
         transcript: {
@@ -153,7 +198,8 @@ async function process(call, { forceTranscribe = false, forceAnalysis = false } 
           pbxRecordId: recordId,
           manualPbx: true,
           forceAnalysis: Boolean(forceAnalysis)
-        }, transcript);
+        }, transcript, signal);
+        if (signal.aborted) throw abortError();
         return await writeJob(recordId, {
           status: 'ready',
           analysis,
@@ -161,6 +207,7 @@ async function process(call, { forceTranscribe = false, forceAnalysis = false } 
           completedAt: nowIso()
         });
       } catch (error) {
+        if (isAbort(error, signal)) return markCancelled(recordId);
         return await writeJob(recordId, {
           status: 'transcribed',
           analysis: null,
@@ -169,6 +216,7 @@ async function process(call, { forceTranscribe = false, forceAnalysis = false } 
         });
       }
     } catch (error) {
+      if (isAbort(error, signal)) return markCancelled(recordId);
       return writeJob(recordId, {
         status: 'error',
         error: clean(error?.message || error || 'PBX manual analysis failed', 700),
@@ -177,11 +225,12 @@ async function process(call, { forceTranscribe = false, forceAnalysis = false } 
     }
   })();
 
-  running.set(recordId, promise);
+  running.set(recordId, { promise, controller });
   try {
     return await promise;
   } finally {
-    running.delete(recordId);
+    const current = running.get(recordId);
+    if (current?.promise === promise) running.delete(recordId);
   }
 }
 
@@ -191,7 +240,8 @@ async function start(payload = {}) {
   const force = Boolean(payload.force);
 
   if (existing && !force && ['ready', 'transcribed'].includes(existing.status)) return existing;
-  if (running.has(call.recordId)) return running.get(call.recordId);
+  const active = running.get(call.recordId);
+  if (active) return active.promise;
 
   await writeJob(call.recordId, {
     call,
@@ -207,15 +257,27 @@ async function start(payload = {}) {
   });
 }
 
+async function cancel(payload = {}) {
+  const recordId = recordIdOf(payload.recordId);
+  if (!recordId) throw new Error('PBX manual analysis cancel: recordId не найден');
+  const active = running.get(recordId);
+  if (active && !active.controller.signal.aborted) active.controller.abort('operator-cancel');
+  return markCancelled(recordId);
+}
+
 async function status(payload = {}) {
-  const jobs = await readJobs();
+  const jobs = await reconcileInterruptedJobs();
   const recordId = recordIdOf(payload.recordId);
   return recordId ? (jobs[recordId] || null) : jobs;
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const type = message?.type;
-  if (![MessageType.PBX_MANUAL_ANALYSIS_START, MessageType.PBX_MANUAL_ANALYSIS_STATUS].includes(type)) return false;
+  if (![
+    MessageType.PBX_MANUAL_ANALYSIS_START,
+    MessageType.PBX_MANUAL_ANALYSIS_CANCEL,
+    MessageType.PBX_MANUAL_ANALYSIS_STATUS
+  ].includes(type)) return false;
 
   if (!senderIsPbx(sender)) {
     sendResponse({ success: false, error: 'PBX manual analysis request rejected: invalid sender' });
@@ -224,7 +286,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   const action = type === MessageType.PBX_MANUAL_ANALYSIS_START
     ? start(message?.payload || {})
-    : status(message?.payload || {});
+    : type === MessageType.PBX_MANUAL_ANALYSIS_CANCEL
+      ? cancel(message?.payload || {})
+      : status(message?.payload || {});
 
   void action
     .then(data => sendResponse({ success: true, data }))
