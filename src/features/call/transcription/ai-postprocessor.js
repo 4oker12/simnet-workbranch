@@ -2,7 +2,7 @@ import { AI_CONFIG } from '../../../config/ai-config.js';
 
 const AI_RUNTIME_CONFIG_KEY = 'simnet_workbench_ai_runtime_v1';
 const AI_ANALYSIS_STORE_KEY = 'simnet_workbench_call_ai_analysis_v1';
-const AI_ANALYSIS_SCHEMA = 2;
+const AI_ANALYSIS_SCHEMA = 3;
 const AI_TIMEOUT_MS = 45_000;
 const MAX_INPUT_CHARS = 20_000;
 const MAX_OUTPUT_CHARS = 100_000;
@@ -70,6 +70,27 @@ function normalizeModels(value) {
     if (result.length >= 8) break;
   }
   return result.length ? result : [...DEFAULT_MODELS];
+}
+
+function normalizeUsage(raw = {}) {
+  const promptTokens = Math.max(0, Number(raw?.prompt_tokens ?? raw?.promptTokens ?? 0) || 0);
+  const completionTokens = Math.max(0, Number(raw?.completion_tokens ?? raw?.completionTokens ?? 0) || 0);
+  const reportedTotal = Math.max(0, Number(raw?.total_tokens ?? raw?.totalTokens ?? 0) || 0);
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens: reportedTotal || promptTokens + completionTokens
+  };
+}
+
+function sumUsage(attempts = []) {
+  return attempts.reduce((sum, attempt) => {
+    const usage = normalizeUsage(attempt);
+    sum.promptTokens += usage.promptTokens;
+    sum.completionTokens += usage.completionTokens;
+    sum.totalTokens += usage.totalTokens;
+    return sum;
+  }, { promptTokens: 0, completionTokens: 0, totalTokens: 0 });
 }
 
 function analysisStoreShape(raw = {}) {
@@ -160,7 +181,7 @@ function normalizeAnalysis(raw = {}, meta = {}) {
   const cleanText = block(raw.clean_text ?? raw.cleanText);
   if (!cleanText) throw new Error('AI_POSTPROCESS: AI не вернул очищенный текст');
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     language: normalizeLanguage(raw.language),
     cleanText,
     issue: oneLine(raw.issue || raw.reason || raw.topic || '', 1600),
@@ -170,6 +191,10 @@ function normalizeAnalysis(raw = {}, meta = {}) {
     summary: oneLine(raw.summary || '', 2000),
     model: String(meta.model || ''),
     attemptedModels: Array.isArray(meta.attemptedModels) ? meta.attemptedModels.slice(0, 8) : [],
+    usage: normalizeUsage(meta.usage),
+    usageAttempts: Array.isArray(meta.usageAttempts)
+      ? meta.usageAttempts.slice(0, 8).map(item => ({ model: String(item.model || ''), ...normalizeUsage(item) }))
+      : [],
     mode: String(meta.mode || 'standard'),
     processedAt: new Date().toISOString(),
     cached: false
@@ -225,7 +250,11 @@ async function requestGroqModel(messages, apiKey, model, externalSignal = null) 
       error.status = response.status;
       throw error;
     }
-    return String(answer);
+    return {
+      answer: String(answer),
+      usage: normalizeUsage(data?.usage || {}),
+      model: String(data?.model || model)
+    };
   } catch (error) {
     if (externalSignal?.aborted) throw abortError();
     if (controller.signal.aborted && timedOut) {
@@ -248,15 +277,22 @@ function shouldStopFallback(error) {
 
 async function requestWithFallback(messages, apiKey, models, mode, signal = null) {
   const failures = [];
+  const usageAttempts = [];
   for (const model of models) {
     throwIfAborted(signal);
     try {
-      const answer = await requestGroqModel(messages, apiKey, model, signal);
+      const response = await requestGroqModel(messages, apiKey, model, signal);
       throwIfAborted(signal);
-      const parsed = parseJsonObject(answer);
+      const usage = normalizeUsage(response.usage);
+      if (usage.totalTokens || usage.promptTokens || usage.completionTokens) {
+        usageAttempts.push({ model: response.model || model, ...usage });
+      }
+      const parsed = parseJsonObject(response.answer);
       const analysis = normalizeAnalysis(parsed, {
-        model,
+        model: response.model || model,
         attemptedModels: [...failures.map(item => item.model), model],
+        usage: sumUsage(usageAttempts),
+        usageAttempts,
         mode
       });
       return analysis;
@@ -274,6 +310,8 @@ async function requestWithFallback(messages, apiKey, models, mode, signal = null
   }).join(' | ');
   const error = new Error(`AI_POSTPROCESS: все Groq-маршруты недоступны${detail ? ` — ${detail}` : ''}`);
   error.failures = failures;
+  error.usage = sumUsage(usageAttempts);
+  error.usageAttempts = usageAttempts;
   throw error;
 }
 
