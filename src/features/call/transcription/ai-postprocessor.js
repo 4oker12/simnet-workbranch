@@ -88,7 +88,7 @@ async function saveCached(callKey, sourceHash, model, analysis) {
   entries.sort((a, b) => Number(b.createdAtMs || 0) - Number(a.createdAtMs || 0));
   const trimmed = entries.slice(0, MAX_ANALYSES);
   store.entries = Object.fromEntries(trimmed.map(item => [item.callKey, item]));
-  store.updatedAt = new Date(now).toISOString();
+  store.updatedAt = new Date().toISOString();
   await chrome.storage.local.set({ [AI_ANALYSIS_STORE_KEY]: store });
 }
 
@@ -186,7 +186,9 @@ export async function postprocessTranscript(job = {}, transcript = {}) {
   const callKey = String(job.callKey || transcript.callKey || '').trim();
   const source = sourceText(transcript);
   const sourceHash = stableHash(`${rawText}\n${source}`);
-  const cached = callKey ? await readCached(callKey, sourceHash, runtime.model) : null;
+  const cached = callKey && job.forceAnalysis !== true
+    ? await readCached(callKey, sourceHash, runtime.model)
+    : null;
   if (cached) return cached;
 
   const system = `Ты — постпроцессор транскриптов звонков техподдержки интернет-провайдера SIMNET.\n\nТвоя задача — исправить ошибки ASR и сделать текст пригодным для CRM, не меняя факты разговора.\n\nКРИТИЧЕСКИЕ ПРАВИЛА:\n1. НЕ ПЕРЕВОДИ речь. Украинские фразы оставляй украинскими, русские — русскими. Если разговор смешанный RU/UK или суржик — сохрани это естественно.\n2. language = "uk", "ru" или "mixed". При заметном переключении между украинским и русским ставь "mixed".\n3. Исправляй только очевидные ошибки распознавания: пунктуацию, регистр, слитые/разорванные слова и технические термины, когда контекст однозначен.\n4. Не выдумывай адреса, имена, номера, оборудование, диагностику, обещания или результат. Если факт не прозвучал — не добавляй его.\n5. Сохраняй смысл и последовательность разговора. Можно убрать только явные ASR-повторы и бессодержательные слова-паразиты, если это не меняет смысл.\n6. Термины ISP пиши корректно, если они действительно распознаны по контексту: SIMNET, Wi-Fi, Ethernet, ONU, ONT, OLT, GPON, EPON, VLAN, DHCP, PPPoE, NAT, IPv4, IPv6, MikroTik, TP-Link, Cudy, Juniper, BRAS.\n7. summary/issue/actions/result/next_step должны содержать ТОЛЬКО факты из разговора. Если данных нет — пустая строка.\n8. Ответь ТОЛЬКО JSON-объектом без markdown и комментариев.\n\nФормат:\n{"language":"uk|ru|mixed","clean_text":"полный очищенный транскрипт","summary":"краткая суть звонка","issue":"причина обращения","actions":"что было проверено/сделано оператором","result":"чем закончился звонок","next_step":"что явно договорились сделать дальше"}`;
