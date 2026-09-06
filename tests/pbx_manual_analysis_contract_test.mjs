@@ -39,11 +39,18 @@ test('PBX record becomes the same global call object instead of a second persist
   assert.doesNotMatch(ui, /setInterval\(/);
 });
 
-test('PBX hover result exposes AI summary and transcript without UserSide submit', () => {
+test('PBX hover result exposes AI summary, transcript and exact Groq token usage', () => {
   assert.match(ui, /record\.analysis\?\.summary/);
   assert.match(ui, /record\.analysis\?\.issue/);
   assert.match(ui, /record\.analysis\?\.actions/);
   assert.match(ui, /record\.analysis\?\.nextStep/);
+  assert.match(ui, /AI \/ токены/);
+  assert.match(ui, /totalTokens/);
+  assert.match(ui, /promptTokens/);
+  assert.match(ui, /completionTokens/);
+  assert.match(ai, /data\?\.usage/);
+  assert.match(ai, /usageAttempts/);
+  assert.match(ai, /sumUsage/);
   assert.match(ui, /Транскрипт/);
   assert.doesNotMatch(ui, /CALL_REGISTRATION_SUBMIT|save_call/);
 });
@@ -57,12 +64,13 @@ test('manual processing can be cancelled and continued from the PBX row', () => 
   assert.match(ui, /ACTIVE_STATUSES\.has\(record\.status\)/);
 });
 
-test('PBX manual UI cannot trigger a MutationObserver feedback loop on its own DOM writes', () => {
-  assert.match(ui, /function setText\(node, value\)/);
-  assert.match(ui, /function mutationNeedsScan\(mutations = \[\]\)/);
-  assert.match(ui, /changedNodes\.every\(isOwnedMutationNode\)/);
-  assert.match(ui, /if \(mutationNeedsScan\(mutations\)\) scan\(\)/);
-  assert.doesNotMatch(ui, /for \(const call of parseCalls\(\)\) mount\(call\);\s*refreshAll\(\);/);
+test('PBX manual UI is one-shot and event-driven, without MutationObserver rescans', () => {
+  assert.match(ui, /function mountCurrentPage\(\)/);
+  assert.match(ui, /mountCurrentPage\(\);/);
+  assert.match(ui, /chrome\.runtime\.onMessage\.addListener/);
+  assert.doesNotMatch(ui, /MutationObserver/);
+  assert.doesNotMatch(ui, /mutationNeedsScan/);
+  assert.doesNotMatch(ui, /scanTimer/);
 });
 
 test('manual controls keep a stable footprint while state badge changes', () => {
