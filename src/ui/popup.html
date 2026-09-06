@@ -9,6 +9,21 @@
 <body>
   <header><span class="dot" id="workerDot"></span><div><h1>SIMNET Workbench</h1><small id="version">…</small></div></header>
   <section id="status">Проверка Service Worker…</section>
+
+  <details class="ai-settings" open>
+    <summary>AI · Groq</summary>
+    <div class="ai-box">
+      <label for="groqApiKey">API key</label>
+      <div class="ai-key-row">
+        <input id="groqApiKey" type="password" autocomplete="off" spellcheck="false" placeholder="gsk_…">
+        <button id="saveGroqKey" type="button">Сохранить</button>
+      </div>
+      <div id="groqKeyStatus" class="ai-state">Ключ не настроен.</div>
+      <div class="ai-routes">Fallback: Qwen 3.6 27B → GPT-OSS 120B → Qwen 3.8 27B → GPT-OSS 20B</div>
+      <button id="removeGroqKey" class="secondary" type="button">Удалить локальный ключ</button>
+    </div>
+  </details>
+
   <div class="grid">
     <button id="exportDiag" type="button">Экспорт ошибок</button>
     <button id="clearWorkbench" class="danger" type="button">Сброс данных WB</button>
@@ -16,7 +31,7 @@
   <section class="diag-head"><b>Ошибки Workbench</b><span id="diagCount">0</span></section>
   <div id="diagnostics" class="diagnostics">Загрузка…</div>
   <details><summary>Текущий Case</summary><pre id="context"></pre></details>
-  <p class="hint">Этот экран читает аварийный журнал напрямую из chrome.storage и остаётся полезным, даже если Service Worker не отвечает. Если сам worker не зарегистрировался, последний источник — chrome://extensions → Workbench → Ошибки.</p>
+  <p class="hint">Groq key хранится только в chrome.storage.local этого профиля Chrome и не входит в репозиторий/экспорт ошибок. Сброс данных WB удаляет и локальную AI-конфигурацию. Если Service Worker не зарегистрировался, последний источник — chrome://extensions → Workbench → Ошибки.</p>
   <script src="popup.js"></script>
 </body>
 </html>
