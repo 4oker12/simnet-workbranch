@@ -8,6 +8,7 @@ const transcriber = readFileSync(new URL('../src/features/call/transcription/bac
 const ai = readFileSync(new URL('../src/features/call/transcription/ai-postprocessor.js', import.meta.url), 'utf8');
 const messages = readFileSync(new URL('../src/shared/messages.js', import.meta.url), 'utf8');
 const ui = readFileSync(new URL('../src/pbx/pbx-manual-analysis-ui.js', import.meta.url), 'utf8');
+const shell = readFileSync(new URL('../src/pbx/pbx-workbench-shell.js', import.meta.url), 'utf8');
 const entry = readFileSync(new URL('../src/background-entry.js', import.meta.url), 'utf8');
 
 test('PBX history receives a dedicated manual-analysis content script', () => {
@@ -33,6 +34,8 @@ test('PBX record becomes the same global call object instead of a second persist
   assert.match(ui, /CALL_PROCESSING_CHANGED/);
   assert.match(ui, /run\.addEventListener\('click'/);
   assert.doesNotMatch(ui, /simnet_workbench_pbx_manual_analysis_jobs_v1/);
+  assert.doesNotMatch(shell, /simnet_workbench_pbx_manual_analysis_jobs_v1/);
+  assert.match(shell, /PBX_MANUAL_ANALYSIS_STATUS/);
   assert.doesNotMatch(ui, /setInterval\(/);
 });
 
@@ -52,6 +55,19 @@ test('manual processing can be cancelled and continued from the PBX row', () => 
   assert.match(ui, /Отменить текущую обработку/);
   assert.match(ui, /Продолжить\/перезапустить разбор этого звонка/);
   assert.match(ui, /ACTIVE_STATUSES\.has\(record\.status\)/);
+});
+
+test('PBX manual UI cannot trigger a MutationObserver feedback loop on its own DOM writes', () => {
+  assert.match(ui, /function setText\(node, value\)/);
+  assert.match(ui, /function mutationNeedsScan\(mutations = \[\]\)/);
+  assert.match(ui, /changedNodes\.every\(isOwnedMutationNode\)/);
+  assert.match(ui, /if \(mutationNeedsScan\(mutations\)\) scan\(\)/);
+  assert.doesNotMatch(ui, /for \(const call of parseCalls\(\)\) mount\(call\);\s*refreshAll\(\);/);
+});
+
+test('manual controls keep a stable footprint while state badge changes', () => {
+  assert.match(ui, /\.wb-pbx-manual-tools\{[^}]*width:52px/);
+  assert.match(ui, /data-state="idle"\]\{visibility:hidden/);
 });
 
 test('stale runtime state is represented on the CallRecord and can be recovered', () => {
