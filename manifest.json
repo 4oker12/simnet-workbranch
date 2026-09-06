@@ -56,11 +56,11 @@
         "src/ui/call-registration-loader.js",
         "src/ui/call-transcription-assistant.js",
         "src/ui/call-pbx-diagnostic.js",
-        "src/ui/call-transcription-jobs.js",
         "src/ui/task-form-assistant.js",
         "src/ui/operator-companion-loader.js",
         "src/ui/rail-styles.js",
         "src/ui/rail.js",
+        "src/ui/call-attention-bridge.js",
         "src/ui/settings-enhancer.js",
         "src/ui/responsive-layout.js",
         "src/content/bootstrap.js"
@@ -104,7 +104,7 @@
       ]
     }
   ],
-  "version_name": "1.7.36.113-ai-settings-edge-fix",
+  "version_name": "1.7.36.113-call-attention-bell",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }
