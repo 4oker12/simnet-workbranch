@@ -4,10 +4,11 @@ import { writeTranscriptToUserSide } from './userside-writer.js';
 
 const WORKBENCH_STATE_KEY = 'simnet_workbench_state_v5';
 const JOB_STORE_KEY = 'simnet_workbench_transcription_jobs_v1';
-const JOB_SCHEMA = 1;
+const JOB_SCHEMA = 2;
 const MAX_JOBS = 40;
 const JOB_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const AUTO_LOCK_WINDOW_MS = 5 * 60 * 1000;
+const WAIT_PBX_ATTENTION_MS = 90 * 1000;
 const PBX_RECORD_BASE = 'https://pbx.simnet.kiev.ua/fop2/getrec.php?id=';
 const USERSIDE_RESUME_STATES = new Set([
   'TRANSCRIPT_READY',
@@ -15,9 +16,26 @@ const USERSIDE_RESUME_STATES = new Set([
   'USERSIDE_ERROR',
   'USERSIDE_REVIEW'
 ]);
+const ATTENTION_STATES = new Set([
+  'WAIT_TRANSCRIBER',
+  'PBX_ERROR',
+  'ERROR',
+  'WAIT_TASK_ID',
+  'USERSIDE_ERROR',
+  'USERSIDE_REVIEW',
+  'STALE'
+]);
+const ACTIVE_STATES = new Set([
+  'QUEUED',
+  'FETCH_AUDIO',
+  'AUDIO_READY',
+  'TRANSCRIBING',
+  'WRITING_USERSIDE'
+]);
 
 let writeQueue = Promise.resolve();
 const processing = new Set();
+const controllers = new Map();
 
 function nowIso() {
   return new Date().toISOString();
@@ -127,6 +145,7 @@ function lockedJobFromState(callKey, binding = {}, call = {}) {
     createdAt: at,
     createdAtMs,
     updatedAt: at,
+    cancelledAt: '',
     steps: {
       lock: step('done', at, 'UserSide подтвердил сохранение; CALL закреплён'),
       pbx: step(hasPbx ? 'done' : 'waiting', hasPbx ? at : '', hasPbx ? `PBX ${recordId}` : 'ожидается PBX recordId'),
@@ -135,6 +154,30 @@ function lockedJobFromState(callKey, binding = {}, call = {}) {
       transcript: step('pending'),
       userside: step('pending', '', 'ожидается готовый транскрипт')
     }
+  };
+}
+
+function waitAgeMs(job = {}, nowMs = Date.now()) {
+  const started = Date.parse(String(job.updatedAt || job.createdAt || '')) || Number(job.createdAtMs || 0);
+  return started ? Math.max(0, nowMs - started) : 0;
+}
+
+function jobNeedsAttention(job = {}, nowMs = Date.now()) {
+  const status = String(job.status || '');
+  if (ATTENTION_STATES.has(status)) return true;
+  if (status === 'WAIT_PBX') return waitAgeMs(job, nowMs) >= WAIT_PBX_ATTENTION_MS;
+  return false;
+}
+
+function decorateJob(job = {}, nowMs = Date.now()) {
+  const status = String(job.status || '');
+  return {
+    ...job,
+    needsAttention: jobNeedsAttention(job, nowMs),
+    active: ACTIVE_STATES.has(status),
+    canRetry: ATTENTION_STATES.has(status) || ['WAIT_PBX', 'CANCELLED'].includes(status),
+    canCancel: ACTIVE_STATES.has(status) || ['WAIT_PBX', 'WAIT_TRANSCRIBER', 'STALE'].includes(status),
+    waitSeconds: Math.round(waitAgeMs(job, nowMs) / 1000)
   };
 }
 
@@ -173,6 +216,7 @@ async function updateJob(jobId, mutate) {
 async function onProgress(jobId, stage, details = {}) {
   const at = nowIso();
   await updateJob(jobId, job => {
+    if (job.status === 'CANCELLED') return;
     if (stage === 'AUDIO_FETCHING') {
       job.status = 'FETCH_AUDIO';
       job.steps.audio = step('running', at, 'скачиваю MP3 с PBX');
@@ -203,13 +247,14 @@ async function processUsersideWrite(jobId, transcriptEntry = null) {
   try {
     const store = await readStore();
     const job = store.jobs?.[jobId];
-    if (!job || job.steps?.userside?.status === 'done') return;
+    if (!job || job.status === 'CANCELLED' || job.steps?.userside?.status === 'done') return;
 
     const entry = transcriptEntry?.text
       ? transcriptEntry
       : await readTranscript({ callKey: job.callKey });
     if (!entry?.text) {
       await updateJob(jobId, current => {
+        if (current.status === 'CANCELLED') return;
         current.status = 'TRANSCRIPT_READY';
         current.steps.userside = step('waiting', '', 'текст транскрипта не найден в локальном хранилище');
       });
@@ -217,6 +262,7 @@ async function processUsersideWrite(jobId, transcriptEntry = null) {
     }
 
     await updateJob(jobId, current => {
+      if (current.status === 'CANCELLED') return;
       current.status = 'WRITING_USERSIDE';
       current.error = '';
       current.steps.userside = step('running', nowIso(), 'ищу task регистрации и добавляю комментарий');
@@ -224,6 +270,7 @@ async function processUsersideWrite(jobId, transcriptEntry = null) {
 
     const result = await writeTranscriptToUserSide(job, entry);
     await updateJob(jobId, current => {
+      if (current.status === 'CANCELLED') return;
       current.status = 'DONE';
       current.taskId = digits(result.taskId, 14);
       current.error = '';
@@ -238,6 +285,7 @@ async function processUsersideWrite(jobId, transcriptEntry = null) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error || 'unknown error');
     await updateJob(jobId, current => {
+      if (current.status === 'CANCELLED') return;
       current.error = clean(message, 500);
       if (/^WAIT_TASK_ID:/i.test(message)) {
         current.status = 'WAIT_TASK_ID';
@@ -262,12 +310,15 @@ async function processJob(jobId, { force = false } = {}) {
   const initialJob = initialStore.jobs?.[jobId];
   if (!initialJob) return;
   if (initialJob.status === 'DONE' && !force) return;
+  if (initialJob.status === 'CANCELLED' && !force) return;
   if (USERSIDE_RESUME_STATES.has(String(initialJob.status || '')) && !force) {
     await processUsersideWrite(jobId);
     return;
   }
   if (processing.has(jobId)) return;
 
+  const controller = new AbortController();
+  controllers.set(jobId, controller);
   processing.add(jobId);
   try {
     const store = await readStore();
@@ -277,6 +328,8 @@ async function processJob(jobId, { force = false } = {}) {
     await updateJob(jobId, current => {
       current.attempts = Number(current.attempts || 0) + 1;
       current.error = '';
+      current.cancelledAt = '';
+      if (current.status === 'CANCELLED') current.status = 'QUEUED';
       if (current.steps.audio?.status === 'error' || current.steps.audio?.status === 'waiting') current.steps.audio = step('pending');
       if (current.steps.gpu?.status === 'error' || current.steps.gpu?.status === 'waiting') current.steps.gpu = step('pending');
       if (current.steps.transcript?.status === 'error') current.steps.transcript = step('pending');
@@ -290,9 +343,11 @@ async function processJob(jobId, { force = false } = {}) {
       profile: 'simnet',
       language: 'auto',
       force
-    }, (stage, details) => onProgress(jobId, stage, details));
+    }, (stage, details) => onProgress(jobId, stage, details), controller.signal);
 
+    if (controller.signal.aborted) return;
     await updateJob(jobId, current => {
+      if (current.status === 'CANCELLED') return;
       current.status = 'TRANSCRIPT_READY';
       current.transcript = {
         callKey: entry.callKey,
@@ -307,10 +362,12 @@ async function processJob(jobId, { force = false } = {}) {
       current.steps.userside = step('waiting', '', 'ищу созданное обращение UserSide');
     });
 
-    await processUsersideWrite(jobId, entry);
+    if (!controller.signal.aborted) await processUsersideWrite(jobId, entry);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error || 'unknown error');
+    if (controller.signal.aborted || error?.name === 'AbortError') return;
     await updateJob(jobId, current => {
+      if (current.status === 'CANCELLED') return;
       current.error = clean(message, 500);
       if (isTranscriberUnavailable(message)) {
         current.status = 'WAIT_TRANSCRIBER';
@@ -325,8 +382,56 @@ async function processJob(jobId, { force = false } = {}) {
       }
     });
   } finally {
+    controllers.delete(jobId);
     processing.delete(jobId);
   }
+}
+
+async function cancelJob(jobId) {
+  const controller = controllers.get(jobId);
+  if (controller && !controller.signal.aborted) controller.abort('operator-cancel');
+  return updateJob(jobId, current => {
+    current.status = 'CANCELLED';
+    current.cancelledAt = nowIso();
+    current.error = '';
+    for (const key of ['audio', 'gpu', 'transcript', 'userside']) {
+      if (current.steps?.[key]?.status === 'running') {
+        current.steps[key] = step('waiting', '', 'остановлено оператором');
+      }
+    }
+  });
+}
+
+async function dismissJob(jobId) {
+  return updateJob(jobId, current => {
+    if (ACTIVE_STATES.has(String(current.status || ''))) return;
+    current.status = 'CANCELLED';
+    current.cancelledAt ||= nowIso();
+    current.error = '';
+  });
+}
+
+async function retryJob(jobId, force = false) {
+  const store = await readStore();
+  const job = store.jobs?.[jobId];
+  if (!job) return null;
+
+  if (!job.recordUrl) {
+    await ensureJobsFromWorkbenchState();
+    const refreshed = (await readStore()).jobs?.[jobId];
+    if (!refreshed?.recordUrl) {
+      await updateJob(jobId, current => {
+        current.status = 'WAIT_PBX';
+        current.error = '';
+        current.cancelledAt = '';
+        current.steps.pbx = step('waiting', '', 'PBX recordId пока не найден; поиск перезапущен');
+      });
+      return (await readStore()).jobs?.[jobId] || null;
+    }
+  }
+
+  await processJob(jobId, { force: force === true });
+  return (await readStore()).jobs?.[jobId] || null;
 }
 
 async function ensureJobsFromWorkbenchState(state = null) {
@@ -351,7 +456,7 @@ async function ensureJobsFromWorkbenchState(state = null) {
       const existing = store.jobs[job.jobId];
       if (existing) {
         if (!existing.registeredAt) existing.registeredAt = job.registeredAt;
-        if (!existing.recordUrl && job.recordUrl) {
+        if (!existing.recordUrl && job.recordUrl && existing.status !== 'CANCELLED') {
           existing.pbxRecordId = job.pbxRecordId;
           existing.recordUrl = job.recordUrl;
           existing.status = 'QUEUED';
@@ -378,9 +483,11 @@ async function ensureJobsFromWorkbenchState(state = null) {
 
 async function listJobs() {
   const store = await readStore();
+  const now = Date.now();
   return Object.values(store.jobs || {})
     .sort((a, b) => Number(b.createdAtMs || 0) - Number(a.createdAtMs || 0))
-    .slice(0, 12);
+    .slice(0, 24)
+    .map(job => decorateJob(job, now));
 }
 
 async function resumePendingJobs() {
@@ -398,25 +505,31 @@ async function resumePendingJobs() {
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== 'local' || !changes?.[WORKBENCH_STATE_KEY]?.newValue) return;
   void ensureJobsFromWorkbenchState(changes[WORKBENCH_STATE_KEY].newValue).catch(error => {
-    console.error('[SIMNET WB][CALL JOBS] state lock failed', error);
+    console.error('[SIMNET WB][CALL PROCESSING] state lock failed', error);
   });
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (![MessageType.CALL_TRANSCRIPTION_JOB_LIST, MessageType.CALL_TRANSCRIPTION_JOB_RETRY].includes(message?.type)) return false;
+  const handled = new Set([
+    MessageType.CALL_TRANSCRIPTION_JOB_LIST,
+    MessageType.CALL_TRANSCRIPTION_JOB_RETRY,
+    MessageType.CALL_TRANSCRIPTION_JOB_CANCEL,
+    MessageType.CALL_TRANSCRIPTION_JOB_DISMISS
+  ]);
+  if (!handled.has(message?.type)) return false;
   if (sender.id && sender.id !== chrome.runtime.id) {
-    sendResponse({ success: false, error: 'Call job request rejected' });
+    sendResponse({ success: false, error: 'Call processing request rejected' });
     return false;
   }
 
+  const jobId = clean(message?.payload?.jobId, 160);
   const task = message.type === MessageType.CALL_TRANSCRIPTION_JOB_LIST
     ? listJobs()
-    : (async () => {
-        const jobId = clean(message?.payload?.jobId, 160);
-        await processJob(jobId, { force: message?.payload?.force === true });
-        const jobs = await listJobs();
-        return jobs.find(job => job.jobId === jobId) || null;
-      })();
+    : message.type === MessageType.CALL_TRANSCRIPTION_JOB_RETRY
+      ? retryJob(jobId, message?.payload?.force === true)
+      : message.type === MessageType.CALL_TRANSCRIPTION_JOB_CANCEL
+        ? cancelJob(jobId)
+        : dismissJob(jobId);
 
   void task
     .then(data => sendResponse({ success: true, data }))
@@ -428,5 +541,5 @@ void (async () => {
   await ensureJobsFromWorkbenchState();
   await resumePendingJobs();
 })().catch(error => {
-  console.error('[SIMNET WB][CALL JOBS] startup resume failed', error);
+  console.error('[SIMNET WB][CALL PROCESSING] startup resume failed', error);
 });
