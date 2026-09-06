@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET Workbench",
-  "version": "1.7.36.110",
+  "version": "1.7.36.111",
   "description": "SIMNET Workbench: facts + visits + direct if/else actions, without continuous page rescanning.",
   "permissions": [
     "storage",
@@ -61,6 +61,7 @@
         "src/ui/operator-companion-loader.js",
         "src/ui/rail-styles.js",
         "src/ui/rail.js",
+        "src/ui/settings-enhancer.js",
         "src/audit/audit-loader.js",
         "src/content/bootstrap.js"
       ],
@@ -71,7 +72,8 @@
         "https://pbx.simnet.kiev.ua/*"
       ],
       "js": [
-        "src/pbx/pbx-manual-analysis-ui.js"
+        "src/pbx/pbx-manual-analysis-ui.js",
+        "src/pbx/pbx-workbench-shell.js"
       ],
       "run_at": "document_idle"
     }
@@ -105,7 +107,7 @@
       ]
     }
   ],
-  "version_name": "1.7.36.110-ai-settings",
+  "version_name": "1.7.36.111-pbx-shell-human-settings",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }
