@@ -40,100 +40,266 @@
     render();
   }
 
-  function ensureHost() {
+  function ensureRoot() {
     let host = document.getElementById(HOST_ID);
-    if (host) return host;
-    host = document.createElement('div');
-    host.id = HOST_ID;
-    Object.assign(host.style, {
-      position: 'fixed',
-      top: '72px',
-      right: '10px',
-      zIndex: '2147483644',
-      fontFamily: 'Inter, Arial, sans-serif'
-    });
-    document.documentElement.appendChild(host);
-    return host;
+    if (!host) {
+      host = document.createElement('div');
+      host.id = HOST_ID;
+      Object.assign(host.style, {
+        position: 'fixed',
+        top: '68px',
+        right: '12px',
+        zIndex: '2147483644'
+      });
+      document.documentElement.appendChild(host);
+    }
+    return host.shadowRoot || host.attachShadow({ mode: 'open' });
   }
 
   function render() {
-    const host = ensureHost();
+    const root = ensureRoot();
     const c = countByStatus();
     const configured = Boolean(String(ai?.groqApiKey || '').trim());
 
-    host.innerHTML = `
+    root.innerHTML = `
       <style>
-        #${HOST_ID}{color:#243247}
-        #${HOST_ID} *{box-sizing:border-box}
-        #${HOST_ID} .wb-pbx-toggle{display:flex;align-items:center;gap:8px;height:38px;padding:0 12px;border:1px solid #dce3eb;border-radius:12px;background:#fff;color:#344256;box-shadow:0 7px 22px rgba(15,23,42,.14);font:700 11px/1 Arial,sans-serif;cursor:pointer}
-        #${HOST_ID} .wb-pbx-toggle .dot{width:8px;height:8px;border-radius:50%;background:#a50046;box-shadow:0 0 0 4px rgba(165,0,70,.08)}
-        #${HOST_ID} .wb-pbx-panel{display:${open ? 'block' : 'none'};width:330px;margin-top:7px;border:1px solid #dce3eb;border-radius:14px;background:#f8fafc;box-shadow:0 16px 46px rgba(15,23,42,.22);overflow:hidden}
-        #${HOST_ID} .wb-pbx-head{display:flex;align-items:center;justify-content:space-between;padding:12px 13px;border-bottom:1px solid #e6ebf1;background:#fff}
-        #${HOST_ID} .wb-pbx-head strong{font-size:13px}
-        #${HOST_ID} .wb-pbx-head small{display:block;margin-top:3px;color:#8a97a7;font-size:9px;font-weight:500}
-        #${HOST_ID} .wb-pbx-close{border:0;background:transparent;color:#7a8798;font-size:18px;cursor:pointer}
-        #${HOST_ID} .wb-pbx-body{display:grid;gap:9px;padding:11px}
-        #${HOST_ID} .wb-card{padding:11px;border:1px solid #e0e6ed;border-radius:11px;background:#fff}
-        #${HOST_ID} .wb-title{font-size:11px;font-weight:800;color:#2d3b50}
-        #${HOST_ID} .wb-sub{margin-top:3px;color:#8491a1;font-size:9px;line-height:1.45}
-        #${HOST_ID} .wb-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:9px}
-        #${HOST_ID} .wb-stat{padding:7px 3px;border-radius:8px;background:#f8fafc;text-align:center}
-        #${HOST_ID} .wb-stat b{display:block;font-size:13px;color:#26364a}
-        #${HOST_ID} .wb-stat span{font-size:8px;color:#8a97a7}
-        #${HOST_ID} .wb-ai{display:flex;align-items:center;justify-content:space-between;gap:8px}
-        #${HOST_ID} .wb-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 7px;border-radius:999px;background:${configured ? '#ecfdf5' : '#fff7ed'};color:${configured ? '#047857' : '#b45309'};font-size:8px;font-weight:800}
-        #${HOST_ID} .wb-pill:before{content:'';width:6px;height:6px;border-radius:50%;background:${configured ? '#10b981' : '#f59e0b'}}
-        #${HOST_ID} .wb-btn{width:100%;height:34px;border:0;border-radius:8px;background:#a50046;color:#fff;font:800 10px/34px Arial,sans-serif;cursor:pointer}
-        #${HOST_ID} .wb-btn.secondary{border:1px solid #dce3eb;background:#fff;color:#445266}
-        #${HOST_ID} .wb-foot{color:#9aa6b5;font-size:8px;text-align:center;padding:0 0 2px}
+        :host{all:initial;color-scheme:light}
+        *,*::before,*::after{box-sizing:border-box}
+        button{font:inherit}
+        .shell{
+          width:min(380px,calc(100vw - 24px));
+          color:#243247;
+          font:12px/1.4 Inter,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
+        }
+        .toggle{
+          display:inline-flex;
+          align-items:center;
+          gap:8px;
+          height:40px;
+          padding:0 13px;
+          border:1px solid #dce3eb;
+          border-radius:13px;
+          background:#fff;
+          color:#344256;
+          box-shadow:0 7px 22px rgba(15,23,42,.14);
+          font-weight:800;
+          cursor:pointer
+        }
+        .toggle .dot{
+          width:8px;
+          height:8px;
+          flex:0 0 auto;
+          border-radius:50%;
+          background:#a50046;
+          box-shadow:0 0 0 4px rgba(165,0,70,.08)
+        }
+        .panel{
+          display:${open ? 'block' : 'none'};
+          width:100%;
+          max-height:min(74vh,620px);
+          margin-top:8px;
+          overflow:auto;
+          border:1px solid #dce3eb;
+          border-radius:16px;
+          background:#f8fafc;
+          box-shadow:0 16px 46px rgba(15,23,42,.22);
+          scrollbar-width:thin
+        }
+        .head{
+          position:sticky;
+          top:0;
+          z-index:2;
+          display:flex;
+          align-items:flex-start;
+          justify-content:space-between;
+          gap:12px;
+          padding:14px 15px 12px;
+          border-bottom:1px solid #e6ebf1;
+          background:rgba(255,255,255,.97)
+        }
+        .head-copy{min-width:0}
+        .head strong{
+          display:block;
+          color:#243247;
+          font-size:14px;
+          line-height:1.2
+        }
+        .head small{
+          display:block;
+          margin-top:4px;
+          color:#8a97a7;
+          font-size:10px;
+          font-weight:500;
+          overflow-wrap:anywhere
+        }
+        .close{
+          width:28px;
+          height:28px;
+          flex:0 0 auto;
+          display:grid;
+          place-items:center;
+          padding:0;
+          border:0;
+          border-radius:8px;
+          background:transparent;
+          color:#7a8798;
+          font-size:20px;
+          line-height:1;
+          cursor:pointer
+        }
+        .close:hover{background:#f1f5f9;color:#334155}
+        .body{display:grid;gap:10px;padding:12px}
+        .card{
+          min-width:0;
+          padding:12px;
+          border:1px solid #e0e6ed;
+          border-radius:12px;
+          background:#fff;
+          box-shadow:0 1px 2px rgba(15,23,42,.025)
+        }
+        .title{color:#2d3b50;font-size:12px;font-weight:850}
+        .sub{
+          margin-top:4px;
+          color:#8491a1;
+          font-size:10px;
+          line-height:1.45;
+          overflow-wrap:anywhere
+        }
+        .stats{
+          display:grid;
+          grid-template-columns:repeat(4,minmax(0,1fr));
+          gap:6px;
+          margin-top:10px
+        }
+        .stat{
+          min-width:0;
+          padding:8px 3px;
+          border:1px solid #eef2f6;
+          border-radius:9px;
+          background:#f8fafc;
+          text-align:center
+        }
+        .stat b{display:block;color:#26364a;font-size:14px}
+        .stat span{
+          display:block;
+          margin-top:1px;
+          color:#8a97a7;
+          font-size:8.5px;
+          overflow:hidden;
+          text-overflow:ellipsis;
+          white-space:nowrap
+        }
+        .ai{
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:10px
+        }
+        .ai-copy{min-width:0;flex:1}
+        .pill{
+          display:inline-flex;
+          align-items:center;
+          gap:5px;
+          max-width:48%;
+          padding:5px 8px;
+          border-radius:999px;
+          background:${configured ? '#ecfdf5' : '#fff7ed'};
+          color:${configured ? '#047857' : '#b45309'};
+          font-size:9px;
+          font-weight:800;
+          white-space:normal
+        }
+        .pill::before{
+          content:'';
+          width:6px;
+          height:6px;
+          flex:0 0 auto;
+          border-radius:50%;
+          background:${configured ? '#10b981' : '#f59e0b'}
+        }
+        .btn{
+          width:100%;
+          min-height:38px;
+          padding:8px 12px;
+          border:0;
+          border-radius:9px;
+          background:#a50046;
+          color:#fff;
+          font-weight:800;
+          cursor:pointer
+        }
+        .btn.secondary{
+          border:1px solid #dce3eb;
+          background:#fff;
+          color:#445266
+        }
+        .foot{padding:0 0 2px;color:#9aa6b5;font-size:8.5px;text-align:center}
+
+        @media (max-width:520px){
+          .shell{width:min(360px,calc(100vw - 20px))}
+          .body{padding:10px}
+          .card{padding:10px}
+          .stats{gap:4px}
+          .ai{align-items:flex-start;flex-direction:column}
+          .pill{max-width:100%}
+        }
       </style>
 
-      <button class="wb-pbx-toggle" type="button" data-wb-toggle>
-        <span class="dot"></span><span>Workbench · PBX</span>
-      </button>
+      <div class="shell">
+        <button class="toggle" type="button" data-wb-toggle>
+          <span class="dot"></span><span>Workbench · PBX</span>
+        </button>
 
-      <section class="wb-pbx-panel">
-        <div class="wb-pbx-head">
-          <div><strong>Workbench · PBX</strong><small>История звонков и AI-разбор</small></div>
-          <button class="wb-pbx-close" type="button" data-wb-close>×</button>
-        </div>
-        <div class="wb-pbx-body">
-          <div class="wb-card">
-            <div class="wb-title">Разборы звонков</div>
-            <div class="wb-sub">Нажми ✦ возле нужной записи. Аудио уйдёт в Whisper, затем готовый текст — в AI-разбор.</div>
-            <div class="wb-stats">
-              <div class="wb-stat"><b>${c.ready}</b><span>AI</span></div>
-              <div class="wb-stat"><b>${c.txt}</b><span>TXT</span></div>
-              <div class="wb-stat"><b>${c.busy}</b><span>в работе</span></div>
-              <div class="wb-stat"><b>${c.error}</b><span>ошибка</span></div>
+        <section class="panel" aria-label="Workbench PBX">
+          <div class="head">
+            <div class="head-copy">
+              <strong>Workbench · PBX</strong>
+              <small>История звонков и AI-разбор</small>
             </div>
+            <button class="close" type="button" data-wb-close aria-label="Закрыть">×</button>
           </div>
 
-          <div class="wb-card">
-            <div class="wb-ai">
-              <div><div class="wb-title">Groq</div><div class="wb-sub">Qwen → GPT-OSS fallback</div></div>
-              <span class="wb-pill">${configured ? 'ключ настроен' : 'нужен ключ'}</span>
+          <div class="body">
+            <div class="card">
+              <div class="title">Разборы звонков</div>
+              <div class="sub">Нажми ✦ возле нужной записи. Аудио уйдёт в Whisper, затем готовый текст — в AI-разбор.</div>
+              <div class="stats">
+                <div class="stat"><b>${c.ready}</b><span>AI</span></div>
+                <div class="stat"><b>${c.txt}</b><span>TXT</span></div>
+                <div class="stat"><b>${c.busy}</b><span>в работе</span></div>
+                <div class="stat"><b>${c.error}</b><span>ошибка</span></div>
+              </div>
             </div>
+
+            <div class="card">
+              <div class="ai">
+                <div class="ai-copy">
+                  <div class="title">Groq</div>
+                  <div class="sub">Qwen → GPT-OSS fallback</div>
+                </div>
+                <span class="pill">${configured ? 'ключ настроен' : 'нужен ключ'}</span>
+              </div>
+            </div>
+
+            <button class="btn" type="button" data-wb-settings>Настройки AI</button>
+            <button class="btn secondary" type="button" data-wb-refresh>Обновить статусы</button>
+            <div class="foot">SIMNET Workbench ${esc(VERSION)}</div>
           </div>
+        </section>
+      </div>`;
 
-          <button class="wb-btn" type="button" data-wb-settings>Настройки AI</button>
-          <button class="wb-btn secondary" type="button" data-wb-refresh>Обновить статусы</button>
-          <div class="wb-foot">SIMNET Workbench ${esc(VERSION)}</div>
-        </div>
-      </section>`;
-
-    host.querySelector('[data-wb-toggle]')?.addEventListener('click', () => {
+    root.querySelector('[data-wb-toggle]')?.addEventListener('click', () => {
       open = !open;
       render();
     });
-    host.querySelector('[data-wb-close]')?.addEventListener('click', () => {
+    root.querySelector('[data-wb-close]')?.addEventListener('click', () => {
       open = false;
       render();
     });
-    host.querySelector('[data-wb-settings]')?.addEventListener('click', () => {
+    root.querySelector('[data-wb-settings]')?.addEventListener('click', () => {
       chrome.runtime.openOptionsPage?.();
     });
-    host.querySelector('[data-wb-refresh]')?.addEventListener('click', () => {
+    root.querySelector('[data-wb-refresh]')?.addEventListener('click', () => {
       void refreshData();
     });
   }
