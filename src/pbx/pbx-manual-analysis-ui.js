@@ -12,7 +12,6 @@
   const ACTIVE_STATUSES = new Set(['queued', 'downloading', 'transcribing', 'analyzing', 'cancelling']);
   const mounted = new Map();
   let records = {};
-  let scanTimer = 0;
   let hideTimer = 0;
 
   function compact(value, max = 320) {
@@ -159,6 +158,34 @@
     if (node && node.dataset?.[key] !== next) node.dataset[key] = next;
   }
 
+  function formatTokens(value) {
+    const count = Math.max(0, Number(value || 0) || 0);
+    return new Intl.NumberFormat('ru-RU').format(count);
+  }
+
+  function tokenUsageText(record = {}) {
+    const analysis = record.analysis || {};
+    if (!analysis.cleanText) return '';
+    const usage = analysis.usage || {};
+    const total = Number(usage.totalTokens || 0) || 0;
+    const prompt = Number(usage.promptTokens || 0) || 0;
+    const completion = Number(usage.completionTokens || 0) || 0;
+    const model = String(analysis.model || '').trim();
+    if (!total && !prompt && !completion) {
+      return [model, 'токены: нет данных (старый разбор)'].filter(Boolean).join(' · ');
+    }
+    const parts = [
+      model,
+      `${formatTokens(total || prompt + completion)} токенов всего`,
+      `${formatTokens(prompt)} вход`,
+      `${formatTokens(completion)} ответ`
+    ].filter(Boolean);
+    if (Array.isArray(analysis.usageAttempts) && analysis.usageAttempts.length > 1) {
+      parts.push(`${analysis.usageAttempts.length} AI-попытки`);
+    }
+    return parts.join(' · ');
+  }
+
   function refreshOne(recordId) {
     const view = mounted.get(recordId);
     if (!view?.root?.isConnected) {
@@ -176,7 +203,7 @@
         : 'Разобрать этот звонок');
     setData(view.result, 'state', state.state);
     setText(view.result, state.badge);
-    setTitle(view.result, state.state === 'ready' ? 'AI-разбор готов'
+    setTitle(view.result, state.state === 'ready' ? `AI-разбор готов${record?.analysis?.usage?.totalTokens ? ` · ${formatTokens(record.analysis.usage.totalTokens)} токенов` : ''}`
       : state.state === 'error' ? 'Ошибка разбора'
         : state.state === 'stopped' ? 'Обработка остановлена — можно продолжить' : 'Состояние разбора');
   }
@@ -234,7 +261,7 @@
       if (result) records = { ...records, [call.recordId]: result };
     } catch (error) {
       records = { ...records, [call.recordId]: { ...(records[call.recordId] || {}), status: 'error', error: compact(error?.message || error || 'Не удалось запустить разбор', 700) } };
-      console.error('[SIMNET Workbench][PBX MANUAL ANALYSIS]', error);
+      console.error('[SIMNET Workbench][PBX MANUAL ANALYSIS] start click failed', { recordId: call.recordId, error });
     }
     refreshOne(call.recordId);
   }
@@ -248,6 +275,7 @@
       if (result) records = { ...records, [call.recordId]: result };
     } catch (error) {
       records = { ...records, [call.recordId]: { ...previous, status: 'error', error: compact(error?.message || error || 'Не удалось отменить обработку', 700) } };
+      console.error('[SIMNET Workbench][PBX MANUAL ANALYSIS] cancel click failed', { recordId: call.recordId, error });
     }
     refreshOne(call.recordId);
   }
@@ -310,6 +338,7 @@
       addText(popover, 'Действия оператора', record.analysis?.actions);
       addText(popover, 'Результат', record.analysis?.result);
       addText(popover, 'Следующий шаг', record.analysis?.nextStep);
+      if (record.analysis?.cleanText) addText(popover, 'AI / токены', tokenUsageText(record));
       if (record.aiError) addText(popover, 'AI', `${record.aiError} Транскрипт сохранён.`);
     }
 
@@ -378,40 +407,9 @@
     refreshOne(call.recordId);
   }
 
-  function isOwnedMutationNode(node) {
-    const element = node?.nodeType === 1 ? node : node?.parentElement;
-    if (!element) return false;
-    return Boolean(
-      element.matches?.('.wb-pbx-manual-tools,#simnet-wb-pbx-manual-analysis-popover')
-      || element.closest?.('.wb-pbx-manual-tools,#simnet-wb-pbx-manual-analysis-popover')
-    );
-  }
-
-  function mutationNeedsScan(mutations = []) {
-    return mutations.some(mutation => {
-      const target = mutation?.target?.nodeType === 1 ? mutation.target : mutation?.target?.parentElement;
-      if (isOwnedMutationNode(target)) return false;
-
-      const changedNodes = [
-        ...Array.from(mutation?.addedNodes || []),
-        ...Array.from(mutation?.removedNodes || [])
-      ].filter(node => node?.nodeType === 1);
-      if (changedNodes.length && changedNodes.every(isOwnedMutationNode)) return false;
-
-      if (target?.closest?.('table')) return true;
-      return changedNodes.some(node => (
-        String(node.tagName || '').toLowerCase() === 'table'
-        || Boolean(node.querySelector?.('table'))
-      ));
-    });
-  }
-
-  function scan() {
-    clearTimeout(scanTimer);
-    scanTimer = setTimeout(() => {
-      installStyle();
-      for (const call of parseCalls()) mount(call);
-    }, 80);
+  function mountCurrentPage() {
+    installStyle();
+    for (const call of parseCalls()) mount(call);
   }
 
   chrome.runtime.onMessage.addListener(message => {
@@ -422,11 +420,7 @@
     return false;
   });
 
-  const observer = new MutationObserver(mutations => {
-    if (mutationNeedsScan(mutations)) scan();
-  });
-  observer.observe(document.documentElement, { childList: true, subtree: true });
   installStyle();
+  mountCurrentPage();
   void refreshStatus();
-  scan();
 })();
