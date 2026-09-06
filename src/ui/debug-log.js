@@ -7,7 +7,7 @@
   const LOG_KEY = WB.log?.key || 'simnet_workbench_debug_log_v1';
   const SUBMIT_DEBUG_KEY = 'simnet_workbench_call_submit_debug_v1';
   const HOST_ID = 'simnet-workbench-debug-log-host';
-  const MAX_VISIBLE = 100;
+  const MAX_VISIBLE = 400;
 
   let open = false;
   let unreadWarnings = 0;
