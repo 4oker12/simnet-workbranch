@@ -12,13 +12,15 @@ assert.ok(scripts.includes('src/ui/call-attention-bridge.js'));
 assert.ok(!scripts.includes('src/ui/call-transcription-jobs.js'));
 assert.match(bridge, /CALL_PROCESSING_CANCEL/);
 assert.match(bridge, /needsAttention/);
-assert.match(bridge, /Требует внимания/);
+assert.match(bridge, /Требу(?:ет|ют) внимания/);
 assert.match(bridge, /В работе/);
 assert.match(bridge, /История/);
+assert.match(bridge, /WORK_STATUSES/);
 assert.match(processing, /WAIT_PBX_ATTENTION_MS/);
 assert.match(processing, /callExecutionRegistry/);
 assert.match(processing, /CALL_PROCESSING_CANCEL/);
 assert.match(processing, /CallStateStore/);
+assert.match(processing, /recoverInterruptedCalls/);
 assert.match(stateStore, /simnet_workbench_state_v5/);
 assert.doesNotMatch(processing, /const JOB_STORE_KEY\s*=/);
 
