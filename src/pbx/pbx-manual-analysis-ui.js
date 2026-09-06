@@ -52,23 +52,47 @@
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      .wb-pbx-manual-tools{display:inline-flex;align-items:center;gap:4px;width:52px;margin-left:6px;vertical-align:middle;white-space:nowrap}
-      .wb-pbx-manual-run,.wb-pbx-manual-result{height:22px;width:24px;min-width:24px;box-sizing:border-box;padding:0 4px;border:1px solid #8798a3;border-radius:4px;background:#fff;color:#17384d;font:700 11px/20px Arial,sans-serif;text-align:center;cursor:pointer}
-      .wb-pbx-manual-run[data-mode="cancel"]{background:#fff2f2;border-color:#c96b6b;color:#8a2424}
+      .wb-pbx-manual-tools{display:inline-flex;align-items:center;gap:4px;width:54px;margin-left:6px;vertical-align:middle;white-space:nowrap}
+      .wb-pbx-manual-run,.wb-pbx-manual-result{height:24px;width:25px;min-width:25px;box-sizing:border-box;padding:0 4px;border:1px solid #d5dde6;border-radius:7px;background:#fff;color:#344256;box-shadow:0 1px 2px rgba(15,23,42,.05);font:800 10px/22px Inter,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;text-align:center;cursor:pointer;transition:background .12s,border-color .12s,color .12s,box-shadow .12s}
+      .wb-pbx-manual-run:hover,.wb-pbx-manual-result:hover{border-color:#b7c2ce;box-shadow:0 2px 6px rgba(15,23,42,.10)}
+      .wb-pbx-manual-run{color:#a50046}
+      .wb-pbx-manual-run[data-mode="cancel"]{background:#fff5f5;border-color:#efb7b7;color:#a33232}
       .wb-pbx-manual-result[data-state="idle"]{visibility:hidden;pointer-events:none}
-      .wb-pbx-manual-result[data-state="processing"]{background:#fff7dc;border-color:#bf9b35;color:#6a5200;cursor:progress}
-      .wb-pbx-manual-result[data-state="ready"]{background:#e9f6ec;border-color:#4f9461;color:#245d31}
-      .wb-pbx-manual-result[data-state="partial"]{background:#edf4f8;border-color:#6e91a5;color:#36586b}
-      .wb-pbx-manual-result[data-state="stopped"]{background:#f3f4f6;border-color:#9ca3af;color:#4b5563}
-      .wb-pbx-manual-result[data-state="error"]{background:#fff0f0;border-color:#b85c5c;color:#8a2424}
-      #${POPOVER_ID}{position:fixed;z-index:2147483645;display:none;width:min(430px,calc(100vw - 24px));max-height:min(520px,calc(100vh - 24px));overflow:auto;box-sizing:border-box;padding:12px;border:1px solid #7e8f9a;border-radius:7px;background:#fff;color:#152630;box-shadow:0 10px 30px rgba(0,0,0,.22);font:13px/1.42 Arial,sans-serif}
+      .wb-pbx-manual-result[data-state="processing"]{background:#fff8e6;border-color:#ead18a;color:#805d00;cursor:progress}
+      .wb-pbx-manual-result[data-state="ready"]{background:#ecfdf3;border-color:#a8d7b7;color:#23723b}
+      .wb-pbx-manual-result[data-state="partial"]{background:#eef7fb;border-color:#b8d4e0;color:#376477}
+      .wb-pbx-manual-result[data-state="stopped"]{background:#f4f6f8;border-color:#d7dde4;color:#5f6c7b}
+      .wb-pbx-manual-result[data-state="error"]{background:#fff1f1;border-color:#efb7b7;color:#a33232}
+
+      #${POPOVER_ID}{position:fixed;z-index:2147483645;display:none;width:min(540px,calc(100vw - 24px));max-height:min(680px,calc(100vh - 24px));overflow:auto;box-sizing:border-box;padding:0;border:1px solid #dce3eb;border-radius:16px;background:#f8fafc;color:#243247;box-shadow:0 18px 50px rgba(15,23,42,.24);font:12px/1.48 Inter,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;scrollbar-width:thin}
       #${POPOVER_ID}[data-open="1"]{display:block}
-      #${POPOVER_ID} .h{font-weight:700;font-size:14px;margin-bottom:7px;padding-bottom:6px;border-bottom:1px solid #d8e0e5}
-      #${POPOVER_ID} .m{color:#63717a;font-size:11px;margin-bottom:8px}
-      #${POPOVER_ID} .s{margin-top:8px}
-      #${POPOVER_ID} .l{font-weight:700;color:#3a5261;margin-bottom:2px}
-      #${POPOVER_ID} details{margin-top:10px}
-      #${POPOVER_ID} pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f9fa;border:1px solid #dce3e7;border-radius:4px;padding:8px;max-height:220px;overflow:auto;font:12px/1.42 Arial,sans-serif}
+      #${POPOVER_ID} .wb-card-head{position:sticky;top:0;z-index:2;padding:14px 15px 12px;border-bottom:1px solid #e7ebf0;background:rgba(255,255,255,.98);backdrop-filter:blur(8px)}
+      #${POPOVER_ID} .wb-card-title-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+      #${POPOVER_ID} .h{min-width:0;color:#243247;font-size:14px;font-weight:850;line-height:1.2}
+      #${POPOVER_ID} .wb-status{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;padding:4px 7px;border-radius:999px;background:#f1f5f9;color:#64748b;font-size:9px;font-weight:850;letter-spacing:.01em}
+      #${POPOVER_ID} .wb-status::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.8}
+      #${POPOVER_ID} .wb-status[data-tone="ready"]{background:#ecfdf3;color:#23723b}
+      #${POPOVER_ID} .wb-status[data-tone="busy"]{background:#fff8e6;color:#805d00}
+      #${POPOVER_ID} .wb-status[data-tone="partial"]{background:#eef7fb;color:#376477}
+      #${POPOVER_ID} .wb-status[data-tone="error"]{background:#fff1f1;color:#a33232}
+      #${POPOVER_ID} .wb-status[data-tone="stopped"]{background:#f2f4f7;color:#667085}
+      #${POPOVER_ID} .m{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px;color:#667085;font-size:10px}
+      #${POPOVER_ID} .m span{display:inline-flex;align-items:center;min-height:22px;padding:3px 7px;border:1px solid #e5eaf0;border-radius:7px;background:#f8fafc;overflow-wrap:anywhere}
+      #${POPOVER_ID} .wb-card-body{display:grid;gap:8px;padding:10px}
+      #${POPOVER_ID} .s{margin:0;padding:10px 11px;border:1px solid #e1e7ee;border-radius:11px;background:#fff;box-shadow:0 1px 2px rgba(15,23,42,.025)}
+      #${POPOVER_ID} .l{margin-bottom:4px;color:#7b8797;font-size:9px;font-weight:850;letter-spacing:.045em;text-transform:uppercase}
+      #${POPOVER_ID} .s>div:last-child{color:#2e3d51;font-size:12px;line-height:1.48;white-space:pre-wrap;overflow-wrap:anywhere}
+      #${POPOVER_ID} .s[data-kind="summary"]{border-left:3px solid #a50046;background:#fff}
+      #${POPOVER_ID} .s[data-kind="error"]{border-color:#f0c3c3;background:#fff7f7}
+      #${POPOVER_ID} .s[data-kind="meta"]{background:#f6f8fb}
+      #${POPOVER_ID} details{margin:0;border:1px solid #dfe6ed;border-radius:11px;background:#fff;overflow:hidden}
+      #${POPOVER_ID} summary{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 11px;color:#344256;font-size:11px;font-weight:850;cursor:pointer;list-style:none;user-select:none}
+      #${POPOVER_ID} summary::-webkit-details-marker{display:none}
+      #${POPOVER_ID} summary::after{content:'▾';color:#98a2b3;font-size:11px;transition:transform .12s}
+      #${POPOVER_ID} details[open] summary::after{transform:rotate(180deg)}
+      #${POPOVER_ID} details[open] summary{border-bottom:1px solid #edf0f4}
+      #${POPOVER_ID} pre{margin:0;padding:12px 13px;max-height:310px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#fbfcfd;color:#344256;font:12px/1.55 Inter,system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
+      @media (max-width:620px){#${POPOVER_ID}{width:calc(100vw - 16px);max-height:calc(100vh - 16px);border-radius:13px}#${POPOVER_ID} .wb-card-head{padding:12px}#${POPOVER_ID} .wb-card-body{padding:8px}}
     `;
     document.documentElement.appendChild(style);
   }
@@ -280,11 +304,12 @@
     refreshOne(call.recordId);
   }
 
-  function addText(parent, label, value) {
+  function addText(parent, label, value, kind = '') {
     const text = String(value || '').trim();
     if (!text) return;
     const section = document.createElement('div');
     section.className = 's';
+    if (kind) section.dataset.kind = kind;
     const title = document.createElement('div');
     title.className = 'l';
     title.textContent = label;
@@ -292,6 +317,29 @@
     body.textContent = text;
     section.append(title, body);
     parent.appendChild(section);
+  }
+
+  function statusPresentation(record = {}) {
+    const status = String(record.status || 'idle');
+    if (status === 'ready') return { text: 'AI готов', tone: 'ready' };
+    if (status === 'transcribed') return { text: 'Текст готов', tone: 'partial' };
+    if (status === 'downloading') return { text: 'PBX · загрузка', tone: 'busy' };
+    if (status === 'transcribing') return { text: 'Whisper', tone: 'busy' };
+    if (status === 'analyzing') return { text: 'AI анализ', tone: 'busy' };
+    if (status === 'queued') return { text: 'В очереди', tone: 'busy' };
+    if (status === 'cancelling') return { text: 'Остановка', tone: 'busy' };
+    if (status === 'error') return { text: 'Ошибка', tone: 'error' };
+    if (status === 'cancelled') return { text: 'Отменено', tone: 'stopped' };
+    if (status === 'interrupted') return { text: 'Прервано', tone: 'stopped' };
+    return { text: 'Звонок', tone: 'stopped' };
+  }
+
+  function appendMeta(meta, value, label = '') {
+    const text = String(value || '').trim();
+    if (!text) return;
+    const chip = document.createElement('span');
+    chip.textContent = label ? `${label}: ${text}` : text;
+    meta.appendChild(chip);
   }
 
   function ensurePopover() {
@@ -315,42 +363,63 @@
 
     const popover = ensurePopover();
     popover.replaceChildren();
+
+    const cardHead = document.createElement('div');
+    cardHead.className = 'wb-card-head';
+    const titleRow = document.createElement('div');
+    titleRow.className = 'wb-card-title-row';
     const head = document.createElement('div');
     head.className = 'h';
-    head.textContent = record.analysis?.summary || 'Разбор звонка';
+    head.textContent = 'Разбор звонка';
+    const status = statusPresentation(record);
+    const statusNode = document.createElement('span');
+    statusNode.className = 'wb-status';
+    statusNode.dataset.tone = status.tone;
+    statusNode.textContent = status.text;
+    titleRow.append(head, statusNode);
+
     const meta = document.createElement('div');
     meta.className = 'm';
-    meta.textContent = [record.call?.date, record.call?.time, record.call?.duration, record.call?.callerId, record.call?.agent].filter(Boolean).join(' · ');
-    popover.append(head, meta);
+    appendMeta(meta, [record.call?.date, record.call?.time].filter(Boolean).join(' '));
+    appendMeta(meta, record.call?.duration, 'Длительность');
+    appendMeta(meta, record.call?.callerId, 'Номер');
+    appendMeta(meta, record.call?.agent, 'Оператор');
+    appendMeta(meta, record.call?.contract, 'Договор');
+    cardHead.append(titleRow, meta);
 
-    if (record.status === 'error') addText(popover, 'Ошибка', record.error || 'Неизвестная ошибка');
-    else if (record.status === 'cancelled') addText(popover, 'Статус', 'Обработка отменена. Нажмите ↻ возле звонка, чтобы продолжить.');
-    else if (record.status === 'interrupted') addText(popover, 'Статус', record.error || 'Обработка была прервана. Нажмите ↻, чтобы продолжить.');
+    const body = document.createElement('div');
+    body.className = 'wb-card-body';
+    popover.append(cardHead, body);
+
+    if (record.status === 'error') addText(body, 'Ошибка', record.error || 'Неизвестная ошибка', 'error');
+    else if (record.status === 'cancelled') addText(body, 'Статус', 'Обработка отменена. Нажмите ↻ возле звонка, чтобы продолжить.', 'meta');
+    else if (record.status === 'interrupted') addText(body, 'Статус', record.error || 'Обработка была прервана. Нажмите ↻, чтобы продолжить.', 'meta');
     else if (ACTIVE_STATUSES.has(record.status)) {
       const text = record.status === 'downloading' ? 'Загружается запись из PBX. Нажмите ×, чтобы отменить.'
         : record.status === 'transcribing' ? 'Whisper распознаёт аудио. Нажмите ×, чтобы отменить.'
           : record.status === 'analyzing' ? 'Транскрипт готов; идёт AI-разбор. Нажмите ×, чтобы отменить.'
-            : 'Звонок находится в обработке.';
-      addText(popover, 'Статус', text);
+            : record.status === 'queued' ? 'Звонок ожидает своей очереди на обработку.'
+              : 'Звонок находится в обработке.';
+      addText(body, 'Статус', text, 'meta');
     } else {
-      addText(popover, 'Суть', record.analysis?.summary);
-      addText(popover, 'Причина обращения', record.analysis?.issue);
-      addText(popover, 'Действия оператора', record.analysis?.actions);
-      addText(popover, 'Результат', record.analysis?.result);
-      addText(popover, 'Следующий шаг', record.analysis?.nextStep);
-      if (record.analysis?.cleanText) addText(popover, 'AI / токены', tokenUsageText(record));
-      if (record.aiError) addText(popover, 'AI', `${record.aiError} Транскрипт сохранён.`);
+      addText(body, 'Суть', record.analysis?.summary, 'summary');
+      addText(body, 'Причина обращения', record.analysis?.issue);
+      addText(body, 'Действия оператора', record.analysis?.actions);
+      addText(body, 'Результат', record.analysis?.result);
+      addText(body, 'Следующий шаг', record.analysis?.nextStep);
+      if (record.analysis?.cleanText) addText(body, 'AI / токены', tokenUsageText(record), 'meta');
+      if (record.aiError) addText(body, 'AI', `${record.aiError} Транскрипт сохранён.`, 'error');
     }
 
     const transcript = record.analysis?.cleanText || record.transcript?.text || '';
     if (transcript) {
       const details = document.createElement('details');
       const summary = document.createElement('summary');
-      summary.textContent = 'Транскрипт';
+      summary.textContent = `Расшифровка · ${new Intl.NumberFormat('ru-RU').format(transcript.length)} симв.`;
       const pre = document.createElement('pre');
       pre.textContent = transcript;
       details.append(summary, pre);
-      popover.appendChild(details);
+      body.appendChild(details);
     }
 
     popover.dataset.open = '1';
