@@ -1,3 +1,5 @@
+import { runtimeError, runtimeInfo } from '../infrastructure/runtime-log.js';
+
 const AI_RUNTIME_CONFIG_KEY = 'simnet_workbench_ai_runtime_v1';
 const DEFAULT_MODELS = Object.freeze([
   'qwen/qwen3.6-27b',
@@ -122,6 +124,16 @@ async function openSettings() {
   return { opened: true };
 }
 
+function actionName(type) {
+  return ({
+    [TYPES.GET]: 'config read',
+    [TYPES.SAVE]: 'config save',
+    [TYPES.TEST]: 'Groq connectivity test',
+    [TYPES.DELETE_KEY]: 'API key delete',
+    [TYPES.OPEN_SETTINGS]: 'open settings'
+  })[type] || type || 'AI action';
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const type = String(message?.type || '');
   if (!Object.values(TYPES).includes(type)) return false;
@@ -138,8 +150,28 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           : deleteKey();
 
   void action
-    .then(data => sendResponse({ success: true, data }))
-    .catch(error => sendResponse({ success: false, error: clean(error?.message || error || 'AI runtime error', 500) }));
+    .then(data => {
+      if (type === TYPES.TEST) {
+        runtimeInfo('AI RUNTIME', 'Groq connectivity test · OK', {
+          availableCount: Number(data?.availableCount || 0),
+          expectedCount: Number(data?.expectedCount || 0)
+        });
+      } else if (type === TYPES.SAVE || type === TYPES.DELETE_KEY) {
+        runtimeInfo('AI RUNTIME', `${actionName(type)} · OK`, {
+          configured: Boolean(data?.configured),
+          chatModel: String(data?.chatModel || '')
+        });
+      }
+      sendResponse({ success: true, data });
+    })
+    .catch(error => {
+      const messageText = clean(error?.message || error || 'AI runtime error', 500);
+      runtimeError('AI RUNTIME', `${actionName(type)} · ERROR`, {
+        error: messageText,
+        status: Number(error?.status || 0)
+      });
+      sendResponse({ success: false, error: messageText });
+    });
   return true;
 });
 
