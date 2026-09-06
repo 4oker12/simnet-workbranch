@@ -43,3 +43,16 @@ test('AI runtime reports handled Groq failures without logging the API key paylo
   assert.match(source, /Groq connectivity test · OK/);
   assert.doesNotMatch(source, /runtime(?:Info|Error)\([^\n]+groqApiKey/);
 });
+
+test('WB LOG UI supports level and subsystem filtering, text search and multiple sort modes', async () => {
+  const source = await read('src/ui/debug-log.js');
+  assert.match(source, /data-filter="level"/);
+  assert.match(source, /data-filter="scope"/);
+  assert.match(source, /data-filter="search"/);
+  assert.match(source, /value="severity">Ошибки сверху/);
+  assert.match(source, /value="scope">По подсистеме/);
+  assert.match(source, /function viewEntries\(/);
+  assert.match(source, /searchableText\(entry\)\.includes\(searchQuery\)/);
+  assert.match(source, /severityRank\(a\.level\) - severityRank\(b\.level\)/);
+  assert.match(source, /Копирование выгружает текущую выборку/);
+});
