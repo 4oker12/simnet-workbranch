@@ -7,6 +7,7 @@ const background = fs.readFileSync(new URL('../src/features/call/transcription/b
 const processing = fs.readFileSync(new URL('../src/features/call/transcription/call-processing.js', import.meta.url), 'utf8');
 const callRecord = fs.readFileSync(new URL('../src/features/call/domain/call-record.js', import.meta.url), 'utf8');
 const callStore = fs.readFileSync(new URL('../src/features/call/storage/call-state-store.js', import.meta.url), 'utf8');
+const executionRegistry = fs.readFileSync(new URL('../src/features/call/runtime/call-execution-registry.js', import.meta.url), 'utf8');
 const pbxDiagnostic = fs.readFileSync(new URL('../src/features/call/transcription/pbx-diagnostic.js', import.meta.url), 'utf8');
 const callListDebug = fs.readFileSync(new URL('../src/features/call/transcription/call-list-debug.js', import.meta.url), 'utf8');
 const assistant = fs.readFileSync(new URL('../src/ui/call-transcription-assistant.js', import.meta.url), 'utf8');
@@ -60,9 +61,16 @@ assert.ok(processing.includes('isFreshRegisteredBinding(binding, atMs)'));
 assert.ok(processing.includes('CallStateStore.mutate'));
 assert.ok(processing.includes('callExecutionRegistry'));
 assert.ok(processing.includes('migrateLegacyJobs'));
+assert.ok(processing.includes('recoverInterruptedCalls'));
 assert.ok(processing.includes('chrome.storage.local.remove(LEGACY_JOB_STORE_KEY)'));
 assert.doesNotMatch(processing, /const JOB_STORE_KEY\s*=/);
 assert.doesNotMatch(processing, /save_call|Cookie:/i);
+
+assert.match(executionRegistry, /this\.queue = \[\]/);
+assert.match(executionRegistry, /this\.active = null/);
+assert.match(executionRegistry, /state: 'queued'/);
+assert.match(executionRegistry, /_drain\(\)/);
+assert.match(executionRegistry, /if \(this\.active\) return/);
 
 assert.ok(pbxDiagnostic.includes("const PBX_RECORD_PATH = '/fop2/getrec.php';"));
 assert.ok(pbxDiagnostic.includes("Range: 'bytes=0-65535'"));
@@ -89,7 +97,10 @@ assert.ok(attention.includes('CALL_PROCESSING_LIST'));
 assert.ok(attention.includes('CALL_PROCESSING_RETRY'));
 assert.ok(attention.includes('CALL_PROCESSING_CHANGED'));
 assert.ok(attention.includes('CALL закреплён'));
-assert.ok(attention.includes('Whisper'));
+assert.ok(attention.includes('Транскрибация'));
 assert.ok(attention.includes('UserSide'));
+assert.ok(attention.includes('WORK_STATUSES'));
+assert.ok(attention.includes('sortQueue'));
+assert.ok(attention.includes('historyCalls'));
 
 console.log('call transcription orchestration contract: ok');
