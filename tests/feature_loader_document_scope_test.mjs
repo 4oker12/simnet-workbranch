@@ -1,22 +1,62 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { createFeatureLoader } from '../src/infrastructure/feature-loader.js';
 
-const source = readFileSync(new URL('../src/infrastructure/feature-loader.js', import.meta.url), 'utf8');
+function fakeChrome() {
+  const calls = [];
+  return {
+    calls,
+    api: {
+      scripting: {
+        async executeScript(spec) {
+          calls.push(spec);
+          return [];
+        }
+      }
+    }
+  };
+}
 
-test('lazy feature injection cache is scoped to sender.documentId, not tabId alone', () => {
-  assert.match(source, /const injectedByDocument = new Map\(\)/);
-  assert.match(source, /sender\?\.documentId/);
-  assert.match(source, /documentKey\(sender, tabId\)/);
-  assert.doesNotMatch(source, /const injectedByTab = new Map\(\)/);
+test('same feature in same document is injected only once', async () => {
+  const fake = fakeChrome();
+  const loader = createFeatureLoader({ chromeApi: fake.api });
+  const sender = { tab: { id: 7 }, documentId: 'doc-a' };
+
+  await loader.inject('call', sender);
+  const second = await loader.inject('call', sender);
+
+  assert.equal(fake.calls.length, 1);
+  assert.equal(second.already, true);
 });
 
-test('same tab navigation drops stale document feature markers', () => {
-  assert.match(source, /forgetOlderDocuments\(tabId, docKey\)/);
-  assert.match(source, /key\.startsWith\(prefix\) && key !== keepKey/);
+test('navigation in the same tab injects feature into the new document', async () => {
+  const fake = fakeChrome();
+  const loader = createFeatureLoader({ chromeApi: fake.api });
+
+  await loader.inject('call', { tab: { id: 7 }, documentId: 'doc-a' });
+  const secondDocument = await loader.inject('call', { tab: { id: 7 }, documentId: 'doc-b' });
+
+  assert.equal(fake.calls.length, 2);
+  assert.equal(secondDocument.already, false);
 });
 
-test('missing documentId favors safe reinjection over stale dedupe', () => {
-  assert.match(source, /const done = docKey \? \(injectedByDocument\.get\(docKey\) \|\| new Set\(\)\) : null/);
-  assert.match(source, /if \(done\?\.has\(key\) && !force\)/);
+test('reload of same URL cannot be mistaken for the old document', async () => {
+  const fake = fakeChrome();
+  const loader = createFeatureLoader({ chromeApi: fake.api });
+
+  await loader.inject('call', { tab: { id: 9 }, documentId: 'reload-1', url: 'https://admin.simnet.kiev.ua/a' });
+  await loader.inject('call', { tab: { id: 9 }, documentId: 'reload-2', url: 'https://admin.simnet.kiev.ua/a' });
+
+  assert.equal(fake.calls.length, 2);
+});
+
+test('sender without documentId favors reinjection instead of stale tab-only dedupe', async () => {
+  const fake = fakeChrome();
+  const loader = createFeatureLoader({ chromeApi: fake.api });
+  const sender = { tab: { id: 11 } };
+
+  await loader.inject('call', sender);
+  await loader.inject('call', sender);
+
+  assert.equal(fake.calls.length, 2);
 });
