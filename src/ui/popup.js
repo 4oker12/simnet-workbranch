@@ -6,21 +6,38 @@ const diagnosticsNode = document.getElementById('diagnostics');
 const clearWorkbenchNode = document.getElementById('clearWorkbench');
 const diagCountNode = document.getElementById('diagCount');
 const workerDot = document.getElementById('workerDot');
+const groqApiKeyNode = document.getElementById('groqApiKey');
+const saveGroqKeyNode = document.getElementById('saveGroqKey');
+const removeGroqKeyNode = document.getElementById('removeGroqKey');
+const groqKeyStatusNode = document.getElementById('groqKeyStatus');
 const VERSION = chrome.runtime.getManifest().version;
 const DIAG_KEY = 'simnet_workbench_diagnostics_v1';
 const FALLBACK_KEY = 'simnet_workbench_diagnostics_fallback_v1';
 const STATE_KEY = 'simnet_workbench_state_v5';
+const AI_RUNTIME_CONFIG_KEY = 'simnet_workbench_ai_runtime_v1';
+const DEFAULT_AI_MODELS = Object.freeze([
+  'qwen/qwen3.6-27b',
+  'openai/gpt-oss-120b',
+  'qwen/qwen3.8-27b',
+  'openai/gpt-oss-20b'
+]);
 versionNode.textContent = `v${VERSION}`;
 
 const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const short = (value, max = 260) => { const text = String(value || '').replace(/\s+/g, ' ').trim(); return text.length > max ? `${text.slice(0, max - 1)}…` : text; };
 
 async function readDirect() {
-  const stored = await chrome.storage.local.get([DIAG_KEY, FALLBACK_KEY, STATE_KEY]);
+  const stored = await chrome.storage.local.get([DIAG_KEY, FALLBACK_KEY, STATE_KEY, AI_RUNTIME_CONFIG_KEY]);
   const primary = stored?.[DIAG_KEY] && typeof stored[DIAG_KEY] === 'object' ? stored[DIAG_KEY] : { entries: [], unreadCount: 0 };
   const fallback = Array.isArray(stored?.[FALLBACK_KEY]) ? stored[FALLBACK_KEY] : [];
   const entries = [...fallback.map(item => ({ ...item, emergencyFallback: true, unread: true })), ...(Array.isArray(primary.entries) ? primary.entries : [])].slice(0, 200);
-  return { primary, fallback, entries, state: stored?.[STATE_KEY] || null };
+  return {
+    primary,
+    fallback,
+    entries,
+    state: stored?.[STATE_KEY] || null,
+    aiRuntime: stored?.[AI_RUNTIME_CONFIG_KEY] || null
+  };
 }
 
 function renderDiagnostics(data) {
@@ -37,6 +54,16 @@ function renderDiagnostics(data) {
       <div class="diag-msg">${esc(short(entry.message || entry.reason || ''))}</div>
       <div class="diag-meta">${esc(entry.lastSeenAt || entry.timestamp || entry.firstSeenAt || '')}${entry.subscriber ? ` · ${esc(entry.subscriber)}` : ''}${entry.emergencyFallback ? ' · fallback' : ''}</div>
     </div>`).join('');
+}
+
+function renderAiStatus(aiRuntime) {
+  const configured = Boolean(String(aiRuntime?.groqApiKey || '').trim());
+  groqKeyStatusNode.textContent = configured
+    ? 'Groq key настроен локально. При 429/недоступности Workbench переключит модель по fallback-цепочке.'
+    : 'Ключ не настроен. Транскрипция работает, AI-разбор остановится на TXT.';
+  groqKeyStatusNode.className = configured ? 'ai-state ok' : 'ai-state';
+  groqApiKeyNode.value = '';
+  groqApiKeyNode.placeholder = configured ? 'Новый ключ для замены текущего' : 'gsk_…';
 }
 
 async function probeWorker() {
@@ -61,6 +88,7 @@ async function probeWorker() {
 async function load() {
   const [direct] = await Promise.all([readDirect(), probeWorker()]);
   renderDiagnostics(direct);
+  renderAiStatus(direct.aiRuntime);
   const state = direct.state;
   const active = state?.cases?.[state?.activeCaseId];
   contextNode.textContent = active ? JSON.stringify({
@@ -69,6 +97,50 @@ async function load() {
     identity: active.identity
   }, null, 2) : 'Активный Case ещё не создан.';
 }
+
+saveGroqKeyNode?.addEventListener('click', async () => {
+  const apiKey = String(groqApiKeyNode?.value || '').trim();
+  if (!apiKey) {
+    groqKeyStatusNode.textContent = 'Вставь Groq API key.';
+    groqKeyStatusNode.className = 'ai-state bad';
+    return;
+  }
+  if (apiKey.length < 20) {
+    groqKeyStatusNode.textContent = 'Ключ выглядит слишком коротким.';
+    groqKeyStatusNode.className = 'ai-state bad';
+    return;
+  }
+
+  saveGroqKeyNode.disabled = true;
+  try {
+    const current = (await chrome.storage.local.get(AI_RUNTIME_CONFIG_KEY))?.[AI_RUNTIME_CONFIG_KEY] || {};
+    await chrome.storage.local.set({
+      [AI_RUNTIME_CONFIG_KEY]: {
+        ...current,
+        groqApiKey: apiKey,
+        models: Array.isArray(current.models) && current.models.length ? current.models : [...DEFAULT_AI_MODELS],
+        updatedAt: new Date().toISOString()
+      }
+    });
+    groqKeyStatusNode.textContent = 'Groq key сохранён локально.';
+    groqKeyStatusNode.className = 'ai-state ok';
+    groqApiKeyNode.value = '';
+    groqApiKeyNode.placeholder = 'Новый ключ для замены текущего';
+  } catch (error) {
+    groqKeyStatusNode.textContent = `Не удалось сохранить: ${short(error?.message || error, 120)}`;
+    groqKeyStatusNode.className = 'ai-state bad';
+  } finally {
+    saveGroqKeyNode.disabled = false;
+  }
+});
+
+removeGroqKeyNode?.addEventListener('click', async () => {
+  const current = (await chrome.storage.local.get(AI_RUNTIME_CONFIG_KEY))?.[AI_RUNTIME_CONFIG_KEY] || {};
+  const next = { ...current };
+  delete next.groqApiKey;
+  await chrome.storage.local.set({ [AI_RUNTIME_CONFIG_KEY]: next });
+  renderAiStatus(next);
+});
 
 exportNode.addEventListener('click', async () => {
   const direct = await readDirect();
@@ -119,7 +191,7 @@ async function emergencyClearWorkbench() {
 }
 
 clearWorkbenchNode?.addEventListener('click', async () => {
-  if (!confirm('Полностью очистить данные Workbench?\n\nCase, CALL evidence/snapshots, AI-сессии, CRM-кэш и Audit DB будут удалены. Cookies и авторизация UserSide/Billing не затрагиваются.')) return;
+  if (!confirm('Полностью очистить данные Workbench?\n\nCase, CALL evidence/snapshots, AI-сессии, CRM-кэш, локальный Groq key и Audit DB будут удалены. Cookies и авторизация UserSide/Billing не затрагиваются.')) return;
   clearWorkbenchNode.disabled = true;
   clearWorkbenchNode.textContent = 'Очищаю…';
   try {
