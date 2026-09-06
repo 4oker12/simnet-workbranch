@@ -1,6 +1,7 @@
 'use strict';
 
 import { CALL_RETENTION_MS, MAX_CALLS } from '../config.js';
+import { CallRecord } from '../domain/call-record.js';
 
 const clean = (value, max = 160) => String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, max);
 const digits = (value, max = 24) => String(value == null ? '' : value).replace(/\D+/g, '').slice(0, max);
@@ -37,9 +38,9 @@ export function normalizeCanonicalCall(raw = {}, observedAt = new Date().toISOSt
   const durationSeconds = Math.max(0, Math.min(86_400, Number(raw.durationSeconds || 0)));
   if (!callKey || !usersideCallId || !startedAtMs) return null;
   const completed = durationSeconds > 0 && raw.ongoing !== true;
-  const recordId = String(raw.recordId || '').match(/^\d{9,12}\.\d{1,12}$/)?.[0] || '';
+  const recordId = String(raw.recordId || raw.pbxRecordId || '').match(/^\d{9,12}\.\d{1,12}$/)?.[0] || '';
   return {
-    schema: 'simnet-userside-call-v1',
+    schema: 'simnet-call-record-v2',
     callKey,
     usersideCallId,
     pbxRecordId: recordId,
@@ -75,7 +76,26 @@ export function normalizeCanonicalCall(raw = {}, observedAt = new Date().toISOSt
 }
 
 export function createCallStore() {
-  return { schema: 'simnet-call-repository-v1', calls: {}, unresolvedLegacy: [], updatedAt: '' };
+  return { schema: 'simnet-call-repository-v2', calls: {}, unresolvedLegacy: [], updatedAt: '' };
+}
+
+function mergeCanonical(previous = null, observed = {}) {
+  const preserved = previous || {};
+  const next = {
+    ...preserved,
+    ...observed,
+    schema: 'simnet-call-record-v2',
+    firstObservedAt: preserved.firstObservedAt || observed.firstObservedAt,
+    legacyAliases: [...new Set([...(preserved.legacyAliases || []), ...(observed.legacyAliases || [])])],
+    subscriber: preserved.subscriber || null,
+    registration: preserved.registration || undefined,
+    processing: preserved.processing || undefined,
+    transcript: preserved.transcript || null,
+    ai: preserved.ai || null,
+    writeback: preserved.writeback || undefined,
+    timeline: Array.isArray(preserved.timeline) ? preserved.timeline : []
+  };
+  return CallRecord.from(next).toJSON();
 }
 
 export function upsertCanonicalCall(store = createCallStore(), raw = {}, observedAt = new Date().toISOString()) {
@@ -83,14 +103,21 @@ export function upsertCanonicalCall(store = createCallStore(), raw = {}, observe
   if (!call) return { stored: false, call: null, store };
   const previous = store.calls?.[call.callKey] || null;
   store.calls ||= {};
-  store.calls[call.callKey] = {
-    ...(previous || {}),
-    ...call,
-    firstObservedAt: previous?.firstObservedAt || call.firstObservedAt,
-    legacyAliases: [...new Set([...(previous?.legacyAliases || []), ...(call.legacyAliases || [])])]
-  };
+  store.calls[call.callKey] = mergeCanonical(previous, call);
   store.updatedAt = observedAt;
   return { stored: true, call: store.calls[call.callKey], store };
+}
+
+export function mutateCall(store = createCallStore(), rawKey = '', mutator = () => {}, at = new Date().toISOString()) {
+  const call = getCall(store, rawKey);
+  if (!call) return { updated: false, call: null, store };
+  const record = CallRecord.from(call);
+  mutator(record);
+  const next = record.toJSON();
+  next.updatedAt = clean(at, 40);
+  store.calls[next.callKey] = next;
+  store.updatedAt = next.updatedAt;
+  return { updated: true, call: next, store };
 }
 
 export function cleanupCalls(store = createCallStore(), atMs = Date.now()) {
@@ -112,8 +139,20 @@ export function getCall(store = createCallStore(), rawKey = '') {
   return Object.values(store.calls || {}).find(call => (call.legacyAliases || []).includes(legacy)) || null;
 }
 
+export function findByPbxRecordId(store = createCallStore(), recordId = '') {
+  const legacy = legacyPbxKey(recordId);
+  if (!legacy) return null;
+  return Object.values(store.calls || {}).find(call => (
+    call?.pbxRecordId && `pbx:${call.pbxRecordId}` === legacy
+  ) || (call?.legacyAliases || []).includes(legacy)) || null;
+}
+
 export function listCalls(store = createCallStore()) {
   return Object.values(store.calls || {}).sort((a, b) => Number(b.startedAtMs || 0) - Number(a.startedAtMs || 0));
+}
+
+export function listAttentionCalls(store = createCallStore()) {
+  return listCalls(store).filter(call => CallRecord.from(call).needsAttention());
 }
 
 export const CallRepository = Object.freeze({
@@ -122,7 +161,10 @@ export const CallRepository = Object.freeze({
   legacyPbxKey,
   normalize: normalizeCanonicalCall,
   upsert: upsertCanonicalCall,
+  mutate: mutateCall,
   cleanup: cleanupCalls,
   get: getCall,
-  list: listCalls
+  findByPbxRecordId,
+  list: listCalls,
+  listAttention: listAttentionCalls
 });
