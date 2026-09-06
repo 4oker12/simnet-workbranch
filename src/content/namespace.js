@@ -10,6 +10,15 @@
   const MAX_LOG_ENTRIES = 400;
   const SENSITIVE_KEY_RE = /(?:csrf|token|password|passwd|secret|cookie|authorization|api[_-]?key)/i;
   let logWriteQueue = Promise.resolve();
+  let extensionContextDead = false;
+
+  function isContextInvalidated(error) {
+    return /Extension context invalidated|context invalidated/i.test(String(error?.message || error || ''));
+  }
+
+  function markContextInvalidated() {
+    extensionContextDead = true;
+  }
 
   function sanitize(value, depth = 0) {
     if (value == null || typeof value === 'boolean' || typeof value === 'number') return value;
@@ -39,7 +48,9 @@
   }
 
   async function appendPersistentLog(entry) {
+    if (extensionContextDead) return;
     logWriteQueue = logWriteQueue.then(async () => {
+      if (extensionContextDead) return;
       try {
         const raw = (await chrome.storage.local.get(LOG_KEY))?.[LOG_KEY] || {};
         const store = logStoreShape(raw);
@@ -48,6 +59,10 @@
         store.updatedAt = entry.at;
         await chrome.storage.local.set({ [LOG_KEY]: store });
       } catch (error) {
+        if (isContextInvalidated(error)) {
+          markContextInvalidated();
+          return;
+        }
         console.warn('[SIMNET WB][LOG] persistent write failed', error);
       }
     });
@@ -73,7 +88,7 @@
       details: safeDetails,
       page: pageRef()
     };
-    void appendPersistentLog(entry);
+    if (!extensionContextDead) void appendPersistentLog(entry);
     try {
       window.dispatchEvent(new CustomEvent('simnet-workbench-log', { detail: entry }));
     } catch {}
@@ -135,13 +150,33 @@
       info(scope, event, details) { return emitLog('info', scope, event, details); },
       warn(scope, event, details) { return emitLog('warn', scope, event, details); },
       error(scope, event, details) { return emitLog('error', scope, event, details); },
+      isContextInvalidated,
+      get contextInvalidated() { return extensionContextDead; },
       async recent(limit = 120) {
-        const raw = (await chrome.storage.local.get(LOG_KEY))?.[LOG_KEY] || {};
-        return logStoreShape(raw).entries.slice(0, Math.max(1, Math.min(400, Number(limit) || 120)));
+        if (extensionContextDead) return [];
+        try {
+          const raw = (await chrome.storage.local.get(LOG_KEY))?.[LOG_KEY] || {};
+          return logStoreShape(raw).entries.slice(0, Math.max(1, Math.min(400, Number(limit) || 120)));
+        } catch (error) {
+          if (isContextInvalidated(error)) {
+            markContextInvalidated();
+            return [];
+          }
+          throw error;
+        }
       },
       async clear() {
-        await chrome.storage.local.remove(LOG_KEY);
-        return true;
+        if (extensionContextDead) return false;
+        try {
+          await chrome.storage.local.remove(LOG_KEY);
+          return true;
+        } catch (error) {
+          if (isContextInvalidated(error)) {
+            markContextInvalidated();
+            return false;
+          }
+          throw error;
+        }
       }
     },
     fail: showFatal,
