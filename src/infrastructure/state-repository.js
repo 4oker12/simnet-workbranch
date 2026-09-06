@@ -13,6 +13,83 @@ export function withStateWriteLock(stateKey, task) {
   return tracked;
 }
 
+function timeOf(value) {
+  const parsed = Date.parse(String(value || ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function componentTime(component = {}, fallback = '') {
+  return Math.max(
+    timeOf(component?.updatedAt),
+    timeOf(component?.registeredAt),
+    timeOf(component?.createdAt),
+    timeOf(fallback)
+  );
+}
+
+function mergeTimeline(left = [], right = []) {
+  const rows = [...(Array.isArray(left) ? left : []), ...(Array.isArray(right) ? right : [])];
+  const seen = new Set();
+  return rows
+    .filter(row => row && typeof row === 'object')
+    .sort((a, b) => timeOf(a.at) - timeOf(b.at))
+    .filter(row => {
+      const key = `${row.at || ''}|${row.type || ''}|${JSON.stringify(row.details || null)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(-120);
+}
+
+function mergeCallLifecycle(nextCall = {}, liveCall = {}) {
+  const out = { ...nextCall };
+  let liveWon = false;
+  for (const key of ['subscriber', 'registration', 'processing', 'transcript', 'ai', 'writeback']) {
+    const live = liveCall?.[key];
+    if (!live || typeof live !== 'object') continue;
+    const next = nextCall?.[key];
+    if (!next || componentTime(live, liveCall.updatedAt) > componentTime(next, nextCall.updatedAt)) {
+      out[key] = live;
+      liveWon = true;
+    }
+  }
+  if (liveWon || (liveCall.timeline?.length || 0) > 0) {
+    out.timeline = mergeTimeline(nextCall.timeline, liveCall.timeline);
+  }
+  if (!out.pbxRecordId && liveCall.pbxRecordId) out.pbxRecordId = liveCall.pbxRecordId;
+  if (!out.legacyAliases?.length && liveCall.legacyAliases?.length) out.legacyAliases = liveCall.legacyAliases;
+  return out;
+}
+
+function rebaseCallRecords(nextState = {}, liveState = {}) {
+  const nextStore = nextState?.callModule?.calls;
+  const liveStore = liveState?.callModule?.calls;
+  if (!nextStore?.calls || !liveStore?.calls) return nextState;
+
+  for (const [key, nextCall] of Object.entries(nextStore.calls)) {
+    const liveCall = liveStore.calls[key];
+    if (liveCall) nextStore.calls[key] = mergeCallLifecycle(nextCall, liveCall);
+  }
+
+  const liveStoreNewer = timeOf(liveStore.updatedAt) > timeOf(nextStore.updatedAt);
+  if (liveStoreNewer) {
+    const canonicalPbxIds = new Set(
+      Object.values(nextStore.calls)
+        .map(call => String(call?.pbxRecordId || ''))
+        .filter(Boolean)
+    );
+    for (const [key, liveCall] of Object.entries(liveStore.calls)) {
+      if (nextStore.calls[key]) continue;
+      const pbxId = String(liveCall?.pbxRecordId || '');
+      if (pbxId && canonicalPbxIds.has(pbxId)) continue;
+      nextStore.calls[key] = liveCall;
+    }
+    nextStore.updatedAt = liveStore.updatedAt;
+  }
+  return nextState;
+}
+
 export function createStateRepository({ chromeApi, stateKey, clone, nowIso, onSlowWrite = null }) {
   let cache = null;
   let loadPromise = null;
@@ -50,6 +127,8 @@ export function createStateRepository({ chromeApi, stateKey, clone, nowIso, onSl
 
   async function writeCanonical(state) {
     return withStateWriteLock(stateKey, async () => {
+      const live = (await chromeApi.storage.local.get(stateKey))?.[stateKey] || null;
+      if (live) rebaseCallRecords(state, live);
       state.meta ||= {};
       state.meta.updatedAt = nowIso();
       const startedAt = Date.now();
@@ -75,3 +154,8 @@ export function createStateRepository({ chromeApi, stateKey, clone, nowIso, onSl
 
   return Object.freeze({ readRaw, ensureCache, read, writeCanonical, replaceCache, destroy });
 }
+
+export const StateRepositoryInternals = Object.freeze({
+  mergeCallLifecycle,
+  rebaseCallRecords
+});
