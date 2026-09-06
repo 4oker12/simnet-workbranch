@@ -40,19 +40,27 @@
     render();
   }
 
+  async function openAiSettings() {
+    const response = await chrome.runtime.sendMessage({ type: 'AI_RUNTIME_OPEN_SETTINGS' });
+    if (!response?.success) throw new Error(response?.error || 'Не удалось открыть настройки AI');
+  }
+
   function ensureRoot() {
     let host = document.getElementById(HOST_ID);
     if (!host) {
       host = document.createElement('div');
       host.id = HOST_ID;
-      Object.assign(host.style, {
-        position: 'fixed',
-        top: '68px',
-        right: '12px',
-        zIndex: '2147483644'
-      });
       document.documentElement.appendChild(host);
     }
+    Object.assign(host.style, {
+      all: 'initial',
+      position: 'fixed',
+      top: '68px',
+      right: '4px',
+      width: open ? 'min(380px, calc(100vw - 8px))' : 'max-content',
+      maxWidth: 'calc(100vw - 8px)',
+      zIndex: '2147483644'
+    });
     return host.shadowRoot || host.attachShadow({ mode: 'open' });
   }
 
@@ -67,15 +75,20 @@
         *,*::before,*::after{box-sizing:border-box}
         button{font:inherit}
         .shell{
-          width:min(380px,calc(100vw - 24px));
+          width:${open ? '100%' : 'max-content'};
+          max-width:100%;
+          margin-left:auto;
           color:#243247;
           font:12px/1.4 Inter,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
         }
         .toggle{
-          display:inline-flex;
+          display:flex;
           align-items:center;
           gap:8px;
+          width:max-content;
+          max-width:100%;
           height:40px;
+          margin-left:auto;
           padding:0 13px;
           border:1px solid #dce3eb;
           border-radius:13px;
@@ -118,12 +131,7 @@
           background:rgba(255,255,255,.97)
         }
         .head-copy{min-width:0}
-        .head strong{
-          display:block;
-          color:#243247;
-          font-size:14px;
-          line-height:1.2
-        }
+        .head strong{display:block;color:#243247;font-size:14px;line-height:1.2}
         .head small{
           display:block;
           margin-top:4px;
@@ -165,12 +173,7 @@
           line-height:1.45;
           overflow-wrap:anywhere
         }
-        .stats{
-          display:grid;
-          grid-template-columns:repeat(4,minmax(0,1fr));
-          gap:6px;
-          margin-top:10px
-        }
+        .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:10px}
         .stat{
           min-width:0;
           padding:8px 3px;
@@ -189,12 +192,7 @@
           text-overflow:ellipsis;
           white-space:nowrap
         }
-        .ai{
-          display:flex;
-          align-items:center;
-          justify-content:space-between;
-          gap:10px
-        }
+        .ai{display:flex;align-items:center;justify-content:space-between;gap:10px}
         .ai-copy{min-width:0;flex:1}
         .pill{
           display:inline-flex;
@@ -228,15 +226,12 @@
           font-weight:800;
           cursor:pointer
         }
-        .btn.secondary{
-          border:1px solid #dce3eb;
-          background:#fff;
-          color:#445266
-        }
+        .btn:hover{filter:brightness(1.05)}
+        .btn:active{transform:translateY(1px)}
+        .btn.secondary{border:1px solid #dce3eb;background:#fff;color:#445266}
         .foot{padding:0 0 2px;color:#9aa6b5;font-size:8.5px;text-align:center}
 
         @media (max-width:520px){
-          .shell{width:min(360px,calc(100vw - 20px))}
           .body{padding:10px}
           .card{padding:10px}
           .stats{gap:4px}
@@ -296,8 +291,14 @@
       open = false;
       render();
     });
-    root.querySelector('[data-wb-settings]')?.addEventListener('click', () => {
-      chrome.runtime.openOptionsPage?.();
+    root.querySelector('[data-wb-settings]')?.addEventListener('click', async event => {
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        await openAiSettings();
+      } catch (error) {
+        console.error('[SIMNET WB][PBX] AI settings open failed', error);
+      }
     });
     root.querySelector('[data-wb-refresh]')?.addEventListener('click', () => {
       void refreshData();
