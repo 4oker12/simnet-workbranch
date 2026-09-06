@@ -5,8 +5,6 @@
   if (!WB || window.top !== window.self || WB.debugLogUi) return;
 
   const LOG_KEY = WB.log?.key || 'simnet_workbench_debug_log_v1';
-  const STATE_KEY = WB.stateKey || 'simnet_workbench_state_v5';
-  const JOB_KEY = 'simnet_workbench_transcription_jobs_v1';
   const SUBMIT_DEBUG_KEY = 'simnet_workbench_call_submit_debug_v1';
   const HOST_ID = 'simnet-workbench-debug-log-host';
   const MAX_VISIBLE = 100;
@@ -24,21 +22,6 @@
   function compact(value, max = 900) {
     const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
     return text.length > max ? `${text.slice(0, max)}…` : text;
-  }
-
-  function statusOf(binding = {}) {
-    const raw = binding?.registrationStatus;
-    return raw && typeof raw === 'object' ? String(raw.state || '') : String(raw || '');
-  }
-
-  function jobMap(raw = {}) {
-    return raw?.jobs && typeof raw.jobs === 'object' ? raw.jobs : {};
-  }
-
-  function bindingMap(raw = {}) {
-    return raw?.callModule?.bindings?.bindings && typeof raw.callModule.bindings.bindings === 'object'
-      ? raw.callModule.bindings.bindings
-      : {};
   }
 
   function host() {
@@ -60,7 +43,7 @@
       <button class="toggle" type="button" title="Открыть журнал Workbench">WB LOG</button>
       <div class="panel">
         <div class="head"><div class="title">Workbench LOG</div><div class="actions"><button class="btn" data-action="copy" type="button">Копировать</button><button class="btn" data-action="clear" type="button">Очистить</button><button class="btn" data-action="close" type="button">×</button></div></div>
-        <div class="meta">Важные события CALL / UserSide / транскрипции. Секреты и CSRF не логируются.</div>
+        <div class="meta">Технический журнал Workbench. Глобальные CALL-статусы показываются в колокольчике и не дублируются каждой вкладкой.</div>
         <div class="list"></div>
       </div>`;
     document.documentElement.appendChild(node);
@@ -132,51 +115,6 @@
     refreshTimer = setTimeout(() => void refresh(), 50);
   }
 
-  function logBindingTransitions(oldState = {}, newState = {}) {
-    const before = bindingMap(oldState);
-    const after = bindingMap(newState);
-    for (const [callKey, binding] of Object.entries(after)) {
-      const prev = statusOf(before[callKey]);
-      const next = statusOf(binding);
-      if (!next || prev === next) continue;
-      const details = {
-        callKey,
-        customerId: binding?.customerId || binding?.identity?.customerId || '',
-        from: prev || 'none',
-        to: next,
-        mode: binding?.mode || '',
-        registeredAt: binding?.registeredAt || ''
-      };
-      if (next === 'registered') WB.log?.info?.('CALL', 'Регистрация подтверждена UserSide', details);
-      else if (next === 'submitting') WB.log?.info?.('CALL', 'Сохранение звонка отправлено в UserSide', details);
-      else if (next === 'review_required') WB.log?.warn?.('CALL', 'Результат сохранения не подтверждён', details);
-      else WB.log?.warn?.('CALL', `Статус регистрации изменён: ${next}`, details);
-    }
-  }
-
-  function logJobTransitions(oldRaw = {}, newRaw = {}) {
-    const before = jobMap(oldRaw);
-    const after = jobMap(newRaw);
-    for (const [jobId, job] of Object.entries(after)) {
-      const prev = String(before[jobId]?.status || '');
-      const next = String(job?.status || '');
-      if (!next || prev === next) continue;
-      const details = {
-        jobId,
-        callKey: job?.callKey || '',
-        customerId: job?.customerId || '',
-        pbxRecordId: job?.pbxRecordId || '',
-        from: prev || 'none',
-        to: next,
-        attempts: Number(job?.attempts || 0),
-        error: job?.error || ''
-      };
-      if (next === 'ERROR' || next === 'PBX_ERROR') WB.log?.error?.('CALL JOB', `Job ${next}`, details);
-      else if (next === 'WAIT_TRANSCRIBER' || next === 'WAIT_PBX') WB.log?.warn?.('CALL JOB', `Job ${next}`, details);
-      else WB.log?.info?.('CALL JOB', `Job ${next}`, details);
-    }
-  }
-
   function logSubmitCapture(snapshot = {}) {
     if (!snapshot?.capturedAt) return;
     const details = {
@@ -197,8 +135,6 @@
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'local') return;
-    if (changes?.[STATE_KEY]) logBindingTransitions(changes[STATE_KEY].oldValue || {}, changes[STATE_KEY].newValue || {});
-    if (changes?.[JOB_KEY]) logJobTransitions(changes[JOB_KEY].oldValue || {}, changes[JOB_KEY].newValue || {});
     if (changes?.[SUBMIT_DEBUG_KEY]?.newValue) logSubmitCapture(changes[SUBMIT_DEBUG_KEY].newValue);
     if (changes?.[LOG_KEY]) scheduleRefresh();
   });
