@@ -55,11 +55,21 @@ test('linked PBX waits recover when fresh and become actionable when old', () =>
   assert.match(bridge, /call\.status === 'WAIT_PBX' && Boolean\(call\.pbxRecordId\)/);
 });
 
-test('retry clears terminal processing state and reuses saved transcript', () => {
+test('retry stays inside the FIFO executor and reuses a saved transcript', () => {
   assert.match(processing, /\['cancelled', 'stale', 'failed'\]\.includes/);
   assert.match(processing, /p\.state = 'waiting'/);
-  assert.match(processing, /if \(call\?\.transcript\?\.storageKey\)/);
-  assert.match(processing, /return processUsersideWrite\(callKey\)/);
+  assert.match(processing, /if \(initial\.transcript\?\.storageKey && !force\)/);
+  assert.match(processing, /const cached = await readTranscript\(\{ callKey: key \}\)/);
+  assert.match(processing, /return processUsersideWrite\(key, cached, signal\)/);
+  assert.match(processing, /return processCall\(callKey, \{ force: force === true \}\)/);
+  assert.doesNotMatch(processing, /if \(call\?\.transcript\?\.storageKey\)\s*\{\s*return processUsersideWrite\(callKey\)/s);
+});
+
+test('service worker restart requeues interrupted calls instead of waiting for a stale timeout', () => {
+  assert.match(processing, /async function recoverInterruptedCalls\(\)/);
+  assert.match(processing, /requeued_after_worker_restart/);
+  assert.match(processing, /await recoverInterruptedCalls\(\);\s*await syncRegisteredCalls\(\);/);
+  assert.doesNotMatch(processing, /STALE_RUNNING_MS/);
 });
 
 test('legacy left CALL jobs panel is not injected', () => {
