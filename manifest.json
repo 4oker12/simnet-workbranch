@@ -63,7 +63,6 @@
         "src/ui/rail.js",
         "src/ui/settings-enhancer.js",
         "src/ui/responsive-layout.js",
-        "src/audit/audit-loader.js",
         "src/content/bootstrap.js"
       ],
       "run_at": "document_idle"
@@ -96,9 +95,6 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "src/audit/audit.html",
-        "src/audit/audit.css",
-        "src/audit/audit.js",
         "src/parsers/userside/tmc.js"
       ],
       "matches": [
