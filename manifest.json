@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET Workbench",
-  "version": "1.7.36.108",
+  "version": "1.7.36.109",
   "description": "SIMNET Workbench: facts + visits + direct if/else actions, without continuous page rescanning.",
   "permissions": [
     "storage",
@@ -13,10 +13,13 @@
     "https://userside.simnet.kiev.ua/*",
     "https://admin.simnet.kiev.ua/*",
     "https://admin.looknet.kiev.ua/*",
-    "https://api.groq.com/*"
+    "https://pbx.simnet.kiev.ua/*",
+    "https://api.groq.com/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
   ],
   "background": {
-    "service_worker": "src/background.js",
+    "service_worker": "src/background-entry.js",
     "type": "module"
   },
   "content_scripts": [
@@ -59,6 +62,16 @@
         "src/content/bootstrap.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://pbx.simnet.kiev.ua/*"
+      ],
+      "js": [
+        "src/pbx/pbx-observer.js",
+        "src/pbx/pbx-analysis-ui.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "action": {
@@ -86,7 +99,7 @@
       ]
     }
   ],
-  "version_name": "1.7.36.108-call-live-routing-maintenance",
+  "version_name": "1.7.36.109-pbx-manual-call-analysis",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }
