@@ -53,10 +53,10 @@
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      .wb-pbx-manual-tools{display:inline-flex;align-items:center;gap:4px;margin-left:6px;vertical-align:middle;white-space:nowrap}
-      .wb-pbx-manual-run,.wb-pbx-manual-result{height:22px;min-width:24px;box-sizing:border-box;padding:0 5px;border:1px solid #8798a3;border-radius:4px;background:#fff;color:#17384d;font:700 11px/20px Arial,sans-serif;text-align:center;cursor:pointer}
+      .wb-pbx-manual-tools{display:inline-flex;align-items:center;gap:4px;width:52px;margin-left:6px;vertical-align:middle;white-space:nowrap}
+      .wb-pbx-manual-run,.wb-pbx-manual-result{height:22px;width:24px;min-width:24px;box-sizing:border-box;padding:0 4px;border:1px solid #8798a3;border-radius:4px;background:#fff;color:#17384d;font:700 11px/20px Arial,sans-serif;text-align:center;cursor:pointer}
       .wb-pbx-manual-run[data-mode="cancel"]{background:#fff2f2;border-color:#c96b6b;color:#8a2424}
-      .wb-pbx-manual-result[data-state="idle"]{display:none}
+      .wb-pbx-manual-result[data-state="idle"]{visibility:hidden;pointer-events:none}
       .wb-pbx-manual-result[data-state="processing"]{background:#fff7dc;border-color:#bf9b35;color:#6a5200;cursor:progress}
       .wb-pbx-manual-result[data-state="ready"]{background:#e9f6ec;border-color:#4f9461;color:#245d31}
       .wb-pbx-manual-result[data-state="partial"]{background:#edf4f8;border-color:#6e91a5;color:#36586b}
@@ -144,6 +144,21 @@
     return { state: 'idle', badge: '', busy: false };
   }
 
+  function setText(node, value) {
+    const next = String(value == null ? '' : value);
+    if (node && node.textContent !== next) node.textContent = next;
+  }
+
+  function setTitle(node, value) {
+    const next = String(value == null ? '' : value);
+    if (node && node.title !== next) node.title = next;
+  }
+
+  function setData(node, key, value) {
+    const next = String(value == null ? '' : value);
+    if (node && node.dataset?.[key] !== next) node.dataset[key] = next;
+  }
+
   function refreshOne(recordId) {
     const view = mounted.get(recordId);
     if (!view?.root?.isConnected) {
@@ -152,18 +167,18 @@
     }
     const record = records[recordId] || null;
     const state = viewState(record);
-    view.run.dataset.mode = state.busy ? 'cancel' : 'run';
-    view.run.textContent = state.busy ? '×' : (record && record.status !== 'idle' ? '↻' : '✦');
-    view.run.title = state.busy
+    setData(view.run, 'mode', state.busy ? 'cancel' : 'run');
+    setText(view.run, state.busy ? '×' : (record && record.status !== 'idle' ? '↻' : '✦'));
+    setTitle(view.run, state.busy
       ? 'Отменить текущую обработку'
       : record && record.status !== 'idle'
         ? 'Продолжить/перезапустить разбор этого звонка'
-        : 'Разобрать этот звонок';
-    view.result.dataset.state = state.state;
-    view.result.textContent = state.badge;
-    view.result.title = state.state === 'ready' ? 'AI-разбор готов'
+        : 'Разобрать этот звонок');
+    setData(view.result, 'state', state.state);
+    setText(view.result, state.badge);
+    setTitle(view.result, state.state === 'ready' ? 'AI-разбор готов'
       : state.state === 'error' ? 'Ошибка разбора'
-        : state.state === 'stopped' ? 'Обработка остановлена — можно продолжить' : 'Состояние разбора';
+        : state.state === 'stopped' ? 'Обработка остановлена — можно продолжить' : 'Состояние разбора');
   }
 
   function refreshAll() {
@@ -363,12 +378,39 @@
     refreshOne(call.recordId);
   }
 
+  function isOwnedMutationNode(node) {
+    const element = node?.nodeType === 1 ? node : node?.parentElement;
+    if (!element) return false;
+    return Boolean(
+      element.matches?.('.wb-pbx-manual-tools,#simnet-wb-pbx-manual-analysis-popover')
+      || element.closest?.('.wb-pbx-manual-tools,#simnet-wb-pbx-manual-analysis-popover')
+    );
+  }
+
+  function mutationNeedsScan(mutations = []) {
+    return mutations.some(mutation => {
+      const target = mutation?.target?.nodeType === 1 ? mutation.target : mutation?.target?.parentElement;
+      if (isOwnedMutationNode(target)) return false;
+
+      const changedNodes = [
+        ...Array.from(mutation?.addedNodes || []),
+        ...Array.from(mutation?.removedNodes || [])
+      ].filter(node => node?.nodeType === 1);
+      if (changedNodes.length && changedNodes.every(isOwnedMutationNode)) return false;
+
+      if (target?.closest?.('table')) return true;
+      return changedNodes.some(node => (
+        String(node.tagName || '').toLowerCase() === 'table'
+        || Boolean(node.querySelector?.('table'))
+      ));
+    });
+  }
+
   function scan() {
     clearTimeout(scanTimer);
     scanTimer = setTimeout(() => {
       installStyle();
       for (const call of parseCalls()) mount(call);
-      refreshAll();
     }, 80);
   }
 
@@ -380,7 +422,9 @@
     return false;
   });
 
-  const observer = new MutationObserver(scan);
+  const observer = new MutationObserver(mutations => {
+    if (mutationNeedsScan(mutations)) scan();
+  });
   observer.observe(document.documentElement, { childList: true, subtree: true });
   installStyle();
   void refreshStatus();
