@@ -11,7 +11,8 @@ const TYPES = Object.freeze({
   GET: 'AI_RUNTIME_GET',
   SAVE: 'AI_RUNTIME_SAVE',
   TEST: 'AI_RUNTIME_TEST',
-  DELETE_KEY: 'AI_RUNTIME_DELETE_KEY'
+  DELETE_KEY: 'AI_RUNTIME_DELETE_KEY',
+  OPEN_SETTINGS: 'AI_RUNTIME_OPEN_SETTINGS'
 });
 
 function clean(value, max = 280) {
@@ -116,6 +117,11 @@ async function testKey(payload = {}) {
   }
 }
 
+async function openSettings() {
+  await chrome.runtime.openOptionsPage();
+  return { opened: true };
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const type = String(message?.type || '');
   if (!Object.values(TYPES).includes(type)) return false;
@@ -127,7 +133,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       ? saveConfig(payload)
       : type === TYPES.TEST
         ? testKey(payload)
-        : deleteKey();
+        : type === TYPES.OPEN_SETTINGS
+          ? openSettings()
+          : deleteKey();
 
   void action
     .then(data => sendResponse({ success: true, data }))
