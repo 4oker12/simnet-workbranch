@@ -27,6 +27,16 @@ function errorMessage(error) {
   return error instanceof Error ? error.message : String(error || 'unknown error');
 }
 
+function abortError(message = 'Операция отменена оператором') {
+  const error = new Error(message);
+  error.name = 'AbortError';
+  return error;
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw abortError();
+}
+
 function internalSender(sender = {}) {
   if (sender.id && sender.id !== chrome.runtime.id) return false;
   const url = String(sender.url || sender.tab?.url || '');
@@ -113,18 +123,28 @@ async function writeConfig(payload = {}) {
   return next;
 }
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = HEALTH_TIMEOUT_MS) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = HEALTH_TIMEOUT_MS, externalSignal = null) {
+  throwIfAborted(externalSignal);
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort('timeout'), timeoutMs);
+  let timedOut = false;
+  const onExternalAbort = () => controller.abort('external-cancel');
+  if (externalSignal) externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort('timeout');
+  }, timeoutMs);
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } catch (error) {
-    if (controller.signal.aborted) {
+    if (externalSignal?.aborted) throw abortError();
+    if (controller.signal.aborted && timedOut) {
       throw new Error(`Таймаут запроса ${Math.round(timeoutMs / 1000)} сек.`);
     }
+    if (controller.signal.aborted) throw abortError();
     throw error;
   } finally {
     clearTimeout(timeoutId);
+    if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
   }
 }
 
@@ -154,20 +174,23 @@ export async function transcriberHealth() {
   return { config, health };
 }
 
-async function fetchPbxAudio(recordUrl) {
+async function fetchPbxAudio(recordUrl, signal = null) {
+  throwIfAborted(signal);
   const response = await fetchWithTimeout(recordUrl.href, {
     method: 'GET',
     credentials: 'include',
     cache: 'no-store',
     redirect: 'follow'
-  }, 30_000);
+  }, 30_000, signal);
 
   if (!response.ok) {
     throw new Error(`PBX: HTTP ${response.status}`);
   }
 
+  throwIfAborted(signal);
   const contentType = String(response.headers.get('content-type') || '').toLowerCase();
   const blob = await response.blob();
+  throwIfAborted(signal);
   if (!blob.size) throw new Error('PBX вернул пустую запись');
   if (blob.size > MAX_AUDIO_BYTES) {
     throw new Error(`Запись PBX больше ${Math.round(MAX_AUDIO_BYTES / 1024 / 1024)} MiB`);
@@ -236,7 +259,8 @@ function progress(onProgress, stage, details = {}) {
   }
 }
 
-export async function transcribeRecord(payload = {}, onProgress = null) {
+export async function transcribeRecord(payload = {}, onProgress = null, signal = null) {
+  throwIfAborted(signal);
   const recordUrl = normalizeRecordUrl(payload.recordUrl);
   const recordId = recordIdFromUrl(recordUrl);
   const callKey = transcriptKey(payload, recordId);
@@ -245,6 +269,7 @@ export async function transcribeRecord(payload = {}, onProgress = null) {
   if (payload.force !== true) {
     const cached = await readTranscript({ ...payload, callKey, recordUrl: recordUrl.href });
     if (cached?.pbxRecordId === recordId && cached?.text) {
+      throwIfAborted(signal);
       await progress(onProgress, 'TRANSCRIPT_READY', {
         cached: true,
         fileBytes: Number(cached.fileBytes || 0),
@@ -262,8 +287,10 @@ export async function transcribeRecord(payload = {}, onProgress = null) {
     ? String(payload.profile).toLowerCase()
     : config.profile;
 
+  throwIfAborted(signal);
   await progress(onProgress, 'AUDIO_FETCHING', { recordId });
-  const audio = await fetchPbxAudio(recordUrl);
+  const audio = await fetchPbxAudio(recordUrl, signal);
+  throwIfAborted(signal);
   await progress(onProgress, 'AUDIO_READY', {
     recordId,
     fileBytes: audio.size,
@@ -284,7 +311,8 @@ export async function transcribeRecord(payload = {}, onProgress = null) {
     method: 'POST',
     body: form,
     cache: 'no-store'
-  }, TRANSCRIBE_TIMEOUT_MS);
+  }, TRANSCRIBE_TIMEOUT_MS, signal);
+  throwIfAborted(signal);
   const result = await responseJson(response, 'Transcriber');
   const text = String(result.text || '').trim();
   if (!result.ok || !text) {
@@ -294,6 +322,7 @@ export async function transcribeRecord(payload = {}, onProgress = null) {
     throw new Error(`Транскрипт превышает лимит ${MAX_TRANSCRIPT_CHARS} символов`);
   }
 
+  throwIfAborted(signal);
   const now = Date.now();
   const entry = {
     schemaVersion: 1,
@@ -329,6 +358,7 @@ export async function transcribeRecord(payload = {}, onProgress = null) {
   };
 
   const saved = await saveTranscript(entry);
+  throwIfAborted(signal);
   await progress(onProgress, 'TRANSCRIPT_READY', {
     cached: false,
     fileBytes: saved.fileBytes,
