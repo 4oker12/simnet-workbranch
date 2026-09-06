@@ -1,6 +1,30 @@
+const SHARED_WRITE_QUEUES = globalThis.__SIMNET_WB_STATE_WRITE_QUEUES__ ||= new Map();
+
+export function withStateWriteLock(stateKey, task) {
+  const key = String(stateKey || 'workbench-state');
+  const previous = SHARED_WRITE_QUEUES.get(key) || Promise.resolve();
+  const next = previous
+    .catch(() => undefined)
+    .then(() => task());
+  const tracked = next.finally(() => {
+    if (SHARED_WRITE_QUEUES.get(key) === tracked) SHARED_WRITE_QUEUES.delete(key);
+  });
+  SHARED_WRITE_QUEUES.set(key, tracked);
+  return tracked;
+}
+
 export function createStateRepository({ chromeApi, stateKey, clone, nowIso, onSlowWrite = null }) {
   let cache = null;
   let loadPromise = null;
+
+  const onStorageChanged = (changes, areaName) => {
+    if (areaName !== 'local' || !changes?.[stateKey]) return;
+    const next = changes[stateKey].newValue;
+    cache = next ? clone(next) : null;
+    loadPromise = null;
+  };
+
+  chromeApi?.storage?.onChanged?.addListener?.(onStorageChanged);
 
   async function readRaw(keys) {
     return chromeApi.storage.local.get(keys);
@@ -25,22 +49,29 @@ export function createStateRepository({ chromeApi, stateKey, clone, nowIso, onSl
   }
 
   async function writeCanonical(state) {
-    state.meta ||= {};
-    state.meta.updatedAt = nowIso();
-    const startedAt = Date.now();
-    // The only physical canonical Workbench State write.
-    await chromeApi.storage.local.set({ [stateKey]: state });
-    if (chromeApi?.runtime?.id) cache = clone(state);
-    const elapsedMs = Date.now() - startedAt;
-    if (elapsedMs >= 1200 && typeof onSlowWrite === 'function') {
-      await onSlowWrite({ elapsedMs, caseCount: Object.keys(state.cases || {}).length });
-    }
-    return state;
+    return withStateWriteLock(stateKey, async () => {
+      state.meta ||= {};
+      state.meta.updatedAt = nowIso();
+      const startedAt = Date.now();
+      await chromeApi.storage.local.set({ [stateKey]: state });
+      if (chromeApi?.runtime?.id) cache = clone(state);
+      const elapsedMs = Date.now() - startedAt;
+      if (elapsedMs >= 1200 && typeof onSlowWrite === 'function') {
+        await onSlowWrite({ elapsedMs, caseCount: Object.keys(state.cases || {}).length });
+      }
+      return state;
+    });
   }
 
   function replaceCache(state) {
     cache = state ? clone(state) : null;
   }
 
-  return Object.freeze({ readRaw, ensureCache, read, writeCanonical, replaceCache });
+  function destroy() {
+    chromeApi?.storage?.onChanged?.removeListener?.(onStorageChanged);
+    cache = null;
+    loadPromise = null;
+  }
+
+  return Object.freeze({ readRaw, ensureCache, read, writeCanonical, replaceCache, destroy });
 }
