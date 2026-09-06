@@ -1,3 +1,4 @@
+import './infrastructure/service-worker-error-log.js';
 import './ai/runtime-service.js';
 import './features/call/transcription/submission-debug.js';
 import './background.js';
