@@ -3,15 +3,15 @@
 
   if (window.top !== window.self || location.hostname !== 'pbx.simnet.kiev.ua') return;
 
-  const JOBS_KEY = 'simnet_workbench_pbx_manual_analysis_jobs_v1';
   const START = 'PBX_MANUAL_ANALYSIS_START';
   const CANCEL = 'PBX_MANUAL_ANALYSIS_CANCEL';
   const STATUS = 'PBX_MANUAL_ANALYSIS_STATUS';
+  const CHANGED = 'CALL_PROCESSING_CHANGED';
   const STYLE_ID = 'simnet-wb-pbx-manual-analysis-style';
   const POPOVER_ID = 'simnet-wb-pbx-manual-analysis-popover';
   const ACTIVE_STATUSES = new Set(['queued', 'downloading', 'transcribing', 'analyzing', 'cancelling']);
   const mounted = new Map();
-  let jobs = {};
+  let records = {};
   let scanTimer = 0;
   let hideTimer = 0;
 
@@ -55,7 +55,6 @@
     style.textContent = `
       .wb-pbx-manual-tools{display:inline-flex;align-items:center;gap:4px;margin-left:6px;vertical-align:middle;white-space:nowrap}
       .wb-pbx-manual-run,.wb-pbx-manual-result{height:22px;min-width:24px;box-sizing:border-box;padding:0 5px;border:1px solid #8798a3;border-radius:4px;background:#fff;color:#17384d;font:700 11px/20px Arial,sans-serif;text-align:center;cursor:pointer}
-      .wb-pbx-manual-run:disabled{cursor:wait;opacity:.6}
       .wb-pbx-manual-run[data-mode="cancel"]{background:#fff2f2;border-color:#c96b6b;color:#8a2424}
       .wb-pbx-manual-result[data-state="idle"]{display:none}
       .wb-pbx-manual-result[data-state="processing"]{background:#fff7dc;border-color:#bf9b35;color:#6a5200;cursor:progress}
@@ -123,25 +122,26 @@
     return result;
   }
 
-  function viewState(job) {
-    if (!job) return { state: 'idle', badge: '', busy: false };
-    if (ACTIVE_STATUSES.has(job.status)) {
-      const badge = job.status === 'downloading'
-        ? 'DL'
-        : job.status === 'transcribing'
-          ? 'TXT'
-          : job.status === 'analyzing'
-            ? 'AI…'
-            : job.status === 'cancelling'
-              ? '×'
-              : '…';
+  async function runtimeRequest(type, payload = {}) {
+    const response = await chrome.runtime.sendMessage({ type, payload });
+    if (!response?.success) throw new Error(response?.error || 'Service worker не ответил');
+    return response.data;
+  }
+
+  function viewState(record) {
+    if (!record || record.status === 'idle') return { state: 'idle', badge: '', busy: false };
+    if (ACTIVE_STATUSES.has(record.status)) {
+      const badge = record.status === 'downloading' ? 'DL'
+        : record.status === 'transcribing' ? 'TXT'
+          : record.status === 'analyzing' ? 'AI…'
+            : record.status === 'cancelling' ? '×' : '…';
       return { state: 'processing', badge, busy: true };
     }
-    if (job.status === 'ready') return { state: 'ready', badge: 'AI', busy: false };
-    if (job.status === 'transcribed') return { state: 'partial', badge: 'TXT', busy: false };
-    if (['cancelled', 'interrupted'].includes(job.status)) return { state: 'stopped', badge: '■', busy: false };
-    if (job.status === 'error') return { state: 'error', badge: '!', busy: false };
-    return { state: 'partial', badge: 'TXT', busy: false };
+    if (record.status === 'ready') return { state: 'ready', badge: 'AI', busy: false };
+    if (record.status === 'transcribed') return { state: 'partial', badge: 'TXT', busy: false };
+    if (['cancelled', 'interrupted'].includes(record.status)) return { state: 'stopped', badge: '■', busy: false };
+    if (record.status === 'error') return { state: 'error', badge: '!', busy: false };
+    return { state: 'idle', badge: '', busy: false };
   }
 
   function refreshOne(recordId) {
@@ -150,52 +150,52 @@
       mounted.delete(recordId);
       return;
     }
-    const job = jobs[recordId] || null;
-    const state = viewState(job);
-    view.run.disabled = false;
+    const record = records[recordId] || null;
+    const state = viewState(record);
     view.run.dataset.mode = state.busy ? 'cancel' : 'run';
-    view.run.textContent = state.busy ? '×' : (job ? '↻' : '✦');
+    view.run.textContent = state.busy ? '×' : (record && record.status !== 'idle' ? '↻' : '✦');
     view.run.title = state.busy
       ? 'Отменить текущую обработку'
-      : job
-        ? 'Перезапустить разбор этого звонка'
+      : record && record.status !== 'idle'
+        ? 'Продолжить/перезапустить разбор этого звонка'
         : 'Разобрать этот звонок';
     view.result.dataset.state = state.state;
     view.result.textContent = state.badge;
-    view.result.title = state.state === 'ready'
-      ? 'AI-разбор готов'
-      : state.state === 'error'
-        ? 'Ошибка разбора'
-        : state.state === 'stopped'
-          ? 'Обработка остановлена — можно перезапустить'
-          : 'Состояние разбора';
+    view.result.title = state.state === 'ready' ? 'AI-разбор готов'
+      : state.state === 'error' ? 'Ошибка разбора'
+        : state.state === 'stopped' ? 'Обработка остановлена — можно продолжить' : 'Состояние разбора';
   }
 
   function refreshAll() {
     for (const recordId of mounted.keys()) refreshOne(recordId);
   }
 
-  async function runtimeRequest(type, payload = {}) {
-    const response = await chrome.runtime.sendMessage({ type, payload });
-    if (!response?.success) throw new Error(response?.error || 'Service worker не ответил');
-    return response.data;
+  async function refreshStatus(recordId = '') {
+    try {
+      const data = await runtimeRequest(STATUS, recordId ? { recordId } : {});
+      if (recordId) {
+        if (data) records = { ...records, [recordId]: data };
+        else if (records[recordId]) {
+          const next = { ...records };
+          delete next[recordId];
+          records = next;
+        }
+        refreshOne(recordId);
+      } else {
+        records = data && typeof data === 'object' ? data : {};
+        refreshAll();
+      }
+      return data;
+    } catch (error) {
+      console.warn('[SIMNET Workbench][PBX MANUAL ANALYSIS] status unavailable', error);
+      return null;
+    }
   }
 
   async function requestAnalysis(call) {
-    const old = jobs[call.recordId] || null;
-    jobs = {
-      ...jobs,
-      [call.recordId]: {
-        ...(old || {}),
-        recordId: call.recordId,
-        call,
-        status: 'queued',
-        error: '',
-        aiError: ''
-      }
-    };
+    const old = records[call.recordId] || null;
+    records = { ...records, [call.recordId]: { ...(old || {}), recordId: call.recordId, call, status: 'queued', error: '', aiError: '' } };
     refreshOne(call.recordId);
-
     try {
       const result = await runtimeRequest(START, {
         call: {
@@ -216,45 +216,23 @@
         forceTranscribe: false,
         forceAnalysis: Boolean(old)
       });
-      jobs = { ...jobs, [call.recordId]: result };
+      if (result) records = { ...records, [call.recordId]: result };
     } catch (error) {
-      jobs = {
-        ...jobs,
-        [call.recordId]: {
-          ...(jobs[call.recordId] || {}),
-          status: 'error',
-          error: compact(error?.message || error || 'Не удалось запустить разбор', 700)
-        }
-      };
+      records = { ...records, [call.recordId]: { ...(records[call.recordId] || {}), status: 'error', error: compact(error?.message || error || 'Не удалось запустить разбор', 700) } };
       console.error('[SIMNET Workbench][PBX MANUAL ANALYSIS]', error);
     }
     refreshOne(call.recordId);
   }
 
   async function cancelAnalysis(call) {
-    const previous = jobs[call.recordId] || {};
-    jobs = {
-      ...jobs,
-      [call.recordId]: {
-        ...previous,
-        recordId: call.recordId,
-        call,
-        status: 'cancelling'
-      }
-    };
+    const previous = records[call.recordId] || {};
+    records = { ...records, [call.recordId]: { ...previous, recordId: call.recordId, call, status: 'cancelling' } };
     refreshOne(call.recordId);
     try {
       const result = await runtimeRequest(CANCEL, { recordId: call.recordId });
-      jobs = { ...jobs, [call.recordId]: result };
+      if (result) records = { ...records, [call.recordId]: result };
     } catch (error) {
-      jobs = {
-        ...jobs,
-        [call.recordId]: {
-          ...previous,
-          status: 'error',
-          error: compact(error?.message || error || 'Не удалось отменить обработку', 700)
-        }
-      };
+      records = { ...records, [call.recordId]: { ...previous, status: 'error', error: compact(error?.message || error || 'Не удалось отменить обработку', 700) } };
     }
     refreshOne(call.recordId);
   }
@@ -288,47 +266,39 @@
 
   function showPopover(recordId, anchor) {
     clearTimeout(hideTimer);
-    const job = jobs[recordId];
-    if (!job) return;
+    const record = records[recordId];
+    if (!record) return;
+    void refreshStatus(recordId);
 
     const popover = ensurePopover();
     popover.replaceChildren();
-
     const head = document.createElement('div');
     head.className = 'h';
-    head.textContent = job.analysis?.summary || 'Разбор звонка';
+    head.textContent = record.analysis?.summary || 'Разбор звонка';
     const meta = document.createElement('div');
     meta.className = 'm';
-    meta.textContent = [job.call?.date, job.call?.time, job.call?.duration, job.call?.callerId, job.call?.agent].filter(Boolean).join(' · ');
+    meta.textContent = [record.call?.date, record.call?.time, record.call?.duration, record.call?.callerId, record.call?.agent].filter(Boolean).join(' · ');
     popover.append(head, meta);
 
-    if (job.status === 'error') {
-      addText(popover, 'Ошибка', job.error || 'Неизвестная ошибка');
-    } else if (job.status === 'cancelled') {
-      addText(popover, 'Статус', 'Обработка отменена. Нажмите ↻ возле звонка, чтобы запустить снова.');
-    } else if (job.status === 'interrupted') {
-      addText(popover, 'Статус', job.error || 'Обработка была прервана. Нажмите ↻, чтобы продолжить.');
-    } else if (ACTIVE_STATUSES.has(job.status)) {
-      const text = job.status === 'downloading'
-        ? 'Загружается запись из PBX. Нажмите ×, чтобы отменить.'
-        : job.status === 'transcribing'
-          ? 'Whisper распознаёт аудио. Нажмите ×, чтобы отменить.'
-          : job.status === 'analyzing'
-            ? 'Транскрипт готов; идёт AI-разбор. Нажмите ×, чтобы отменить.'
-            : job.status === 'cancelling'
-              ? 'Останавливаю текущую обработку.'
-              : 'Задание поставлено в обработку. Нажмите ×, чтобы отменить.';
+    if (record.status === 'error') addText(popover, 'Ошибка', record.error || 'Неизвестная ошибка');
+    else if (record.status === 'cancelled') addText(popover, 'Статус', 'Обработка отменена. Нажмите ↻ возле звонка, чтобы продолжить.');
+    else if (record.status === 'interrupted') addText(popover, 'Статус', record.error || 'Обработка была прервана. Нажмите ↻, чтобы продолжить.');
+    else if (ACTIVE_STATUSES.has(record.status)) {
+      const text = record.status === 'downloading' ? 'Загружается запись из PBX. Нажмите ×, чтобы отменить.'
+        : record.status === 'transcribing' ? 'Whisper распознаёт аудио. Нажмите ×, чтобы отменить.'
+          : record.status === 'analyzing' ? 'Транскрипт готов; идёт AI-разбор. Нажмите ×, чтобы отменить.'
+            : 'Звонок находится в обработке.';
       addText(popover, 'Статус', text);
     } else {
-      addText(popover, 'Суть', job.analysis?.summary);
-      addText(popover, 'Причина обращения', job.analysis?.issue);
-      addText(popover, 'Действия оператора', job.analysis?.actions);
-      addText(popover, 'Результат', job.analysis?.result);
-      addText(popover, 'Следующий шаг', job.analysis?.nextStep);
-      if (job.aiError) addText(popover, 'AI', `${job.aiError} Транскрипт при этом сохранён.`);
+      addText(popover, 'Суть', record.analysis?.summary);
+      addText(popover, 'Причина обращения', record.analysis?.issue);
+      addText(popover, 'Действия оператора', record.analysis?.actions);
+      addText(popover, 'Результат', record.analysis?.result);
+      addText(popover, 'Следующий шаг', record.analysis?.nextStep);
+      if (record.aiError) addText(popover, 'AI', `${record.aiError} Транскрипт сохранён.`);
     }
 
-    const transcript = job.analysis?.cleanText || job.transcript?.text || '';
+    const transcript = record.analysis?.cleanText || record.transcript?.text || '';
     if (transcript) {
       const details = document.createElement('details');
       const summary = document.createElement('summary');
@@ -364,11 +334,9 @@
   function mount(call) {
     if (mounted.get(call.recordId)?.root?.isConnected) return;
     if (call.callCell.querySelector(`.wb-pbx-manual-tools[data-record-id="${call.recordId}"]`)) return;
-
     const root = document.createElement('span');
     root.className = 'wb-pbx-manual-tools';
     root.dataset.recordId = call.recordId;
-
     const run = document.createElement('button');
     run.type = 'button';
     run.className = 'wb-pbx-manual-run';
@@ -377,11 +345,10 @@
     run.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
-      const job = jobs[call.recordId] || null;
-      if (job && ACTIVE_STATUSES.has(job.status)) void cancelAnalysis(call);
+      const record = records[call.recordId] || null;
+      if (record && ACTIVE_STATUSES.has(record.status)) void cancelAnalysis(call);
       else void requestAnalysis(call);
     });
-
     const result = document.createElement('span');
     result.className = 'wb-pbx-manual-result';
     result.dataset.state = 'idle';
@@ -390,7 +357,6 @@
     result.addEventListener('mouseleave', hidePopoverSoon);
     result.addEventListener('focus', () => showPopover(call.recordId, result));
     result.addEventListener('blur', hidePopoverSoon);
-
     root.append(run, result);
     call.callCell.appendChild(root);
     mounted.set(call.recordId, { root, run, result, call });
@@ -406,27 +372,17 @@
     }, 80);
   }
 
-  async function loadJobs() {
-    try {
-      const data = await runtimeRequest(STATUS);
-      jobs = data && typeof data === 'object' ? data : {};
-      refreshAll();
-    } catch (error) {
-      console.warn('[SIMNET Workbench][PBX MANUAL ANALYSIS] status unavailable', error);
-    }
-  }
-
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'local' || !changes[JOBS_KEY]) return;
-    const value = changes[JOBS_KEY].newValue;
-    jobs = value && typeof value === 'object' ? value : {};
-    refreshAll();
+  chrome.runtime.onMessage.addListener(message => {
+    if (message?.type !== CHANGED) return false;
+    const recordId = String(message?.payload?.recordId || '');
+    if (recordId) void refreshStatus(recordId);
+    else void refreshStatus();
+    return false;
   });
 
   const observer = new MutationObserver(scan);
   observer.observe(document.documentElement, { childList: true, subtree: true });
-
   installStyle();
-  void loadJobs();
+  void refreshStatus();
   scan();
 })();
