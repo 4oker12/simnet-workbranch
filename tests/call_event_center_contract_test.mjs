@@ -46,13 +46,12 @@ test('work tab is a FIFO queue and history contains only calls outside active wo
   assert.match(bridge, /Обработка завершена\. Звонок находится в истории/);
 });
 
-test('linked PBX waits recover when fresh and become actionable when old', () => {
-  assert.match(processing, /await syncRegisteredCalls\(\);\s*const calls = await CallStateStore\.list\(\)/);
-  assert.match(processing, /const linkedPbxInterrupted = rawStatus === 'WAIT_PBX' && Boolean\(recordIdOf\(call\)\)/);
-  assert.match(processing, /const status = linkedPbxInterrupted \? 'STALE' : rawStatus/);
+test('PBX waiting and queued states are separated', () => {
+  assert.match(processing, /if \(!call\.pbxRecordId\) return 'WAIT_PBX'/);
+  assert.match(processing, /lastSuccessfulStage \|\| ''\) !== 'pbx'/);
+  assert.match(processing, /execution\?\.state === 'queued'\s*\? 'QUEUED'/s);
+  assert.match(processing, /&& !execution\s*&& ageMs >= AUTO_LOCK_WINDOW_MS/s);
   assert.match(bridge, /status === 'WAIT_PBX' && call\.needsAttention && !call\.pbxRecordId/);
-  assert.match(bridge, /maybeResumeLinkedCalls/);
-  assert.match(bridge, /call\.status === 'WAIT_PBX' && Boolean\(call\.pbxRecordId\)/);
 });
 
 test('retry stays inside the FIFO executor and reuses a saved transcript', () => {
@@ -68,8 +67,14 @@ test('retry stays inside the FIFO executor and reuses a saved transcript', () =>
 test('service worker restart requeues interrupted calls instead of waiting for a stale timeout', () => {
   assert.match(processing, /async function recoverInterruptedCalls\(\)/);
   assert.match(processing, /requeued_after_worker_restart/);
+  assert.match(processing, /прервано перезапуском Service Worker; возвращено в очередь/);
   assert.match(processing, /await recoverInterruptedCalls\(\);\s*await syncRegisteredCalls\(\);/);
   assert.doesNotMatch(processing, /STALE_RUNNING_MS/);
+});
+
+test('automatic queue starts cannot leak unhandled rejections', () => {
+  assert.match(processing, /function reportAutoStartFailure\(/);
+  assert.match(processing, /processCall\(callKey\)\.catch\(error => reportAutoStartFailure\(callKey, error\)\)/);
 });
 
 test('legacy left CALL jobs panel is not injected', () => {
