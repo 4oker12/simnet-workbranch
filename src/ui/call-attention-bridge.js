@@ -25,6 +25,14 @@
   let refreshPromise = null;
   let waitTimer = 0;
 
+  const bridgeStyle = document.createElement('style');
+  bridgeStyle.textContent = `
+    .attention-popup{width:min(390px,calc(100vw - 24px))!important;max-height:min(72vh,680px);overflow:auto!important}
+    .attention-popup .attention-head{position:sticky;top:0;z-index:2;background:#fff}
+    .attention-popup details.attention-issue>summary::-webkit-details-marker{display:none}
+  `;
+  rail.shadow?.appendChild(bridgeStyle);
+
   const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, char => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   })[char]);
@@ -214,6 +222,7 @@
   const originalDestroy = rail.destroy.bind(rail);
   rail.destroy = function destroyWithCallAttention() {
     clearTimeout(waitTimer);
+    bridgeStyle.remove();
     return originalDestroy();
   };
 
