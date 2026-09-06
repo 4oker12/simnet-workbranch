@@ -1,3 +1,5 @@
+import './infrastructure/runtime-log.js';
+import './features/call/transcription/call-processing-diagnostics.js';
 import './ai/runtime-service.js';
 import './features/call/transcription/submission-debug.js';
 import './background.js';
