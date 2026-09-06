@@ -6,21 +6,14 @@ const diagnosticsNode = document.getElementById('diagnostics');
 const clearWorkbenchNode = document.getElementById('clearWorkbench');
 const diagCountNode = document.getElementById('diagCount');
 const workerDot = document.getElementById('workerDot');
-const groqApiKeyNode = document.getElementById('groqApiKey');
-const saveGroqKeyNode = document.getElementById('saveGroqKey');
-const removeGroqKeyNode = document.getElementById('removeGroqKey');
 const groqKeyStatusNode = document.getElementById('groqKeyStatus');
+const groqKeyBadgeNode = document.getElementById('groqKeyBadge');
+const openSettingsNode = document.getElementById('openSettings');
 const VERSION = chrome.runtime.getManifest().version;
 const DIAG_KEY = 'simnet_workbench_diagnostics_v1';
 const FALLBACK_KEY = 'simnet_workbench_diagnostics_fallback_v1';
 const STATE_KEY = 'simnet_workbench_state_v5';
 const AI_RUNTIME_CONFIG_KEY = 'simnet_workbench_ai_runtime_v1';
-const DEFAULT_AI_MODELS = Object.freeze([
-  'qwen/qwen3.6-27b',
-  'openai/gpt-oss-120b',
-  'qwen/qwen3.8-27b',
-  'openai/gpt-oss-20b'
-]);
 versionNode.textContent = `v${VERSION}`;
 
 const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -59,11 +52,11 @@ function renderDiagnostics(data) {
 function renderAiStatus(aiRuntime) {
   const configured = Boolean(String(aiRuntime?.groqApiKey || '').trim());
   groqKeyStatusNode.textContent = configured
-    ? 'Groq key настроен локально. При 429/недоступности Workbench переключит модель по fallback-цепочке.'
-    : 'Ключ не настроен. Транскрипция работает, AI-разбор остановится на TXT.';
+    ? 'Ключ настроен локально. AI-помощник и разбор звонков могут использовать Groq.'
+    : 'Ключ не настроен. Whisper продолжит работать, AI-разбор остановится на TXT.';
   groqKeyStatusNode.className = configured ? 'ai-state ok' : 'ai-state';
-  groqApiKeyNode.value = '';
-  groqApiKeyNode.placeholder = configured ? 'Новый ключ для замены текущего' : 'gsk_…';
+  groqKeyBadgeNode.textContent = configured ? 'OK' : 'нет ключа';
+  groqKeyBadgeNode.className = configured ? 'mini-badge ok' : 'mini-badge';
 }
 
 async function probeWorker() {
@@ -98,48 +91,13 @@ async function load() {
   }, null, 2) : 'Активный Case ещё не создан.';
 }
 
-saveGroqKeyNode?.addEventListener('click', async () => {
-  const apiKey = String(groqApiKeyNode?.value || '').trim();
-  if (!apiKey) {
-    groqKeyStatusNode.textContent = 'Вставь Groq API key.';
-    groqKeyStatusNode.className = 'ai-state bad';
-    return;
-  }
-  if (apiKey.length < 20) {
-    groqKeyStatusNode.textContent = 'Ключ выглядит слишком коротким.';
-    groqKeyStatusNode.className = 'ai-state bad';
-    return;
-  }
-
-  saveGroqKeyNode.disabled = true;
-  try {
-    const current = (await chrome.storage.local.get(AI_RUNTIME_CONFIG_KEY))?.[AI_RUNTIME_CONFIG_KEY] || {};
-    await chrome.storage.local.set({
-      [AI_RUNTIME_CONFIG_KEY]: {
-        ...current,
-        groqApiKey: apiKey,
-        models: Array.isArray(current.models) && current.models.length ? current.models : [...DEFAULT_AI_MODELS],
-        updatedAt: new Date().toISOString()
-      }
-    });
-    groqKeyStatusNode.textContent = 'Groq key сохранён локально.';
-    groqKeyStatusNode.className = 'ai-state ok';
-    groqApiKeyNode.value = '';
-    groqApiKeyNode.placeholder = 'Новый ключ для замены текущего';
-  } catch (error) {
-    groqKeyStatusNode.textContent = `Не удалось сохранить: ${short(error?.message || error, 120)}`;
-    groqKeyStatusNode.className = 'ai-state bad';
-  } finally {
-    saveGroqKeyNode.disabled = false;
-  }
+openSettingsNode?.addEventListener('click', () => {
+  chrome.runtime.openOptionsPage();
 });
 
-removeGroqKeyNode?.addEventListener('click', async () => {
-  const current = (await chrome.storage.local.get(AI_RUNTIME_CONFIG_KEY))?.[AI_RUNTIME_CONFIG_KEY] || {};
-  const next = { ...current };
-  delete next.groqApiKey;
-  await chrome.storage.local.set({ [AI_RUNTIME_CONFIG_KEY]: next });
-  renderAiStatus(next);
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local' || !changes?.[AI_RUNTIME_CONFIG_KEY]) return;
+  renderAiStatus(changes[AI_RUNTIME_CONFIG_KEY].newValue || {});
 });
 
 exportNode.addEventListener('click', async () => {
