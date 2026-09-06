@@ -1,14 +1,14 @@
+'use strict';
+
 import { MessageType } from '../../../shared/messages.js';
-import { transcribeRecord } from './background.js';
+import { CallRecord } from '../domain/call-record.js';
+import { CallStateStore } from '../storage/call-state-store.js';
+import { callExecutionRegistry } from '../runtime/call-execution-registry.js';
+import { readTranscript, transcribeRecord } from './background.js';
 import { postprocessTranscript } from './ai-postprocessor.js';
 
-const JOBS_KEY = 'simnet_workbench_pbx_manual_analysis_jobs_v1';
-const JOB_SCHEMA = 1;
-const MAX_JOBS = 120;
-const RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 const PBX_RECORD_BASE = 'https://pbx.simnet.kiev.ua/fop2/getrec.php?id=';
-const ACTIVE_STATUSES = new Set(['queued', 'downloading', 'transcribing', 'analyzing']);
-const running = new Map();
+const OWNER = 'pbx-manual';
 
 function nowIso() {
   return new Date().toISOString();
@@ -19,18 +19,8 @@ function clean(value, max = 500) {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
-function abortError(message = 'Отменено оператором') {
-  const error = new Error(message);
-  error.name = 'AbortError';
-  return error;
-}
-
-function isAbort(error, signal = null) {
-  return Boolean(signal?.aborted || error?.name === 'AbortError');
-}
-
 function recordIdOf(value) {
-  return String(value || '').match(/(?:getrec\.php\?id=)?(\d{9,12}\.\d{1,12})/i)?.[1] || '';
+  return String(value || '').match(/(?:getrec\.php\?id=|^pbx:)?(\d{9,12}\.\d{1,12})/i)?.[1] || '';
 }
 
 function normalizePhone(value) {
@@ -45,6 +35,7 @@ function normalizeCall(raw = {}) {
     recordId,
     callKey: `pbx:${recordId}`,
     recordUrl: `${PBX_RECORD_BASE}${encodeURIComponent(recordId)}`,
+    source: 'pbx:history',
     rowNumber: clean(raw.rowNumber, 24),
     date: clean(raw.date, 24),
     time: clean(raw.time, 24),
@@ -55,7 +46,8 @@ function normalizeCall(raw = {}) {
     address: clean(raw.address, 300),
     duration: clean(raw.duration, 32),
     queue: clean(raw.queue, 40),
-    agent: clean(raw.agent, 180)
+    agent: clean(raw.agent, 180),
+    createdAtMs: Number(raw.createdAtMs || 0) || Date.now()
   };
 }
 
@@ -68,190 +60,239 @@ function senderIsPbx(sender = {}) {
   }
 }
 
-function shape(raw = {}) {
-  const jobs = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  return jobs;
+async function broadcast(recordId = '', callKey = '') {
+  try {
+    const tabs = await chrome.tabs.query({ url: [
+      'https://pbx.simnet.kiev.ua/*',
+      'https://userside.simnet.kiev.ua/*',
+      'https://admin.simnet.kiev.ua/*',
+      'https://admin.looknet.kiev.ua/*'
+    ] });
+    await Promise.allSettled((tabs || []).map(tab => tab?.id == null
+      ? Promise.resolve()
+      : chrome.tabs.sendMessage(tab.id, {
+          type: MessageType.CALL_PROCESSING_CHANGED,
+          payload: { recordId, callKey }
+        })));
+  } catch {}
 }
 
-async function readJobs() {
-  const raw = (await chrome.storage.local.get(JOBS_KEY))?.[JOBS_KEY] || {};
-  return shape(raw);
-}
-
-function prune(jobs = {}) {
-  const cutoff = Date.now() - RETENTION_MS;
-  const entries = Object.entries(jobs)
-    .filter(([, job]) => Number(job?.createdAtMs || 0) >= cutoff)
-    .sort(([, a], [, b]) => Number(b?.createdAtMs || 0) - Number(a?.createdAtMs || 0))
-    .slice(0, MAX_JOBS);
-  return Object.fromEntries(entries);
-}
-
-async function writeJob(recordId, patch = {}) {
-  const jobs = await readJobs();
-  const previous = jobs[recordId] || {};
-  const createdAtMs = Number(previous.createdAtMs || 0) || Date.now();
-  const next = {
-    schemaVersion: JOB_SCHEMA,
-    ...previous,
-    ...patch,
-    recordId,
-    createdAtMs,
-    createdAt: previous.createdAt || new Date(createdAtMs).toISOString(),
-    updatedAt: nowIso()
-  };
-  jobs[recordId] = next;
-  await chrome.storage.local.set({ [JOBS_KEY]: prune(jobs) });
+async function updateCall(callKey, recordId, mutator) {
+  const next = await CallStateStore.mutate(callKey, mutator);
+  if (next) await broadcast(recordId || next.pbxRecordId || '', next.callKey || callKey);
   return next;
 }
 
-async function reconcileInterruptedJobs() {
-  const jobs = await readJobs();
-  let changed = false;
-  const now = nowIso();
-  for (const [recordId, job] of Object.entries(jobs)) {
-    if (!ACTIVE_STATUSES.has(job?.status) || running.has(recordId)) continue;
-    jobs[recordId] = {
-      ...job,
-      status: 'interrupted',
-      error: 'Обработка была прервана или Service Worker перезапустился. Нажмите ↻, чтобы продолжить.',
-      completedAt: now,
-      updatedAt: now
-    };
-    changed = true;
+function manualStatus(call = {}) {
+  const p = call.processing || {};
+  const state = String(p.state || 'idle');
+  const stage = String(p.stage || '');
+  if (state === 'cancelled') return 'cancelled';
+  if (state === 'stale') return 'interrupted';
+  if (state === 'running') {
+    if (stage === 'audio') return 'downloading';
+    if (stage === 'whisper') return 'transcribing';
+    if (stage === 'ai') return 'analyzing';
+    return 'queued';
   }
-  if (changed) await chrome.storage.local.set({ [JOBS_KEY]: prune(jobs) });
-  return jobs;
+  if (state === 'failed') {
+    if (stage === 'ai' && call.transcript) return 'transcribed';
+    return 'error';
+  }
+  if (call.ai?.analysis) return 'ready';
+  if (call.transcript) return 'transcribed';
+  if (state === 'waiting') return stage === 'ai' ? 'analyzing' : 'queued';
+  return 'idle';
 }
 
-async function markCancelled(recordId) {
-  return writeJob(recordId, {
-    status: 'cancelled',
-    error: '',
-    aiError: '',
-    cancelledAt: nowIso(),
-    completedAt: nowIso()
+async function manualView(call = {}) {
+  const recordId = recordIdOf(call.pbxRecordId || call.callKey);
+  if (!recordId) return null;
+  const transcript = await readTranscript({
+    callKey: call.transcript?.storageKey || call.callKey,
+    recordUrl: `${PBX_RECORD_BASE}${encodeURIComponent(recordId)}`
+  }).catch(() => null);
+  const status = manualStatus(call);
+  const p = call.processing || {};
+  const aiError = status === 'transcribed' && p.stage === 'ai' && p.state === 'failed' ? p.error : '';
+  return {
+    schemaVersion: 2,
+    recordId,
+    callKey: call.callKey,
+    status,
+    call: {
+      recordId,
+      date: call.date || '',
+      time: call.time || '',
+      callerId: call.callerId || '',
+      contract: call.contract || call.subscriber?.contract || '',
+      fio: call.fio || '',
+      address: call.address || '',
+      duration: call.duration || '',
+      agent: call.agent || ''
+    },
+    transcript: transcript?.text ? {
+      text: String(transcript.text || ''),
+      language: transcript.language || call.transcript?.language || '',
+      languageProbability: Number(transcript.languageProbability || 0),
+      durationSeconds: Number(transcript.durationSeconds || call.transcript?.durationSeconds || 0),
+      processingSeconds: Number(transcript.processingSeconds || call.transcript?.processingSeconds || 0),
+      requestId: transcript.requestId || call.transcript?.requestId || '',
+      cached: Boolean(transcript.cached || call.transcript?.cached)
+    } : (call.transcript ? { ...call.transcript } : null),
+    transcriptMeta: call.transcript ? { ...call.transcript } : null,
+    analysis: call.ai?.analysis || null,
+    aiError,
+    error: status === 'error' || status === 'interrupted' ? String(p.error || '') : '',
+    createdAt: call.firstObservedAt || call.observedAt || '',
+    createdAtMs: Number(call.startedAtMs || 0),
+    updatedAt: call.updatedAt || p.updatedAt || '',
+    completedAt: stateCompletedAt(call)
+  };
+}
+
+function stateCompletedAt(call = {}) {
+  const p = call.processing || {};
+  return ['done', 'cancelled', 'failed', 'stale'].includes(String(p.state || '')) ? String(p.updatedAt || '') : '';
+}
+
+async function ensureCall(call) {
+  const stored = await CallStateStore.ensurePbx({
+    recordId: call.recordId,
+    pbxRecordId: call.recordId,
+    source: call.source,
+    date: call.date,
+    time: call.time,
+    callerId: call.callerId,
+    contract: call.contract,
+    fio: call.fio,
+    address: call.address,
+    duration: call.duration,
+    agent: call.agent,
+    createdAtMs: call.createdAtMs
   });
+  if (!stored) throw new Error('Не удалось создать CallRecord для PBX-звонка');
+  if (stored.processing?.steps?.pbx?.status !== 'done') {
+    return updateCall(stored.callKey, call.recordId, record => record.attachPbx(call.recordId));
+  }
+  return stored;
 }
 
-async function process(call, { forceTranscribe = false, forceAnalysis = false } = {}) {
-  const recordId = call.recordId;
-  if (running.has(recordId)) return running.get(recordId).promise;
+async function processManual(call, options = {}) {
+  let stored = await ensureCall(call);
+  const callKey = stored.callKey;
 
-  const controller = new AbortController();
-  const signal = controller.signal;
-  const promise = (async () => {
-    await writeJob(recordId, {
-      call,
-      callKey: call.callKey,
-      status: 'downloading',
-      error: '',
-      aiError: ''
-    });
+  const active = callExecutionRegistry.get(callKey);
+  if (active && active.owner !== OWNER) {
+    try { await active.promise; } catch {}
+    stored = await CallStateStore.read(callKey) || stored;
+  }
+  if (callExecutionRegistry.has(callKey)) return manualView(await CallStateStore.read(callKey));
 
+  return callExecutionRegistry.run(callKey, OWNER, async signal => {
     try {
-      if (signal.aborted) throw abortError();
       const transcript = await transcribeRecord({
-        callKey: call.callKey,
+        callKey,
         recordUrl: call.recordUrl,
         profile: 'simnet',
         language: 'auto',
-        force: Boolean(forceTranscribe)
+        force: Boolean(options.forceTranscribe)
       }, async (stage, details = {}) => {
         if (signal.aborted) return;
+        const at = nowIso();
         if (stage === 'AUDIO_FETCHING') {
-          await writeJob(recordId, { status: 'downloading' });
+          await updateCall(callKey, call.recordId, record => record.startStage('audio', at, { owner: OWNER }));
+        } else if (stage === 'AUDIO_READY') {
+          await updateCall(callKey, call.recordId, record => record.completeStage('audio', { detail: `${Number(details.fileBytes || 0)} B` }, at));
         } else if (stage === 'TRANSCRIBING') {
-          await writeJob(recordId, { status: 'transcribing' });
+          await updateCall(callKey, call.recordId, record => record.startStage('whisper', at, { owner: OWNER }));
         } else if (stage === 'TRANSCRIPT_READY') {
-          await writeJob(recordId, {
-            status: 'transcribed',
-            transcriptMeta: {
-              cached: Boolean(details.cached),
-              language: clean(details.language, 24),
-              durationSeconds: Number(details.durationSeconds || 0),
-              processingSeconds: Number(details.processingSeconds || 0),
-              fileBytes: Number(details.fileBytes || 0),
-              requestId: clean(details.requestId, 120)
-            }
+          await updateCall(callKey, call.recordId, record => {
+            record.setTranscript({
+              callKey,
+              requestId: details.requestId,
+              language: details.language,
+              durationSeconds: details.durationSeconds,
+              processingSeconds: details.processingSeconds,
+              fileBytes: details.fileBytes,
+              cached: details.cached,
+              createdAt: at
+            }, at);
+            record.completeStage('whisper', {
+              detail: details.cached ? 'из кеша' : `${Number(details.processingSeconds || 0).toFixed(2)} сек.`
+            }, at);
           });
         }
       }, signal);
 
-      if (signal.aborted) throw abortError();
-      await writeJob(recordId, {
-        status: 'analyzing',
-        transcript: {
-          text: String(transcript.text || ''),
-          language: clean(transcript.language, 24),
-          languageProbability: Number(transcript.languageProbability || 0),
-          durationSeconds: Number(transcript.durationSeconds || 0),
-          processingSeconds: Number(transcript.processingSeconds || 0),
-          requestId: clean(transcript.requestId, 120),
-          cached: Boolean(transcript.cached)
+      if (signal.aborted) return manualView(await CallStateStore.read(callKey));
+      await updateCall(callKey, call.recordId, record => {
+        record.setTranscript({
+          callKey: transcript.callKey,
+          requestId: transcript.requestId,
+          language: transcript.language,
+          durationSeconds: transcript.durationSeconds,
+          processingSeconds: transcript.processingSeconds,
+          fileBytes: transcript.fileBytes,
+          audioSha256: transcript.audioSha256,
+          cached: transcript.cached,
+          createdAt: transcript.createdAt
+        });
+        if (record.processing.steps?.whisper?.status !== 'done') {
+          record.completeStage('whisper', { detail: transcript.cached ? 'из кеша' : `${Number(transcript.processingSeconds || 0).toFixed(2)} сек.` });
         }
+        record.startStage('ai', nowIso(), { owner: OWNER });
       });
 
       try {
         const analysis = await postprocessTranscript({
-          callKey: call.callKey,
-          pbxRecordId: recordId,
+          callKey,
+          pbxRecordId: call.recordId,
           manualPbx: true,
-          forceAnalysis: Boolean(forceAnalysis)
+          forceAnalysis: Boolean(options.forceAnalysis)
         }, transcript, signal);
-        if (signal.aborted) throw abortError();
-        return await writeJob(recordId, {
-          status: 'ready',
-          analysis,
-          aiError: '',
-          completedAt: nowIso()
+        if (signal.aborted) return manualView(await CallStateStore.read(callKey));
+        await updateCall(callKey, call.recordId, record => {
+          record.setAi(analysis, {
+            model: analysis?.model,
+            usage: analysis?.usage,
+            mode: analysis?.mode
+          });
+          record.completeStage('ai', { detail: analysis?.model ? `модель ${analysis.model}` : 'разбор готов' });
+          if (!record.toJSON().usersideCallId) record.finish(nowIso(), 'PBX manual analysis complete');
         });
       } catch (error) {
-        if (isAbort(error, signal)) return markCancelled(recordId);
-        return await writeJob(recordId, {
-          status: 'transcribed',
-          analysis: null,
-          aiError: clean(error?.message || error || 'AI analysis failed', 700),
-          completedAt: nowIso()
-        });
+        if (signal.aborted || error?.name === 'AbortError') return manualView(await CallStateStore.read(callKey));
+        await updateCall(callKey, call.recordId, record => record.fail('ai', error));
       }
     } catch (error) {
-      if (isAbort(error, signal)) return markCancelled(recordId);
-      return writeJob(recordId, {
-        status: 'error',
-        error: clean(error?.message || error || 'PBX manual analysis failed', 700),
-        completedAt: nowIso()
-      });
+      if (signal.aborted || error?.name === 'AbortError') return manualView(await CallStateStore.read(callKey));
+      const message = clean(error?.message || error || 'PBX manual analysis failed', 700);
+      const current = await CallStateStore.read(callKey);
+      const stage = current?.processing?.stage === 'audio' ? 'audio' : 'whisper';
+      await updateCall(callKey, call.recordId, record => record.fail(stage, message));
     }
-  })();
-
-  running.set(recordId, { promise, controller });
-  try {
-    return await promise;
-  } finally {
-    const current = running.get(recordId);
-    if (current?.promise === promise) running.delete(recordId);
-  }
+    return manualView(await CallStateStore.read(callKey));
+  });
 }
 
 async function start(payload = {}) {
   const call = normalizeCall(payload.call || {});
-  const existing = (await readJobs())[call.recordId] || null;
+  const stored = await ensureCall(call);
+  const existing = await manualView(stored);
   const force = Boolean(payload.force);
-
   if (existing && !force && ['ready', 'transcribed'].includes(existing.status)) return existing;
-  const active = running.get(call.recordId);
-  if (active) return active.promise;
 
-  await writeJob(call.recordId, {
-    call,
-    callKey: call.callKey,
-    status: 'queued',
-    error: '',
-    aiError: ''
+  await updateCall(stored.callKey, call.recordId, record => {
+    record.processing.attention = false;
+    record.processing.attentionDismissedAt = '';
+    if (['cancelled', 'stale', 'failed'].includes(String(record.processing.state || ''))) {
+      record.processing.state = 'waiting';
+      record.processing.error = '';
+    }
   });
 
-  return process(call, {
+  return processManual(call, {
     forceTranscribe: Boolean(payload.forceTranscribe),
     forceAnalysis: Boolean(payload.forceAnalysis)
   });
@@ -260,15 +301,29 @@ async function start(payload = {}) {
 async function cancel(payload = {}) {
   const recordId = recordIdOf(payload.recordId);
   if (!recordId) throw new Error('PBX manual analysis cancel: recordId не найден');
-  const active = running.get(recordId);
-  if (active && !active.controller.signal.aborted) active.controller.abort('operator-cancel');
-  return markCancelled(recordId);
+  const call = (await CallStateStore.list()).find(row => row.pbxRecordId === recordId || row.callKey === `pbx:${recordId}`) || null;
+  if (!call) return null;
+  callExecutionRegistry.cancel(call.callKey, OWNER);
+  const next = await updateCall(call.callKey, recordId, record => record.cancel());
+  return manualView(next || call);
 }
 
 async function status(payload = {}) {
-  const jobs = await reconcileInterruptedJobs();
   const recordId = recordIdOf(payload.recordId);
-  return recordId ? (jobs[recordId] || null) : jobs;
+  const calls = await CallStateStore.list();
+  if (recordId) {
+    const call = calls.find(row => row.pbxRecordId === recordId || row.callKey === `pbx:${recordId}`) || null;
+    return call ? manualView(call) : null;
+  }
+
+  const relevant = calls.filter(call => call.pbxRecordId && (
+    call.source === 'pbx:history'
+    || call.processing?.owner === OWNER
+    || call.ai?.analysis
+    || call.callKey.startsWith('pbx:')
+  ));
+  const views = await Promise.all(relevant.slice(0, 120).map(manualView));
+  return Object.fromEntries(views.filter(Boolean).map(view => [view.recordId, view]));
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -296,4 +351,4 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-export const PBX_MANUAL_ANALYSIS_JOBS_KEY = JOBS_KEY;
+export const PBXManualAnalysis = Object.freeze({ start, cancel, status });
