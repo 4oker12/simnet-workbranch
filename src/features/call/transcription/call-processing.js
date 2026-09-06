@@ -10,7 +10,6 @@ import { callExecutionRegistry } from '../runtime/call-execution-registry.js';
 const LEGACY_JOB_STORE_KEY = 'simnet_workbench_transcription_jobs_v1';
 const AUTO_LOCK_WINDOW_MS = 5 * 60 * 1000;
 const WAIT_PBX_ATTENTION_MS = 90 * 1000;
-const STALE_RUNNING_MS = 3 * 60 * 1000;
 const PBX_RECORD_BASE = 'https://pbx.simnet.kiev.ua/fop2/getrec.php?id=';
 const OWNER = 'registration';
 
@@ -102,7 +101,11 @@ function legacySteps(call = {}) {
   const p = call.processing || {};
   const steps = p.steps || {};
   const registrationDone = call.registration?.state === 'registered';
-  const transcriptDone = Boolean(call.transcript?.storageKey || p.lastSuccessfulStage === 'whisper' || ['ai', 'userside'].includes(String(p.lastSuccessfulStage || '')));
+  const transcriptDone = Boolean(
+    call.transcript?.storageKey
+    || p.lastSuccessfulStage === 'whisper'
+    || ['ai', 'userside'].includes(String(p.lastSuccessfulStage || ''))
+  );
   return {
     lock: {
       status: registrationDone ? 'done' : 'pending',
@@ -129,10 +132,12 @@ function processingView(call = {}, atMs = Date.now()) {
   const waitSeconds = Math.round(ageMs / 1000);
   const linkedPbxInterrupted = rawStatus === 'WAIT_PBX' && Boolean(recordIdOf(call)) && ageMs >= AUTO_LOCK_WINDOW_MS;
   const status = linkedPbxInterrupted ? 'STALE' : rawStatus;
-  const waitPbxAttention = rawStatus === 'WAIT_PBX' && ageMs >= WAIT_PBX_ATTENTION_MS;
+  const waitPbxAttention = rawStatus === 'WAIT_PBX' && !recordIdOf(call) && ageMs >= WAIT_PBX_ATTENTION_MS;
+  const execution = callExecutionRegistry.get(call.callKey);
   const error = linkedPbxInterrupted
     ? 'PBX recordId получен, но цепочка обработки не продолжилась.'
     : String(p.error || call.writeback?.error || '');
+
   return {
     id: call.callKey,
     callKey: call.callKey,
@@ -156,9 +161,10 @@ function processingView(call = {}, atMs = Date.now()) {
     updatedAt: call.updatedAt || p.updatedAt || '',
     steps: legacySteps(call),
     needsAttention: linkedPbxInterrupted || waitPbxAttention || record.needsAttention(),
-    active: p.state === 'running',
+    active: execution?.state === 'running' || p.state === 'running',
+    queued: execution?.state === 'queued' || status === 'QUEUED',
     canRetry: linkedPbxInterrupted || waitPbxAttention || rawStatus === 'WAIT_PBX' || record.canRetry(),
-    canCancel: record.canCancel(),
+    canCancel: Boolean(execution) || record.canCancel(),
     waitSeconds,
     processing: { ...p }
   };
@@ -188,18 +194,43 @@ async function updateCall(callKey, mutator) {
   return next;
 }
 
+function queueOrder(call = {}, fallback = '') {
+  const registered = Date.parse(String(call.registration?.registeredAt || fallback || '')) || 0;
+  const started = Number(call.startedAtMs || 0);
+  return registered || started || Number.MAX_SAFE_INTEGER;
+}
+
+function recoverableWaitingCall(raw = {}) {
+  const p = raw.processing || {};
+  if (raw.registration?.state !== 'registered' || !recordIdOf(raw)) return false;
+  if (p.attention) return false;
+  if (!['idle', 'waiting'].includes(String(p.state || ''))) return false;
+  const stage = String(p.stage || '');
+  if (['', 'pbx', 'audio'].includes(stage)) return true;
+  return stage === 'whisper' && Boolean(raw.transcript?.storageKey);
+}
+
 async function syncRegisteredCalls(stateHint = null) {
   const starts = await CallStateStore.mutateAll((store, state) => {
     const source = stateHint && stateHint.callModule ? stateHint : state;
     const bindings = source?.callModule?.bindings?.bindings || {};
-    const startKeys = [];
+    const candidates = new Map();
     const atMs = Date.now();
     const at = nowIso();
+
+    const enqueue = (callKey, raw, fallback = '') => {
+      const key = String(callKey || '');
+      if (!key) return;
+      const order = queueOrder(raw, fallback);
+      const previous = candidates.get(key);
+      if (!previous || order < previous.order) candidates.set(key, { callKey: key, order });
+    };
 
     for (const [callKey, binding] of Object.entries(bindings)) {
       if (!isFreshRegisteredBinding(binding, atMs)) continue;
       const raw = store.calls?.[callKey];
       if (!raw) continue;
+
       const before = JSON.stringify(raw);
       const record = CallRecord.from(raw);
       record.bindSubscriber({
@@ -210,22 +241,18 @@ async function syncRegisteredCalls(stateHint = null) {
       record.setRegistration('registered', 'userside', binding.registeredAt || binding.updatedAt || at);
 
       const pbxId = recordIdOf(raw);
-      const snapshot = record.toJSON();
       if (pbxId) {
+        const snapshot = record.toJSON();
         if (snapshot.processing?.steps?.pbx?.status !== 'done') record.attachPbx(pbxId, at);
-        const afterPbx = record.toJSON();
-        const processing = afterPbx.processing || {};
-        const readyToStart = ['idle', 'waiting'].includes(String(processing.state || ''))
-          && ['pbx', ''].includes(String(processing.stage || ''))
-          && processing.state !== 'cancelled';
-        if (readyToStart) {
-          if (String(processing.lastSuccessfulStage || '') !== 'pbx') {
+        const p = record.processing;
+        if (['idle', 'waiting'].includes(String(p.state || '')) && ['', 'pbx'].includes(String(p.stage || '')) && !p.attention) {
+          if (String(p.lastSuccessfulStage || '') !== 'pbx') {
             record.completeStage('pbx', { detail: `PBX ${pbxId}` }, at);
           }
-          startKeys.push(callKey);
+          enqueue(callKey, record.toJSON(), binding.registeredAt || binding.updatedAt);
         }
       } else {
-        const p = snapshot.processing || {};
+        const p = record.processing;
         if (p.state === 'idle' || (p.state === 'waiting' && !p.stage)) {
           record.wait('pbx', 'ожидается PBX recordId', at, false);
           record.processing.startedAt ||= String(binding.registeredAt || binding.updatedAt || at);
@@ -235,7 +262,24 @@ async function syncRegisteredCalls(stateHint = null) {
       const next = record.toJSON();
       if (JSON.stringify(next) !== before) store.calls[callKey] = next;
     }
-    return [...new Set(startKeys)];
+
+    for (const [callKey, raw] of Object.entries(store.calls || {})) {
+      if (!recoverableWaitingCall(raw)) continue;
+      const record = CallRecord.from(raw);
+      const pbxId = recordIdOf(raw);
+      if (record.processing?.steps?.pbx?.status !== 'done') record.attachPbx(pbxId, at);
+      if (String(record.processing.lastSuccessfulStage || '') !== 'pbx'
+          && ['', 'pbx'].includes(String(record.processing.stage || ''))) {
+        record.completeStage('pbx', { detail: `PBX ${pbxId}` }, at);
+      }
+      const next = record.toJSON();
+      if (JSON.stringify(next) !== JSON.stringify(raw)) store.calls[callKey] = next;
+      enqueue(callKey, next);
+    }
+
+    return [...candidates.values()]
+      .sort((a, b) => a.order - b.order || a.callKey.localeCompare(b.callKey))
+      .map(row => row.callKey);
   });
 
   for (const callKey of Array.isArray(starts) ? starts : []) {
@@ -266,7 +310,12 @@ function writerPayload(call = {}) {
 async function processUsersideWrite(callKey, transcriptEntry = null, signal = null) {
   if (signal?.aborted) return null;
   const raw = await CallStateStore.read(callKey);
-  if (!raw || raw.processing?.state === 'cancelled' || raw.writeback?.state === 'done') return raw;
+  if (!raw || raw.processing?.state === 'cancelled') return raw;
+
+  if (raw.writeback?.state === 'done') {
+    if (raw.processing?.state === 'done') return raw;
+    return updateCall(callKey, record => record.finish(nowIso(), 'UserSide writeback уже завершён'));
+  }
 
   const entry = transcriptEntry?.text
     ? transcriptEntry
@@ -320,32 +369,39 @@ function isTranscriberUnavailable(message) {
   return /Failed to fetch|Transcriber|127\.0\.0\.1|localhost|ERR_CONNECTION|таймаут|network/i.test(String(message || ''));
 }
 
-async function processCall(callKey, { force = false } = {}) {
-  const initial = await CallStateStore.read(callKey);
-  if (!initial) return null;
-  if (initial.processing?.state === 'done' && !force) return initial;
-  if (initial.processing?.state === 'cancelled' && !force) return initial;
-  if (!recordIdOf(initial)) {
-    return updateCall(callKey, record => {
-      const p = record.processing;
-      record.wait('pbx', 'PBX recordId пока не найден', nowIso(), false);
-      p.startedAt ||= record.toJSON().registration?.registeredAt || nowIso();
-    });
-  }
+function processCall(callKey, { force = false } = {}) {
+  const key = clean(callKey, 160);
+  if (!key) return Promise.resolve(null);
+  if (callExecutionRegistry.has(key)) return callExecutionRegistry.wait(key);
 
-  if (callExecutionRegistry.has(callKey)) return callExecutionRegistry.wait(callKey);
+  return callExecutionRegistry.run(key, OWNER, async signal => {
+    const initial = await CallStateStore.read(key);
+    if (!initial) return null;
+    if (initial.processing?.state === 'done' && !force) return initial;
+    if (initial.processing?.state === 'cancelled' && !force) return initial;
+    if (signal.aborted) return null;
 
-  return callExecutionRegistry.run(callKey, OWNER, async signal => {
-    const raw = await CallStateStore.read(callKey);
-    if (!raw) return null;
-    const url = recordUrl(raw);
+    if (!recordIdOf(initial)) {
+      return updateCall(key, record => {
+        const p = record.processing;
+        record.wait('pbx', 'PBX recordId пока не найден', nowIso(), false);
+        p.startedAt ||= record.toJSON().registration?.registeredAt || nowIso();
+      });
+    }
+
+    if (initial.transcript?.storageKey && !force) {
+      const cached = await readTranscript({ callKey: key });
+      if (cached?.text) return processUsersideWrite(key, cached, signal);
+    }
+
+    const url = recordUrl(initial);
     if (!url) return null;
 
     try {
       const entry = await transcribeRecord({
-        callKey,
-        usersideCallId: digits(raw.usersideCallId, 24),
-        customerId: digits(raw.subscriber?.customerId || raw.customerId, 14),
+        callKey: key,
+        usersideCallId: digits(initial.usersideCallId, 24),
+        customerId: digits(initial.subscriber?.customerId || initial.customerId, 14),
         recordUrl: url,
         profile: 'simnet',
         language: 'auto',
@@ -354,15 +410,15 @@ async function processCall(callKey, { force = false } = {}) {
         if (signal.aborted) return;
         const at = nowIso();
         if (stage === 'AUDIO_FETCHING') {
-          await updateCall(callKey, record => record.startStage('audio', at, { owner: OWNER }));
+          await updateCall(key, record => record.startStage('audio', at, { owner: OWNER }));
         } else if (stage === 'AUDIO_READY') {
-          await updateCall(callKey, record => record.completeStage('audio', { detail: `${Number(details.fileBytes || 0)} B` }, at));
+          await updateCall(key, record => record.completeStage('audio', { detail: `${Number(details.fileBytes || 0)} B` }, at));
         } else if (stage === 'TRANSCRIBING') {
-          await updateCall(callKey, record => record.startStage('whisper', at, { owner: OWNER }));
+          await updateCall(key, record => record.startStage('whisper', at, { owner: OWNER }));
         } else if (stage === 'TRANSCRIPT_READY') {
-          await updateCall(callKey, record => {
+          await updateCall(key, record => {
             record.setTranscript({
-              callKey,
+              callKey: key,
               requestId: details.requestId,
               language: details.language,
               durationSeconds: details.durationSeconds,
@@ -379,7 +435,7 @@ async function processCall(callKey, { force = false } = {}) {
       }, signal);
 
       if (signal.aborted) return null;
-      await updateCall(callKey, record => {
+      await updateCall(key, record => {
         record.setTranscript({
           callKey: entry.callKey,
           requestId: entry.requestId,
@@ -392,15 +448,17 @@ async function processCall(callKey, { force = false } = {}) {
           createdAt: entry.createdAt
         });
         if (record.processing.steps?.whisper?.status !== 'done') {
-          record.completeStage('whisper', { detail: entry.cached ? 'из кеша' : `${Number(entry.processingSeconds || 0).toFixed(2)} сек.` });
+          record.completeStage('whisper', {
+            detail: entry.cached ? 'из кеша' : `${Number(entry.processingSeconds || 0).toFixed(2)} сек.`
+          });
         }
       });
 
-      return processUsersideWrite(callKey, entry, signal);
+      return processUsersideWrite(key, entry, signal);
     } catch (error) {
       if (signal.aborted || error?.name === 'AbortError') return null;
       const message = error instanceof Error ? error.message : String(error || 'unknown error');
-      return updateCall(callKey, record => {
+      return updateCall(key, record => {
         if (isTranscriberUnavailable(message)) {
           record.wait('whisper', message, nowIso(), true);
         } else if (/^PBX|PBX\b/i.test(message)) {
@@ -426,6 +484,7 @@ async function retryCall(callKey, force = false) {
   await syncRegisteredCalls();
   let call = await CallStateStore.read(callKey);
   if (!call) return null;
+
   if (!recordIdOf(call)) {
     await updateCall(callKey, record => {
       record.wait('pbx', 'PBX recordId пока не найден; поиск перезапущен', nowIso(), false);
@@ -444,11 +503,9 @@ async function retryCall(callKey, force = false) {
     p.attentionDismissedAt = '';
     p.cancelledAt = '';
   });
-  call = await CallStateStore.read(callKey);
 
-  if (call?.transcript?.storageKey) {
-    return processUsersideWrite(callKey);
-  }
+  call = await CallStateStore.read(callKey);
+  if (!call) return null;
   return processCall(callKey, { force: force === true });
 }
 
@@ -462,22 +519,33 @@ async function listProcessing() {
     .map(call => processingView(call, now));
 }
 
-async function reconcileInterruptedCalls() {
-  const now = Date.now();
+async function recoverInterruptedCalls() {
   const changed = await CallStateStore.mutateAll(store => {
     const keys = [];
+    const at = nowIso();
+
     for (const [key, raw] of Object.entries(store.calls || {})) {
       const p = raw?.processing || {};
       if (p.state !== 'running') continue;
-      const heartbeat = Date.parse(String(p.heartbeatAt || p.updatedAt || '')) || 0;
-      if (heartbeat && now - heartbeat < STALE_RUNNING_MS) continue;
+
       const record = CallRecord.from(raw);
-      record.markStale('Обработка была прервана или Service Worker перезапустился. Можно повторить с последнего сохранённого этапа.');
+      const stage = String(record.processing.stage || '');
+      record.processing.state = 'waiting';
+      record.processing.stage = recordIdOf(raw) ? 'pbx' : 'pbx';
+      record.processing.updatedAt = at;
+      record.processing.heartbeatAt = at;
+      record.processing.error = '';
+      record.processing.attention = false;
+      record.processing.attentionDismissedAt = '';
+      record.processing.owner = '';
+      record.event('requeued_after_worker_restart', { interruptedStage: stage }, at);
+      if (recordIdOf(raw)) record.setStep('pbx', 'done', `PBX ${recordIdOf(raw)}`, at);
       store.calls[key] = record.toJSON();
       keys.push(key);
     }
     return keys;
   });
+
   for (const key of Array.isArray(changed) ? changed : []) await broadcast(key);
   return changed || [];
 }
@@ -506,16 +574,27 @@ async function migrateLegacyJobs() {
       const status = String(job.status || '');
       if (status === 'DONE') record.finish(job.updatedAt || nowIso(), 'migrated from legacy processing store');
       else if (status === 'CANCELLED') record.cancel(job.cancelledAt || job.updatedAt || nowIso());
-      else if (['ERROR', 'PBX_ERROR', 'USERSIDE_ERROR'].includes(status)) record.fail(status === 'USERSIDE_ERROR' ? 'userside' : 'whisper', job.error || status, job.updatedAt || nowIso());
-      else if (status === 'WAIT_PBX') record.wait('pbx', job.error || 'ожидается PBX recordId', job.updatedAt || nowIso(), false);
-      else if (status === 'WAIT_TRANSCRIBER') record.wait('whisper', job.error || 'транскрибер недоступен', job.updatedAt || nowIso(), true);
-      else if (status === 'WAIT_TASK_ID' || status === 'USERSIDE_REVIEW') record.wait('userside', job.error || 'ожидается UserSide', job.updatedAt || nowIso(), true);
-      else if (['FETCH_AUDIO', 'AUDIO_READY', 'TRANSCRIBING', 'WRITING_USERSIDE', 'QUEUED'].includes(status)) record.markStale('Старая фоновая задача перенесена в CallRecord; требуется продолжить обработку.', job.updatedAt || nowIso());
+      else if (['ERROR', 'PBX_ERROR', 'USERSIDE_ERROR'].includes(status)) {
+        record.fail(status === 'USERSIDE_ERROR' ? 'userside' : 'whisper', job.error || status, job.updatedAt || nowIso());
+      } else if (status === 'WAIT_PBX') {
+        record.wait('pbx', job.error || 'ожидается PBX recordId', job.updatedAt || nowIso(), false);
+      } else if (status === 'WAIT_TRANSCRIBER') {
+        record.wait('whisper', job.error || 'транскрибер недоступен', job.updatedAt || nowIso(), true);
+      } else if (status === 'WAIT_TASK_ID' || status === 'USERSIDE_REVIEW') {
+        record.wait('userside', job.error || 'ожидается UserSide', job.updatedAt || nowIso(), true);
+      } else if (['FETCH_AUDIO', 'AUDIO_READY', 'TRANSCRIBING', 'WRITING_USERSIDE', 'QUEUED'].includes(status)) {
+        record.processing.state = 'waiting';
+        record.processing.stage = recordIdOf(record.toJSON()) ? 'pbx' : 'pbx';
+        record.processing.error = '';
+        record.processing.attention = false;
+        record.event('legacy_job_requeued', { previousStatus: status }, job.updatedAt || nowIso());
+      }
       store.calls[job.callKey] = record.toJSON();
       migrated += 1;
     }
     return migrated;
   });
+
   await chrome.storage.local.remove(LEGACY_JOB_STORE_KEY);
   return migrated;
 }
@@ -557,7 +636,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 void (async () => {
   await migrateLegacyJobs();
-  await reconcileInterruptedCalls();
+  await recoverInterruptedCalls();
   await syncRegisteredCalls();
 })().catch(error => {
   console.error('[SIMNET WB][CALL PROCESSING] startup failed', error);
