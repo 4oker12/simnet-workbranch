@@ -2,12 +2,19 @@ import { AI_CONFIG } from '../../../config/ai-config.js';
 
 const AI_RUNTIME_CONFIG_KEY = 'simnet_workbench_ai_runtime_v1';
 const AI_ANALYSIS_STORE_KEY = 'simnet_workbench_call_ai_analysis_v1';
-const AI_ANALYSIS_SCHEMA = 1;
+const AI_ANALYSIS_SCHEMA = 2;
 const AI_TIMEOUT_MS = 45_000;
-const MAX_INPUT_CHARS = 60_000;
+const MAX_INPUT_CHARS = 20_000;
 const MAX_OUTPUT_CHARS = 100_000;
 const MAX_ANALYSES = 120;
 const ANALYSIS_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+const DEFAULT_MODELS = Object.freeze([
+  'qwen/qwen3.6-27b',
+  'openai/gpt-oss-120b',
+  'qwen/qwen3.8-27b',
+  'openai/gpt-oss-20b'
+]);
+const MAX_COMPLETION_TOKENS = 1800;
 
 function block(value, max = MAX_OUTPUT_CHARS) {
   return String(value == null ? '' : value)
@@ -43,6 +50,18 @@ function normalizeLanguage(value) {
   return 'mixed';
 }
 
+function normalizeModels(value) {
+  const source = Array.isArray(value) ? value : [];
+  const result = [];
+  for (const item of source) {
+    const model = String(item || '').trim();
+    if (!model || result.includes(model)) continue;
+    result.push(model);
+    if (result.length >= 8) break;
+  }
+  return result.length ? result : [...DEFAULT_MODELS];
+}
+
 function analysisStoreShape(raw = {}) {
   return {
     schemaVersion: AI_ANALYSIS_SCHEMA,
@@ -53,22 +72,28 @@ function analysisStoreShape(raw = {}) {
 
 async function readRuntimeConfig() {
   const raw = (await chrome.storage.local.get(AI_RUNTIME_CONFIG_KEY))?.[AI_RUNTIME_CONFIG_KEY] || {};
+  const legacyModel = String(raw.model || '').trim();
+  const configuredModels = Array.isArray(raw.models) && raw.models.length
+    ? raw.models
+    : legacyModel
+      ? [legacyModel, ...DEFAULT_MODELS.filter(model => model !== legacyModel)]
+      : DEFAULT_MODELS;
   return {
     apiKey: String(raw.groqApiKey || '').trim(),
-    model: String(raw.model || AI_CONFIG.model || '').trim() || 'qwen/qwen3.6-27b'
+    models: normalizeModels(configuredModels)
   };
 }
 
-async function readCached(callKey, sourceHash, model) {
+async function readCached(callKey, sourceHash, mode) {
   const raw = (await chrome.storage.local.get(AI_ANALYSIS_STORE_KEY))?.[AI_ANALYSIS_STORE_KEY] || {};
   const store = analysisStoreShape(raw);
   const entry = store.entries[String(callKey || '')];
   if (!entry) return null;
-  if (entry.sourceHash !== sourceHash || entry.model !== model || !entry.analysis?.cleanText) return null;
+  if (entry.sourceHash !== sourceHash || String(entry.mode || 'standard') !== mode || !entry.analysis?.cleanText) return null;
   return { ...entry.analysis, cached: true };
 }
 
-async function saveCached(callKey, sourceHash, model, analysis) {
+async function saveCached(callKey, sourceHash, mode, analysis) {
   const raw = (await chrome.storage.local.get(AI_ANALYSIS_STORE_KEY))?.[AI_ANALYSIS_STORE_KEY] || {};
   const store = analysisStoreShape(raw);
   const now = Date.now();
@@ -80,7 +105,8 @@ async function saveCached(callKey, sourceHash, model, analysis) {
     schemaVersion: AI_ANALYSIS_SCHEMA,
     callKey,
     sourceHash,
-    model,
+    mode,
+    model: String(analysis?.model || ''),
     createdAt: new Date(now).toISOString(),
     createdAtMs: now,
     analysis
@@ -112,11 +138,11 @@ function parseJsonObject(value) {
   } catch {}
   const first = text.indexOf('{');
   const last = text.lastIndexOf('}');
-  if (first < 0 || last <= first) throw new Error('AI_POSTPROCESS: Groq не вернул JSON');
+  if (first < 0 || last <= first) throw new Error('AI_POSTPROCESS: модель не вернула JSON');
   try {
     return JSON.parse(text.slice(first, last + 1));
   } catch {
-    throw new Error('AI_POSTPROCESS: не удалось разобрать JSON ответа Groq');
+    throw new Error('AI_POSTPROCESS: не удалось разобрать JSON ответа модели');
   }
 }
 
@@ -124,7 +150,7 @@ function normalizeAnalysis(raw = {}, meta = {}) {
   const cleanText = block(raw.clean_text ?? raw.cleanText);
   if (!cleanText) throw new Error('AI_POSTPROCESS: AI не вернул очищенный текст');
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     language: normalizeLanguage(raw.language),
     cleanText,
     issue: oneLine(raw.issue || raw.reason || raw.topic || '', 1600),
@@ -133,12 +159,21 @@ function normalizeAnalysis(raw = {}, meta = {}) {
     nextStep: oneLine(raw.next_step || raw.nextStep || '', 1600),
     summary: oneLine(raw.summary || '', 2000),
     model: String(meta.model || ''),
+    attemptedModels: Array.isArray(meta.attemptedModels) ? meta.attemptedModels.slice(0, 8) : [],
+    mode: String(meta.mode || 'standard'),
     processedAt: new Date().toISOString(),
     cached: false
   };
 }
 
-async function requestGroq(messages, apiKey, model) {
+function modelFailure(error, model) {
+  const status = Number(error?.status || 0);
+  const retryAfter = Number(error?.retryAfter || 0);
+  const detail = oneLine(error?.message || error || 'unknown error', 500);
+  return { model, status, retryAfter, detail };
+}
+
+async function requestGroqModel(messages, apiKey, model) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort('timeout'), AI_TIMEOUT_MS);
   try {
@@ -151,7 +186,7 @@ async function requestGroq(messages, apiKey, model) {
       body: JSON.stringify({
         model,
         temperature: 0.1,
-        max_tokens: 3500,
+        max_tokens: MAX_COMPLETION_TOKENS,
         messages
       }),
       signal: controller.signal
@@ -161,17 +196,65 @@ async function requestGroq(messages, apiKey, model) {
     try { data = text ? JSON.parse(text) : null; } catch {}
     if (!response.ok) {
       const detail = oneLine(data?.error?.message || text || response.statusText, 700);
-      throw new Error(`AI_POSTPROCESS: Groq HTTP ${response.status}${detail ? ` — ${detail}` : ''}`);
+      const error = new Error(`Groq HTTP ${response.status}${detail ? ` — ${detail}` : ''}`);
+      error.status = response.status;
+      error.retryAfter = Number(response.headers.get('retry-after') || 0) || 0;
+      throw error;
     }
     const answer = data?.choices?.[0]?.message?.content;
-    if (!answer) throw new Error('AI_POSTPROCESS: Groq вернул пустой ответ');
+    if (!answer) {
+      const error = new Error('Groq вернул пустой ответ');
+      error.status = response.status;
+      throw error;
+    }
     return String(answer);
   } catch (error) {
-    if (controller.signal.aborted) throw new Error('AI_POSTPROCESS: таймаут Groq');
+    if (controller.signal.aborted) {
+      const timeout = new Error('таймаут Groq');
+      timeout.status = 0;
+      throw timeout;
+    }
     throw error;
   } finally {
     clearTimeout(timer);
   }
+}
+
+function shouldStopFallback(error) {
+  const status = Number(error?.status || 0);
+  return status === 401 || status === 403;
+}
+
+async function requestWithFallback(messages, apiKey, models, mode) {
+  const failures = [];
+  for (const model of models) {
+    try {
+      const answer = await requestGroqModel(messages, apiKey, model);
+      const parsed = parseJsonObject(answer);
+      const analysis = normalizeAnalysis(parsed, {
+        model,
+        attemptedModels: [...failures.map(item => item.model), model],
+        mode
+      });
+      return analysis;
+    } catch (error) {
+      failures.push(modelFailure(error, model));
+      if (shouldStopFallback(error)) break;
+    }
+  }
+
+  const detail = failures.map(item => {
+    const code = item.status ? `HTTP ${item.status}` : 'network';
+    const retry = item.retryAfter ? ` retry-after=${item.retryAfter}s` : '';
+    return `${item.model}: ${code}${retry}`;
+  }).join(' | ');
+  const error = new Error(`AI_POSTPROCESS: все Groq-маршруты недоступны${detail ? ` — ${detail}` : ''}`);
+  error.failures = failures;
+  throw error;
+}
+
+function standardSystemPrompt() {
+  return `Ты — постпроцессор транскриптов звонков техподдержки интернет-провайдера SIMNET.\n\nТвоя задача — исправить ошибки ASR и сделать текст пригодным для CRM, не меняя факты разговора.\n\nКРИТИЧЕСКИЕ ПРАВИЛА:\n1. НЕ ПЕРЕВОДИ речь. Украинские фразы оставляй украинскими, русские — русскими. Если разговор смешанный RU/UK или суржик — сохрани это естественно.\n2. language = "uk", "ru" или "mixed". При заметном переключении между украинским и русским ставь "mixed".\n3. Исправляй только очевидные ошибки распознавания: пунктуацию, регистр, слитые/разорванные слова и технические термины, когда контекст однозначен.\n4. Не выдумывай адреса, имена, номера, оборудование, диагностику, обещания или результат. Если факт не прозвучал — не добавляй его.\n5. Сохраняй смысл и последовательность разговора. Можно убрать только явные ASR-повторы и бессодержательные слова-паразиты, если это не меняет смысл.\n6. Термины ISP пиши корректно, если они действительно распознаны по контексту: SIMNET, Wi-Fi, Ethernet, ONU, ONT, OLT, GPON, EPON, VLAN, DHCP, PPPoE, NAT, IPv4, IPv6, MikroTik, TP-Link, Cudy, Juniper, BRAS.\n7. summary/issue/actions/result/next_step должны содержать ТОЛЬКО факты из разговора. Если данных нет — пустая строка.\n8. Не оценивай личность, интеллект или профессиональную пригодность оператора. В стандартном режиме только фиксируй наблюдаемые действия и результат.\n9. Ответь ТОЛЬКО JSON-объектом без markdown и комментариев.\n\nФормат:\n{"language":"uk|ru|mixed","clean_text":"полный очищенный транскрипт","summary":"краткая суть звонка","issue":"причина обращения","actions":"что было проверено/сделано оператором","result":"чем закончился звонок","next_step":"что явно договорились сделать дальше"}`;
 }
 
 export async function postprocessTranscript(job = {}, transcript = {}) {
@@ -183,27 +266,27 @@ export async function postprocessTranscript(job = {}, transcript = {}) {
     throw new Error('AI_POSTPROCESS: Groq API key не настроен локально в Workbench');
   }
 
+  const mode = String(job.analysisMode || 'standard');
   const callKey = String(job.callKey || transcript.callKey || '').trim();
   const source = sourceText(transcript);
-  const sourceHash = stableHash(`${rawText}\n${source}`);
+  const sourceHash = stableHash(`${mode}\n${rawText}\n${source}`);
   const cached = callKey && job.forceAnalysis !== true
-    ? await readCached(callKey, sourceHash, runtime.model)
+    ? await readCached(callKey, sourceHash, mode)
     : null;
   if (cached) return cached;
-
-  const system = `Ты — постпроцессор транскриптов звонков техподдержки интернет-провайдера SIMNET.\n\nТвоя задача — исправить ошибки ASR и сделать текст пригодным для CRM, не меняя факты разговора.\n\nКРИТИЧЕСКИЕ ПРАВИЛА:\n1. НЕ ПЕРЕВОДИ речь. Украинские фразы оставляй украинскими, русские — русскими. Если разговор смешанный RU/UK или суржик — сохрани это естественно.\n2. language = "uk", "ru" или "mixed". При заметном переключении между украинским и русским ставь "mixed".\n3. Исправляй только очевидные ошибки распознавания: пунктуацию, регистр, слитые/разорванные слова и технические термины, когда контекст однозначен.\n4. Не выдумывай адреса, имена, номера, оборудование, диагностику, обещания или результат. Если факт не прозвучал — не добавляй его.\n5. Сохраняй смысл и последовательность разговора. Можно убрать только явные ASR-повторы и бессодержательные слова-паразиты, если это не меняет смысл.\n6. Термины ISP пиши корректно, если они действительно распознаны по контексту: SIMNET, Wi-Fi, Ethernet, ONU, ONT, OLT, GPON, EPON, VLAN, DHCP, PPPoE, NAT, IPv4, IPv6, MikroTik, TP-Link, Cudy, Juniper, BRAS.\n7. summary/issue/actions/result/next_step должны содержать ТОЛЬКО факты из разговора. Если данных нет — пустая строка.\n8. Ответь ТОЛЬКО JSON-объектом без markdown и комментариев.\n\nФормат:\n{"language":"uk|ru|mixed","clean_text":"полный очищенный транскрипт","summary":"краткая суть звонка","issue":"причина обращения","actions":"что было проверено/сделано оператором","result":"чем закончился звонок","next_step":"что явно договорились сделать дальше"}`;
 
   const whisperLanguage = oneLine(transcript.language || '', 24);
   const whisperProbability = Number(transcript.languageProbability || 0);
   const user = `CALL: ${String(job.usersideCallId || transcript.usersideCallId || '')}\nWhisper language hint: ${whisperLanguage || 'unknown'} (${Number.isFinite(whisperProbability) ? whisperProbability.toFixed(3) : '0.000'})\n\nТранскрипт по сегментам:\n${source}`;
 
-  const answer = await requestGroq([
-    { role: 'system', content: system },
+  const analysis = await requestWithFallback([
+    { role: 'system', content: standardSystemPrompt() },
     { role: 'user', content: user }
-  ], runtime.apiKey, runtime.model);
-  const analysis = normalizeAnalysis(parseJsonObject(answer), { model: runtime.model });
-  if (callKey) await saveCached(callKey, sourceHash, runtime.model, analysis);
+  ], runtime.apiKey, runtime.models, mode);
+
+  if (callKey) await saveCached(callKey, sourceHash, mode, analysis);
   return analysis;
 }
 
 export const AI_POSTPROCESS_RUNTIME_KEY = AI_RUNTIME_CONFIG_KEY;
+export const AI_POSTPROCESS_DEFAULT_MODELS = DEFAULT_MODELS;
