@@ -84,7 +84,8 @@ function processingStatus(call = {}) {
     return 'QUEUED';
   }
   if (state === 'waiting') {
-    if (stage === 'pbx' || !call.pbxRecordId) return 'WAIT_PBX';
+    if (!call.pbxRecordId) return 'WAIT_PBX';
+    if (stage === 'pbx' && String(p.lastSuccessfulStage || '') !== 'pbx') return 'WAIT_PBX';
     if (stage === 'whisper' && error) return 'WAIT_TRANSCRIBER';
     if (stage === 'userside') {
       if (/review|проверк/i.test(error)) return 'USERSIDE_REVIEW';
@@ -130,10 +131,17 @@ function processingView(call = {}, atMs = Date.now()) {
   const p = call.processing || {};
   const ageMs = waitAgeMs(call, atMs);
   const waitSeconds = Math.round(ageMs / 1000);
-  const linkedPbxInterrupted = rawStatus === 'WAIT_PBX' && Boolean(recordIdOf(call)) && ageMs >= AUTO_LOCK_WINDOW_MS;
-  const status = linkedPbxInterrupted ? 'STALE' : rawStatus;
-  const waitPbxAttention = rawStatus === 'WAIT_PBX' && !recordIdOf(call) && ageMs >= WAIT_PBX_ATTENTION_MS;
   const execution = callExecutionRegistry.get(call.callKey);
+  const linkedPbxInterrupted = rawStatus === 'WAIT_PBX'
+    && Boolean(recordIdOf(call))
+    && !execution
+    && ageMs >= AUTO_LOCK_WINDOW_MS;
+  const status = execution?.state === 'queued'
+    ? 'QUEUED'
+    : linkedPbxInterrupted ? 'STALE' : rawStatus;
+  const waitPbxAttention = rawStatus === 'WAIT_PBX'
+    && !recordIdOf(call)
+    && ageMs >= WAIT_PBX_ATTENTION_MS;
   const error = linkedPbxInterrupted
     ? 'PBX recordId получен, но цепочка обработки не продолжилась.'
     : String(p.error || call.writeback?.error || '');
@@ -210,6 +218,13 @@ function recoverableWaitingCall(raw = {}) {
   return stage === 'whisper' && Boolean(raw.transcript?.storageKey);
 }
 
+function reportAutoStartFailure(callKey, error) {
+  console.error('[SIMNET WB][CALL PROCESSING] queued call failed unexpectedly', {
+    callKey: String(callKey || ''),
+    error: error instanceof Error ? error.message : String(error || 'unknown error')
+  });
+}
+
 async function syncRegisteredCalls(stateHint = null) {
   const starts = await CallStateStore.mutateAll((store, state) => {
     const source = stateHint && stateHint.callModule ? stateHint : state;
@@ -283,7 +298,9 @@ async function syncRegisteredCalls(stateHint = null) {
   });
 
   for (const callKey of Array.isArray(starts) ? starts : []) {
-    queueMicrotask(() => void processCall(callKey));
+    queueMicrotask(() => {
+      void processCall(callKey).catch(error => reportAutoStartFailure(callKey, error));
+    });
   }
   return starts || [];
 }
@@ -529,16 +546,19 @@ async function recoverInterruptedCalls() {
       if (p.state !== 'running') continue;
 
       const record = CallRecord.from(raw);
-      const stage = String(record.processing.stage || '');
+      const interruptedStage = String(record.processing.stage || '');
+      if (interruptedStage && record.processing.steps?.[interruptedStage]?.status === 'running') {
+        record.setStep(interruptedStage, 'waiting', 'прервано перезапуском Service Worker; возвращено в очередь', at);
+      }
       record.processing.state = 'waiting';
-      record.processing.stage = recordIdOf(raw) ? 'pbx' : 'pbx';
+      record.processing.stage = 'pbx';
       record.processing.updatedAt = at;
       record.processing.heartbeatAt = at;
       record.processing.error = '';
       record.processing.attention = false;
       record.processing.attentionDismissedAt = '';
       record.processing.owner = '';
-      record.event('requeued_after_worker_restart', { interruptedStage: stage }, at);
+      record.event('requeued_after_worker_restart', { interruptedStage }, at);
       if (recordIdOf(raw)) record.setStep('pbx', 'done', `PBX ${recordIdOf(raw)}`, at);
       store.calls[key] = record.toJSON();
       keys.push(key);
@@ -584,7 +604,7 @@ async function migrateLegacyJobs() {
         record.wait('userside', job.error || 'ожидается UserSide', job.updatedAt || nowIso(), true);
       } else if (['FETCH_AUDIO', 'AUDIO_READY', 'TRANSCRIBING', 'WRITING_USERSIDE', 'QUEUED'].includes(status)) {
         record.processing.state = 'waiting';
-        record.processing.stage = recordIdOf(record.toJSON()) ? 'pbx' : 'pbx';
+        record.processing.stage = 'pbx';
         record.processing.error = '';
         record.processing.attention = false;
         record.event('legacy_job_requeued', { previousStatus: status }, job.updatedAt || nowIso());
