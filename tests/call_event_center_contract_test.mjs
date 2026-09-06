@@ -32,18 +32,20 @@ test('bell counter counts attention only, not successful calls', () => {
   assert.doesNotMatch(bridge, /calls\.filter\(call => call\.status === 'DONE'\).*count/s);
 });
 
-test('known PBX record is not reported as missing and can self-resume', () => {
-  assert.match(processing, /if \(!call\.pbxRecordId\) return 'WAIT_PBX'/);
-  assert.match(processing, /lastSuccessfulStage \|\| ''\) !== 'pbx'/);
+test('linked PBX waits recover when fresh and become actionable when old', () => {
   assert.match(processing, /await syncRegisteredCalls\(\);\s*const calls = await CallStateStore\.list\(\)/);
+  assert.match(processing, /const linkedPbxInterrupted = rawStatus === 'WAIT_PBX' && Boolean\(recordIdOf\(call\)\)/);
+  assert.match(processing, /const status = linkedPbxInterrupted \? 'STALE' : rawStatus/);
+  assert.match(bridge, /status === 'WAIT_PBX' && call\.needsAttention && !call\.pbxRecordId/);
   assert.match(bridge, /maybeResumeLinkedCalls/);
   assert.match(bridge, /call\.status === 'WAIT_PBX' && Boolean\(call\.pbxRecordId\)/);
 });
 
-test('retry clears terminal processing state before resuming from checkpoint', () => {
+test('retry clears terminal processing state and reuses saved transcript', () => {
   assert.match(processing, /\['cancelled', 'stale', 'failed'\]\.includes/);
   assert.match(processing, /p\.state = 'waiting'/);
-  assert.match(processing, /if \(call\?\.transcript\?\.storageKey && force !== true\)/);
+  assert.match(processing, /if \(call\?\.transcript\?\.storageKey\)/);
+  assert.match(processing, /return processUsersideWrite\(callKey\)/);
 });
 
 test('legacy left CALL jobs panel is not injected', () => {
