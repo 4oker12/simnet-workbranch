@@ -85,7 +85,8 @@ function processingStatus(call = {}) {
     return 'QUEUED';
   }
   if (state === 'waiting') {
-    if (stage === 'pbx' || !call.pbxRecordId) return 'WAIT_PBX';
+    if (!call.pbxRecordId) return 'WAIT_PBX';
+    if (stage === 'pbx' && String(p.lastSuccessfulStage || '') !== 'pbx') return 'WAIT_PBX';
     if (stage === 'whisper' && error) return 'WAIT_TRANSCRIBER';
     if (stage === 'userside') {
       if (/review|проверк/i.test(error)) return 'USERSIDE_REVIEW';
@@ -151,7 +152,7 @@ function processingView(call = {}, atMs = Date.now()) {
     updatedAt: call.updatedAt || p.updatedAt || '',
     steps: legacySteps(call),
     needsAttention: waitPbxAttention || record.needsAttention(),
-    active: p.state === 'running',
+    active: p.state === 'running' || status === 'QUEUED',
     canRetry: waitPbxAttention || status === 'WAIT_PBX' || record.canRetry(),
     canCancel: record.canCancel(),
     waitSeconds,
@@ -209,10 +210,14 @@ async function syncRegisteredCalls(stateHint = null) {
       if (pbxId) {
         if (snapshot.processing?.steps?.pbx?.status !== 'done') record.attachPbx(pbxId, at);
         const afterPbx = record.toJSON();
-        if (['idle', 'waiting'].includes(String(afterPbx.processing?.state || ''))
-          && ['pbx', ''].includes(String(afterPbx.processing?.stage || ''))
-          && afterPbx.processing?.state !== 'cancelled') {
-          record.completeStage('pbx', { detail: `PBX ${pbxId}` }, at);
+        const processing = afterPbx.processing || {};
+        const readyToStart = ['idle', 'waiting'].includes(String(processing.state || ''))
+          && ['pbx', ''].includes(String(processing.stage || ''))
+          && processing.state !== 'cancelled';
+        if (readyToStart) {
+          if (String(processing.lastSuccessfulStage || '') !== 'pbx') {
+            record.completeStage('pbx', { detail: `PBX ${pbxId}` }, at);
+          }
           startKeys.push(callKey);
         }
       } else {
@@ -427,20 +432,24 @@ async function retryCall(callKey, force = false) {
     return CallStateStore.read(callKey);
   }
 
-  if (call.transcript?.storageKey && force !== true) {
-    await updateCall(callKey, record => {
-      record.processing.attention = false;
-      record.processing.attentionDismissedAt = '';
-      if (record.processing.state === 'cancelled' || record.processing.state === 'stale' || record.processing.state === 'failed') {
-        record.processing.state = 'waiting';
-      }
-    });
+  await updateCall(callKey, record => {
+    const p = record.processing;
+    if (['cancelled', 'stale', 'failed'].includes(String(p.state || ''))) p.state = 'waiting';
+    p.error = '';
+    p.attention = false;
+    p.attentionDismissedAt = '';
+    p.cancelledAt = '';
+  });
+  call = await CallStateStore.read(callKey);
+
+  if (call?.transcript?.storageKey && force !== true) {
     return processUsersideWrite(callKey);
   }
   return processCall(callKey, { force: force === true });
 }
 
 async function listProcessing() {
+  await syncRegisteredCalls();
   const calls = await CallStateStore.list();
   const now = Date.now();
   return calls
