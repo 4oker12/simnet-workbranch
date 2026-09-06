@@ -61,6 +61,7 @@
         "src/ui/rail-styles.js",
         "src/ui/rail.js",
         "src/ui/call-attention-bridge.js",
+        "src/ui/call-userside-link.js",
         "src/ui/settings-enhancer.js",
         "src/ui/responsive-layout.js",
         "src/content/bootstrap.js"
