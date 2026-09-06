@@ -32,6 +32,16 @@ function oneLine(value, max = 1200) {
     .slice(0, max);
 }
 
+function abortError(message = 'AI_POSTPROCESS: отменено оператором') {
+  const error = new Error(message);
+  error.name = 'AbortError';
+  return error;
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw abortError();
+}
+
 function stableHash(value) {
   const text = String(value || '');
   let hash = 2166136261;
@@ -173,9 +183,16 @@ function modelFailure(error, model) {
   return { model, status, retryAfter, detail };
 }
 
-async function requestGroqModel(messages, apiKey, model) {
+async function requestGroqModel(messages, apiKey, model, externalSignal = null) {
+  throwIfAborted(externalSignal);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort('timeout'), AI_TIMEOUT_MS);
+  let timedOut = false;
+  const onExternalAbort = () => controller.abort('external-cancel');
+  if (externalSignal) externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort('timeout');
+  }, AI_TIMEOUT_MS);
   try {
     const response = await fetch(`${AI_CONFIG.baseUrl}/chat/completions`, {
       method: 'POST',
@@ -191,6 +208,7 @@ async function requestGroqModel(messages, apiKey, model) {
       }),
       signal: controller.signal
     });
+    throwIfAborted(externalSignal);
     const text = await response.text();
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch {}
@@ -209,27 +227,32 @@ async function requestGroqModel(messages, apiKey, model) {
     }
     return String(answer);
   } catch (error) {
-    if (controller.signal.aborted) {
+    if (externalSignal?.aborted) throw abortError();
+    if (controller.signal.aborted && timedOut) {
       const timeout = new Error('таймаут Groq');
       timeout.status = 0;
       throw timeout;
     }
+    if (controller.signal.aborted) throw abortError();
     throw error;
   } finally {
     clearTimeout(timer);
+    if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
   }
 }
 
 function shouldStopFallback(error) {
   const status = Number(error?.status || 0);
-  return status === 401 || status === 403;
+  return error?.name === 'AbortError' || status === 401 || status === 403;
 }
 
-async function requestWithFallback(messages, apiKey, models, mode) {
+async function requestWithFallback(messages, apiKey, models, mode, signal = null) {
   const failures = [];
   for (const model of models) {
+    throwIfAborted(signal);
     try {
-      const answer = await requestGroqModel(messages, apiKey, model);
+      const answer = await requestGroqModel(messages, apiKey, model, signal);
+      throwIfAborted(signal);
       const parsed = parseJsonObject(answer);
       const analysis = normalizeAnalysis(parsed, {
         model,
@@ -238,6 +261,7 @@ async function requestWithFallback(messages, apiKey, models, mode) {
       });
       return analysis;
     } catch (error) {
+      if (error?.name === 'AbortError' || signal?.aborted) throw abortError();
       failures.push(modelFailure(error, model));
       if (shouldStopFallback(error)) break;
     }
@@ -257,11 +281,13 @@ function standardSystemPrompt() {
   return `Ты — постпроцессор транскриптов звонков техподдержки интернет-провайдера SIMNET.\n\nТвоя задача — исправить ошибки ASR и сделать текст пригодным для CRM, не меняя факты разговора.\n\nКРИТИЧЕСКИЕ ПРАВИЛА:\n1. НЕ ПЕРЕВОДИ речь. Украинские фразы оставляй украинскими, русские — русскими. Если разговор смешанный RU/UK или суржик — сохрани это естественно.\n2. language = "uk", "ru" или "mixed". При заметном переключении между украинским и русским ставь "mixed".\n3. Исправляй только очевидные ошибки распознавания: пунктуацию, регистр, слитые/разорванные слова и технические термины, когда контекст однозначен.\n4. Не выдумывай адреса, имена, номера, оборудование, диагностику, обещания или результат. Если факт не прозвучал — не добавляй его.\n5. Сохраняй смысл и последовательность разговора. Можно убрать только явные ASR-повторы и бессодержательные слова-паразиты, если это не меняет смысл.\n6. Термины ISP пиши корректно, если они действительно распознаны по контексту: SIMNET, Wi-Fi, Ethernet, ONU, ONT, OLT, GPON, EPON, VLAN, DHCP, PPPoE, NAT, IPv4, IPv6, MikroTik, TP-Link, Cudy, Juniper, BRAS.\n7. summary/issue/actions/result/next_step должны содержать ТОЛЬКО факты из разговора. Если данных нет — пустая строка.\n8. Не оценивай личность, интеллект или профессиональную пригодность оператора. В стандартном режиме только фиксируй наблюдаемые действия и результат.\n9. Ответь ТОЛЬКО JSON-объектом без markdown и комментариев.\n\nФормат:\n{"language":"uk|ru|mixed","clean_text":"полный очищенный транскрипт","summary":"краткая суть звонка","issue":"причина обращения","actions":"что было проверено/сделано оператором","result":"чем закончился звонок","next_step":"что явно договорились сделать дальше"}`;
 }
 
-export async function postprocessTranscript(job = {}, transcript = {}) {
+export async function postprocessTranscript(job = {}, transcript = {}, signal = null) {
+  throwIfAborted(signal);
   const rawText = block(transcript.text, MAX_INPUT_CHARS);
   if (!rawText) throw new Error('AI_POSTPROCESS: отсутствует сырой транскрипт');
 
   const runtime = await readRuntimeConfig();
+  throwIfAborted(signal);
   if (!runtime.apiKey) {
     throw new Error('AI_POSTPROCESS: Groq API key не настроен локально в Workbench');
   }
@@ -273,6 +299,7 @@ export async function postprocessTranscript(job = {}, transcript = {}) {
   const cached = callKey && job.forceAnalysis !== true
     ? await readCached(callKey, sourceHash, mode)
     : null;
+  throwIfAborted(signal);
   if (cached) return cached;
 
   const whisperLanguage = oneLine(transcript.language || '', 24);
@@ -282,8 +309,9 @@ export async function postprocessTranscript(job = {}, transcript = {}) {
   const analysis = await requestWithFallback([
     { role: 'system', content: standardSystemPrompt() },
     { role: 'user', content: user }
-  ], runtime.apiKey, runtime.models, mode);
+  ], runtime.apiKey, runtime.models, mode, signal);
 
+  throwIfAborted(signal);
   if (callKey) await saveCached(callKey, sourceHash, mode, analysis);
   return analysis;
 }
