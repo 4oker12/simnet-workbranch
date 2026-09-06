@@ -26,10 +26,24 @@ test('event center binds actions after the rail shadow root is mounted', () => {
   assert.doesNotMatch(bridge, /rail\.shadow\?\.addEventListener\('click'/);
 });
 
-test('bell counter counts attention only, not successful calls', () => {
-  assert.match(bridge, /const callAttention = calls\.filter\(call => call\.needsAttention\)/);
-  assert.match(bridge, /const count = baseItems\.length \+ callAttention\.length/);
+test('bell counter counts attention only, not successful or queued calls', () => {
+  assert.match(bridge, /const attentionCalls = calls\.filter\(call => call\.needsAttention\)/);
+  assert.match(bridge, /const count = baseItems\.length \+ attentionCalls\.length/);
   assert.doesNotMatch(bridge, /calls\.filter\(call => call\.status === 'DONE'\).*count/s);
+  assert.doesNotMatch(bridge, /WORK_STATUSES.*count/s);
+});
+
+test('work tab is a FIFO queue and history contains only calls outside active work', () => {
+  assert.match(bridge, /const WORK_STATUSES = new Set/);
+  assert.match(bridge, /'QUEUED'/);
+  assert.match(bridge, /function isWorkCall\(/);
+  assert.match(bridge, /function isHistoryCall\(/);
+  assert.match(bridge, /function sortQueue\(/);
+  assert.match(bridge, /queueTime\(a\) - queueTime\(b\)/);
+  assert.match(bridge, /calls\.filter\(isWorkCall\)/);
+  assert.match(bridge, /calls\.filter\(isHistoryCall\)/);
+  assert.match(bridge, /Ожидает завершения предыдущего звонка/);
+  assert.match(bridge, /Обработка завершена\. Звонок находится в истории/);
 });
 
 test('linked PBX waits recover when fresh and become actionable when old', () => {
