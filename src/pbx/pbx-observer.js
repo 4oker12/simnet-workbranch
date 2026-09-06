@@ -20,8 +20,6 @@
     return text.length > max ? `${text.slice(0, max)}…` : text;
   };
 
-
-
   const normalizedHeader = value => compact(value, 80)
     .toLowerCase()
     .replace(/[^a-z0-9_#]+/g, '');
@@ -209,19 +207,31 @@
     }
   }
 
+  function isWorkbenchOwnedMutationNode(node) {
+    const element = node?.nodeType === 1 ? node : node?.parentElement;
+    if (!element) return false;
+    return Boolean(
+      element.matches?.('.wb-pbx-manual-tools,#simnet-wb-pbx-manual-analysis-popover,#simnet-wb-pbx-shell')
+      || element.closest?.('.wb-pbx-manual-tools,#simnet-wb-pbx-manual-analysis-popover,#simnet-wb-pbx-shell')
+    );
+  }
+
   function mutationTouchesCallTables(mutations = []) {
     return mutations.some(mutation => {
       const target = mutation?.target?.nodeType === 1 ? mutation.target : mutation?.target?.parentElement;
+      if (isWorkbenchOwnedMutationNode(target)) return false;
+
+      const changedNodes = [
+        ...Array.from(mutation?.addedNodes || []),
+        ...Array.from(mutation?.removedNodes || [])
+      ].filter(node => node?.nodeType === 1);
+      if (changedNodes.length && changedNodes.every(isWorkbenchOwnedMutationNode)) return false;
+
       if (target?.closest?.('table')) return true;
-      for (const node of mutation?.addedNodes || []) {
-        if (node?.nodeType !== 1) continue;
-        if (String(node.tagName || '').toLowerCase() === 'table' || node.querySelector?.('table')) return true;
-      }
-      for (const node of mutation?.removedNodes || []) {
-        if (node?.nodeType !== 1) continue;
-        if (String(node.tagName || '').toLowerCase() === 'table' || node.querySelector?.('table')) return true;
-      }
-      return false;
+      return changedNodes.some(node => (
+        String(node.tagName || '').toLowerCase() === 'table'
+        || Boolean(node.querySelector?.('table'))
+      ));
     });
   }
 
