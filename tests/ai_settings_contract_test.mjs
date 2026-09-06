@@ -50,6 +50,22 @@ test('settings validate Groq without spending a completion request', () => {
   assert.doesNotMatch(runtimeService, /chat\/completions/);
 });
 
+test('content-script AI settings buttons route through service worker', () => {
+  assert.match(runtimeService, /AI_RUNTIME_OPEN_SETTINGS/);
+  assert.match(runtimeService, /chrome\.runtime\.openOptionsPage\(\)/);
+  assert.match(settingsEnhancer, /AI_RUNTIME_OPEN_SETTINGS/);
+  assert.match(pbxShell, /AI_RUNTIME_OPEN_SETTINGS/);
+  assert.doesNotMatch(settingsEnhancer, /chrome\.runtime\.openOptionsPage\?\.\(\)/);
+  assert.doesNotMatch(pbxShell, /chrome\.runtime\.openOptionsPage\?\.\(\)/);
+});
+
+test('PBX shell collapses to its toggle and stays anchored to the right edge', () => {
+  assert.match(pbxShell, /right:\s*'4px'/);
+  assert.match(pbxShell, /width:\s*open\s*\?/);
+  assert.match(pbxShell, /'max-content'/);
+  assert.match(pbxShell, /margin-left:auto/);
+});
+
 test('in-panel settings expose key, model, test and current-case controls in one compact surface', () => {
   assert.match(settingsEnhancer, /AI_RUNTIME_SAVE/);
   assert.match(settingsEnhancer, /AI_RUNTIME_TEST/);
