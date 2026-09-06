@@ -249,9 +249,18 @@
       }
     });
 
-    options?.addEventListener('click', event => {
+    options?.addEventListener('click', async event => {
+      event.preventDefault();
       event.stopPropagation();
-      chrome.runtime.openOptionsPage?.();
+      options.disabled = true;
+      try {
+        await runtime('AI_RUNTIME_OPEN_SETTINGS');
+      } catch (error) {
+        status.textContent = String(error?.message || error || 'Не удалось открыть настройки AI');
+        status.className = 'wb-status bad';
+      } finally {
+        options.disabled = false;
+      }
     });
   }
 
