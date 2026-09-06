@@ -4,13 +4,16 @@
   if (window.top !== window.self || location.hostname !== 'pbx.simnet.kiev.ua') return;
 
   const HOST_ID = 'simnet-wb-pbx-shell';
-  const JOBS_KEY = 'simnet_workbench_pbx_manual_analysis_jobs_v1';
   const AI_KEY = 'simnet_workbench_ai_runtime_v1';
+  const STATUS = 'PBX_MANUAL_ANALYSIS_STATUS';
+  const CHANGED = 'CALL_PROCESSING_CHANGED';
   const VERSION = chrome.runtime.getManifest().version;
 
   let open = false;
   let jobs = {};
   let ai = {};
+  let refreshTimer = 0;
+  let refreshPromise = null;
 
   function esc(value) {
     return String(value == null ? '' : value).replace(/[&<>"']/g, char => ({
@@ -23,21 +26,42 @@
     return {
       ready: values.filter(job => job?.status === 'ready').length,
       txt: values.filter(job => job?.status === 'transcribed').length,
-      busy: values.filter(job => ['queued', 'downloading', 'transcribing', 'analyzing'].includes(job?.status)).length,
-      error: values.filter(job => job?.status === 'error').length
+      busy: values.filter(job => ['queued', 'downloading', 'transcribing', 'analyzing', 'cancelling'].includes(job?.status)).length,
+      error: values.filter(job => ['error', 'interrupted'].includes(job?.status)).length
     };
   }
 
+  async function runtimeRequest(type, payload = {}) {
+    const response = await chrome.runtime.sendMessage({ type, payload });
+    if (!response?.success) throw new Error(response?.error || 'Service worker не ответил');
+    return response.data;
+  }
+
   async function refreshData() {
-    try {
-      const stored = await chrome.storage.local.get([JOBS_KEY, AI_KEY]);
-      jobs = stored?.[JOBS_KEY] || {};
-      ai = stored?.[AI_KEY] || {};
-    } catch {
-      jobs = {};
-      ai = {};
-    }
-    render();
+    if (refreshPromise) return refreshPromise;
+    refreshPromise = Promise.allSettled([
+      chrome.storage.local.get(AI_KEY),
+      runtimeRequest(STATUS)
+    ]).then(([aiResult, statusResult]) => {
+      if (aiResult.status === 'fulfilled') ai = aiResult.value?.[AI_KEY] || {};
+      if (statusResult.status === 'fulfilled') jobs = statusResult.value && typeof statusResult.value === 'object' ? statusResult.value : {};
+      if (statusResult.status === 'rejected' && !/context invalidated/i.test(String(statusResult.reason?.message || statusResult.reason || ''))) {
+        console.warn('[SIMNET WB][PBX] status refresh failed', statusResult.reason);
+      }
+      render();
+      return { jobs, ai };
+    }).finally(() => {
+      refreshPromise = null;
+    });
+    return refreshPromise;
+  }
+
+  function scheduleRefresh(delay = 60) {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      refreshTimer = 0;
+      void refreshData();
+    }, delay);
   }
 
   async function openAiSettings() {
@@ -132,112 +156,27 @@
         }
         .head-copy{min-width:0}
         .head strong{display:block;color:#243247;font-size:14px;line-height:1.2}
-        .head small{
-          display:block;
-          margin-top:4px;
-          color:#8a97a7;
-          font-size:10px;
-          font-weight:500;
-          overflow-wrap:anywhere
-        }
-        .close{
-          width:28px;
-          height:28px;
-          flex:0 0 auto;
-          display:grid;
-          place-items:center;
-          padding:0;
-          border:0;
-          border-radius:8px;
-          background:transparent;
-          color:#7a8798;
-          font-size:20px;
-          line-height:1;
-          cursor:pointer
-        }
+        .head small{display:block;margin-top:4px;color:#8a97a7;font-size:10px;font-weight:500;overflow-wrap:anywhere}
+        .close{width:28px;height:28px;flex:0 0 auto;display:grid;place-items:center;padding:0;border:0;border-radius:8px;background:transparent;color:#7a8798;font-size:20px;line-height:1;cursor:pointer}
         .close:hover{background:#f1f5f9;color:#334155}
         .body{display:grid;gap:10px;padding:12px}
-        .card{
-          min-width:0;
-          padding:12px;
-          border:1px solid #e0e6ed;
-          border-radius:12px;
-          background:#fff;
-          box-shadow:0 1px 2px rgba(15,23,42,.025)
-        }
+        .card{min-width:0;padding:12px;border:1px solid #e0e6ed;border-radius:12px;background:#fff;box-shadow:0 1px 2px rgba(15,23,42,.025)}
         .title{color:#2d3b50;font-size:12px;font-weight:850}
-        .sub{
-          margin-top:4px;
-          color:#8491a1;
-          font-size:10px;
-          line-height:1.45;
-          overflow-wrap:anywhere
-        }
+        .sub{margin-top:4px;color:#8491a1;font-size:10px;line-height:1.45;overflow-wrap:anywhere}
         .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:10px}
-        .stat{
-          min-width:0;
-          padding:8px 3px;
-          border:1px solid #eef2f6;
-          border-radius:9px;
-          background:#f8fafc;
-          text-align:center
-        }
+        .stat{min-width:0;padding:8px 3px;border:1px solid #eef2f6;border-radius:9px;background:#f8fafc;text-align:center}
         .stat b{display:block;color:#26364a;font-size:14px}
-        .stat span{
-          display:block;
-          margin-top:1px;
-          color:#8a97a7;
-          font-size:8.5px;
-          overflow:hidden;
-          text-overflow:ellipsis;
-          white-space:nowrap
-        }
+        .stat span{display:block;margin-top:1px;color:#8a97a7;font-size:8.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
         .ai{display:flex;align-items:center;justify-content:space-between;gap:10px}
         .ai-copy{min-width:0;flex:1}
-        .pill{
-          display:inline-flex;
-          align-items:center;
-          gap:5px;
-          max-width:48%;
-          padding:5px 8px;
-          border-radius:999px;
-          background:${configured ? '#ecfdf5' : '#fff7ed'};
-          color:${configured ? '#047857' : '#b45309'};
-          font-size:9px;
-          font-weight:800;
-          white-space:normal
-        }
-        .pill::before{
-          content:'';
-          width:6px;
-          height:6px;
-          flex:0 0 auto;
-          border-radius:50%;
-          background:${configured ? '#10b981' : '#f59e0b'}
-        }
-        .btn{
-          width:100%;
-          min-height:38px;
-          padding:8px 12px;
-          border:0;
-          border-radius:9px;
-          background:#a50046;
-          color:#fff;
-          font-weight:800;
-          cursor:pointer
-        }
+        .pill{display:inline-flex;align-items:center;gap:5px;max-width:48%;padding:5px 8px;border-radius:999px;background:${configured ? '#ecfdf5' : '#fff7ed'};color:${configured ? '#047857' : '#b45309'};font-size:9px;font-weight:800;white-space:normal}
+        .pill::before{content:'';width:6px;height:6px;flex:0 0 auto;border-radius:50%;background:${configured ? '#10b981' : '#f59e0b'}}
+        .btn{width:100%;min-height:38px;padding:8px 12px;border:0;border-radius:9px;background:#a50046;color:#fff;font-weight:800;cursor:pointer}
         .btn:hover{filter:brightness(1.05)}
         .btn:active{transform:translateY(1px)}
         .btn.secondary{border:1px solid #dce3eb;background:#fff;color:#445266}
         .foot{padding:0 0 2px;color:#9aa6b5;font-size:8.5px;text-align:center}
-
-        @media (max-width:520px){
-          .body{padding:10px}
-          .card{padding:10px}
-          .stats{gap:4px}
-          .ai{align-items:flex-start;flex-direction:column}
-          .pill{max-width:100%}
-        }
+        @media (max-width:520px){.body{padding:10px}.card{padding:10px}.stats{gap:4px}.ai{align-items:flex-start;flex-direction:column}.pill{max-width:100%}}
       </style>
 
       <div class="shell">
@@ -306,17 +245,15 @@
   }
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== 'local') return;
-    let dirty = false;
-    if (changes?.[JOBS_KEY]) {
-      jobs = changes[JOBS_KEY].newValue || {};
-      dirty = true;
-    }
-    if (changes?.[AI_KEY]) {
-      ai = changes[AI_KEY].newValue || {};
-      dirty = true;
-    }
-    if (dirty) render();
+    if (areaName !== 'local' || !changes?.[AI_KEY]) return;
+    ai = changes[AI_KEY].newValue || {};
+    render();
+  });
+
+  chrome.runtime.onMessage.addListener(message => {
+    if (message?.type !== CHANGED) return false;
+    scheduleRefresh();
+    return false;
   });
 
   void refreshData();
