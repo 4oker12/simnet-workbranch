@@ -5,7 +5,6 @@ const FEATURE_SCRIPT_SETS = Object.freeze({
     'src/ui/operator-companion-content.js',
     'src/ui/operator-companion.js'
   ]),
-  audit: Object.freeze(['src/audit/launcher.js']),
   call: Object.freeze(['src/ui/call-registration.js']),
   poll: Object.freeze(['src/ui/poll-terminal.js']),
   knowledge: Object.freeze(['src/ui/knowledge-base.js'])
