@@ -16,44 +16,47 @@ test('PBX history receives a dedicated manual-analysis content script', () => {
   assert.ok(pbx.js.includes('src/pbx/pbx-manual-analysis-ui.js'));
 });
 
-test('manual PBX analysis reuses the PR9 transcription and AI pipeline', () => {
-  assert.match(background, /import \{ transcribeRecord \} from '\.\/background\.js'/);
+test('manual PBX analysis reuses transcription, AI and canonical CallRecord state', () => {
+  assert.match(background, /CallStateStore/);
+  assert.match(background, /callExecutionRegistry/);
+  assert.match(background, /import \{ readTranscript, transcribeRecord \} from '\.\/background\.js'/);
   assert.match(background, /import \{ postprocessTranscript \} from '\.\/ai-postprocessor\.js'/);
   assert.match(entry, /pbx-manual-analysis\.js/);
+  assert.doesNotMatch(background, /simnet_workbench_pbx_manual_analysis_jobs_v1/);
   assert.doesNotMatch(background, /save_call|CALL_REGISTRATION_SUBMIT|writeTranscriptToUserSide/);
 });
 
-test('manual analysis is keyed by PBX record id and stays user-triggered', () => {
-  assert.match(background, /callKey: `pbx:\$\{recordId\}`/);
+test('PBX record becomes the same global call object instead of a second persisted job', () => {
+  assert.match(background, /CallStateStore\.ensurePbx/);
+  assert.match(background, /stored\.callKey/);
   assert.match(ui, /PBX_MANUAL_ANALYSIS_START/);
+  assert.match(ui, /CALL_PROCESSING_CHANGED/);
   assert.match(ui, /run\.addEventListener\('click'/);
+  assert.doesNotMatch(ui, /simnet_workbench_pbx_manual_analysis_jobs_v1/);
   assert.doesNotMatch(ui, /setInterval\(/);
 });
 
 test('PBX hover result exposes AI summary and transcript without UserSide submit', () => {
-  assert.match(ui, /job\.analysis\?\.summary/);
-  assert.match(ui, /job\.analysis\?\.issue/);
-  assert.match(ui, /job\.analysis\?\.actions/);
-  assert.match(ui, /job\.analysis\?\.nextStep/);
+  assert.match(ui, /record\.analysis\?\.summary/);
+  assert.match(ui, /record\.analysis\?\.issue/);
+  assert.match(ui, /record\.analysis\?\.actions/);
+  assert.match(ui, /record\.analysis\?\.nextStep/);
   assert.match(ui, /Транскрипт/);
   assert.doesNotMatch(ui, /CALL_REGISTRATION_SUBMIT|save_call/);
 });
 
-test('running manual jobs can be cancelled and restarted from the PBX row', () => {
+test('manual processing can be cancelled and continued from the PBX row', () => {
   assert.match(messages, /PBX_MANUAL_ANALYSIS_CANCEL/);
-  assert.match(background, /new AbortController\(\)/);
-  assert.match(background, /active\.controller\.abort\('operator-cancel'\)/);
+  assert.match(background, /callExecutionRegistry\.cancel/);
   assert.match(ui, /const CANCEL = 'PBX_MANUAL_ANALYSIS_CANCEL'/);
   assert.match(ui, /Отменить текущую обработку/);
-  assert.match(ui, /Перезапустить разбор этого звонка/);
-  assert.match(ui, /ACTIVE_STATUSES\.has\(job\.status\)/);
+  assert.match(ui, /Продолжить\/перезапустить разбор этого звонка/);
+  assert.match(ui, /ACTIVE_STATUSES\.has\(record\.status\)/);
 });
 
-test('stale persisted busy jobs are recovered instead of staying AI… forever', () => {
-  assert.match(background, /reconcileInterruptedJobs/);
-  assert.match(background, /status: 'interrupted'/);
-  assert.match(background, /Service Worker перезапустился/);
-  assert.match(ui, /job\.status === 'interrupted'/);
+test('stale runtime state is represented on the CallRecord and can be recovered', () => {
+  assert.match(background, /status === 'interrupted'/);
+  assert.match(ui, /record\.status === 'interrupted'/);
 });
 
 test('cancel signal propagates through Whisper HTTP and Groq requests', () => {
