@@ -5,9 +5,11 @@
 
   const JOBS_KEY = 'simnet_workbench_pbx_manual_analysis_jobs_v1';
   const START = 'PBX_MANUAL_ANALYSIS_START';
+  const CANCEL = 'PBX_MANUAL_ANALYSIS_CANCEL';
   const STATUS = 'PBX_MANUAL_ANALYSIS_STATUS';
   const STYLE_ID = 'simnet-wb-pbx-manual-analysis-style';
   const POPOVER_ID = 'simnet-wb-pbx-manual-analysis-popover';
+  const ACTIVE_STATUSES = new Set(['queued', 'downloading', 'transcribing', 'analyzing', 'cancelling']);
   const mounted = new Map();
   let jobs = {};
   let scanTimer = 0;
@@ -54,10 +56,12 @@
       .wb-pbx-manual-tools{display:inline-flex;align-items:center;gap:4px;margin-left:6px;vertical-align:middle;white-space:nowrap}
       .wb-pbx-manual-run,.wb-pbx-manual-result{height:22px;min-width:24px;box-sizing:border-box;padding:0 5px;border:1px solid #8798a3;border-radius:4px;background:#fff;color:#17384d;font:700 11px/20px Arial,sans-serif;text-align:center;cursor:pointer}
       .wb-pbx-manual-run:disabled{cursor:wait;opacity:.6}
+      .wb-pbx-manual-run[data-mode="cancel"]{background:#fff2f2;border-color:#c96b6b;color:#8a2424}
       .wb-pbx-manual-result[data-state="idle"]{display:none}
       .wb-pbx-manual-result[data-state="processing"]{background:#fff7dc;border-color:#bf9b35;color:#6a5200;cursor:progress}
       .wb-pbx-manual-result[data-state="ready"]{background:#e9f6ec;border-color:#4f9461;color:#245d31}
       .wb-pbx-manual-result[data-state="partial"]{background:#edf4f8;border-color:#6e91a5;color:#36586b}
+      .wb-pbx-manual-result[data-state="stopped"]{background:#f3f4f6;border-color:#9ca3af;color:#4b5563}
       .wb-pbx-manual-result[data-state="error"]{background:#fff0f0;border-color:#b85c5c;color:#8a2424}
       #${POPOVER_ID}{position:fixed;z-index:2147483645;display:none;width:min(430px,calc(100vw - 24px));max-height:min(520px,calc(100vh - 24px));overflow:auto;box-sizing:border-box;padding:12px;border:1px solid #7e8f9a;border-radius:7px;background:#fff;color:#152630;box-shadow:0 10px 30px rgba(0,0,0,.22);font:13px/1.42 Arial,sans-serif}
       #${POPOVER_ID}[data-open="1"]{display:block}
@@ -121,12 +125,21 @@
 
   function viewState(job) {
     if (!job) return { state: 'idle', badge: '', busy: false };
-    if (['queued', 'downloading', 'transcribing', 'analyzing'].includes(job.status)) {
-      const badge = job.status === 'downloading' ? 'DL' : job.status === 'transcribing' ? 'TXT' : job.status === 'analyzing' ? 'AI…' : '…';
+    if (ACTIVE_STATUSES.has(job.status)) {
+      const badge = job.status === 'downloading'
+        ? 'DL'
+        : job.status === 'transcribing'
+          ? 'TXT'
+          : job.status === 'analyzing'
+            ? 'AI…'
+            : job.status === 'cancelling'
+              ? '×'
+              : '…';
       return { state: 'processing', badge, busy: true };
     }
     if (job.status === 'ready') return { state: 'ready', badge: 'AI', busy: false };
     if (job.status === 'transcribed') return { state: 'partial', badge: 'TXT', busy: false };
+    if (['cancelled', 'interrupted'].includes(job.status)) return { state: 'stopped', badge: '■', busy: false };
     if (job.status === 'error') return { state: 'error', badge: '!', busy: false };
     return { state: 'partial', badge: 'TXT', busy: false };
   }
@@ -139,12 +152,23 @@
     }
     const job = jobs[recordId] || null;
     const state = viewState(job);
-    view.run.disabled = state.busy;
-    view.run.textContent = state.busy ? '…' : (job ? '↻' : '✦');
-    view.run.title = job ? 'Повторить разбор этого звонка' : 'Разобрать этот звонок';
+    view.run.disabled = false;
+    view.run.dataset.mode = state.busy ? 'cancel' : 'run';
+    view.run.textContent = state.busy ? '×' : (job ? '↻' : '✦');
+    view.run.title = state.busy
+      ? 'Отменить текущую обработку'
+      : job
+        ? 'Перезапустить разбор этого звонка'
+        : 'Разобрать этот звонок';
     view.result.dataset.state = state.state;
     view.result.textContent = state.badge;
-    view.result.title = state.state === 'ready' ? 'AI-разбор готов' : state.state === 'error' ? 'Ошибка разбора' : 'Состояние разбора';
+    view.result.title = state.state === 'ready'
+      ? 'AI-разбор готов'
+      : state.state === 'error'
+        ? 'Ошибка разбора'
+        : state.state === 'stopped'
+          ? 'Обработка остановлена — можно перезапустить'
+          : 'Состояние разбора';
   }
 
   function refreshAll() {
@@ -165,7 +189,9 @@
         ...(old || {}),
         recordId: call.recordId,
         call,
-        status: 'queued'
+        status: 'queued',
+        error: '',
+        aiError: ''
       }
     };
     refreshOne(call.recordId);
@@ -201,6 +227,34 @@
         }
       };
       console.error('[SIMNET Workbench][PBX MANUAL ANALYSIS]', error);
+    }
+    refreshOne(call.recordId);
+  }
+
+  async function cancelAnalysis(call) {
+    const previous = jobs[call.recordId] || {};
+    jobs = {
+      ...jobs,
+      [call.recordId]: {
+        ...previous,
+        recordId: call.recordId,
+        call,
+        status: 'cancelling'
+      }
+    };
+    refreshOne(call.recordId);
+    try {
+      const result = await runtimeRequest(CANCEL, { recordId: call.recordId });
+      jobs = { ...jobs, [call.recordId]: result };
+    } catch (error) {
+      jobs = {
+        ...jobs,
+        [call.recordId]: {
+          ...previous,
+          status: 'error',
+          error: compact(error?.message || error || 'Не удалось отменить обработку', 700)
+        }
+      };
     }
     refreshOne(call.recordId);
   }
@@ -250,14 +304,20 @@
 
     if (job.status === 'error') {
       addText(popover, 'Ошибка', job.error || 'Неизвестная ошибка');
-    } else if (['queued', 'downloading', 'transcribing', 'analyzing'].includes(job.status)) {
+    } else if (job.status === 'cancelled') {
+      addText(popover, 'Статус', 'Обработка отменена. Нажмите ↻ возле звонка, чтобы запустить снова.');
+    } else if (job.status === 'interrupted') {
+      addText(popover, 'Статус', job.error || 'Обработка была прервана. Нажмите ↻, чтобы продолжить.');
+    } else if (ACTIVE_STATUSES.has(job.status)) {
       const text = job.status === 'downloading'
-        ? 'Загружается запись из PBX.'
+        ? 'Загружается запись из PBX. Нажмите ×, чтобы отменить.'
         : job.status === 'transcribing'
-          ? 'Whisper распознаёт аудио.'
+          ? 'Whisper распознаёт аудио. Нажмите ×, чтобы отменить.'
           : job.status === 'analyzing'
-            ? 'Транскрипт готов; идёт AI-разбор.'
-            : 'Задание поставлено в обработку.';
+            ? 'Транскрипт готов; идёт AI-разбор. Нажмите ×, чтобы отменить.'
+            : job.status === 'cancelling'
+              ? 'Останавливаю текущую обработку.'
+              : 'Задание поставлено в обработку. Нажмите ×, чтобы отменить.';
       addText(popover, 'Статус', text);
     } else {
       addText(popover, 'Суть', job.analysis?.summary);
@@ -317,7 +377,9 @@
     run.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
-      void requestAnalysis(call);
+      const job = jobs[call.recordId] || null;
+      if (job && ACTIVE_STATUSES.has(job.status)) void cancelAnalysis(call);
+      else void requestAnalysis(call);
     });
 
     const result = document.createElement('span');
