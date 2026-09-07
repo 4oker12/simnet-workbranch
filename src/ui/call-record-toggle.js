@@ -120,28 +120,69 @@
     if (actions) form.insertBefore(control, actions);
     else form.appendChild(control);
 
-    // Persist ON as an explicit per-call policy too, so the processing side never
-    // has to guess whether the operator saw this control.
-    try { await writePreference(link, enabled, pref ? 'restored' : 'registration-form-default'); } catch {}
+    let pendingSave = writePreference(link, enabled, pref ? 'restored' : 'registration-form-default')
+      .catch(error => {
+        WB.log?.warn?.('CALL', 'Не удалось сохранить Record policy', {
+          callKey: link.callKey,
+          reason: String(error?.message || error || '')
+        });
+        return null;
+      });
 
     const checkbox = control.querySelector('[data-wb-record-toggle="1"]');
-    checkbox?.addEventListener('change', async event => {
+    checkbox?.addEventListener('change', event => {
       const nextEnabled = Boolean(event.currentTarget.checked);
       const freshLink = currentLink(form);
       const copy = control.querySelector('.wb-record-copy span');
       if (copy) copy.textContent = nextEnabled
         ? 'ON · транскрипция и разбор после регистрации'
         : 'OFF · только регистрация, без транскрипции';
-      try {
-        const saved = await writePreference(freshLink, nextEnabled, 'operator-toggle');
-        WB.log?.info?.('CALL', `Record ${nextEnabled ? 'ON' : 'OFF'} для регистрации`, saved);
-      } catch (error) {
-        WB.log?.warn?.('CALL', 'Не удалось сохранить Record policy', {
-          callKey: freshLink.callKey,
+      pendingSave = writePreference(freshLink, nextEnabled, 'operator-toggle')
+        .then(saved => {
+          WB.log?.info?.('CALL', `Record ${nextEnabled ? 'ON' : 'OFF'} для регистрации`, saved);
+          return saved;
+        })
+        .catch(error => {
+          WB.log?.warn?.('CALL', 'Не удалось сохранить Record policy', {
+            callKey: freshLink.callKey,
+            reason: String(error?.message || error || '')
+          });
+          return null;
+        });
+    });
+
+    let replayingSubmit = false;
+    form.addEventListener('submit', event => {
+      if (replayingSubmit) return;
+      // The native registration handler lives on the ShadowRoot. Stop this submit
+      // until the per-call policy/linkage is durable, then replay exactly once.
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const submitter = event.submitter || form.querySelector('button[type="submit"]');
+      const finalEnabled = Boolean(checkbox?.checked);
+      const finalLink = currentLink(form);
+      pendingSave = Promise.resolve(pendingSave)
+        .then(() => writePreference(finalLink, finalEnabled, 'registration-submit'))
+        .then(saved => {
+          WB.log?.info?.('CALL', 'Record policy зафиксирована перед регистрацией', saved);
+          return saved;
+        });
+      void pendingSave.then(() => {
+        if (!form.isConnected) return;
+        replayingSubmit = true;
+        try {
+          if (typeof form.requestSubmit === 'function') form.requestSubmit(submitter || undefined);
+          else submitter?.click?.();
+        } finally {
+          queueMicrotask(() => { replayingSubmit = false; });
+        }
+      }).catch(error => {
+        WB.log?.error?.('CALL', 'Регистрация остановлена: Record policy не сохранилась', {
+          callKey: finalLink.callKey,
           reason: String(error?.message || error || '')
         });
-      }
-    });
+      });
+    }, true);
   }
 
   function scan() {
