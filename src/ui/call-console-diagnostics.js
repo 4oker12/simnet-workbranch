@@ -6,9 +6,12 @@
 
   const LIST = 'CALL_PROCESSING_LIST';
   const CHANGED = 'CALL_PROCESSING_CHANGED';
+  const LOG_KEY = WB.log?.key || 'simnet_workbench_debug_log_v1';
+  const MAX_LOG_ENTRIES = 400;
   const seen = new Map();
   let refreshPromise = null;
   let destroyed = false;
+  let logWriteQueue = Promise.resolve();
 
   const problemStatuses = new Set([
     'WAIT_PBX',
@@ -24,6 +27,10 @@
   function clean(value, max = 700) {
     const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
     return text.length > max ? `${text.slice(0, max)}…` : text;
+  }
+
+  function pageRef() {
+    return `${location.hostname}${location.pathname}`.slice(0, 280);
   }
 
   function stageMeta(call = {}) {
@@ -126,13 +133,48 @@
     seen.set(keyOf(call), signatureOf(call));
   }
 
+  function persistDomainError(title, details) {
+    const entry = {
+      id: globalThis.crypto?.randomUUID?.() || `calllog_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`,
+      at: new Date().toISOString(),
+      level: 'error',
+      scope: 'CALL',
+      event: String(title || 'Ошибка CALL').slice(0, 240),
+      details,
+      page: pageRef()
+    };
+
+    // Operational CALL failures remain ERROR in Workbench LOG, but are WARN in
+    // the browser console so Chrome DevTools does not classify them as JS errors.
+    console.warn(`[SIMNET WB][CALL] ${entry.event}`, details);
+
+    logWriteQueue = logWriteQueue.then(async () => {
+      try {
+        const raw = (await chrome.storage.local.get(LOG_KEY))?.[LOG_KEY] || {};
+        const entries = Array.isArray(raw.entries) ? raw.entries : [];
+        const store = {
+          schemaVersion: 1,
+          updatedAt: entry.at,
+          entries: [entry, ...entries].slice(0, MAX_LOG_ENTRIES)
+        };
+        await chrome.storage.local.set({ [LOG_KEY]: store });
+        try {
+          window.dispatchEvent(new CustomEvent('simnet-workbench-log', { detail: entry }));
+        } catch {}
+      } catch (error) {
+        console.warn('[SIMNET WB][CALL LOG] persistent write failed', error);
+      }
+    });
+    return logWriteQueue;
+  }
+
   function report(call = {}) {
     if (!shouldReport(call)) return;
     const key = keyOf(call);
     const signature = signatureOf(call);
     if (seen.get(key) === signature) return;
     seen.set(key, signature);
-    WB.log?.error?.('CALL', titleOf(call), detailsOf(call));
+    void persistDomainError(titleOf(call), detailsOf(call));
   }
 
   async function requestList() {
@@ -158,6 +200,7 @@
         return calls;
       })
       .catch(error => {
+        // This one is an actual Workbench/runtime failure, not a domain CALL state.
         WB.log?.error?.('CALL', 'Не удалось прочитать состояние обработки звонков', {
           reason,
           function: 'call-console-diagnostics.refresh()',
