@@ -22,9 +22,10 @@
       : '';
   }
 
-  function linkifyMeta(meta) {
-    if (!(meta instanceof Element) || meta.dataset.wbCallLinkified === '1') return;
-    const text = String(meta.textContent || '');
+  function ensureExternalCallLink(card) {
+    if (!(card instanceof Element)) return;
+    const meta = card.querySelector('.call-event-meta');
+    const text = String(meta?.textContent || '');
     const match = text.match(CALL_RE);
     if (!match) return;
 
@@ -32,37 +33,45 @@
     const href = usersideCallHref(callId);
     if (!href) return;
 
-    const start = Number(match.index || 0);
-    const end = start + match[0].length;
-    const before = text.slice(0, start);
-    const after = text.slice(end);
+    let row = card.querySelector('.wb-userside-call-link-row');
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'wb-userside-call-link-row';
+      Object.assign(row.style, {
+        margin: '0 9px 8px 40px',
+        font: '700 9.5px/1.3 Arial,sans-serif'
+      });
 
-    const link = document.createElement('a');
-    link.className = 'wb-userside-call-link';
+      const summary = card.querySelector(':scope > summary');
+      const expanded = card.querySelector(':scope > .call-event-expanded');
+      const anchorAfter = expanded || summary;
+      anchorAfter?.insertAdjacentElement('afterend', row);
+    }
+
+    let link = row.querySelector('.wb-userside-call-link');
+    if (!link) {
+      link = document.createElement('a');
+      link.className = 'wb-userside-call-link';
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      Object.assign(link.style, {
+        color: '#175cd3',
+        textDecoration: 'underline',
+        textUnderlineOffset: '2px',
+        cursor: 'pointer'
+      });
+      row.appendChild(link);
+    }
+
     link.href = href;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    link.textContent = `CALL #${callId}`;
+    link.textContent = `Открыть CALL #${callId}`;
     link.title = `Открыть CALL #${callId} в журнале звонков UserSide`;
-    Object.assign(link.style, {
-      color: '#175cd3',
-      textDecoration: 'underline',
-      textUnderlineOffset: '2px',
-      cursor: 'pointer'
-    });
-
-    meta.replaceChildren(
-      document.createTextNode(before),
-      link,
-      document.createTextNode(after)
-    );
-    meta.dataset.wbCallLinkified = '1';
   }
 
   function linkifyVisibleCalls() {
     const shadow = rail.shadow;
     if (!shadow) return;
-    shadow.querySelectorAll('.call-event-meta').forEach(linkifyMeta);
+    shadow.querySelectorAll('.call-event-card').forEach(ensureExternalCallLink);
   }
 
   function ensureHighlightStyle() {
