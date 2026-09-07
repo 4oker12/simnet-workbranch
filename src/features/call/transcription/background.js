@@ -2,7 +2,8 @@ import { MessageType } from '../../../shared/messages.js';
 
 const PBX_ORIGIN = 'https://pbx.simnet.kiev.ua';
 const PBX_RECORD_PATH = '/fop2/getrec.php';
-const DEFAULT_TRANSCRIBER_URL = 'http://127.0.0.1:8000';
+const DEFAULT_TRANSCRIBER_URL = 'http://127.0.0.1:8090';
+const LEGACY_TRANSCRIBER_URL_RE = /^http:\/\/(?:127\.0\.0\.1|localhost):8000\/?$/i;
 const CONFIG_KEY = 'simnet_workbench_transcriber_config_v1';
 const TRANSCRIPT_STORE_KEY = 'simnet_workbench_transcripts_v1';
 const TRANSCRIPT_STORE_SCHEMA = 1;
@@ -89,10 +90,31 @@ function normalizeTranscriberUrl(value) {
 
 async function readConfig() {
   const raw = (await chrome.storage.local.get(CONFIG_KEY))?.[CONFIG_KEY] || {};
+  const storedBaseUrl = String(raw.baseUrl || '').trim();
+  const legacyLocal8000 = LEGACY_TRANSCRIBER_URL_RE.test(storedBaseUrl);
   let baseUrl = DEFAULT_TRANSCRIBER_URL;
   try {
-    baseUrl = normalizeTranscriberUrl(raw.baseUrl || DEFAULT_TRANSCRIBER_URL);
+    baseUrl = normalizeTranscriberUrl(legacyLocal8000 ? DEFAULT_TRANSCRIBER_URL : (storedBaseUrl || DEFAULT_TRANSCRIBER_URL));
   } catch {}
+
+  if (legacyLocal8000) {
+    try {
+      await chrome.storage.local.set({
+        [CONFIG_KEY]: {
+          ...raw,
+          schemaVersion: 1,
+          baseUrl,
+          migratedFrom: storedBaseUrl,
+          updatedAt: new Date().toISOString()
+        }
+      });
+      console.info('[SIMNET WB][TRANSCRIPTION] migrated local transcriber URL', {
+        from: storedBaseUrl,
+        to: baseUrl
+      });
+    } catch {}
+  }
+
   return {
     schemaVersion: 1,
     baseUrl,
@@ -172,6 +194,37 @@ export async function transcriberHealth() {
   }, HEALTH_TIMEOUT_MS);
   const health = await responseJson(response, 'Transcriber health');
   return { config, health };
+}
+
+async function diagnoseTranscriberFetch(baseUrl, originalError, signal = null) {
+  const original = cleanText(errorMessage(originalError), 500) || 'Failed to fetch';
+  let health = null;
+  let healthError = '';
+
+  try {
+    const response = await fetchWithTimeout(`${baseUrl}/health`, {
+      method: 'GET',
+      cache: 'no-store'
+    }, HEALTH_TIMEOUT_MS, signal);
+    health = await responseJson(response, 'Transcriber health');
+  } catch (error) {
+    if (signal?.aborted || error?.name === 'AbortError') throw error;
+    healthError = cleanText(errorMessage(error), 500);
+  }
+
+  if (health?.ok === true) {
+    return new Error(
+      `POST ${baseUrl}/transcribe не получил HTTP-ответ: ${original}. `
+      + `/health отвечает OK (${cleanText(health.model || 'model?', 80)}, ${cleanText(health.device || 'device?', 40)}). `
+      + 'SSH-туннель и backend доступны; сбой относится именно к POST/upload /transcribe.'
+    );
+  }
+
+  return new Error(
+    `POST ${baseUrl}/transcribe не получил HTTP-ответ: ${original}. `
+    + `/health также недоступен${healthError ? `: ${healthError}` : ''}. `
+    + 'Проверить локальный listener, SSH-туннель и backend.'
+  );
 }
 
 async function fetchPbxAudio(recordUrl, signal = null) {
@@ -307,11 +360,19 @@ export async function transcribeRecord(payload = {}, onProgress = null, signal =
     baseUrl: config.baseUrl,
     fileBytes: audio.size
   });
-  const response = await fetchWithTimeout(`${config.baseUrl}/transcribe`, {
-    method: 'POST',
-    body: form,
-    cache: 'no-store'
-  }, TRANSCRIBE_TIMEOUT_MS, signal);
+
+  let response;
+  try {
+    response = await fetchWithTimeout(`${config.baseUrl}/transcribe`, {
+      method: 'POST',
+      body: form,
+      cache: 'no-store'
+    }, TRANSCRIBE_TIMEOUT_MS, signal);
+  } catch (error) {
+    if (signal?.aborted || error?.name === 'AbortError') throw error;
+    throw await diagnoseTranscriberFetch(config.baseUrl, error, signal);
+  }
+
   throwIfAborted(signal);
   const result = await responseJson(response, 'Transcriber');
   const text = String(result.text || '').trim();
