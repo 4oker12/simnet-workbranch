@@ -4,6 +4,7 @@ import './features/call/transcription/submission-debug.js';
 import './features/call/transcription/transcriber-fetch-diagnostics.js';
 import './background.js';
 import './features/call/transcription/background.js';
+import './features/call/transcription/call-identity-repair.js';
 import './features/call/transcription/call-processing.js';
 import './features/call/transcription/pbx-diagnostic.js';
 import './features/call/transcription/call-list-debug.js';
