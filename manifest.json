@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET Workbench",
-  "version": "1.7.36.117",
+  "version": "1.7.36.118",
   "description": "SIMNET Workbench: facts + visits + direct if/else actions, without continuous page rescanning.",
   "permissions": [
     "storage",
@@ -53,6 +53,7 @@
         "src/core/handoff.js",
         "src/ui/poll-terminal-loader.js",
         "src/ui/call-registration-loader.js",
+        "src/ui/call-record-toggle.js",
         "src/ui/call-transcription-assistant.js",
         "src/ui/call-pbx-diagnostic.js",
         "src/ui/task-form-assistant.js",
@@ -108,7 +109,7 @@
       ]
     }
   ],
-  "version_name": "1.7.36.117-transcriber-8090-health-probe",
+  "version_name": "1.7.36.118-record-policy-linkage",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }
