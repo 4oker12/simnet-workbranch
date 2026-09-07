@@ -222,6 +222,7 @@ async function syncRegisteredCalls(stateHint = null) {
       const raw = store.calls?.[callKey];
       if (!raw) continue;
       const before = JSON.stringify(raw);
+      const wasRecordEnabled = raw.processing?.recordEnabled !== false;
       const record = CallRecord.from(raw);
       const caseId = clean(binding.caseId || binding.identity?.caseId, 120);
       const caseCustomerId = digits(factValue(state.cases?.[caseId]?.identity?.customerId), 14);
@@ -275,19 +276,21 @@ async function syncRegisteredCalls(stateHint = null) {
         }
       }
 
-      if (!recordEnabled) {
+      if (!recordEnabled && (wasRecordEnabled || record.processing.state !== 'done')) {
         record.processing.state = 'done';
         record.processing.stage = '';
         record.processing.error = '';
         record.processing.attention = false;
         record.processing.updatedAt = at;
         record.processing.heartbeatAt = at;
-        record.event('record_disabled', {
-          customerId: resolvedCustomerId,
-          usersideCallId: digits(raw.usersideCallId, 24),
-          pbxRecordId: pbxId,
-          source: record.processing.recordPolicySource
-        }, at);
+        if (wasRecordEnabled) {
+          record.event('record_disabled', {
+            customerId: resolvedCustomerId,
+            usersideCallId: digits(raw.usersideCallId, 24),
+            pbxRecordId: pbxId,
+            source: record.processing.recordPolicySource
+          }, at);
+        }
       }
 
       const next = record.toJSON();
