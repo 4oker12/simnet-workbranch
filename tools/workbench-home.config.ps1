@@ -1,5 +1,5 @@
 # SIMNET Workbench HOME runtime configuration.
-# Keep machine-specific values here. The runtime scripts never modify Vast itself.
+# Machine-specific values live here. These scripts never modify Vast itself.
 
 $WorkbenchHomeConfig = [ordered]@{
     VastHost = '87.106.223.150'
@@ -25,14 +25,13 @@ $WorkbenchHomeConfig = [ordered]@{
     SingBoxConfig = Join-Path $env:LOCALAPPDATA 'sing-box-simnet\client.json'
     SingBoxTunName = 'simnet-uot'
 
-    # In HOME/Vast mode this legacy local WireGuard tunnel conflicts with the
-    # sing-box -> Vast route. START stops only this exact service and remembers
-    # whether it must be restored by STOP.
+    # HOME/Vast invariant: this legacy local WireGuard service must stay OFF.
+    # START only stops this exact service; STOP never turns it back on.
     WireGuardService = 'WireGuardTunnel$Zyatyev_Andriy-HOME'
     StopConflictingWireGuard = $true
 
-    # Dedicated Chrome profile guarantees PAC flags are applied without killing
-    # or reusing unrelated personal Chrome windows.
+    # Persistent dedicated Chrome profile: flags are deterministic and the
+    # operator keeps sessions between launches without killing personal Chrome.
     ChromeUserDataDir = Join-Path $env:LOCALAPPDATA 'SIMNET-Workbench\ChromeProfile'
 
     RuntimeDir = Join-Path $env:LOCALAPPDATA 'SIMNET-Workbench\runtime'
