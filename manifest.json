@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET Workbench",
-  "version": "1.7.36.115",
+  "version": "1.7.36.116",
   "description": "SIMNET Workbench: facts + visits + direct if/else actions, without continuous page rescanning.",
   "permissions": [
     "storage",
@@ -63,6 +63,7 @@
         "src/ui/call-console-diagnostics.js",
         "src/ui/call-pbx-recovery.js",
         "src/ui/call-userside-link.js",
+        "src/ui/call-error-context-ui.js",
         "src/ui/settings-enhancer.js",
         "src/ui/responsive-layout.js",
         "src/content/bootstrap.js"
@@ -107,7 +108,7 @@
       ]
     }
   ],
-  "version_name": "1.7.36.115-call-console-diagnostics",
+  "version_name": "1.7.36.116-unified-call-error-context",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }
