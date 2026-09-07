@@ -1,8 +1,7 @@
 'use strict';
 
-import { withStateWriteLock } from '../../../infrastructure/state-repository.js';
 import { CallRecord } from '../domain/call-record.js';
-import { WORKBENCH_STATE_KEY } from '../storage/call-state-store.js';
+import { CallStateStore, WORKBENCH_STATE_KEY } from '../storage/call-state-store.js';
 
 let repairQueued = false;
 let repairing = false;
@@ -22,16 +21,15 @@ async function repairRegisteredCallIdentity() {
   if (repairing) return 0;
   repairing = true;
   try {
-    return await withStateWriteLock(WORKBENCH_STATE_KEY, async () => {
-      const state = (await chrome.storage.local.get(WORKBENCH_STATE_KEY))?.[WORKBENCH_STATE_KEY];
-      if (!state?.callModule?.calls?.calls || !state?.callModule?.bindings?.bindings) return 0;
+    return await CallStateStore.mutateAll((store, state) => {
+      const bindings = state?.callModule?.bindings?.bindings || {};
       let changed = 0;
-      const at = new Date().toISOString();
 
-      for (const [callKey, binding] of Object.entries(state.callModule.bindings.bindings || {})) {
+      for (const [callKey, binding] of Object.entries(bindings)) {
         if (registrationState(binding) !== 'registered') continue;
-        const raw = state.callModule.calls.calls[callKey];
+        const raw = store.calls?.[callKey];
         if (!raw) continue;
+
         const caseId = clean(binding.caseId || binding.identity?.caseId, 120);
         const customerId = digits(
           binding.customerId
@@ -42,6 +40,7 @@ async function repairRegisteredCallIdentity() {
           14
         );
         if (!customerId) continue;
+
         const currentCustomerId = digits(raw.subscriber?.customerId || raw.customerId, 14);
         const currentCaseId = clean(raw.subscriber?.caseId, 120);
         if (currentCustomerId === customerId && (!caseId || currentCaseId === caseId)) continue;
@@ -51,26 +50,18 @@ async function repairRegisteredCallIdentity() {
           ...(binding.identity || {}),
           caseId,
           customerId
-        }, binding.updatedAt || binding.registeredAt || at);
+        }, binding.updatedAt || binding.registeredAt || new Date().toISOString());
         record.processing.linkage = {
           ...(record.processing.linkage || {}),
           customerId,
           usersideCallId: digits(raw.usersideCallId, 24),
           pbxRecordId: clean(raw.pbxRecordId, 80)
         };
-        const next = record.toJSON();
-        next.updatedAt = at;
-        state.callModule.calls.calls[callKey] = next;
+        store.calls[callKey] = record.toJSON();
         changed += 1;
       }
 
-      if (!changed) return 0;
-      state.callModule.calls.updatedAt = at;
-      state.callModule.updatedAt = at;
-      state.meta ||= {};
-      state.meta.updatedAt = at;
-      await chrome.storage.local.set({ [WORKBENCH_STATE_KEY]: state });
-      console.info('[SIMNET WB][CALL] repaired registered call identity', { changed });
+      if (changed) console.info('[SIMNET WB][CALL] repaired registered call identity', { changed });
       return changed;
     });
   } finally {
