@@ -117,15 +117,22 @@
     ]);
   }
 
+  function keyOf(call = {}) {
+    return String(call.callKey || call.usersideCallId || call.pbxRecordId || 'unknown');
+  }
+
+  function remember(call = {}) {
+    if (!shouldReport(call)) return;
+    seen.set(keyOf(call), signatureOf(call));
+  }
+
   function report(call = {}) {
     if (!shouldReport(call)) return;
-    const key = String(call.callKey || call.usersideCallId || call.pbxRecordId || 'unknown');
+    const key = keyOf(call);
     const signature = signatureOf(call);
     if (seen.get(key) === signature) return;
     seen.set(key, signature);
-
-    const details = detailsOf(call);
-    WB.log?.error?.('CALL', titleOf(call), details);
+    WB.log?.error?.('CALL', titleOf(call), detailsOf(call));
   }
 
   async function requestList() {
@@ -139,7 +146,11 @@
     if (refreshPromise) return refreshPromise;
     refreshPromise = requestList()
       .then(calls => {
-        for (const call of calls) report(call);
+        if (reason === 'startup') {
+          for (const call of calls) remember(call);
+        } else {
+          for (const call of calls) report(call);
+        }
         const liveKeys = new Set(calls.map(call => String(call?.callKey || '')).filter(Boolean));
         for (const key of [...seen.keys()]) {
           if (!liveKeys.has(key)) seen.delete(key);
