@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET Workbench",
-  "version": "1.7.36.116",
+  "version": "1.7.36.117",
   "description": "SIMNET Workbench: facts + visits + direct if/else actions, without continuous page rescanning.",
   "permissions": [
     "storage",
@@ -108,7 +108,7 @@
       ]
     }
   ],
-  "version_name": "1.7.36.116-unified-call-error-context",
+  "version_name": "1.7.36.117-transcriber-8090-health-probe",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }
