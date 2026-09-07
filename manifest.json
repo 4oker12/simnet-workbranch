@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET Workbench",
-  "version": "1.7.36.114",
+  "version": "1.7.36.115",
   "description": "SIMNET Workbench: facts + visits + direct if/else actions, without continuous page rescanning.",
   "permissions": [
     "storage",
@@ -60,6 +60,7 @@
         "src/ui/rail-styles.js",
         "src/ui/rail.js",
         "src/ui/call-attention-bridge.js",
+        "src/ui/call-console-diagnostics.js",
         "src/ui/call-pbx-recovery.js",
         "src/ui/call-userside-link.js",
         "src/ui/settings-enhancer.js",
@@ -106,7 +107,7 @@
       ]
     }
   ],
-  "version_name": "1.7.36.114-pbx-record-recovery-diagnostics",
+  "version_name": "1.7.36.115-call-console-diagnostics",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }
