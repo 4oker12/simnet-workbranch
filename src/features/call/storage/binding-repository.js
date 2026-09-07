@@ -2,7 +2,7 @@
 
 import { BINDING_RETENTION_MS, MAX_ASSIGNMENT_LOG, MAX_BINDINGS } from '../config.js';
 import { canonicalCallKey } from './call-repository.js';
-import { normalizeCallIdentity } from '../evidence/normalizer.js';
+import { mergeCallIdentity, normalizeCallIdentity } from '../evidence/normalizer.js';
 
 export function createBindingStore() {
   return { schema: 'simnet-call-binding-repository-v1', bindings: {}, assignmentLog: [], updatedAt: '' };
@@ -16,11 +16,15 @@ export function getBinding(store = createBindingStore(), rawCallKey = '') {
 export function putBinding(store = createBindingStore(), raw = {}, options = {}) {
   const callKey = canonicalCallKey(raw.callKey || '');
   if (!callKey) throw new Error('Invalid canonical call key');
-  const identity = normalizeCallIdentity(raw.identity || raw);
+  const incomingIdentity = normalizeCallIdentity(raw.identity || raw);
+  const existing = store.bindings?.[callKey] || null;
+  const existingIdentity = normalizeCallIdentity(existing?.identity || existing || {});
+  // Empty values from a later/re-scored binding must never erase subscriber
+  // identity that was already resolved during registration.
+  const identity = mergeCallIdentity(incomingIdentity, existingIdentity);
   if (!identity.caseId && !identity.customerId && !identity.billingId && !identity.contract) {
     throw new Error('Binding requires subscriber identity');
   }
-  const existing = store.bindings?.[callKey] || null;
   if (existing && existing.identity?.caseId && identity.caseId && existing.identity.caseId !== identity.caseId) {
     throw new Error('Call is already bound to another Case');
   }
@@ -29,9 +33,9 @@ export function putBinding(store = createBindingStore(), raw = {}, options = {})
     ...(existing || {}),
     schema: 'simnet-call-binding-v1',
     callKey,
-    identity: { ...(existing?.identity || {}), ...identity },
-    caseId: identity.caseId,
-    customerId: identity.customerId,
+    identity,
+    caseId: identity.caseId || existing?.caseId || '',
+    customerId: identity.customerId || existing?.customerId || '',
     caseLabel: String(raw.caseLabel || existing?.caseLabel || identity.fullName || identity.login || identity.caseId || ''),
     snapshotFrozenAt: String(raw.snapshotFrozenAt || existing?.snapshotFrozenAt || ''),
     liveBoundAt: String(raw.liveBoundAt || existing?.liveBoundAt || ''),
