@@ -6,6 +6,7 @@ import './background.js';
 import './features/call/transcription/background.js';
 import './features/call/transcription/call-identity-repair.js';
 import './features/call/transcription/call-processing.js';
+import './features/call/transcription/call-reanalysis.js';
 import './features/call/transcription/pbx-diagnostic.js';
 import './features/call/transcription/call-list-debug.js';
 import './features/call/transcription/cleanup.js';
