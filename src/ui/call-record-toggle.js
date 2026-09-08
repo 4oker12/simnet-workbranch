@@ -15,6 +15,7 @@
 
   const clean = (value, max = 180) => String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, max);
   const digits = (value, max = 24) => String(value == null ? '' : value).replace(/\D+/g, '').slice(0, max);
+  const normalizeAnalysisMode = value => String(value || '').toLowerCase() === 'deep' ? 'deep' : 'brief';
 
   function actualRegistration() {
     const registration = WB.callRegistration;
@@ -62,12 +63,13 @@
     return preferenceStore(raw).entries[callKey] || null;
   }
 
-  async function writePreference(link, enabled, source = 'registration-form') {
+  async function writePreference(link, enabled, source = 'registration-form', analysisMode = 'brief') {
     if (!link?.callKey) return null;
     const raw = (await chrome.storage.local.get(PREF_KEY))?.[PREF_KEY] || {};
     const store = preferenceStore(raw);
     const at = new Date().toISOString();
     const previous = store.entries[link.callKey] || {};
+    const normalizedMode = normalizeAnalysisMode(analysisMode || previous.analysisMode);
     const entry = {
       ...previous,
       schemaVersion: 1,
@@ -77,6 +79,7 @@
       pbxRecordId: link.pbxRecordId || previous.pbxRecordId || '',
       enabled: enabled !== false,
       mode: enabled !== false ? 'REC' : 'NOREC',
+      analysisMode: normalizedMode,
       source: clean(source, 80),
       updatedAt: at
     };
@@ -89,16 +92,24 @@
     return entry;
   }
 
-  function markup(enabled) {
+  function markup(enabled, analysisMode = 'brief') {
+    const mode = normalizeAnalysisMode(analysisMode);
     return `<div class="wb-record-control" data-wb-record-control="1">
-      <div class="wb-record-mode" role="group" aria-label="Режим регистрации звонка">
-        <button type="button" class="wb-record-choice ${enabled ? '' : 'active'}" data-wb-record-choice="off" title="NOREC: сохранить только обычный комментарий, без записи/Whisper/AI">NOREC</button>
-        <button type="button" class="wb-record-choice ${enabled ? 'active' : ''}" data-wb-record-choice="on" title="REC: после регистрации найти PBX-запись, транскрибировать и выполнить AI-разбор">REC</button>
-        <input type="checkbox" data-wb-record-toggle="1" ${enabled ? 'checked' : ''} hidden>
+      <div class="wb-record-main">
+        <div class="wb-record-mode" role="group" aria-label="Режим регистрации звонка">
+          <button type="button" class="wb-record-choice ${enabled ? '' : 'active'}" data-wb-record-choice="off" title="NOREC: сохранить только обычный комментарий, без записи/Whisper/AI">NOREC</button>
+          <button type="button" class="wb-record-choice ${enabled ? 'active' : ''}" data-wb-record-choice="on" title="REC: после регистрации найти PBX-запись, транскрибировать и выполнить AI-разбор">REC</button>
+          <input type="checkbox" data-wb-record-toggle="1" ${enabled ? 'checked' : ''} hidden>
+        </div>
+        <div class="wb-record-copy">
+          <strong data-wb-record-title>${enabled ? 'REC' : 'NOREC'}</strong>
+          <span data-wb-record-copy>${enabled ? 'после регистрации: PBX → Whisper → AI → комментарий' : 'только твой комментарий, без транскрипции'}</span>
+        </div>
       </div>
-      <div class="wb-record-copy">
-        <strong data-wb-record-title>${enabled ? 'REC' : 'NOREC'}</strong>
-        <span data-wb-record-copy>${enabled ? 'после регистрации: PBX → Whisper → AI → комментарий' : 'только твой комментарий, без транскрипции'}</span>
+      <div class="wb-analysis-modes" data-wb-analysis-modes ${enabled ? '' : 'hidden'} role="group" aria-label="Глубина AI-разбора">
+        <button type="button" class="wb-analysis-choice ${mode === 'brief' ? 'active' : ''}" data-wb-analysis-mode="brief" title="Короткий: компактная CRM-сводка по фактам разговора">Короткий разбор</button>
+        <button type="button" class="wb-analysis-choice ${mode === 'deep' ? 'active' : ''}" data-wb-analysis-mode="deep" title="Глубокий: более подробный разбор причин, действий, результата и следующего шага">Глубокий разбор</button>
+        <input type="hidden" data-wb-analysis-value value="${mode}">
       </div>
     </div>`;
   }
@@ -108,16 +119,24 @@
     const style = document.createElement('style');
     style.dataset.wbRecordStyle = '1';
     style.textContent = `
-      .wb-record-control{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:10px;padding:9px 10px;border:1px solid #E4E7EC;border-radius:11px;background:#F9FAFB}
+      .wb-record-control{display:grid;gap:7px;padding:9px 10px;border:1px solid #E4E7EC;border-radius:11px;background:#F9FAFB}
+      .wb-record-main{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:10px}
       .wb-record-mode{display:inline-flex;padding:2px;border:1px solid #D0D5DD;border-radius:9px;background:#fff;box-shadow:0 1px 2px rgba(16,24,40,.04)}
       .wb-record-choice{min-width:54px;height:26px;padding:0 8px;border:0;border-radius:7px;background:transparent;color:#667085;font:800 9px/1 inherit;letter-spacing:.04em;cursor:pointer}
       .wb-record-choice:hover{background:#F2F4F7;color:#344054}.wb-record-choice.active{background:#A50046;color:#fff;box-shadow:0 1px 2px rgba(16,24,40,.16)}
       .wb-record-copy{display:grid;gap:1px;min-width:0}.wb-record-copy strong{color:#344054;font-size:11px}.wb-record-copy span{color:#667085;font-size:9px;line-height:1.3;overflow:hidden;text-overflow:ellipsis}
+      .wb-analysis-modes{display:flex;gap:5px;padding-left:2px}.wb-analysis-modes[hidden]{display:none!important}
+      .wb-analysis-choice{min-height:24px;padding:0 9px;border:1px solid #D0D5DD;border-radius:7px;background:#fff;color:#667085;font:700 9px/1 inherit;cursor:pointer}
+      .wb-analysis-choice:hover{border-color:#B8C0CC;color:#344054}.wb-analysis-choice.active{border-color:#A50046;background:#FFF5F8;color:#A50046}
     `;
     shadow.appendChild(style);
   }
 
-  function paint(control, enabled) {
+  function selectedAnalysisMode(control) {
+    return normalizeAnalysisMode(control.querySelector('[data-wb-analysis-value]')?.value);
+  }
+
+  function paint(control, enabled, analysisMode = selectedAnalysisMode(control)) {
     const checkbox = control.querySelector('[data-wb-record-toggle="1"]');
     if (checkbox) checkbox.checked = Boolean(enabled);
     control.querySelectorAll('[data-wb-record-choice]').forEach(button => {
@@ -131,6 +150,16 @@
     if (copy) copy.textContent = enabled
       ? 'после регистрации: PBX → Whisper → AI → комментарий'
       : 'только твой комментарий, без транскрипции';
+    const modes = control.querySelector('[data-wb-analysis-modes]');
+    if (modes) modes.hidden = !enabled;
+    const normalizedMode = normalizeAnalysisMode(analysisMode);
+    const hidden = control.querySelector('[data-wb-analysis-value]');
+    if (hidden) hidden.value = normalizedMode;
+    control.querySelectorAll('[data-wb-analysis-mode]').forEach(button => {
+      const active = button.dataset.wbAnalysisMode === normalizedMode;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
   }
 
   async function installIntoForm(form, shadow) {
@@ -141,15 +170,16 @@
     try { pref = await readPreference(link.callKey); } catch {}
     if (!form.isConnected || form.querySelector('[data-wb-record-control="1"]')) return;
     const enabled = pref?.enabled !== false;
+    const analysisMode = normalizeAnalysisMode(pref?.analysisMode);
     ensureStyle(shadow);
     const wrapper = document.createElement('div');
-    wrapper.innerHTML = markup(enabled);
+    wrapper.innerHTML = markup(enabled, analysisMode);
     const control = wrapper.firstElementChild;
     const actions = form.querySelector('.actions');
     if (actions) form.insertBefore(control, actions);
     else form.appendChild(control);
 
-    let pendingSave = writePreference(link, enabled, pref ? 'restored' : 'registration-form-default')
+    let pendingSave = writePreference(link, enabled, pref ? 'restored' : 'registration-form-default', analysisMode)
       .catch(error => {
         WB.log?.warn?.('CALL', 'Не удалось сохранить REC/NOREC policy', {
           callKey: link.callKey,
@@ -164,15 +194,38 @@
         event.preventDefault();
         event.stopPropagation();
         const nextEnabled = event.currentTarget.dataset.wbRecordChoice === 'on';
-        paint(control, nextEnabled);
+        const nextAnalysisMode = selectedAnalysisMode(control);
+        paint(control, nextEnabled, nextAnalysisMode);
         const freshLink = currentLink(form);
-        pendingSave = writePreference(freshLink, nextEnabled, 'operator-toggle')
+        pendingSave = writePreference(freshLink, nextEnabled, 'operator-toggle', nextAnalysisMode)
           .then(saved => {
             WB.log?.info?.('CALL', `${nextEnabled ? 'REC' : 'NOREC'} для регистрации`, saved);
             return saved;
           })
           .catch(error => {
             WB.log?.warn?.('CALL', 'Не удалось сохранить REC/NOREC policy', {
+              callKey: freshLink.callKey,
+              reason: String(error?.message || error || '')
+            });
+            return null;
+          });
+      });
+    });
+
+    control.querySelectorAll('[data-wb-analysis-mode]').forEach(button => {
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const nextAnalysisMode = normalizeAnalysisMode(event.currentTarget.dataset.wbAnalysisMode);
+        paint(control, true, nextAnalysisMode);
+        const freshLink = currentLink(form);
+        pendingSave = writePreference(freshLink, true, 'operator-analysis-mode', nextAnalysisMode)
+          .then(saved => {
+            WB.log?.info?.('CALL', `REC · ${nextAnalysisMode === 'deep' ? 'глубокий' : 'короткий'} разбор`, saved);
+            return saved;
+          })
+          .catch(error => {
+            WB.log?.warn?.('CALL', 'Не удалось сохранить режим AI-разбора', {
               callKey: freshLink.callKey,
               reason: String(error?.message || error || '')
             });
@@ -188,9 +241,10 @@
       event.stopImmediatePropagation();
       const submitter = event.submitter || form.querySelector('button[type="submit"]');
       const finalEnabled = Boolean(checkbox?.checked);
+      const finalAnalysisMode = selectedAnalysisMode(control);
       const finalLink = currentLink(form);
       pendingSave = Promise.resolve(pendingSave)
-        .then(() => writePreference(finalLink, finalEnabled, 'registration-submit'))
+        .then(() => writePreference(finalLink, finalEnabled, 'registration-submit', finalAnalysisMode))
         .then(saved => {
           WB.log?.info?.('CALL', 'REC/NOREC policy зафиксирована перед регистрацией', saved);
           return saved;
