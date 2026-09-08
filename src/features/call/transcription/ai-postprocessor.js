@@ -2,7 +2,7 @@ import { AI_CONFIG } from '../../../config/ai-config.js';
 
 const AI_RUNTIME_CONFIG_KEY = 'simnet_workbench_ai_runtime_v1';
 const AI_ANALYSIS_STORE_KEY = 'simnet_workbench_call_ai_analysis_v1';
-const AI_ANALYSIS_SCHEMA = 3;
+const AI_ANALYSIS_SCHEMA = 4;
 const AI_TIMEOUT_MS = 45_000;
 const MAX_INPUT_CHARS = 20_000;
 const MAX_OUTPUT_CHARS = 100_000;
@@ -14,7 +14,8 @@ const DEFAULT_MODELS = Object.freeze([
   'qwen/qwen3.8-27b',
   'openai/gpt-oss-20b'
 ]);
-const MAX_COMPLETION_TOKENS = 1800;
+const BRIEF_COMPLETION_TOKENS = 1800;
+const DEEP_COMPLETION_TOKENS = 2800;
 
 function block(value, max = MAX_OUTPUT_CHARS) {
   return String(value == null ? '' : value)
@@ -60,6 +61,14 @@ function normalizeLanguage(value) {
   return 'mixed';
 }
 
+export function normalizeAnalysisMode(value) {
+  return String(value || '').trim().toLowerCase() === 'deep' ? 'deep' : 'brief';
+}
+
+function completionTokenLimit(mode) {
+  return normalizeAnalysisMode(mode) === 'deep' ? DEEP_COMPLETION_TOKENS : BRIEF_COMPLETION_TOKENS;
+}
+
 function normalizeModels(value) {
   const source = Array.isArray(value) ? value : [];
   const result = [];
@@ -101,6 +110,10 @@ function analysisStoreShape(raw = {}) {
   };
 }
 
+function analysisCacheKey(callKey, mode) {
+  return `${String(callKey || '').trim()}::${normalizeAnalysisMode(mode)}`;
+}
+
 async function readRuntimeConfig() {
   const raw = (await chrome.storage.local.get(AI_RUNTIME_CONFIG_KEY))?.[AI_RUNTIME_CONFIG_KEY] || {};
   const legacyModel = String(raw.model || '').trim();
@@ -118,10 +131,12 @@ async function readRuntimeConfig() {
 async function readCached(callKey, sourceHash, mode) {
   const raw = (await chrome.storage.local.get(AI_ANALYSIS_STORE_KEY))?.[AI_ANALYSIS_STORE_KEY] || {};
   const store = analysisStoreShape(raw);
-  const entry = store.entries[String(callKey || '')];
+  const normalizedMode = normalizeAnalysisMode(mode);
+  const entry = store.entries[analysisCacheKey(callKey, normalizedMode)] || store.entries[String(callKey || '')];
   if (!entry) return null;
-  if (entry.sourceHash !== sourceHash || String(entry.mode || 'standard') !== mode || !entry.analysis?.cleanText) return null;
-  return { ...entry.analysis, cached: true };
+  const entryMode = normalizeAnalysisMode(entry.mode || 'brief');
+  if (entry.sourceHash !== sourceHash || entryMode !== normalizedMode || !entry.analysis?.cleanText) return null;
+  return { ...entry.analysis, mode: normalizedMode, cached: true };
 }
 
 async function saveCached(callKey, sourceHash, mode, analysis) {
@@ -129,14 +144,18 @@ async function saveCached(callKey, sourceHash, mode, analysis) {
   const store = analysisStoreShape(raw);
   const now = Date.now();
   const cutoff = now - ANALYSIS_RETENTION_MS;
-  const entries = Object.values(store.entries)
-    .filter(item => Number(item?.createdAtMs || 0) >= cutoff)
-    .filter(item => item?.callKey && item.callKey !== callKey);
+  const normalizedMode = normalizeAnalysisMode(mode);
+  const cacheKey = analysisCacheKey(callKey, normalizedMode);
+  const entries = Object.entries(store.entries)
+    .filter(([, item]) => Number(item?.createdAtMs || 0) >= cutoff)
+    .filter(([key]) => key !== cacheKey)
+    .map(([, item]) => item);
   entries.push({
     schemaVersion: AI_ANALYSIS_SCHEMA,
+    cacheKey,
     callKey,
     sourceHash,
-    mode,
+    mode: normalizedMode,
     model: String(analysis?.model || ''),
     createdAt: new Date(now).toISOString(),
     createdAtMs: now,
@@ -144,7 +163,10 @@ async function saveCached(callKey, sourceHash, mode, analysis) {
   });
   entries.sort((a, b) => Number(b.createdAtMs || 0) - Number(a.createdAtMs || 0));
   const trimmed = entries.slice(0, MAX_ANALYSES);
-  store.entries = Object.fromEntries(trimmed.map(item => [item.callKey, item]));
+  store.entries = Object.fromEntries(trimmed.map(item => [
+    item.cacheKey || analysisCacheKey(item.callKey, item.mode || 'brief'),
+    item
+  ]));
   store.updatedAt = new Date().toISOString();
   await chrome.storage.local.set({ [AI_ANALYSIS_STORE_KEY]: store });
 }
@@ -180,22 +202,23 @@ function parseJsonObject(value) {
 function normalizeAnalysis(raw = {}, meta = {}) {
   const cleanText = block(raw.clean_text ?? raw.cleanText);
   if (!cleanText) throw new Error('AI_POSTPROCESS: AI не вернул очищенный текст');
+  const mode = normalizeAnalysisMode(meta.mode);
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     language: normalizeLanguage(raw.language),
     cleanText,
-    issue: oneLine(raw.issue || raw.reason || raw.topic || '', 1600),
-    actions: oneLine(raw.actions || raw.operator_actions || raw.operatorActions || '', 2000),
-    result: oneLine(raw.result || raw.outcome || '', 1600),
-    nextStep: oneLine(raw.next_step || raw.nextStep || '', 1600),
-    summary: oneLine(raw.summary || '', 2000),
+    issue: oneLine(raw.issue || raw.reason || raw.topic || '', mode === 'deep' ? 2400 : 1600),
+    actions: oneLine(raw.actions || raw.operator_actions || raw.operatorActions || '', mode === 'deep' ? 3200 : 2000),
+    result: oneLine(raw.result || raw.outcome || '', mode === 'deep' ? 2400 : 1600),
+    nextStep: oneLine(raw.next_step || raw.nextStep || '', mode === 'deep' ? 2400 : 1600),
+    summary: oneLine(raw.summary || '', mode === 'deep' ? 3200 : 2000),
     model: String(meta.model || ''),
     attemptedModels: Array.isArray(meta.attemptedModels) ? meta.attemptedModels.slice(0, 8) : [],
     usage: normalizeUsage(meta.usage),
     usageAttempts: Array.isArray(meta.usageAttempts)
       ? meta.usageAttempts.slice(0, 8).map(item => ({ model: String(item.model || ''), ...normalizeUsage(item) }))
       : [],
-    mode: String(meta.mode || 'standard'),
+    mode,
     processedAt: new Date().toISOString(),
     cached: false
   };
@@ -208,7 +231,7 @@ function modelFailure(error, model) {
   return { model, status, retryAfter, detail };
 }
 
-async function requestGroqModel(messages, apiKey, model, externalSignal = null) {
+async function requestGroqModel(messages, apiKey, model, maxTokens, externalSignal = null) {
   throwIfAborted(externalSignal);
   const controller = new AbortController();
   let timedOut = false;
@@ -228,7 +251,7 @@ async function requestGroqModel(messages, apiKey, model, externalSignal = null) 
       body: JSON.stringify({
         model,
         temperature: 0.1,
-        max_tokens: MAX_COMPLETION_TOKENS,
+        max_tokens: maxTokens,
         messages
       }),
       signal: controller.signal
@@ -278,10 +301,11 @@ function shouldStopFallback(error) {
 async function requestWithFallback(messages, apiKey, models, mode, signal = null) {
   const failures = [];
   const usageAttempts = [];
+  const maxTokens = completionTokenLimit(mode);
   for (const model of models) {
     throwIfAborted(signal);
     try {
-      const response = await requestGroqModel(messages, apiKey, model, signal);
+      const response = await requestGroqModel(messages, apiKey, model, maxTokens, signal);
       throwIfAborted(signal);
       const usage = normalizeUsage(response.usage);
       if (usage.totalTokens || usage.promptTokens || usage.completionTokens) {
@@ -315,8 +339,12 @@ async function requestWithFallback(messages, apiKey, models, mode, signal = null
   throw error;
 }
 
-function standardSystemPrompt() {
-  return `Ты — постпроцессор транскриптов звонков техподдержки интернет-провайдера SIMNET.\n\nТвоя задача — исправить ошибки ASR и сделать текст пригодным для CRM, не меняя факты разговора.\n\nКРИТИЧЕСКИЕ ПРАВИЛА:\n1. НЕ ПЕРЕВОДИ речь. Украинские фразы оставляй украинскими, русские — русскими. Если разговор смешанный RU/UK или суржик — сохрани это естественно.\n2. language = "uk", "ru" или "mixed". При заметном переключении между украинским и русским ставь "mixed".\n3. Исправляй только очевидные ошибки распознавания: пунктуацию, регистр, слитые/разорванные слова и технические термины, когда контекст однозначен.\n4. Не выдумывай адреса, имена, номера, оборудование, диагностику, обещания или результат. Если факт не прозвучал — не добавляй его.\n5. Сохраняй смысл и последовательность разговора. Можно убрать только явные ASR-повторы и бессодержательные слова-паразиты, если это не меняет смысл.\n6. Термины ISP пиши корректно, если они действительно распознаны по контексту: SIMNET, Wi-Fi, Ethernet, ONU, ONT, OLT, GPON, EPON, VLAN, DHCP, PPPoE, NAT, IPv4, IPv6, MikroTik, TP-Link, Cudy, Juniper, BRAS.\n7. summary/issue/actions/result/next_step должны содержать ТОЛЬКО факты из разговора. Если данных нет — пустая строка.\n8. Не оценивай личность, интеллект или профессиональную пригодность оператора. В стандартном режиме только фиксируй наблюдаемые действия и результат.\n9. Ответь ТОЛЬКО JSON-объектом без markdown и комментариев.\n\nФормат:\n{"language":"uk|ru|mixed","clean_text":"полный очищенный транскрипт","summary":"краткая суть звонка","issue":"причина обращения","actions":"что было проверено/сделано оператором","result":"чем закончился звонок","next_step":"что явно договорились сделать дальше"}`;
+function systemPrompt(mode) {
+  const normalizedMode = normalizeAnalysisMode(mode);
+  const depthRule = normalizedMode === 'deep'
+    ? 'ГЛУБОКИЙ РЕЖИМ: разложи разговор подробнее. В summary кратко опиши ход обращения; в issue отдели исходную проблему/симптом; в actions перечисли фактически выполненные проверки и действия в логическом порядке; в result укажи только подтверждённый итог; в next_step — только явно согласованные дальнейшие действия. Не превращай это в оценку оператора и не добавляй диагностику, которой в разговоре не было.'
+    : 'КОРОТКИЙ РЕЖИМ: дай максимально компактную CRM-сводку. summary — 1 короткое предложение; issue/actions/result/next_step — по возможности по одной короткой фразе, только если соответствующий факт реально прозвучал.';
+  return `Ты — постпроцессор транскриптов звонков техподдержки интернет-провайдера SIMNET.\n\nТвоя задача — исправить ошибки ASR и сделать фактический разбор разговора для CRM, не меняя факты. Полный очищенный transcript нужен только внутреннему Workbench и НЕ является готовым CRM-комментарием.\n\n${depthRule}\n\nКРИТИЧЕСКИЕ ПРАВИЛА:\n1. НЕ ПЕРЕВОДИ речь. Украинские фразы оставляй украинскими, русские — русскими. Если разговор смешанный RU/UK или суржик — сохрани это естественно.\n2. language = "uk", "ru" или "mixed". При заметном переключении между украинским и русским ставь "mixed".\n3. Исправляй только очевидные ошибки распознавания: пунктуацию, регистр, слитые/разорванные слова и технические термины, когда контекст однозначен.\n4. Не выдумывай адреса, имена, номера, оборудование, диагностику, обещания или результат. Если факт не прозвучал — не добавляй его.\n5. Сохраняй смысл и последовательность разговора. Можно убрать только явные ASR-повторы и бессодержательные слова-паразиты, если это не меняет смысл.\n6. Термины ISP пиши корректно, если они действительно распознаны по контексту: SIMNET, Wi-Fi, Ethernet, ONU, ONT, OLT, GPON, EPON, VLAN, DHCP, PPPoE, NAT, IPv4, IPv6, MikroTik, TP-Link, Cudy, Juniper, BRAS.\n7. summary/issue/actions/result/next_step должны содержать ТОЛЬКО факты из разговора. Если данных нет — пустая строка.\n8. Не оценивай личность, интеллект или профессиональную пригодность оператора. Фиксируй только наблюдаемые действия и результат.\n9. Ответь ТОЛЬКО JSON-объектом без markdown и комментариев.\n\nФормат:\n{"language":"uk|ru|mixed","clean_text":"полный очищенный транскрипт для внутреннего хранения Workbench","summary":"суть звонка","issue":"причина обращения","actions":"что было проверено/сделано оператором","result":"чем закончился звонок","next_step":"что явно договорились сделать дальше"}`;
 }
 
 export async function postprocessTranscript(job = {}, transcript = {}, signal = null) {
@@ -330,7 +358,7 @@ export async function postprocessTranscript(job = {}, transcript = {}, signal = 
     throw new Error('AI_POSTPROCESS: Groq API key не настроен локально в Workbench');
   }
 
-  const mode = String(job.analysisMode || 'standard');
+  const mode = normalizeAnalysisMode(job.analysisMode);
   const callKey = String(job.callKey || transcript.callKey || '').trim();
   const source = sourceText(transcript);
   const sourceHash = stableHash(`${mode}\n${rawText}\n${source}`);
@@ -342,10 +370,10 @@ export async function postprocessTranscript(job = {}, transcript = {}, signal = 
 
   const whisperLanguage = oneLine(transcript.language || '', 24);
   const whisperProbability = Number(transcript.languageProbability || 0);
-  const user = `CALL: ${String(job.usersideCallId || transcript.usersideCallId || '')}\nWhisper language hint: ${whisperLanguage || 'unknown'} (${Number.isFinite(whisperProbability) ? whisperProbability.toFixed(3) : '0.000'})\n\nТранскрипт по сегментам:\n${source}`;
+  const user = `CALL: ${String(job.usersideCallId || transcript.usersideCallId || '')}\nРежим: ${mode}\nWhisper language hint: ${whisperLanguage || 'unknown'} (${Number.isFinite(whisperProbability) ? whisperProbability.toFixed(3) : '0.000'})\n\nТранскрипт по сегментам:\n${source}`;
 
   const analysis = await requestWithFallback([
-    { role: 'system', content: standardSystemPrompt() },
+    { role: 'system', content: systemPrompt(mode) },
     { role: 'user', content: user }
   ], runtime.apiKey, runtime.models, mode, signal);
 
