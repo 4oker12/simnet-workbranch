@@ -1,11 +1,11 @@
-import { postprocessTranscript } from './ai-postprocessor.js';
+import { normalizeAnalysisMode, postprocessTranscript } from './ai-postprocessor.js';
 
 const USERSIDE_ORIGIN = 'https://userside.simnet.kiev.ua';
 const SUPPORT_PATH = '/customer/tab';
 const COMMENT_DIALOG_PATH = '/task/dialog_add_comment';
 const COMMENT_POST_PATH = '/task/comment_add';
 const TASK_MATCH_WINDOW_MINUTES = 5;
-const VERIFY_MARKER_PREFIX = 'CALL #';
+const RECORD_PREF_KEY = 'simnet_workbench_call_record_preferences_v1';
 
 function clean(value, max = 500) {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, max);
@@ -170,38 +170,47 @@ function commentForm(html, expectedTaskId) {
   return { action: action.href, params };
 }
 
-function languageLabel(value) {
-  if (value === 'uk') return 'UK';
-  if (value === 'ru') return 'RU';
-  return 'RU/UK mixed';
+function analysisModeLabel(mode) {
+  return normalizeAnalysisMode(mode) === 'deep' ? 'Глубокий' : 'Короткий';
 }
 
-function transcriptComment(job = {}, transcript = {}, analysis = {}) {
-  const callId = digits(job.usersideCallId || transcript.usersideCallId, 24);
-  const text = String(analysis.cleanText || '').trim();
-  if (!callId || !text) throw new Error('USERSIDE_WRITE: отсутствует CALL id или AI-транскрипт');
+function analysisMarker(callId, mode) {
+  return `AI-разбор звонка CALL #${digits(callId, 24)} · ${analysisModeLabel(mode)}`;
+}
 
-  const lines = [
-    `Транскрипция звонка ${VERIFY_MARKER_PREFIX}${callId}`,
-    `Язык: ${languageLabel(analysis.language)}`,
-    '',
-    'Текст:',
-    text
-  ];
-
-  const summary = clean(analysis.summary, 2000);
-  const issue = clean(analysis.issue, 1600);
-  const actions = clean(analysis.actions, 2000);
-  const result = clean(analysis.result, 1600);
-  const nextStep = clean(analysis.nextStep, 1600);
-  if (summary || issue || actions || result || nextStep) {
-    lines.push('', 'AI-разбор:');
-    if (summary) lines.push(`Суть: ${summary}`);
-    if (issue) lines.push(`Причина обращения: ${issue}`);
-    if (actions) lines.push(`Что сделано: ${actions}`);
-    if (result) lines.push(`Результат: ${result}`);
-    if (nextStep) lines.push(`Дальше: ${nextStep}`);
+async function resolveAnalysisMode(job = {}) {
+  const explicit = String(job.analysisMode || '').trim().toLowerCase();
+  if (explicit === 'deep' || explicit === 'brief') return normalizeAnalysisMode(explicit);
+  const callKey = clean(job.callKey, 160);
+  if (!callKey) return 'brief';
+  try {
+    const raw = (await chrome.storage.local.get(RECORD_PREF_KEY))?.[RECORD_PREF_KEY] || {};
+    const pref = raw.entries && typeof raw.entries === 'object' ? raw.entries[callKey] : null;
+    return normalizeAnalysisMode(pref?.analysisMode);
+  } catch {
+    return 'brief';
   }
+}
+
+function analysisComment(job = {}, transcript = {}, analysis = {}, mode = 'brief') {
+  const callId = digits(job.usersideCallId || transcript.usersideCallId, 24);
+  if (!callId) throw new Error('USERSIDE_WRITE: отсутствует CALL id');
+
+  const summary = clean(analysis.summary, 3200);
+  const issue = clean(analysis.issue, 2400);
+  const actions = clean(analysis.actions, 3200);
+  const result = clean(analysis.result, 2400);
+  const nextStep = clean(analysis.nextStep, 2400);
+  if (!summary && !issue && !actions && !result && !nextStep) {
+    throw new Error('USERSIDE_WRITE: AI не вернул структурированный разбор');
+  }
+
+  const lines = [analysisMarker(callId, mode)];
+  if (summary) lines.push(`Суть: ${summary}`);
+  if (issue) lines.push(`Причина обращения: ${issue}`);
+  if (actions) lines.push(`Что сделано: ${actions}`);
+  if (result) lines.push(`Результат: ${result}`);
+  if (nextStep) lines.push(`Дальше: ${nextStep}`);
   return lines.join('\n');
 }
 
@@ -216,19 +225,23 @@ export async function writeTranscriptToUserSide(job = {}, transcript = {}) {
   const customerId = digits(job.customerId, 14);
   if (!customerId) throw new Error('WAIT_TASK_ID: отсутствует customerId');
 
+  const mode = await resolveAnalysisMode(job);
+  const callId = digits(job.usersideCallId || transcript.usersideCallId, 24);
+  if (!callId) throw new Error('USERSIDE_WRITE: отсутствует CALL id');
+
   const supportUrl = new URL(SUPPORT_PATH, USERSIDE_ORIGIN);
   supportUrl.searchParams.set('tab', 'support');
   supportUrl.searchParams.set('id', customerId);
   const support = await fetchText(supportUrl.href, {}, 'UserSide support history');
   const task = chooseRegistrationTask(support.text, job);
-  const marker = `${VERIFY_MARKER_PREFIX}${digits(job.usersideCallId || transcript.usersideCallId, 24)}`;
+  const marker = analysisMarker(callId, mode);
 
   if (await taskContainsMarker(task.taskId, marker)) {
-    return { taskId: task.taskId, alreadyWritten: true, verified: true, ai: null };
+    return { taskId: task.taskId, alreadyWritten: true, verified: true, mode, ai: null, analysis: null };
   }
 
-  const analysis = await postprocessTranscript(job, transcript);
-  const comment = transcriptComment(job, transcript, analysis);
+  const analysis = await postprocessTranscript({ ...job, analysisMode: mode }, transcript);
+  const comment = analysisComment(job, transcript, analysis, mode);
 
   const dialogUrl = new URL(COMMENT_DIALOG_PATH, USERSIDE_ORIGIN);
   dialogUrl.searchParams.set('id', task.taskId);
@@ -251,10 +264,13 @@ export async function writeTranscriptToUserSide(job = {}, transcript = {}) {
     taskId: task.taskId,
     alreadyWritten: false,
     verified: true,
+    mode,
+    analysis,
     ai: {
       language: analysis.language,
       model: analysis.model,
-      cached: Boolean(analysis.cached)
+      cached: Boolean(analysis.cached),
+      mode: analysis.mode
     }
   };
 }
