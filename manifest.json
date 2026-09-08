@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET Workbench",
-  "version": "1.7.36.120",
+  "version": "1.7.36.121",
   "description": "SIMNET Workbench: facts + visits + direct if/else actions, without continuous page rescanning.",
   "permissions": [
     "storage",
@@ -111,7 +111,7 @@
       ]
     }
   ],
-  "version_name": "1.7.36.120-rec-ai-modes",
+  "version_name": "1.7.36.121-call-registration-hotfix",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }
