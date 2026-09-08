@@ -87,20 +87,41 @@
   function patchFocusTarget(shadow, reg) {
     const kicker = shadow.querySelector('.focus-target-kicker');
     if (!kicker) return;
-    if (kicker.firstChild?.nodeType === Node.TEXT_NODE) kicker.firstChild.textContent = 'Абонент звонка';
-    else kicker.textContent = 'Абонент звонка';
-    kicker.querySelectorAll('.wb-binding-origin').forEach(node => node.remove());
 
     const call = reg?.focusCall || {};
     const source = callRelationSource(call);
-    if (!['inferred', 'manual'].includes(source)) return;
-    const marker = document.createElement('span');
-    marker.className = `wb-binding-origin ${source}`;
-    marker.textContent = source === 'manual' ? 'm' : '◇';
-    marker.title = source === 'manual'
+    const markerKind = source === 'manual' ? 'manual' : source === 'inferred' ? 'inferred' : '';
+    const signature = `subscriber-label|${markerKind}`;
+    if (kicker.dataset.wbBindingPatch === signature) return;
+
+    const textNode = Array.from(kicker.childNodes).find(node => node.nodeType === Node.TEXT_NODE) || null;
+    if (textNode) {
+      if (textNode.nodeValue !== 'Абонент звонка') textNode.nodeValue = 'Абонент звонка';
+    } else {
+      kicker.insertBefore(document.createTextNode('Абонент звонка'), kicker.firstChild || null);
+    }
+
+    const existing = kicker.querySelector('.wb-binding-origin');
+    if (!markerKind) {
+      existing?.remove();
+      kicker.dataset.wbBindingPatch = signature;
+      return;
+    }
+
+    const markerText = markerKind === 'manual' ? 'm' : '◇';
+    const markerTitle = markerKind === 'manual'
       ? 'Связь звонка с абонентом подтверждена оператором вручную.'
       : 'Связь звонка с абонентом определена Workbench по evidence, а не напрямую UserSide call_list.';
-    kicker.appendChild(marker);
+
+    let marker = existing;
+    if (!marker) {
+      marker = document.createElement('span');
+      kicker.appendChild(marker);
+    }
+    marker.className = `wb-binding-origin ${markerKind}`;
+    if (marker.textContent !== markerText) marker.textContent = markerText;
+    if (marker.title !== markerTitle) marker.title = markerTitle;
+    kicker.dataset.wbBindingPatch = signature;
   }
 
   function historyCallForRow(reg, tr) {
@@ -182,7 +203,7 @@
     shadowObserver?.disconnect();
     observedShadow = shadow;
     shadowObserver = new MutationObserver(queuePatch);
-    shadowObserver.observe(shadow, { childList: true, subtree: true, characterData: true });
+    shadowObserver.observe(shadow, { childList: true, subtree: true });
   }
 
   documentObserver = new MutationObserver(queuePatch);
