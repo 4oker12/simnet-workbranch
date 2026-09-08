@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET Workbench",
-  "version": "1.7.36.118",
+  "version": "1.7.36.119",
   "description": "SIMNET Workbench: facts + visits + direct if/else actions, without continuous page rescanning.",
   "permissions": [
     "storage",
@@ -54,6 +54,7 @@
         "src/ui/poll-terminal-loader.js",
         "src/ui/call-registration-loader.js",
         "src/ui/call-record-toggle.js",
+        "src/ui/call-registration-identity-ux.js",
         "src/ui/call-transcription-assistant.js",
         "src/ui/call-pbx-diagnostic.js",
         "src/ui/task-form-assistant.js",
@@ -109,7 +110,7 @@
       ]
     }
   ],
-  "version_name": "1.7.36.118-record-policy-linkage",
+  "version_name": "1.7.36.119-rec-norec-call-identity-ux",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }
