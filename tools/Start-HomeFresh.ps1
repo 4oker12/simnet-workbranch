@@ -8,15 +8,81 @@ $LegacyLauncherCmd = Join-Path $RepoRoot 'START-WORKBENCH-HOME.cmd'
 $LegacyLauncherPs1 = Join-Path $PSScriptRoot 'Start-WorkbenchHome.ps1'
 
 $ManagedPorts = @(25344, 8090, 8765)
+$VastHost = '87.106.223.150'
 
 function Write-Step([string]$Text) {
     Write-Host ("`n=== " + $Text + " ===") -ForegroundColor Cyan
 }
 
+function Get-ManagedProcesses {
+    $result = @()
+    $processes = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue
+
+    foreach ($proc in @($processes)) {
+        $name = [string]$proc.Name
+        $cmd  = [string]$proc.CommandLine
+        $reason = $null
+
+        if ($name -ieq 'sing-box.exe') {
+            $reason = 'sing-box'
+        }
+        elseif ($name -ieq 'ssh.exe' -and
+            ($cmd -match [regex]::Escape($VastHost) -or $cmd -match '25344' -or $cmd -match '8090')) {
+            $reason = 'SIMNET SSH tunnel'
+        }
+        elseif (($name -ieq 'python.exe' -or $name -ieq 'pythonw.exe') -and
+            ($cmd -match '8765' -or $cmd -match 'simnet-vast\.pac')) {
+            $reason = 'PAC server'
+        }
+        elseif ($name -ieq 'microsip.exe') {
+            $reason = 'MicroSIP'
+        }
+        elseif ($name -ieq 'chrome.exe' -and
+            ($cmd -match '--proxy-pac-url' -or $cmd -match 'simnet-vast\.pac' -or $cmd -match 'SIMNET-Chrome-Home')) {
+            $reason = 'SIMNET Chrome'
+        }
+
+        if ($reason) {
+            $result += [pscustomobject]@{
+                ProcessId = [int]$proc.ProcessId
+                Name      = $name
+                Reason    = $reason
+                Command   = $cmd
+            }
+        }
+    }
+
+    return @($result)
+}
+
+function Show-ManagedStatus([string]$Label) {
+    Write-Step $Label
+
+    $managed = @(Get-ManagedProcesses)
+    if ($managed.Count -eq 0) {
+        Write-Host 'MANAGED PROCESSES: NONE'
+    } else {
+        foreach ($p in $managed) {
+            Write-Host ("PID={0} NAME={1} TYPE={2}" -f $p.ProcessId, $p.Name, $p.Reason)
+        }
+    }
+
+    foreach ($port in $ManagedPorts) {
+        $listeners = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
+        if ($listeners.Count -eq 0) {
+            Write-Host ("PORT {0}: CLOSED" -f $port)
+        } else {
+            foreach ($row in $listeners) {
+                Write-Host ("PORT {0}: LISTEN PID={1}" -f $port, $row.OwningProcess)
+            }
+        }
+    }
+}
+
 function Stop-ProcessSafe([int]$ProcessId, [string]$Reason) {
     try {
         $p = Get-Process -Id $ProcessId -ErrorAction Stop
-        Write-Host ("STOP PID={0} NAME={1} REASON={2}" -f $ProcessId, $p.ProcessName, $Reason)
+        Write-Host ("KILL PID={0} NAME={1} TYPE={2}" -f $ProcessId, $p.ProcessName, $Reason)
         Stop-Process -Id $ProcessId -Force -ErrorAction Stop
     } catch {
         if ($_.Exception.Message -notmatch 'Cannot find a process') {
@@ -26,49 +92,53 @@ function Stop-ProcessSafe([int]$ProcessId, [string]$Reason) {
 }
 
 function Stop-ManagedLocalState {
-    Write-Step 'CLEAN OLD HOME STATE'
+    Write-Step 'KILL OLD HOME STATE'
 
+    # First kill anything currently owning one of our well-known local ports.
     foreach ($port in $ManagedPorts) {
-        $listeners = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
-        foreach ($listener in @($listeners)) {
+        $listeners = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
+        foreach ($listener in $listeners) {
             Stop-ProcessSafe -ProcessId ([int]$listener.OwningProcess) -Reason ("listener:" + $port)
         }
     }
 
-    $processes = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue
-    foreach ($proc in @($processes)) {
-        $name = [string]$proc.Name
-        $cmd  = [string]$proc.CommandLine
-
-        if ($name -ieq 'sing-box.exe') {
-            Stop-ProcessSafe -ProcessId ([int]$proc.ProcessId) -Reason 'sing-box'
-            continue
-        }
-
-        if ($name -ieq 'ssh.exe' -and
-            ($cmd -match '87\.106\.223\.150' -or $cmd -match '25344' -or $cmd -match '8090')) {
-            Stop-ProcessSafe -ProcessId ([int]$proc.ProcessId) -Reason 'SIMNET SSH tunnel'
-            continue
-        }
-
-        if (($name -ieq 'python.exe' -or $name -ieq 'pythonw.exe') -and
-            ($cmd -match '8765' -or $cmd -match 'simnet-vast\.pac')) {
-            Stop-ProcessSafe -ProcessId ([int]$proc.ProcessId) -Reason 'PAC server'
-            continue
-        }
-
-        if ($name -ieq 'microsip.exe') {
-            Stop-ProcessSafe -ProcessId ([int]$proc.ProcessId) -Reason 'MicroSIP restart'
-            continue
-        }
-
-        if ($name -ieq 'chrome.exe' -and
-            ($cmd -match '--proxy-pac-url' -or $cmd -match 'simnet-vast\.pac' -or $cmd -match 'SIMNET-Chrome-Home')) {
-            Stop-ProcessSafe -ProcessId ([int]$proc.ProcessId) -Reason 'SIMNET Chrome'
-        }
+    # Then kill the rest of the managed HOME processes even if they are stale
+    # and no longer own their expected port.
+    foreach ($proc in @(Get-ManagedProcesses)) {
+        Stop-ProcessSafe -ProcessId $proc.ProcessId -Reason $proc.Reason
     }
 
     Start-Sleep -Seconds 2
+}
+
+function Assert-CleanLocalState {
+    Write-Step 'VERIFY CLEAN STATE'
+
+    $dirty = $false
+
+    $left = @(Get-ManagedProcesses)
+    if ($left.Count -gt 0) {
+        $dirty = $true
+        foreach ($p in $left) {
+            Write-Host ("LEFTOVER PROCESS PID={0} NAME={1} TYPE={2}" -f $p.ProcessId, $p.Name, $p.Reason) -ForegroundColor Red
+        }
+    }
+
+    foreach ($port in $ManagedPorts) {
+        $listeners = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
+        if ($listeners.Count -gt 0) {
+            $dirty = $true
+            foreach ($row in $listeners) {
+                Write-Host ("LEFTOVER PORT {0} PID={1}" -f $port, $row.OwningProcess) -ForegroundColor Red
+            }
+        }
+    }
+
+    if ($dirty) {
+        throw 'CLEANUP_FAILED: old HOME state is still present; refusing to start over it'
+    }
+
+    Write-Host 'CLEAN_STATE=OK' -ForegroundColor Green
 }
 
 function Repair-KnownLauncherBug {
@@ -78,13 +148,10 @@ function Repair-KnownLauncherBug {
 
     $text = [IO.File]::ReadAllText($LegacyLauncherPs1)
 
-    $hasBadPidAssignment = [regex]::IsMatch(
-        $text,
-        '(?im)^\s*\$pid\s*=',
-        [Text.RegularExpressions.RegexOptions]::IgnoreCase
-    )
-
-    if ($hasBadPidAssignment) {
+    # PowerShell $PID is a built-in read-only automatic variable. The current
+    # launcher accidentally uses $Pid as a writable local variable in its PAC
+    # startup path. PowerShell variable names are case-insensitive.
+    if ($text -match '(?im)^\s*\$pid\s*=') {
         $backup = $LegacyLauncherPs1 + '.pre-home-fix.bak'
         if (-not (Test-Path $backup)) {
             Copy-Item $LegacyLauncherPs1 $backup -Force
@@ -92,7 +159,7 @@ function Repair-KnownLauncherBug {
 
         $fixed = [regex]::Replace(
             $text,
-            '\$pid\b',
+            '\$Pid\b',
             '$PacServerPid',
             [Text.RegularExpressions.RegexOptions]::IgnoreCase
         )
@@ -103,9 +170,9 @@ function Repair-KnownLauncherBug {
             (New-Object Text.UTF8Encoding($false))
         )
 
-        Write-Host 'REPAIR: $Pid -> $PacServerPid'
+        Write-Host 'REPAIR: launcher $Pid collision fixed'
     } else {
-        Write-Host 'REPAIR: no $Pid assignment found'
+        Write-Host 'REPAIR: launcher PID collision not present'
     }
 }
 
@@ -146,9 +213,9 @@ function Test-PacHealth {
 
 function Show-PortState {
     foreach ($port in $ManagedPorts) {
-        $c = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
-        if ($c) {
-            foreach ($row in @($c)) {
+        $c = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
+        if ($c.Count -gt 0) {
+            foreach ($row in $c) {
                 Write-Host ("PORT {0}: LISTEN PID={1}" -f $port, $row.OwningProcess)
             }
         } else {
@@ -158,12 +225,14 @@ function Show-PortState {
 }
 
 try {
-    Write-Host 'SIMNET HOME CLEAN START' -ForegroundColor White
+    Write-Host 'SIMNET HOME: STATUS -> KILL -> CLEAN -> START -> VERIFY' -ForegroundColor White
 
+    Show-ManagedStatus 'PRE-START STATUS'
     Stop-ManagedLocalState
+    Assert-CleanLocalState
     Repair-KnownLauncherBug
 
-    Write-Step 'START'
+    Write-Step 'START FRESH HOME STATE'
     if (Test-Path $LegacyLauncherCmd) {
         & $LegacyLauncherCmd
         if ($LASTEXITCODE -ne 0) {
@@ -176,7 +245,7 @@ try {
         }
     }
 
-    Write-Step 'VERIFY'
+    Write-Step 'FINAL VERIFY'
 
     $deadline = (Get-Date).AddSeconds(30)
     do {
