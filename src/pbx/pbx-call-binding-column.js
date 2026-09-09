@@ -163,6 +163,9 @@
   function paintCell(view) {
     if (!view?.cell?.isConnected) return false;
     const presentation = presentationFor(view.recordId, view.nativeContract, lastState);
+    const renderKey = `${presentation.tone}|${presentation.text}|${presentation.title}`;
+    if (view.cell.dataset.wbRenderKey === renderKey) return true;
+    view.cell.dataset.wbRenderKey = renderKey;
     view.cell.replaceChildren();
     if (presentation.tone === 'empty') {
       const empty = document.createElement('span');
