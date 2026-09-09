@@ -107,8 +107,9 @@
     );
   }
 
-  function presentationFor(recordId, nativeContract, state = {}) {
+  function presentationFor(recordId, nativeContract, nativeProvider, state = {}) {
     const nativeValue = normalizedContract(nativeContract);
+    const providerCode = compact(nativeProvider, 12);
     const entry = callEntryForRecord(state, recordId);
     const binding = bindingForCall(state, entry, recordId);
     const bindingContract = caseContract(state, binding);
@@ -127,7 +128,10 @@
       return { text: '—', tone: 'empty', title: callKey ? `Call: ${callKey} · привязка договора пока не определена` : 'Workbench ещё не связал этот PBX-звонок с Call' };
     }
 
-    if (nativeValue && nativeValue !== wbContract) {
+    // PBX provider namespace prov=1 is not directly comparable with the
+    // canonical SIMNET contract, matching the existing pbxCallMatch rule.
+    const nativeComparable = providerCode !== '1';
+    if (nativeValue && nativeComparable && nativeValue !== wbContract) {
       return {
         text: `⚠ ${wbContract}`,
         tone: 'conflict',
@@ -162,7 +166,7 @@
 
   function paintCell(view) {
     if (!view?.cell?.isConnected) return false;
-    const presentation = presentationFor(view.recordId, view.nativeContract, lastState);
+    const presentation = presentationFor(view.recordId, view.nativeContract, view.nativeProvider, lastState);
     const renderKey = `${presentation.tone}|${presentation.text}|${presentation.title}`;
     if (view.cell.dataset.wbRenderKey === renderKey) return true;
     view.cell.dataset.wbRenderKey = renderKey;
@@ -190,6 +194,12 @@
     }
   }
 
+  function sourceIndex(headerIndex, wbIndex, rowHasWbCell) {
+    if (headerIndex < 0) return -1;
+    if (rowHasWbCell || headerIndex < wbIndex) return headerIndex;
+    return headerIndex - 1;
+  }
+
   function mountTable(table) {
     const rows = Array.from(table?.rows || []);
     if (rows.length < 2) return false;
@@ -213,20 +223,26 @@
 
     const callIndex = headers.indexOf('callid');
     const nativeIndex = headers.indexOf('contract');
+    const providerIndex = headers.indexOf('prov');
     if (callIndex < 0 || nativeIndex < 0 || wbIndex < 0) return false;
 
     for (const row of rows.slice(1)) {
-      const cells = Array.from(row.cells || []);
-      const recordId = recordIdOf(cells[callIndex]);
-      if (!recordId) continue;
-      const nativeContract = compact(cells[nativeIndex]?.textContent || '', 48);
       let cell = Array.from(row.cells || []).find(item => item?.dataset?.[CELL_ATTR] === '1');
+      const rowHasWbCell = Boolean(cell);
+      const cells = Array.from(row.cells || []);
+      const callSourceIndex = sourceIndex(callIndex, wbIndex, rowHasWbCell);
+      const contractSourceIndex = sourceIndex(nativeIndex, wbIndex, rowHasWbCell);
+      const providerSourceIndex = sourceIndex(providerIndex, wbIndex, rowHasWbCell);
+      const recordId = recordIdOf(cells[callSourceIndex]);
+      if (!recordId) continue;
+      const nativeContract = compact(cells[contractSourceIndex]?.textContent || '', 48);
+      const nativeProvider = compact(cells[providerSourceIndex]?.textContent || '', 12);
       if (!cell) {
         cell = row.insertCell(Math.min(wbIndex, row.cells.length));
         cell.dataset[CELL_ATTR] = '1';
         cell.className = 'wb-pbx-contract-cell';
       }
-      const view = { cell, recordId, nativeContract };
+      const view = { cell, recordId, nativeContract, nativeProvider };
       mountedCells.set(recordId, view);
       paintCell(view);
     }
