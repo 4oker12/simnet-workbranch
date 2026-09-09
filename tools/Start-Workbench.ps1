@@ -10,6 +10,7 @@ $ScriptDir = Split-Path -Parent $PSCommandPath
 . (Join-Path $ScriptDir 'workbench-home.config.ps1')
 $cfg = $WorkbenchHomeConfig
 New-Item -ItemType Directory -Force -Path $cfg.RuntimeDir | Out-Null
+New-Item -ItemType Directory -Force -Path $cfg.PrivateDir | Out-Null
 
 function Test-IsAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -53,17 +54,49 @@ function Resolve-SshIdentityArgs {
     return @()
 }
 
+function Get-SshBaseArgs {
+    $args = @('-o','BatchMode=yes','-o','StrictHostKeyChecking=accept-new','-o','ConnectTimeout=10','-o','ServerAliveInterval=30','-o','ServerAliveCountMax=3')
+    $args += Resolve-SshIdentityArgs
+    return $args
+}
+
 function Invoke-Vast([string]$RemoteCommand) {
     $ssh = Join-Path $env:WINDIR 'System32\OpenSSH\ssh.exe'
     if (-not (Test-Path $ssh)) { throw "ssh.exe not found: $ssh" }
-    $args = @('-o','BatchMode=yes','-o','StrictHostKeyChecking=accept-new','-o','ConnectTimeout=10','-o','ServerAliveInterval=30','-o','ServerAliveCountMax=3')
-    $args += Resolve-SshIdentityArgs
+    $args = Get-SshBaseArgs
     $args += @('-p', [string]$cfg.VastSshPort, ('{0}@{1}' -f $cfg.VastUser,$cfg.VastHost), $RemoteCommand)
     & $ssh @args
     if ($LASTEXITCODE -ne 0) { throw "Vast command failed with exit code $LASTEXITCODE" }
 }
 
-function Ensure-Remote([string]$Mode) {
+function Sync-PrivateHomeConfig {
+    $scp = Join-Path $env:WINDIR 'System32\OpenSSH\scp.exe'
+    if (-not (Test-Path $scp)) { throw "scp.exe not found: $scp" }
+    Invoke-Vast 'mkdir -p /workspace/sing-box-test'
+
+    $base = @('-q','-o','BatchMode=yes','-o','StrictHostKeyChecking=accept-new','-o','ConnectTimeout=10')
+    $base += Resolve-SshIdentityArgs
+    $base += @('-P',[string]$cfg.VastSshPort)
+    $remote = ('{0}@{1}:/workspace/sing-box-test/server-unified.json' -f $cfg.VastUser,$cfg.VastHost)
+
+    if (Test-Path $cfg.PrivateSingBoxServerConfig) {
+        & $scp @base $cfg.PrivateSingBoxServerConfig $remote
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to upload private HOME sing-box config to Vast.' }
+        Write-Host '  private HOME config: restored from local backup'
+        return
+    }
+
+    & $scp @base $remote $cfg.PrivateSingBoxServerConfig
+    if ($LASTEXITCODE -eq 0 -and (Test-Path $cfg.PrivateSingBoxServerConfig)) {
+        Write-Host ('  private HOME config: backed up to {0}' -f $cfg.PrivateSingBoxServerConfig)
+        return
+    }
+
+    Remove-Item $cfg.PrivateSingBoxServerConfig -Force -ErrorAction SilentlyContinue
+    throw ('Private HOME config is missing both locally and on Vast. Restore it once at: {0}' -f $cfg.PrivateSingBoxServerConfig)
+}
+
+function Ensure-RemoteBase {
     $remote = @'
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
@@ -83,29 +116,39 @@ cd /workspace/simnet-transcriber
 chmod +x bootstrap-vast.sh start.sh status.sh restart.sh simnet-transcriber-supervisor.sh
 ./bootstrap-vast.sh
 '@
+    Invoke-Vast $remote
+}
 
-    if ($Mode -eq 'HOME') {
-        $remote += @'
-
+function Ensure-RemoteHomeTransport {
+    $remote = @'
+set -euo pipefail
+mkdir -p /workspace/sing-box-test
 if [ ! -x /workspace/sing-box-test/sing-box ]; then
-  echo 'REMOTE_HOME_NOT_READY: /workspace/sing-box-test/sing-box missing' >&2
-  exit 43
+  command -v curl >/dev/null 2>&1 || { apt-get update -y && apt-get install -y curl; }
+  command -v jq >/dev/null 2>&1 || { apt-get update -y && apt-get install -y jq; }
+  command -v tar >/dev/null 2>&1 || { apt-get update -y && apt-get install -y tar; }
+  URL="$(curl -fsSL https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r '.assets[].browser_download_url | select(test("linux-amd64\\.tar\\.gz$"))' | head -n 1)"
+  [ -n "$URL" ] || { echo 'Unable to resolve latest sing-box linux-amd64 asset' >&2; exit 42; }
+  rm -rf /tmp/simnet-sing-box /tmp/simnet-sing-box.tgz
+  mkdir -p /tmp/simnet-sing-box
+  curl -fL "$URL" -o /tmp/simnet-sing-box.tgz
+  tar -xzf /tmp/simnet-sing-box.tgz -C /tmp/simnet-sing-box
+  BIN="$(find /tmp/simnet-sing-box -type f -name sing-box | head -n 1)"
+  [ -n "$BIN" ] || { echo 'sing-box binary not found in release archive' >&2; exit 42; }
+  install -m 0755 "$BIN" /workspace/sing-box-test/sing-box
 fi
-if [ ! -f /workspace/sing-box-test/server-unified.json ]; then
-  echo 'REMOTE_HOME_NOT_READY: server-unified.json missing; restore the private HOME/VPN config on this Vast instance' >&2
-  exit 44
-fi
-if ! pgrep -af '^/workspace/sing-box-test/sing-box run -c /workspace/sing-box-test/server-unified.json$' >/dev/null 2>&1; then
+[ -f /workspace/sing-box-test/server-unified.json ] || { echo 'REMOTE_HOME_NOT_READY: server-unified.json missing' >&2; exit 44; }
+PIDS="$(pgrep -f '^/workspace/sing-box-test/sing-box run -c /workspace/sing-box-test/server-unified.json$' 2>/dev/null || true)"
+if [ -z "$PIDS" ]; then
   nohup /workspace/sing-box-test/sing-box run -c /workspace/sing-box-test/server-unified.json >/workspace/sing-box-test/sing-box.log 2>&1 &
   sleep 2
 fi
 ss -lntup | grep -E ':25344|:10200' >/dev/null || {
   echo 'REMOTE_HOME_NOT_READY: sing-box ports 25344/10200 are not listening' >&2
-  tail -n 40 /workspace/sing-box-test/sing-box.log 2>/dev/null || true
+  tail -n 50 /workspace/sing-box-test/sing-box.log 2>/dev/null || true
   exit 45
 }
 '@
-    }
     Invoke-Vast $remote
 }
 
@@ -154,32 +197,39 @@ if ($mode -eq 'HOME' -and -not (Test-IsAdministrator)) {
 }
 
 try {
-    Write-Host '[1/3] Remote services / bootstrap'
-    Ensure-Remote $mode
-    Write-Host '  remote: OK'
+    Write-Host '[1/4] Vast transcriber / bootstrap'
+    Ensure-RemoteBase
+    Write-Host '  transcriber: OK'
 
     if ($mode -eq 'HOME') {
-        Write-Host '[2/3] HOME transport'
+        Write-Host '[2/4] HOME private config / sing-box'
+        Sync-PrivateHomeConfig
+        Ensure-RemoteHomeTransport
+        Write-Host '  Vast HOME transport: OK'
+
+        Write-Host '[3/4] Local HOME transport'
         & (Join-Path $ScriptDir 'Start-WorkbenchHome.ps1')
         if ($LASTEXITCODE -ne 0) { throw 'HOME launcher failed.' }
-        $state = [ordered]@{ version=2; mode='HOME'; startedAt=(Get-Date).ToString('o'); ready=$true; sshPid=$null; remoteManaged=$true }
+        $state = [ordered]@{ version=3; mode='HOME'; startedAt=(Get-Date).ToString('o'); ready=$true; sshPid=$null; remoteManaged=$true }
     } else {
-        Write-Host '[2/3] WORK ASR tunnel'
+        Write-Host '[2/4] HOME transport'
+        Write-Host '  not needed at WORK'
+        Write-Host '[3/4] WORK ASR tunnel'
         $pid = Start-WorkTunnel
         $script:health = $null
         Wait-Until { try { $script:health = Invoke-RestMethod -Uri $cfg.AsrHealthUrl -TimeoutSec 3; [bool]$script:health.ok } catch { $false } } $cfg.StartTimeoutSeconds 'Whisper health failed through localhost:8090.'
         Write-Host ("  ASR: OK {0} / {1}" -f $script:health.model,$script:health.gpu)
-        $state = [ordered]@{ version=2; mode='WORK'; startedAt=(Get-Date).ToString('o'); ready=$true; sshPid=$pid; remoteManaged=$true }
+        $state = [ordered]@{ version=3; mode='WORK'; startedAt=(Get-Date).ToString('o'); ready=$true; sshPid=$pid; remoteManaged=$true }
     }
 
-    Write-Host '[3/3] Save state'
+    Write-Host '[4/4] Save state'
     $state.vastHost = $cfg.VastHost
     $state.vastSshPort = $cfg.VastSshPort
     $state | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 -Path $cfg.UnifiedStateFile
     Write-Host ''
     Write-Host ("{0}_READY" -f $mode) -ForegroundColor Green
 } catch {
-    $failed = [ordered]@{ version=2; mode=$mode; startedAt=(Get-Date).ToString('o'); ready=$false; vastHost=$cfg.VastHost; vastSshPort=$cfg.VastSshPort; error=$_.Exception.Message }
+    $failed = [ordered]@{ version=3; mode=$mode; startedAt=(Get-Date).ToString('o'); ready=$false; vastHost=$cfg.VastHost; vastSshPort=$cfg.VastSshPort; error=$_.Exception.Message }
     $failed | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 -Path $cfg.UnifiedStateFile
     Write-Error $_
     exit 1
