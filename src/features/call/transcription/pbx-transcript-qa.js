@@ -1,4 +1,5 @@
 import { AI_CONFIG } from '../../../config/ai-config.js';
+import { recordAiUsage } from '../../../ai/usage-ledger.js';
 import { readTranscript } from './background.js';
 
 const MESSAGE = 'PBX_TRANSCRIPT_ASK';
@@ -123,6 +124,10 @@ async function requestModel(messages, apiKey, model) {
       error.status = response.status;
       throw error;
     }
+    const usage = normalizeUsage(data?.usage || {});
+    if (usage.totalTokens || usage.promptTokens || usage.completionTokens) {
+      await recordAiUsage('transcript-qa', usage).catch(() => {});
+    }
     const rawAnswer = String(data?.choices?.[0]?.message?.content || '').trim();
     if (!rawAnswer) throw new Error('Groq вернул пустой ответ');
     const answer = finalAnswer(rawAnswer);
@@ -130,7 +135,7 @@ async function requestModel(messages, apiKey, model) {
     return {
       answer,
       model: String(data?.model || model),
-      usage: normalizeUsage(data?.usage || {})
+      usage
     };
   } catch (error) {
     if (controller.signal.aborted) throw new Error('Таймаут ответа по разговору');
