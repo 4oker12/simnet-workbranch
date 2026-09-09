@@ -39,7 +39,15 @@ test('engineer ONU navigation reuses the native poll route and falls back to Tec
   assert.match(engineer, /openTechnicalDirect/);
 });
 
-test('panel comfort adjustment is intentionally small', () => {
-  assert.match(responsive, /width:min\(352px,calc\(100vw - 66px\)\)/);
-  assert.match(responsive, /width:min\(300px,calc\(100vw - 66px\)\)/);
+test('panel stays compact but has enough room for settings content', () => {
+  assert.match(responsive, /width:min\(380px,calc\(100vw - 66px\)\)/);
+  assert.match(responsive, /width:min\(330px,calc\(100vw - 66px\)\)/);
+});
+
+test('settings toggles remain visible on the light settings cards', () => {
+  assert.match(responsive, /#wb-human-settings \.switch\{/);
+  assert.match(responsive, /background:#e2e8f0/);
+  assert.match(responsive, /#wb-human-settings \.switch\.on\{/);
+  assert.match(responsive, /background:#a50046/);
+  assert.match(responsive, /flex-wrap:nowrap/);
 });
