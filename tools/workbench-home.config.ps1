@@ -10,6 +10,12 @@ $WorkbenchHomeConfig = [ordered]@{
     RemoteSocksHost = '127.0.0.1'
     RemoteSocksPort = 25344
 
+    # Private Shadowsocks bridge for the local SIP/TUN path. It is carried only
+    # inside the SSH session; no public Vast port mapping is required.
+    LocalShadowsocksPort = 10200
+    RemoteShadowsocksHost = '127.0.0.1'
+    RemoteShadowsocksPort = 10200
+
     LocalAsrPort = 8090
     RemoteAsrHost = '127.0.0.1'
     RemoteAsrPort = 8000
@@ -25,12 +31,17 @@ $WorkbenchHomeConfig = [ordered]@{
     PbxProbeUrl = 'https://pbx.simnet.kiev.ua/'
     GroqProbeUrl = 'https://api.groq.com/openai/v1/models'
 
+    # Original local client config remains the private source of the Shadowsocks
+    # method/password. START writes a runtime copy pointed at localhost:10200.
     SingBoxConfig = Join-Path $env:LOCALAPPDATA 'sing-box-simnet\client.json'
+    RuntimeSingBoxClientConfig = Join-Path $env:LOCALAPPDATA 'SIMNET-Workbench\runtime\client-home-runtime.json'
     SingBoxTunName = 'simnet-uot'
 
     # Private HOME transport state is intentionally stored outside the Git repo.
-    # It can be copied to a fresh Vast instance without ever committing secrets.
+    # server-unified.json can be regenerated from wireguard-home.conf plus the
+    # existing local sing-box client config; neither secret is committed.
     PrivateDir = Join-Path $env:LOCALAPPDATA 'SIMNET-Workbench\private'
+    PrivateWireGuardConfig = Join-Path $env:LOCALAPPDATA 'SIMNET-Workbench\private\wireguard-home.conf'
     PrivateSingBoxServerConfig = Join-Path $env:LOCALAPPDATA 'SIMNET-Workbench\private\server-unified.json'
 
     # HOME/Vast invariant: this legacy local WireGuard service must stay OFF.
