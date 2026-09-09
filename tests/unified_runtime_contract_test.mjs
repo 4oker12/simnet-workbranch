@@ -27,9 +27,22 @@ test('runtime endpoint is centralized for HOME and WORK', () => {
   assert.match(cfg, /UnifiedStateFile/);
 });
 
-test('START automatically selects WORK or HOME from direct SIMNET reachability', () => {
+test('START automatically selects WORK or HOME without proxy false positives', () => {
   assert.match(start, /function Test-DirectSimnet/);
-  assert.match(start, /\$mode\s*=\s*if \(Test-DirectSimnet\) \{ 'WORK' \} else \{ 'HOME' \}/);
+  assert.match(start, /--noproxy '\*'/);
+  assert.match(start, /function Test-HomeTransportActive/);
+  assert.match(start, /function Resolve-Mode/);
+  assert.match(start, /\$mode\s*=\s*Resolve-Mode/);
+});
+
+test('remote bash commands are normalized to LF before SSH execution', () => {
+  assert.match(start, /RemoteCommand\.Replace\("`r`n", "`n"\)\.Replace\("`r", ''\)/);
+});
+
+test('new standard laptop SSH key is preferred while legacy key remains a fallback', () => {
+  assert.match(start, /\.ssh\\id_ed25519'/);
+  assert.match(start, /\.ssh\\id_ed25519_simnet_autostart'/);
+  assert.match(start, /IdentitiesOnly=yes/);
 });
 
 test('fresh Vast transcriber is restored from its repository by universal START', () => {
