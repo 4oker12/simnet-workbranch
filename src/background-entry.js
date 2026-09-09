@@ -11,3 +11,4 @@ import './features/call/transcription/pbx-diagnostic.js';
 import './features/call/transcription/call-list-debug.js';
 import './features/call/transcription/cleanup.js';
 import './features/call/transcription/pbx-manual-analysis.js';
+import './features/call/transcription/pbx-transcript-qa.js';
