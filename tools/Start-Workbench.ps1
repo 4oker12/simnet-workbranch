@@ -96,13 +96,126 @@ function Get-SshBaseArgs {
 function Invoke-Vast([string]$RemoteCommand) {
     $ssh = Join-Path $env:WINDIR 'System32\OpenSSH\ssh.exe'
     if (-not (Test-Path $ssh)) { throw "ssh.exe not found: $ssh" }
-    # PowerShell here-strings on Windows can carry CRLF. bash interprets the CR in
-    # `set -euo pipefail` as part of the option name, so always send LF-only text.
     $RemoteCommand = $RemoteCommand.Replace("`r`n", "`n").Replace("`r", '')
     $args = Get-SshBaseArgs
     $args += @('-p', [string]$cfg.VastSshPort, ('{0}@{1}' -f $cfg.VastUser,$cfg.VastHost), $RemoteCommand)
     & $ssh @args
     if ($LASTEXITCODE -ne 0) { throw "Vast command failed with exit code $LASTEXITCODE" }
+}
+
+function Get-IniValue([string]$Text, [string]$Section, [string]$Key) {
+    $sectionPattern = '(?ms)^\s*\[' + [regex]::Escape($Section) + '\]\s*(.*?)(?=^\s*\[|\z)'
+    $sectionMatch = [regex]::Match($Text, $sectionPattern)
+    if (-not $sectionMatch.Success) { return $null }
+    $keyPattern = '(?im)^\s*' + [regex]::Escape($Key) + '\s*=\s*(.+?)\s*$'
+    $keyMatch = [regex]::Match($sectionMatch.Groups[1].Value, $keyPattern)
+    if (-not $keyMatch.Success) { return $null }
+    return $keyMatch.Groups[1].Value.Trim()
+}
+
+function Build-PrivateHomeConfig {
+    if (-not (Test-Path $cfg.PrivateWireGuardConfig)) {
+        throw ('Private WireGuard config missing: {0}' -f $cfg.PrivateWireGuardConfig)
+    }
+    if (-not (Test-Path $cfg.SingBoxConfig)) {
+        throw ('Local sing-box client config missing: {0}' -f $cfg.SingBoxConfig)
+    }
+
+    $wgText = Get-Content -Raw -Path $cfg.PrivateWireGuardConfig
+    $wgPrivateKey = Get-IniValue $wgText 'Interface' 'PrivateKey'
+    $wgAddress = Get-IniValue $wgText 'Interface' 'Address'
+    $wgListenPort = Get-IniValue $wgText 'Interface' 'ListenPort'
+    $peerPublicKey = Get-IniValue $wgText 'Peer' 'PublicKey'
+    $peerAllowedIps = Get-IniValue $wgText 'Peer' 'AllowedIPs'
+    $peerEndpoint = Get-IniValue $wgText 'Peer' 'Endpoint'
+
+    foreach ($required in @(
+        @{ Name='Interface.PrivateKey'; Value=$wgPrivateKey },
+        @{ Name='Interface.Address'; Value=$wgAddress },
+        @{ Name='Peer.PublicKey'; Value=$peerPublicKey },
+        @{ Name='Peer.AllowedIPs'; Value=$peerAllowedIps },
+        @{ Name='Peer.Endpoint'; Value=$peerEndpoint }
+    )) {
+        if ([string]::IsNullOrWhiteSpace([string]$required.Value)) { throw ('WireGuard config missing {0}' -f $required.Name) }
+    }
+
+    $endpointMatch = [regex]::Match([string]$peerEndpoint, '^\s*([^:]+):(\d+)\s*$')
+    if (-not $endpointMatch.Success) { throw 'WireGuard Peer.Endpoint must be host:port.' }
+    $peerHost = $endpointMatch.Groups[1].Value
+    $peerPort = [int]$endpointMatch.Groups[2].Value
+    $listenPort = if ($wgListenPort -match '^\d+$') { [int]$wgListenPort } else { 0 }
+    $addresses = @([string]$wgAddress -split '\s*,\s*' | Where-Object { $_ })
+    $allowedIps = @([string]$peerAllowedIps -split '\s*,\s*' | Where-Object { $_ })
+
+    $client = Get-Content -Raw -Path $cfg.SingBoxConfig | ConvertFrom-Json
+    $ss = @($client.outbounds | Where-Object { $_.type -eq 'shadowsocks' } | Select-Object -First 1)
+    if ($ss.Count -eq 0 -or -not $ss[0]) { throw 'No Shadowsocks outbound found in local sing-box client config.' }
+    $ss = $ss[0]
+    if ([string]::IsNullOrWhiteSpace([string]$ss.method) -or [string]::IsNullOrWhiteSpace([string]$ss.password)) {
+        throw 'Local Shadowsocks outbound is missing method/password.'
+    }
+
+    $ssInbound = [ordered]@{
+        type = 'shadowsocks'
+        tag = 'sip-shadowsocks'
+        listen = '127.0.0.1'
+        listen_port = [int]$cfg.RemoteShadowsocksPort
+        method = [string]$ss.method
+        password = [string]$ss.password
+    }
+    if ($ss.PSObject.Properties['multiplex']) { $ssInbound.multiplex = $ss.multiplex }
+
+    $wgEndpoint = [ordered]@{
+        type = 'wireguard'
+        tag = 'simnet-wg'
+        system = $false
+        mtu = 1400
+        address = $addresses
+        private_key = [string]$wgPrivateKey
+        peers = @(
+            [ordered]@{
+                address = $peerHost
+                port = $peerPort
+                public_key = [string]$peerPublicKey
+                allowed_ips = $allowedIps
+                persistent_keepalive_interval = 25
+            }
+        )
+    }
+    if ($listenPort -gt 0) { $wgEndpoint.listen_port = $listenPort }
+
+    $serverConfig = [ordered]@{
+        log = [ordered]@{ level = 'info'; timestamp = $true }
+        dns = [ordered]@{
+            servers = @([ordered]@{ type = 'local'; tag = 'local' })
+        }
+        inbounds = @(
+            [ordered]@{
+                type = 'socks'
+                tag = 'browser-socks'
+                listen = '127.0.0.1'
+                listen_port = [int]$cfg.RemoteSocksPort
+            },
+            $ssInbound
+        )
+        outbounds = @([ordered]@{ type = 'direct'; tag = 'direct' })
+        endpoints = @($wgEndpoint)
+        route = [ordered]@{
+            rules = @(
+                [ordered]@{
+                    inbound = @('browser-socks','sip-shadowsocks')
+                    action = 'route'
+                    outbound = 'simnet-wg'
+                }
+            )
+            final = 'direct'
+            default_domain_resolver = 'local'
+            auto_detect_interface = $true
+        }
+    }
+
+    $serverConfig | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 -Path $cfg.PrivateSingBoxServerConfig
+    Write-Host '  private HOME config: regenerated locally from WireGuard + Shadowsocks sources'
 }
 
 function Sync-PrivateHomeConfig {
@@ -115,21 +228,23 @@ function Sync-PrivateHomeConfig {
     $base += @('-P',[string]$cfg.VastSshPort)
     $remote = ('{0}@{1}:/workspace/sing-box-test/server-unified.json' -f $cfg.VastUser,$cfg.VastHost)
 
-    if (Test-Path $cfg.PrivateSingBoxServerConfig) {
-        & $scp @base $cfg.PrivateSingBoxServerConfig $remote
-        if ($LASTEXITCODE -ne 0) { throw 'Failed to upload private HOME sing-box config to Vast.' }
-        Write-Host '  private HOME config: restored from local backup'
-        return
+    if (-not (Test-Path $cfg.PrivateSingBoxServerConfig)) {
+        if ((Test-Path $cfg.PrivateWireGuardConfig) -and (Test-Path $cfg.SingBoxConfig)) {
+            Build-PrivateHomeConfig
+        } else {
+            & $scp @base $remote $cfg.PrivateSingBoxServerConfig
+            if ($LASTEXITCODE -eq 0 -and (Test-Path $cfg.PrivateSingBoxServerConfig)) {
+                Write-Host ('  private HOME config: backed up to {0}' -f $cfg.PrivateSingBoxServerConfig)
+            } else {
+                Remove-Item $cfg.PrivateSingBoxServerConfig -Force -ErrorAction SilentlyContinue
+                throw ('HOME private inputs missing. Need {0} and {1}' -f $cfg.PrivateWireGuardConfig,$cfg.SingBoxConfig)
+            }
+        }
     }
 
-    & $scp @base $remote $cfg.PrivateSingBoxServerConfig
-    if ($LASTEXITCODE -eq 0 -and (Test-Path $cfg.PrivateSingBoxServerConfig)) {
-        Write-Host ('  private HOME config: backed up to {0}' -f $cfg.PrivateSingBoxServerConfig)
-        return
-    }
-
-    Remove-Item $cfg.PrivateSingBoxServerConfig -Force -ErrorAction SilentlyContinue
-    throw ('Private HOME config is missing both locally and on Vast. Restore it once at: {0}' -f $cfg.PrivateSingBoxServerConfig)
+    & $scp @base $cfg.PrivateSingBoxServerConfig $remote
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to upload private HOME sing-box config to Vast.' }
+    Write-Host '  private HOME config: synced to Vast'
 }
 
 function Ensure-RemoteBase {
@@ -175,14 +290,22 @@ if [ ! -x /workspace/sing-box-test/sing-box ]; then
   install -m 0755 "$BIN" /workspace/sing-box-test/sing-box
 fi
 [ -f /workspace/sing-box-test/server-unified.json ] || { echo 'REMOTE_HOME_NOT_READY: server-unified.json missing' >&2; exit 44; }
+/workspace/sing-box-test/sing-box check -c /workspace/sing-box-test/server-unified.json || {
+  echo 'REMOTE_HOME_NOT_READY: generated sing-box config is invalid' >&2
+  exit 46
+}
 PIDS="$(pgrep -f '^/workspace/sing-box-test/sing-box run -c /workspace/sing-box-test/server-unified.json$' 2>/dev/null || true)"
-if [ -z "$PIDS" ]; then
-  nohup /workspace/sing-box-test/sing-box run -c /workspace/sing-box-test/server-unified.json >/workspace/sing-box-test/sing-box.log 2>&1 &
-  sleep 2
-fi
-ss -lntup | grep -E ':25344|:10200' >/dev/null || {
-  echo 'REMOTE_HOME_NOT_READY: sing-box ports 25344/10200 are not listening' >&2
-  tail -n 50 /workspace/sing-box-test/sing-box.log 2>/dev/null || true
+if [ -n "$PIDS" ]; then kill $PIDS 2>/dev/null || true; sleep 1; fi
+nohup /workspace/sing-box-test/sing-box run -c /workspace/sing-box-test/server-unified.json >/workspace/sing-box-test/sing-box.log 2>&1 &
+sleep 2
+ss -lntup | grep -q ':25344' || {
+  echo 'REMOTE_HOME_NOT_READY: SOCKS :25344 is not listening' >&2
+  tail -n 80 /workspace/sing-box-test/sing-box.log 2>/dev/null || true
+  exit 45
+}
+ss -lntup | grep -q ':10200' || {
+  echo 'REMOTE_HOME_NOT_READY: Shadowsocks :10200 is not listening' >&2
+  tail -n 80 /workspace/sing-box-test/sing-box.log 2>/dev/null || true
   exit 45
 }
 '@
@@ -247,7 +370,7 @@ try {
         Write-Host '[3/4] Local HOME transport'
         & (Join-Path $ScriptDir 'Start-WorkbenchHome.ps1')
         if ($LASTEXITCODE -ne 0) { throw 'HOME launcher failed.' }
-        $state = [ordered]@{ version=3; mode='HOME'; startedAt=(Get-Date).ToString('o'); ready=$true; sshPid=$null; remoteManaged=$true }
+        $state = [ordered]@{ version=4; mode='HOME'; startedAt=(Get-Date).ToString('o'); ready=$true; sshPid=$null; remoteManaged=$true }
     } else {
         Write-Host '[2/4] HOME transport'
         Write-Host '  not needed at WORK'
@@ -256,7 +379,7 @@ try {
         $script:health = $null
         Wait-Until { try { $script:health = Invoke-RestMethod -Uri $cfg.AsrHealthUrl -TimeoutSec 3; [bool]$script:health.ok } catch { $false } } $cfg.StartTimeoutSeconds 'Whisper health failed through localhost:8090.'
         Write-Host ("  ASR: OK {0} / {1}" -f $script:health.model,$script:health.gpu)
-        $state = [ordered]@{ version=3; mode='WORK'; startedAt=(Get-Date).ToString('o'); ready=$true; sshPid=$workSshPid; remoteManaged=$true }
+        $state = [ordered]@{ version=4; mode='WORK'; startedAt=(Get-Date).ToString('o'); ready=$true; sshPid=$workSshPid; remoteManaged=$true }
     }
 
     Write-Host '[4/4] Save state'
@@ -266,7 +389,7 @@ try {
     Write-Host ''
     Write-Host ("{0}_READY" -f $mode) -ForegroundColor Green
 } catch {
-    $failed = [ordered]@{ version=3; mode=$mode; startedAt=(Get-Date).ToString('o'); ready=$false; vastHost=$cfg.VastHost; vastSshPort=$cfg.VastSshPort; error=$_.Exception.Message }
+    $failed = [ordered]@{ version=4; mode=$mode; startedAt=(Get-Date).ToString('o'); ready=$false; vastHost=$cfg.VastHost; vastSshPort=$cfg.VastSshPort; error=$_.Exception.Message }
     $failed | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 -Path $cfg.UnifiedStateFile
     Write-Error $_
     exit 1
