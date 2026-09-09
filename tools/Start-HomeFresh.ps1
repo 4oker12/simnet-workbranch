@@ -145,7 +145,10 @@ function Repair-KnownLauncherBug {
 
     $text = [IO.File]::ReadAllText($LegacyLauncherPs1)
 
-    if ($text -match '(?im)^\s*\$pid\s*=') {
+    # PowerShell variable names are case-insensitive and $PID is a built-in
+    # read-only automatic variable. The legacy launcher used $Pid as function
+    # parameters in several helpers, so parameter binding itself could fail.
+    if ([regex]::IsMatch($text, '\$Pid\b', [Text.RegularExpressions.RegexOptions]::IgnoreCase)) {
         $backup = $LegacyLauncherPs1 + '.pre-home-fix.bak'
         if (-not (Test-Path $backup)) {
             Copy-Item $LegacyLauncherPs1 $backup -Force
@@ -154,7 +157,7 @@ function Repair-KnownLauncherBug {
         $fixed = [regex]::Replace(
             $text,
             '\$Pid\b',
-            '$PacServerPid',
+            '$ProcessId',
             [Text.RegularExpressions.RegexOptions]::IgnoreCase
         )
 
@@ -164,9 +167,29 @@ function Repair-KnownLauncherBug {
             (New-Object Text.UTF8Encoding($false))
         )
 
-        Write-Host 'REPAIR: launcher $Pid collision fixed'
+        Write-Host 'REPAIR: all launcher $Pid collisions -> $ProcessId'
     } else {
         Write-Host 'REPAIR: launcher PID collision not present'
+    }
+}
+
+function Show-RuntimeDiagnostics {
+    $runtime = Join-Path $env:LOCALAPPDATA 'SIMNET-Workbench\runtime'
+    Write-Step 'RUNTIME DIAGNOSTICS'
+
+    foreach ($name in @('sing-box.err.log','sing-box.out.log','ssh.err.log','pac.err.log')) {
+        $path = Join-Path $runtime $name
+        if (Test-Path $path) {
+            Write-Host ("--- {0} ---" -f $name)
+            Get-Content -Path $path -Tail 40 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
+        }
+    }
+
+    $adapter = Get-NetAdapter -Name 'simnet-uot' -ErrorAction SilentlyContinue
+    if ($adapter) {
+        Write-Host ("TUN simnet-uot: Status={0} InterfaceDescription={1}" -f $adapter.Status, $adapter.InterfaceDescription)
+    } else {
+        Write-Host 'TUN simnet-uot: NOT PRESENT'
     }
 }
 
@@ -230,11 +253,13 @@ try {
     if (Test-Path $LegacyLauncherCmd) {
         & $LegacyLauncherCmd
         if ($LASTEXITCODE -ne 0) {
+            Show-RuntimeDiagnostics
             throw "START-WORKBENCH-HOME.cmd failed with exit code $LASTEXITCODE"
         }
     } else {
         & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $LegacyLauncherPs1
         if ($LASTEXITCODE -ne 0) {
+            Show-RuntimeDiagnostics
             throw "Start-WorkbenchHome.ps1 failed with exit code $LASTEXITCODE"
         }
     }
