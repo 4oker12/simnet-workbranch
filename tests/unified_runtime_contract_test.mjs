@@ -31,6 +31,7 @@ test('START automatically selects WORK or HOME without proxy false positives', (
   assert.match(start, /function Test-DirectSimnet/);
   assert.match(start, /--noproxy '\*'/);
   assert.match(start, /function Test-HomeTransportActive/);
+  assert.match(start, /WireGuardTunnel\$\*/);
   assert.match(start, /function Resolve-Mode/);
   assert.match(start, /\$mode\s*=\s*Resolve-Mode/);
 });
@@ -45,8 +46,10 @@ test('new standard laptop SSH key is preferred while legacy key remains a fallba
   assert.match(start, /IdentitiesOnly=yes/);
 });
 
-test('fresh Vast transcriber is restored from its repository by universal START', () => {
+test('fresh Vast transcriber is restored and dirty managed checkouts self-heal', () => {
   assert.match(start, /git clone https:\/\/github\.com\/4oker12\/simnet-transcripter\.git \/workspace\/simnet-transcriber/);
+  assert.match(start, /git -C \/workspace\/simnet-transcriber checkout -f main/);
+  assert.match(start, /git -C \/workspace\/simnet-transcriber reset --hard origin\/main/);
   assert.match(start, /git -C \/workspace\/simnet-transcriber pull --ff-only origin main/);
   assert.match(start, /\.\/bootstrap-vast\.sh/);
 });
