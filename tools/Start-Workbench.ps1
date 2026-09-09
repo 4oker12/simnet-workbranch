@@ -33,6 +33,12 @@ function Test-HomeTransportActive {
         if ($wg -and $wg.Status -eq 'Running') { return $true }
     } catch {}
     try {
+        $wgAny = Get-Service -Name 'WireGuardTunnel$*' -ErrorAction SilentlyContinue |
+            Where-Object { $_.Status -eq 'Running' } |
+            Select-Object -First 1
+        if ($wgAny) { return $true }
+    } catch {}
+    try {
         $tun = Get-NetAdapter -Name $cfg.SingBoxTunName -ErrorAction SilentlyContinue
         if ($tun -and $tun.Status -eq 'Up') { return $true }
     } catch {}
@@ -132,7 +138,8 @@ if [ ! -d /workspace/simnet-transcriber/.git ]; then
   git clone https://github.com/4oker12/simnet-transcripter.git /workspace/simnet-transcriber
 else
   git -C /workspace/simnet-transcriber fetch origin main
-  git -C /workspace/simnet-transcriber checkout main
+  git -C /workspace/simnet-transcriber checkout -f main
+  git -C /workspace/simnet-transcriber reset --hard origin/main
   git -C /workspace/simnet-transcriber pull --ff-only origin main
 fi
 cd /workspace/simnet-transcriber
