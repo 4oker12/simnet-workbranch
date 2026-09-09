@@ -79,7 +79,6 @@
       ],
       "js": [
         "src/pbx/pbx-manual-analysis-ui.js",
-        "src/pbx/pbx-manual-analysis-polish.js",
         "src/pbx/pbx-workbench-shell.js",
         "src/pbx/pbx-error-diagnostics.js"
       ],
