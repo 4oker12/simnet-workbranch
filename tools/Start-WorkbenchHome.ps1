@@ -124,8 +124,9 @@ function Find-MatchingProcess([string]$Name, [string[]]$Needles) {
 function Test-PacServer([string]$Url) {
     try {
         $r = Invoke-WebRequest -UseBasicParsing -Uri $Url -TimeoutSec 2
-        $needle = 'SOCKS5 127.0.0.1:{0}' -f $cfg.LocalSocksPort
-        return ($r.StatusCode -eq 200 -and $r.Content.Contains($needle))
+        $proxyNeedle = 'SOCKS5 127.0.0.1:{0}' -f $cfg.LocalSocksPort
+        $directNeedle = 'return "DIRECT";'
+        return ($r.StatusCode -eq 200 -and $r.Content.Contains($proxyNeedle) -and $r.Content.Contains($directNeedle))
     } catch { return $false }
 }
 
@@ -241,19 +242,36 @@ try {
     Wait-Until { try { $script:asrHealth = Invoke-RestMethod -Uri $cfg.AsrHealthUrl -TimeoutSec 3; [bool]$script:asrHealth.ok } catch { $false } } $cfg.StartTimeoutSeconds 'Whisper /health failed through localhost:8090.'
     Write-Host ('  ASR: OK {0} / {1}' -f $script:asrHealth.model, $script:asrHealth.gpu)
 
-    Write-Host '[6/7] SIMNET/PBX probe'
+    Write-Host '[6/7] Route probes'
     $curl = Get-Command 'curl.exe' -ErrorAction SilentlyContinue
     if (-not $curl) { throw 'curl.exe not found.' }
     & $curl.Source --socks5-hostname ('127.0.0.1:{0}' -f $cfg.LocalSocksPort) -k -fsS --max-time 10 -o NUL $cfg.SimnetProbeUrl
     if ($LASTEXITCODE -ne 0) { throw 'SIMNET probe failed through Vast SOCKS.' }
     & $curl.Source --socks5-hostname ('127.0.0.1:{0}' -f $cfg.LocalSocksPort) -k -fsSI --max-time 10 -o NUL $cfg.PbxProbeUrl
     if ($LASTEXITCODE -ne 0) { throw 'PBX probe failed through Vast SOCKS.' }
-    Write-Host '  SIMNET: OK'
-    Write-Host '  PBX: OK'
+    $groqStatus = (& $curl.Source --noproxy '*' -sS --max-time 10 -o NUL -w '%{http_code}' $cfg.GroqProbeUrl 2>$null | Select-Object -Last 1)
+    $groqExit = $LASTEXITCODE
+    $groqStatus = [string]$groqStatus
+    if ($groqExit -ne 0 -or $groqStatus -notmatch '^[234]\d\d$') { throw ('Groq DIRECT probe failed (HTTP {0}).' -f $groqStatus) }
+    Write-Host '  SIMNET: OK via Vast SOCKS'
+    Write-Host '  PBX: OK via Vast SOCKS'
+    Write-Host ('  Groq: DIRECT reachable (HTTP {0})' -f $groqStatus)
 
     Write-Host '[7/7] Workbench Chrome'
     $chromeNeedles = @('--user-data-dir', $cfg.ChromeUserDataDir)
     $existingChrome = Find-MatchingProcess 'chrome.exe' $chromeNeedles
+    if ($existingChrome) {
+        $chromeLine = [string]$existingChrome.CommandLine
+        $usesExpectedPac = ($chromeLine.IndexOf('--proxy-pac-url', [StringComparison]::OrdinalIgnoreCase) -ge 0 -and $chromeLine.IndexOf($pacUrl, [StringComparison]::OrdinalIgnoreCase) -ge 0)
+        $usesGlobalProxy = $chromeLine.IndexOf('--proxy-server', [StringComparison]::OrdinalIgnoreCase) -ge 0
+        if (-not $usesExpectedPac -or $usesGlobalProxy) {
+            Write-Host '  Chrome: wrong proxy mode for Workbench profile; restarting with PAC split route'
+            $profileProcesses = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($cfg.ChromeUserDataDir, [StringComparison]::OrdinalIgnoreCase) -ge 0 }
+            foreach ($item in $profileProcesses) { Stop-Process -Id ([int]$item.ProcessId) -Force -ErrorAction SilentlyContinue }
+            Wait-Until { $null -eq (Find-MatchingProcess 'chrome.exe' $chromeNeedles) } 8 'Workbench Chrome profile did not stop for route correction.'
+            $existingChrome = $null
+        }
+    }
     if ($existingChrome) {
         $state.chromePid = [int]$existingChrome.ProcessId
         $state.chromeOwned = Test-PreviouslyOwned 'chrome' $state.chromePid
@@ -277,6 +295,7 @@ try {
     Write-Host ('SOCKS   : 127.0.0.1:{0}' -f $cfg.LocalSocksPort)
     Write-Host ('ASR     : 127.0.0.1:{0}' -f $cfg.LocalAsrPort)
     Write-Host ('PAC     : {0}' -f $pacUrl)
+    Write-Host 'External: DIRECT'
     Write-Host 'Vast    : untouched'
     exit 0
 }
