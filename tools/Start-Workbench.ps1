@@ -22,9 +22,27 @@ function Test-DirectSimnet {
     $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
     if (-not $curl) { return $false }
     try {
-        $code = & $curl.Source -k -sS --connect-timeout 3 --max-time 5 -o NUL -w '%{http_code}' $cfg.SimnetProbeUrl
+        $code = & $curl.Source --noproxy '*' -k -sS --connect-timeout 3 --max-time 5 -o NUL -w '%{http_code}' $cfg.SimnetProbeUrl
         return ($LASTEXITCODE -eq 0 -and [int]$code -ge 200 -and [int]$code -lt 400)
     } catch { return $false }
+}
+
+function Test-HomeTransportActive {
+    try {
+        $wg = Get-Service -Name $cfg.WireGuardService -ErrorAction SilentlyContinue
+        if ($wg -and $wg.Status -eq 'Running') { return $true }
+    } catch {}
+    try {
+        $tun = Get-NetAdapter -Name $cfg.SingBoxTunName -ErrorAction SilentlyContinue
+        if ($tun -and $tun.Status -eq 'Up') { return $true }
+    } catch {}
+    return $false
+}
+
+function Resolve-Mode {
+    if (Test-HomeTransportActive) { return 'HOME' }
+    if (Test-DirectSimnet) { return 'WORK' }
+    return 'HOME'
 }
 
 function Get-ListeningPid([int]$Port) {
@@ -49,8 +67,10 @@ function Wait-Until([scriptblock]$Condition, [int]$Seconds, [string]$FailureMess
 }
 
 function Resolve-SshIdentityArgs {
-    $candidate = Join-Path $HOME '.ssh\id_ed25519_simnet_autostart'
-    if (Test-Path $candidate) { return @('-i', $candidate) }
+    $standard = Join-Path $HOME '.ssh\id_ed25519'
+    if (Test-Path $standard) { return @('-i', $standard, '-o', 'IdentitiesOnly=yes') }
+    $legacy = Join-Path $HOME '.ssh\id_ed25519_simnet_autostart'
+    if (Test-Path $legacy) { return @('-i', $legacy, '-o', 'IdentitiesOnly=yes') }
     return @()
 }
 
@@ -63,6 +83,9 @@ function Get-SshBaseArgs {
 function Invoke-Vast([string]$RemoteCommand) {
     $ssh = Join-Path $env:WINDIR 'System32\OpenSSH\ssh.exe'
     if (-not (Test-Path $ssh)) { throw "ssh.exe not found: $ssh" }
+    # PowerShell here-strings on Windows can carry CRLF. bash interprets the CR in
+    # `set -euo pipefail` as part of the option name, so always send LF-only text.
+    $RemoteCommand = $RemoteCommand.Replace("`r`n", "`n").Replace("`r", '')
     $args = Get-SshBaseArgs
     $args += @('-p', [string]$cfg.VastSshPort, ('{0}@{1}' -f $cfg.VastUser,$cfg.VastHost), $RemoteCommand)
     & $ssh @args
@@ -177,7 +200,7 @@ function Start-WorkTunnel {
     return [int]$p.Id
 }
 
-$mode = if (Test-DirectSimnet) { 'WORK' } else { 'HOME' }
+$mode = Resolve-Mode
 Write-Host '=== SIMNET WORKBENCH START ==='
 Write-Host ("MODE       {0}" -f $mode)
 Write-Host ("VAST       {0}:{1}" -f $cfg.VastHost,$cfg.VastSshPort)
