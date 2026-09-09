@@ -39,6 +39,13 @@ function Test-HomeTransportActive {
         if ($wgAny) { return $true }
     } catch {}
     try {
+        $legacyTunnelName = ([string]$cfg.WireGuardService) -replace '^WireGuardTunnel\$', ''
+        if ($legacyTunnelName) {
+            $wgAdapter = Get-NetAdapter -Name $legacyTunnelName -ErrorAction SilentlyContinue
+            if ($wgAdapter -and $wgAdapter.Status -eq 'Up') { return $true }
+        }
+    } catch {}
+    try {
         $tun = Get-NetAdapter -Name $cfg.SingBoxTunName -ErrorAction SilentlyContinue
         if ($tun -and $tun.Status -eq 'Up') { return $true }
     } catch {}
@@ -57,8 +64,8 @@ function Get-ListeningPid([int]$Port) {
     return [int]$conn.OwningProcess
 }
 
-function Get-ProcessCommandLine([int]$Pid) {
-    $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$Pid" -ErrorAction SilentlyContinue
+function Get-ProcessCommandLine([int]$ProcessId) {
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction SilentlyContinue
     if ($null -eq $proc) { return '' }
     return [string]$proc.CommandLine
 }
@@ -245,11 +252,11 @@ try {
         Write-Host '[2/4] HOME transport'
         Write-Host '  not needed at WORK'
         Write-Host '[3/4] WORK ASR tunnel'
-        $pid = Start-WorkTunnel
+        $workSshPid = Start-WorkTunnel
         $script:health = $null
         Wait-Until { try { $script:health = Invoke-RestMethod -Uri $cfg.AsrHealthUrl -TimeoutSec 3; [bool]$script:health.ok } catch { $false } } $cfg.StartTimeoutSeconds 'Whisper health failed through localhost:8090.'
         Write-Host ("  ASR: OK {0} / {1}" -f $script:health.model,$script:health.gpu)
-        $state = [ordered]@{ version=3; mode='WORK'; startedAt=(Get-Date).ToString('o'); ready=$true; sshPid=$pid; remoteManaged=$true }
+        $state = [ordered]@{ version=3; mode='WORK'; startedAt=(Get-Date).ToString('o'); ready=$true; sshPid=$workSshPid; remoteManaged=$true }
     }
 
     Write-Host '[4/4] Save state'
