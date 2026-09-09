@@ -19,7 +19,9 @@ $WorkbenchHomeConfig = [ordered]@{
     PacDirectory = $env:USERPROFILE
 
     AsrHealthUrl = 'http://127.0.0.1:8090/health'
-    SimnetProbeUrl = 'https://admin.simnet.kiev.ua/js/jquery.min.js'
+    # PBX is the decisive HOME/WORK probe: at HOME Billing/UserSide may still be
+    # reachable directly, while PBX requires the Vast/SOCKS route.
+    SimnetProbeUrl = 'https://pbx.simnet.kiev.ua/'
     PbxProbeUrl = 'https://pbx.simnet.kiev.ua/'
     GroqProbeUrl = 'https://api.groq.com/openai/v1/models'
 
