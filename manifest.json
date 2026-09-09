@@ -31,7 +31,6 @@
       ],
       "js": [
         "src/content/namespace.js",
-        "src/ui/debug-log.js",
         "src/core/event-bus.js",
         "src/core/click-debug.js",
         "src/core/junction-debug.js",
@@ -70,6 +69,7 @@
         "src/ui/call-error-context-ui.js",
         "src/ui/settings-enhancer.js",
         "src/ui/responsive-layout.js",
+        "src/ui/journal-unified.js",
         "src/content/bootstrap.js"
       ],
       "run_at": "document_idle"
