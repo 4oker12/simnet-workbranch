@@ -44,6 +44,19 @@ test('WB contract column exposes native, inferred, confirmed and conflict states
   assert.match(source, /Workbench ещё не связал этот PBX-звонок с Call/);
 });
 
+test('PBX provider namespace prov=1 is not treated as a conflicting SIMNET contract', () => {
+  assert.match(source, /const providerCode = compact\(nativeProvider, 12\)/);
+  assert.match(source, /const nativeComparable = providerCode !== '1'/);
+  assert.match(source, /nativeValue && nativeComparable && nativeValue !== wbContract/);
+});
+
+test('row source indexes stay aligned before and after the injected WB column', () => {
+  assert.match(source, /function sourceIndex\(headerIndex, wbIndex, rowHasWbCell\)/);
+  assert.match(source, /return headerIndex - 1/);
+  assert.match(source, /const callSourceIndex = sourceIndex\(callIndex, wbIndex, rowHasWbCell\)/);
+  assert.match(source, /const contractSourceIndex = sourceIndex\(nativeIndex, wbIndex, rowHasWbCell\)/);
+});
+
 test('binding display follows live state changes without polling timers', () => {
   assert.match(source, /chrome\.storage\.onChanged\.addListener/);
   assert.match(source, /MutationObserver/);
