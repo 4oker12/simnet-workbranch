@@ -32,6 +32,7 @@ test('START automatically selects WORK or HOME without proxy false positives', (
   assert.match(start, /--noproxy '\*'/);
   assert.match(start, /function Test-HomeTransportActive/);
   assert.match(start, /WireGuardTunnel\$\*/);
+  assert.match(start, /legacyTunnelName/);
   assert.match(start, /function Resolve-Mode/);
   assert.match(start, /\$mode\s*=\s*Resolve-Mode/);
 });
@@ -59,6 +60,12 @@ test('WORK uses only the ASR forward while HOME delegates to the full HOME trans
   assert.match(start, /LocalAsrPort/);
   assert.match(start, /Start-WorkbenchHome\.ps1/);
   assert.match(status, /SOCKS\s+NOT NEEDED/);
+});
+
+test('START never writes to the read-only PowerShell PID automatic variable', () => {
+  assert.doesNotMatch(start, /(?im)^\s*\$pid\s*=/);
+  assert.doesNotMatch(start, /function\s+\w+\([^)]*\$pid\b/i);
+  assert.match(start, /\$workSshPid\s*=\s*Start-WorkTunnel/);
 });
 
 test('HOME elevation returns the elevated process exit code to the command wrapper', () => {
