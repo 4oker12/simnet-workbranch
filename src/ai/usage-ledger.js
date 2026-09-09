@@ -1,7 +1,7 @@
 const LEDGER_KEY = 'simnet_workbench_ai_usage_ledger_v1';
 const SESSION_KEY = 'simnet_workbench_ai_sessions_v1';
 const ANALYSIS_KEY = 'simnet_workbench_call_ai_analysis_v1';
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 let writeQueue = Promise.resolve();
 
@@ -52,31 +52,32 @@ function sumSessionUsage(store = {}) {
   return { total, bySession };
 }
 
-function sumAnalysisUsage(store = {}) {
+function analysisSnapshot(store = {}) {
   const entries = store?.entries && typeof store.entries === 'object' ? store.entries : {};
+  const seen = {};
   let total = normalizeUsage();
-  const seen = new Set();
   for (const [key, entry] of Object.entries(entries)) {
     const analysis = entry?.analysis || {};
     const usage = normalizeUsage(analysis?.usage || entry?.usage || {});
     if (!hasUsage(usage)) continue;
+    const requestUsage = { ...usage, requests: usage.requests || 1 };
     const fingerprint = [
-      entry?.cacheKey || key,
       entry?.createdAt || analysis?.processedAt || '',
-      usage.promptTokens,
-      usage.completionTokens,
-      usage.totalTokens
+      entry?.model || analysis?.model || '',
+      requestUsage.promptTokens,
+      requestUsage.completionTokens,
+      requestUsage.totalTokens
     ].join('|');
-    if (seen.has(fingerprint)) continue;
-    seen.add(fingerprint);
-    total = plus(total, { ...usage, requests: usage.requests || 1 });
+    seen[key] = { fingerprint, usage: requestUsage };
+    total = plus(total, requestUsage);
   }
-  return total;
+  return { total, seen };
 }
 
 function normalizeLedger(raw = {}) {
   const bySource = raw?.bySource && typeof raw.bySource === 'object' ? raw.bySource : {};
   const companionSeen = raw?.companionSeen && typeof raw.companionSeen === 'object' ? raw.companionSeen : {};
+  const analysisSeen = raw?.analysisSeen && typeof raw.analysisSeen === 'object' ? raw.analysisSeen : {};
   return {
     schemaVersion: SCHEMA_VERSION,
     total: normalizeUsage(raw?.total || {}),
@@ -86,6 +87,7 @@ function normalizeLedger(raw = {}) {
       transcriptQa: normalizeUsage(bySource.transcriptQa || {})
     },
     companionSeen,
+    analysisSeen,
     initializedAt: String(raw?.initializedAt || ''),
     updatedAt: String(raw?.updatedAt || '')
   };
@@ -97,16 +99,17 @@ async function initialLedger() {
   if (existing && typeof existing === 'object') return normalizeLedger(existing);
 
   const companion = sumSessionUsage(row?.[SESSION_KEY] || {});
-  const callAnalysis = sumAnalysisUsage(row?.[ANALYSIS_KEY] || {});
+  const analyses = analysisSnapshot(row?.[ANALYSIS_KEY] || {});
   const now = new Date().toISOString();
   const ledger = normalizeLedger({
-    total: plus(companion.total, callAnalysis),
+    total: plus(companion.total, analyses.total),
     bySource: {
       companion: companion.total,
-      callAnalysis,
+      callAnalysis: analyses.total,
       transcriptQa: normalizeUsage()
     },
     companionSeen: companion.bySession,
+    analysisSeen: analyses.seen,
     initializedAt: now,
     updatedAt: now
   });
@@ -120,27 +123,52 @@ function serial(task) {
   return run;
 }
 
-async function syncCompanionUnlocked() {
-  const ledger = await initialLedger();
+async function syncCompanionUnlocked(ledger = null) {
+  const nextLedger = ledger || await initialLedger();
   const row = await chrome.storage.local.get(SESSION_KEY);
   const current = sumSessionUsage(row?.[SESSION_KEY] || {});
   let delta = normalizeUsage();
 
   for (const [key, usage] of Object.entries(current.bySession)) {
-    delta = plus(delta, positiveDelta(usage, ledger.companionSeen[key] || {}));
+    delta = plus(delta, positiveDelta(usage, nextLedger.companionSeen[key] || {}));
   }
 
-  ledger.companionSeen = current.bySession;
+  nextLedger.companionSeen = current.bySession;
   if (hasUsage(delta)) {
-    ledger.bySource.companion = plus(ledger.bySource.companion, delta);
-    ledger.total = plus(ledger.total, delta);
-    ledger.updatedAt = new Date().toISOString();
-    await chrome.storage.local.set({ [LEDGER_KEY]: ledger });
-  } else {
-    // Keep the per-session baseline current after resets/removals without
-    // subtracting already consumed tokens from the cumulative ledger.
-    await chrome.storage.local.set({ [LEDGER_KEY]: ledger });
+    nextLedger.bySource.companion = plus(nextLedger.bySource.companion, delta);
+    nextLedger.total = plus(nextLedger.total, delta);
+    nextLedger.updatedAt = new Date().toISOString();
   }
+  return nextLedger;
+}
+
+async function syncAnalysisUnlocked(ledger = null) {
+  const nextLedger = ledger || await initialLedger();
+  const row = await chrome.storage.local.get(ANALYSIS_KEY);
+  const current = analysisSnapshot(row?.[ANALYSIS_KEY] || {});
+  let delta = normalizeUsage();
+
+  for (const [key, item] of Object.entries(current.seen)) {
+    const previous = nextLedger.analysisSeen[key];
+    if (!previous || previous.fingerprint !== item.fingerprint) {
+      delta = plus(delta, item.usage);
+    }
+  }
+
+  nextLedger.analysisSeen = current.seen;
+  if (hasUsage(delta)) {
+    nextLedger.bySource.callAnalysis = plus(nextLedger.bySource.callAnalysis, delta);
+    nextLedger.total = plus(nextLedger.total, delta);
+    nextLedger.updatedAt = new Date().toISOString();
+  }
+  return nextLedger;
+}
+
+async function syncTrackedStoresUnlocked() {
+  let ledger = await initialLedger();
+  ledger = await syncCompanionUnlocked(ledger);
+  ledger = await syncAnalysisUnlocked(ledger);
+  await chrome.storage.local.set({ [LEDGER_KEY]: ledger });
   return ledger;
 }
 
@@ -150,7 +178,7 @@ export async function recordAiUsage(source, rawUsage = {}) {
   if (!usage.requests) usage.requests = 1;
 
   return serial(async () => {
-    const ledger = await initialLedger();
+    const ledger = await syncTrackedStoresUnlocked();
     const key = source === 'transcript-qa' ? 'transcriptQa' : source === 'call-analysis' ? 'callAnalysis' : 'companion';
     ledger.bySource[key] = plus(ledger.bySource[key], usage);
     ledger.total = plus(ledger.total, usage);
@@ -162,7 +190,7 @@ export async function recordAiUsage(source, rawUsage = {}) {
 
 export async function readAiUsageTotals() {
   return serial(async () => {
-    const ledger = await syncCompanionUnlocked();
+    const ledger = await syncTrackedStoresUnlocked();
     return {
       ...normalizeUsage(ledger.total),
       bySource: {
@@ -177,8 +205,8 @@ export async function readAiUsageTotals() {
 }
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== 'local' || !changes?.[SESSION_KEY]) return;
-  void serial(syncCompanionUnlocked).catch(() => {});
+  if (areaName !== 'local' || (!changes?.[SESSION_KEY] && !changes?.[ANALYSIS_KEY])) return;
+  void serial(syncTrackedStoresUnlocked).catch(() => {});
 });
 
 export const AI_USAGE_LEDGER_KEY = LEDGER_KEY;
