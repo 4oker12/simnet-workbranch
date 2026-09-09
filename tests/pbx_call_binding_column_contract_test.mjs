@@ -49,3 +49,9 @@ test('binding display follows live state changes without polling timers', () => 
   assert.match(source, /MutationObserver/);
   assert.doesNotMatch(source, /setInterval/);
 });
+
+test('binding cell rendering is idempotent so the MutationObserver settles', () => {
+  assert.match(source, /const renderKey =/);
+  assert.match(source, /dataset\.wbRenderKey === renderKey/);
+  assert.match(source, /dataset\.wbRenderKey = renderKey/);
+});
