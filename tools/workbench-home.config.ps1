@@ -26,6 +26,11 @@ $WorkbenchHomeConfig = [ordered]@{
     SingBoxConfig = Join-Path $env:LOCALAPPDATA 'sing-box-simnet\client.json'
     SingBoxTunName = 'simnet-uot'
 
+    # Private HOME transport state is intentionally stored outside the Git repo.
+    # It can be copied to a fresh Vast instance without ever committing secrets.
+    PrivateDir = Join-Path $env:LOCALAPPDATA 'SIMNET-Workbench\private'
+    PrivateSingBoxServerConfig = Join-Path $env:LOCALAPPDATA 'SIMNET-Workbench\private\server-unified.json'
+
     # HOME/Vast invariant: this legacy local WireGuard service must stay OFF.
     # START only stops this exact service; STOP never turns it back on.
     WireGuardService = 'WireGuardTunnel$Zyatyev_Andriy-HOME'
