@@ -30,6 +30,15 @@
       .shell.compact .panel{
         width:100%
       }
+      .full-nav{
+        grid-template-columns:repeat(3,minmax(0,1fr));
+        gap:8px;
+        margin-bottom:10px
+      }
+      .full-nav button{
+        width:100%;
+        height:54px
+      }
 
       #wb-human-settings,
       #wb-human-settings *{
