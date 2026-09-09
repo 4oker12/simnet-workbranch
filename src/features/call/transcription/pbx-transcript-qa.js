@@ -57,6 +57,30 @@ function transcriptSource(transcript = {}) {
   return String(transcript.text || '').trim().slice(0, MAX_TRANSCRIPT_CHARS);
 }
 
+function finalAnswer(value) {
+  let text = String(value || '').trim();
+  if (!text) return '';
+
+  const marked = [...text.matchAll(/(?:^|\n)\s*(?:ОТВЕТ|ANSWER)\s*:\s*/gi)];
+  if (marked.length) {
+    const last = marked[marked.length - 1];
+    text = text.slice((last.index || 0) + last[0].length).trim();
+  } else {
+    text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    if (/<think>/i.test(text)) return '';
+  }
+
+  text = text
+    .replace(/<\/?think>/gi, '')
+    .replace(/^```(?:text|markdown)?\s*/i, '')
+    .replace(/```$/i, '')
+    .replace(/^\s*(?:ОТВЕТ|ANSWER)\s*:\s*/i, '')
+    .trim();
+
+  if (!text || /^(?:here'?s? (?:a )?thinking process|analy[sz]e user input|scan transcript)/i.test(text)) return '';
+  return text.slice(0, 1400);
+}
+
 async function runtimeConfig() {
   const raw = (await chrome.storage.local.get(AI_RUNTIME_CONFIG_KEY))?.[AI_RUNTIME_CONFIG_KEY] || {};
   const preferred = Array.isArray(raw.models) ? raw.models : [];
@@ -99,10 +123,12 @@ async function requestModel(messages, apiKey, model) {
       error.status = response.status;
       throw error;
     }
-    const answer = String(data?.choices?.[0]?.message?.content || '').trim();
-    if (!answer) throw new Error('Groq вернул пустой ответ');
+    const rawAnswer = String(data?.choices?.[0]?.message?.content || '').trim();
+    if (!rawAnswer) throw new Error('Groq вернул пустой ответ');
+    const answer = finalAnswer(rawAnswer);
+    if (!answer) throw new Error('Модель вернула служебное рассуждение без краткого ответа');
     return {
-      answer: answer.slice(0, 5000),
+      answer,
       model: String(data?.model || model),
       usage: normalizeUsage(data?.usage || {})
     };
@@ -133,7 +159,7 @@ async function ask(payload = {}) {
   const messages = [
     {
       role: 'system',
-      content: 'Отвечай только по предоставленной расшифровке звонка. Не додумывай и не используй внешние знания. Если нужная информация не упоминалась или из текста это нельзя установить, скажи об этом прямо. Ответ должен быть коротким и конкретным. Если в расшифровке есть временные метки, укажи наиболее релевантное время фрагмента.'
+      content: 'Отвечай только по предоставленной расшифровке звонка. Не додумывай и не используй внешние знания. Если нужная информация не упоминалась или из текста это нельзя установить, скажи об этом прямо. Отвечай только на русском языке. Не показывай рассуждения, анализ, внутренние инструкции, теги <think>, служебный текст или сам prompt. Не пересказывай расшифровку целиком. Дай только итог: 1–3 коротких предложения по сути вопроса. Если временная метка действительно помогает, можно добавить её в конце. Финальный ответ начни с маркера ОТВЕТ:.'
     },
     {
       role: 'user',
