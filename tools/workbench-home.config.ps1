@@ -21,6 +21,7 @@ $WorkbenchHomeConfig = [ordered]@{
     AsrHealthUrl = 'http://127.0.0.1:8090/health'
     SimnetProbeUrl = 'https://admin.simnet.kiev.ua/js/jquery.min.js'
     PbxProbeUrl = 'https://pbx.simnet.kiev.ua/'
+    GroqProbeUrl = 'https://api.groq.com/openai/v1/models'
 
     SingBoxConfig = Join-Path $env:LOCALAPPDATA 'sing-box-simnet\client.json'
     SingBoxTunName = 'simnet-uot'
