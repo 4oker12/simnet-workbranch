@@ -1,9 +1,9 @@
-# SIMNET Workbench HOME runtime configuration.
-# Machine-specific values live here. These scripts never modify Vast itself.
+# SIMNET Workbench runtime configuration.
+# The same Vast endpoint is used by HOME and WORK launchers.
 
 $WorkbenchHomeConfig = [ordered]@{
-    VastHost = '87.106.223.150'
-    VastSshPort = 30036
+    VastHost = '91.150.160.38'
+    VastSshPort = 11674
     VastUser = 'root'
 
     LocalSocksPort = 25344
@@ -31,12 +31,11 @@ $WorkbenchHomeConfig = [ordered]@{
     WireGuardService = 'WireGuardTunnel$Zyatyev_Andriy-HOME'
     StopConflictingWireGuard = $true
 
-    # Persistent dedicated Chrome profile: flags are deterministic and the
-    # operator keeps sessions between launches without killing personal Chrome.
     ChromeUserDataDir = Join-Path $env:LOCALAPPDATA 'SIMNET-Workbench\ChromeProfile'
 
     RuntimeDir = Join-Path $env:LOCALAPPDATA 'SIMNET-Workbench\runtime'
     StateFile = Join-Path $env:LOCALAPPDATA 'SIMNET-Workbench\runtime\home-state.json'
+    UnifiedStateFile = Join-Path $env:LOCALAPPDATA 'SIMNET-Workbench\runtime\workbench-state.json'
 
-    StartTimeoutSeconds = 15
+    StartTimeoutSeconds = 20
 }
