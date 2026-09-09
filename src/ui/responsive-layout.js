@@ -18,14 +18,14 @@
         max-width:calc(100vw - 66px)
       }
       .shell.open .drawer{
-        width:min(352px,calc(100vw - 66px))
+        width:min(380px,calc(100vw - 66px))
       }
       .panel{
         width:100%;
         min-width:0
       }
       .shell.compact.open .drawer{
-        width:min(300px,calc(100vw - 66px))
+        width:min(330px,calc(100vw - 66px))
       }
       .shell.compact .panel{
         width:100%
@@ -38,15 +38,45 @@
       #wb-human-settings .wb-set-card{
         overflow:hidden
       }
-      #wb-human-settings .wb-set-head,
-      #wb-human-settings .wb-set-row{
+      #wb-human-settings .wb-set-head{
         flex-wrap:wrap;
         align-items:flex-start
+      }
+      #wb-human-settings .wb-set-row{
+        flex-wrap:nowrap;
+        align-items:center
       }
       #wb-human-settings .wb-set-head>div,
       #wb-human-settings .wb-set-row>div{
         flex:1 1 150px;
         min-width:0
+      }
+      #wb-human-settings .switch{
+        width:42px;
+        height:24px;
+        flex:0 0 42px;
+        padding:2px;
+        border:1px solid #cbd5e1;
+        border-radius:999px;
+        background:#e2e8f0;
+        box-shadow:inset 0 1px 2px rgba(15,23,42,.08);
+        cursor:pointer
+      }
+      #wb-human-settings .switch span{
+        display:block;
+        width:18px;
+        height:18px;
+        border-radius:50%;
+        background:#fff;
+        box-shadow:0 1px 3px rgba(15,23,42,.28);
+        transition:transform .16s ease
+      }
+      #wb-human-settings .switch.on{
+        border-color:#a50046;
+        background:#a50046
+      }
+      #wb-human-settings .switch.on span{
+        transform:translateX(18px)
       }
       #wb-human-settings .wb-set-title,
       #wb-human-settings .wb-set-sub,
@@ -87,10 +117,10 @@
 
       @media (max-width: 520px){
         .shell.open .drawer{
-          width:min(340px,calc(100vw - 62px))
+          width:min(356px,calc(100vw - 62px))
         }
         .shell.compact.open .drawer{
-          width:min(288px,calc(100vw - 62px))
+          width:min(310px,calc(100vw - 62px))
         }
         .body{
           padding:10px
