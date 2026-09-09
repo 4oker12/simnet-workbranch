@@ -7,6 +7,9 @@ const startCmd = read('START-WORKBENCH.cmd');
 const statusCmd = read('STATUS-WORKBENCH.cmd');
 const stopCmd = read('STOP-WORKBENCH.cmd');
 const start = read('tools/Start-Workbench.ps1');
+const home = read('tools/Start-WorkbenchHome.ps1');
+const homeStatus = read('tools/Status-WorkbenchHome.ps1');
+const homeStop = read('tools/Stop-WorkbenchHome.ps1');
 const status = read('tools/Status-Workbench.ps1');
 const stop = read('tools/Stop-Workbench.ps1');
 const cfg = read('tools/workbench-home.config.ps1');
@@ -24,6 +27,7 @@ test('runtime endpoint is centralized for HOME and WORK', () => {
   assert.match(cfg, /LocalAsrPort\s*=\s*8090/);
   assert.match(cfg, /RemoteAsrPort\s*=\s*8000/);
   assert.match(cfg, /LocalSocksPort\s*=\s*25344/);
+  assert.match(cfg, /LocalShadowsocksPort\s*=\s*10200/);
   assert.match(cfg, /UnifiedStateFile/);
 });
 
@@ -45,6 +49,8 @@ test('new standard laptop SSH key is preferred while legacy key remains a fallba
   assert.match(start, /\.ssh\\id_ed25519'/);
   assert.match(start, /\.ssh\\id_ed25519_simnet_autostart'/);
   assert.match(start, /IdentitiesOnly=yes/);
+  assert.match(home, /\.ssh\\id_ed25519'/);
+  assert.match(home, /IdentitiesOnly=yes/);
 });
 
 test('fresh Vast transcriber is restored and dirty managed checkouts self-heal', () => {
@@ -55,6 +61,31 @@ test('fresh Vast transcriber is restored and dirty managed checkouts self-heal',
   assert.match(start, /\.\/bootstrap-vast\.sh/);
 });
 
+test('HOME private server config is reproducible from local WireGuard and Shadowsocks sources', () => {
+  assert.match(cfg, /PrivateWireGuardConfig/);
+  assert.match(cfg, /wireguard-home\.conf/);
+  assert.match(start, /function Build-PrivateHomeConfig/);
+  assert.match(start, /Get-IniValue \$wgText 'Interface' 'PrivateKey'/);
+  assert.match(start, /Get-IniValue \$wgText 'Peer' 'AllowedIPs'/);
+  assert.match(start, /No Shadowsocks outbound found/);
+  assert.match(start, /type = 'wireguard'/);
+  assert.match(start, /tag = 'simnet-wg'/);
+  assert.match(start, /type = 'socks'/);
+  assert.match(start, /type = 'shadowsocks'/);
+  assert.match(start, /private HOME config: regenerated locally/);
+  assert.doesNotMatch(start + cfg, /cHAAvm2V5OhFi1dbQY12qwppfm\/dFlNRp5UqNF8XWEU=/);
+});
+
+test('HOME SIP Shadowsocks path is private over the same SSH transport', () => {
+  assert.match(cfg, /LocalShadowsocksPort\s*=\s*10200/);
+  assert.match(home, /Write-RuntimeSingBoxConfig/);
+  assert.match(home, /\$ss\.server\s*=\s*'127\.0\.0\.1'/);
+  assert.match(home, /\$ss\.server_port\s*=\s*\[int\]\$cfg\.LocalShadowsocksPort/);
+  assert.match(home, /'-L',\$asrSpec,'-L',\$socksSpec,'-L',\$ssSpec/);
+  assert.match(homeStatus, /SS bridge :10200/);
+  assert.match(homeStop, /\$ssSpec/);
+});
+
 test('WORK uses only the ASR forward while HOME delegates to the full HOME transport', () => {
   assert.match(start, /Start-WorkTunnel/);
   assert.match(start, /LocalAsrPort/);
@@ -62,9 +93,11 @@ test('WORK uses only the ASR forward while HOME delegates to the full HOME trans
   assert.match(status, /SOCKS\s+NOT NEEDED/);
 });
 
-test('START never writes to the read-only PowerShell PID automatic variable', () => {
-  assert.doesNotMatch(start, /(?im)^\s*\$pid\s*=/);
-  assert.doesNotMatch(start, /function\s+\w+\([^)]*\$pid\b/i);
+test('runtime PowerShell scripts never assign to the read-only PID automatic variable', () => {
+  for (const source of [start, home, homeStop]) {
+    assert.doesNotMatch(source, /(?im)^\s*\$pid\s*=/);
+    assert.doesNotMatch(source, /function\s+\w+\([^)]*\$pid\b/i);
+  }
   assert.match(start, /\$workSshPid\s*=\s*Start-WorkTunnel/);
 });
 
