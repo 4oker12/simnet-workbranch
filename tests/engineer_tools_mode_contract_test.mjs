@@ -15,9 +15,11 @@ test('engineer tools mode is loaded after the rail controller', () => {
   assert.ok(engineerIndex > railIndex);
 });
 
-test('settings exposes engineer tools as a persistent UI config flag', () => {
-  assert.match(settings, /Инструменты инженера/);
+test('settings exposes tech mode as a persistent engineer-tools UI flag', () => {
+  assert.match(settings, /Тех\. режим/);
   assert.match(settings, /data-action="engineer-tools"/);
+  assert.match(settings, /wb-tech-card/);
+  assert.match(settings, /wb-tech-switch/);
   assert.match(engineer, /simnet_workbench_ui_engineer_tools_v1/);
   assert.match(engineer, /chrome\.storage\.local\.set/);
   assert.match(engineer, /\[STORAGE_KEY\]\s*:\s*enabled/);
@@ -44,10 +46,18 @@ test('panel stays compact but has enough room for settings content', () => {
   assert.match(responsive, /width:min\(330px,calc\(100vw - 66px\)\)/);
 });
 
-test('settings toggles remain visible on the light settings cards', () => {
+test('three full-panel tabs use the whole width instead of a five-column grid', () => {
+  assert.match(responsive, /grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+  assert.match(responsive, /\.full-nav button\{/);
+  assert.match(responsive, /height:54px/);
+});
+
+test('settings toggles remain visible and tech switch is deliberately smaller', () => {
   assert.match(responsive, /#wb-human-settings \.switch\{/);
   assert.match(responsive, /background:#e2e8f0/);
   assert.match(responsive, /#wb-human-settings \.switch\.on\{/);
   assert.match(responsive, /background:#a50046/);
   assert.match(responsive, /flex-wrap:nowrap/);
+  assert.match(settings, /wb-tech-switch\{width:32px!important;height:18px!important/);
+  assert.match(settings, /wb-tech-card\{padding:7px 9px/);
 });
