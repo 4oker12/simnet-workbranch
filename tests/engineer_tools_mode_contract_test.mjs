@@ -15,10 +15,11 @@ test('engineer tools mode is loaded after the rail controller', () => {
   assert.ok(engineerIndex > railIndex);
 });
 
-test('settings exposes engineer tools as a persisted UI flag', () => {
+test('settings exposes engineer tools as a persistent UI config flag', () => {
   assert.match(settings, /Инструменты инженера/);
   assert.match(settings, /data-action="engineer-tools"/);
-  assert.match(engineer, /patchUi\?\.\(\{ engineerTools: Boolean\(enabled\) \}\)/);
+  assert.match(engineer, /simnet_workbench_ui_engineer_tools_v1/);
+  assert.match(engineer, /chrome\.storage\.local\.set\(\{ \[STORAGE_KEY\]: enabled \}\)/);
 });
 
 test('engineer mode activates only pending LIVE rows without completing evidence', () => {
