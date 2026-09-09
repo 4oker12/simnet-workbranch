@@ -61,6 +61,7 @@
         "src/ui/operator-companion-loader.js",
         "src/ui/rail-styles.js",
         "src/ui/rail.js",
+        "src/ui/engineer-tools-mode.js",
         "src/ui/call-attention-bridge.js",
         "src/ui/call-analysis-actions.js",
         "src/ui/call-console-diagnostics.js",
