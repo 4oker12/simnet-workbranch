@@ -45,8 +45,14 @@ Add-Check 'PAC split route :8765' ([bool]$pacOk) $(if ($pacPid) { 'PID ' + $pacP
 $socksPid = Get-ListeningPid $cfg.LocalSocksPort
 Add-Check 'SOCKS :25344' ([bool]$socksPid) $(if ($socksPid) { 'PID ' + $socksPid } else { 'not listening' })
 
+$ssPid = Get-ListeningPid $cfg.LocalShadowsocksPort
+Add-Check 'SS bridge :10200' ([bool]$ssPid) $(if ($ssPid) { 'PID ' + $ssPid } else { 'not listening' })
+
 $asrPid = Get-ListeningPid $cfg.LocalAsrPort
 Add-Check 'ASR tunnel :8090' ([bool]$asrPid) $(if ($asrPid) { 'PID ' + $asrPid } else { 'not listening' })
+
+$sameTunnel = $socksPid -and $ssPid -and $asrPid -and $socksPid -eq $ssPid -and $socksPid -eq $asrPid
+Add-Check 'One SSH transport' ([bool]$sameTunnel) $(if ($sameTunnel) { 'PID ' + $socksPid } else { 'ports are not on one SSH process' })
 
 $asrOk = $false
 $asrDetail = 'unreachable'
