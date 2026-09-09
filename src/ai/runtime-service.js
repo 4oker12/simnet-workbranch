@@ -1,3 +1,5 @@
+import { readAiUsageTotals } from './usage-ledger.js';
+
 const AI_RUNTIME_CONFIG_KEY = 'simnet_workbench_ai_runtime_v1';
 const DEFAULT_MODELS = Object.freeze([
   'qwen/qwen3.6-27b',
@@ -46,6 +48,20 @@ function publicConfig(raw = {}) {
     updatedAt: String(raw.updatedAt || ''),
     keyHint: key ? `${key.slice(0, 4)}••••${key.slice(-4)}` : ''
   };
+}
+
+async function getPublicConfig() {
+  const [raw, usage] = await Promise.all([
+    readConfig(),
+    readAiUsageTotals().catch(() => ({
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      requests: 0,
+      bySource: {}
+    }))
+  ]);
+  return { ...publicConfig(raw), usage };
 }
 
 async function saveConfig(payload = {}) {
@@ -128,7 +144,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   const payload = message?.payload || {};
   const action = type === TYPES.GET
-    ? readConfig().then(publicConfig)
+    ? getPublicConfig()
     : type === TYPES.SAVE
       ? saveConfig(payload)
       : type === TYPES.TEST
