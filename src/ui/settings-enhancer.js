@@ -6,6 +6,7 @@
   const HOST_ID = 'simnet-workbench-rail-host';
   const SETTINGS_ID = 'wb-human-settings';
   const STYLE_ID = 'wb-human-settings-style';
+  const AI_USAGE_LEDGER_KEY = 'simnet_workbench_ai_usage_ledger_v1';
   const MODELS = Object.freeze([
     ['qwen/qwen3.6-27b', 'Qwen 3.6 27B'],
     ['openai/gpt-oss-120b', 'GPT-OSS 120B'],
@@ -15,17 +16,20 @@
 
   let rootObserver = null;
   let documentObserver = null;
+  let attachedRoot = null;
 
   const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, char => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   })[char]);
+
+  const tokenNumber = value => Math.max(0, Math.round(Number(value || 0))).toLocaleString('ru-RU');
 
   function installStyle(root) {
     if (root.getElementById?.(STYLE_ID) || root.querySelector?.(`#${STYLE_ID}`)) return;
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      #${SETTINGS_ID}{display:grid;gap:10px;padding:2px 0 8px}
+      #${SETTINGS_ID}{display:grid;gap:8px;padding:2px 0 8px}
       #${SETTINGS_ID} .wb-set-card{border:1px solid #e2e8f0;border-radius:12px;background:#fff;padding:12px;box-shadow:0 1px 2px rgba(15,23,42,.03)}
       #${SETTINGS_ID} .wb-set-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}
       #${SETTINGS_ID} .wb-set-title{font-size:12px;font-weight:800;color:#243247}
@@ -37,6 +41,8 @@
       #${SETTINGS_ID} .wb-set-pill.ok:before{background:#10b981}
       #${SETTINGS_ID} .wb-set-pill.bad{background:#fff1f2;color:#be123c}
       #${SETTINGS_ID} .wb-set-pill.bad:before{background:#e11d48}
+      #${SETTINGS_ID} .wb-ai-meta{display:flex;align-items:center;justify-content:flex-end;gap:5px;flex-wrap:wrap}
+      #${SETTINGS_ID} .wb-token-total{display:inline-flex;align-items:center;height:22px;padding:0 7px;border-radius:999px;background:#fff5f8;color:#7a123d;font:800 8.8px/22px Arial,sans-serif;white-space:nowrap;font-variant-numeric:tabular-nums}
       #${SETTINGS_ID} .wb-key{display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:8px}
       #${SETTINGS_ID} input,#${SETTINGS_ID} select{min-width:0;width:100%;height:34px;border:1px solid #dbe3ec;border-radius:8px;background:#f8fafc;color:#243247;padding:0 9px;font:11px/1.2 Arial,sans-serif;outline:none}
       #${SETTINGS_ID} input:focus,#${SETTINGS_ID} select:focus{border-color:#a50046;box-shadow:0 0 0 2px rgba(165,0,70,.08);background:#fff}
@@ -62,6 +68,13 @@
       #${SETTINGS_ID} .wb-danger-body .wb-btn{margin-top:7px}
       #${SETTINGS_ID} .wb-foot{text-align:center;color:#a0adbc;font-size:9px;padding:1px 0 2px}
       #${SETTINGS_ID} .switch{flex:0 0 auto}
+      #${SETTINGS_ID} .wb-tech-card{padding:7px 9px;border-radius:10px}
+      #${SETTINGS_ID} .wb-tech-card .wb-set-row{min-height:30px;gap:8px}
+      #${SETTINGS_ID} .wb-tech-card .wb-set-title{font-size:11px}
+      #${SETTINGS_ID} .wb-tech-card .wb-set-sub{margin-top:1px;font-size:8.5px;line-height:1.2}
+      #${SETTINGS_ID} .wb-tech-card .wb-tech-switch{width:32px!important;height:18px!important;flex:0 0 32px!important;padding:2px!important;border-radius:999px!important}
+      #${SETTINGS_ID} .wb-tech-card .wb-tech-switch span{width:12px!important;height:12px!important}
+      #${SETTINGS_ID} .wb-tech-card .wb-tech-switch.on span{transform:translateX(14px)!important}
     `;
     root.appendChild(style);
   }
@@ -92,13 +105,13 @@
           </div>
         </section>
 
-        <section class="wb-set-card">
+        <section class="wb-set-card wb-tech-card">
           <div class="wb-set-row">
             <div>
-              <div class="wb-set-title">Инструменты инженера</div>
-              <div class="wb-set-sub">Разрешает прямые переходы к ожидающим инструментам LIVE. Прогресс и evidence не меняются.</div>
+              <div class="wb-set-title">Тех. режим</div>
+              <div class="wb-set-sub">Прямой доступ к ожидающим действиям LIVE.</div>
             </div>
-            <button class="switch ${engineerOn ? 'on' : ''}" data-action="engineer-tools" aria-pressed="${engineerOn ? 'true' : 'false'}" title="Инструменты инженера"><span></span></button>
+            <button class="switch wb-tech-switch ${engineerOn ? 'on' : ''}" data-action="engineer-tools" aria-pressed="${engineerOn ? 'true' : 'false'}" title="Тех. режим"><span></span></button>
           </div>
         </section>
 
@@ -108,7 +121,10 @@
               <div class="wb-set-title">AI</div>
               <div class="wb-set-sub">Один локальный Groq key для помощника и разбора звонков</div>
             </div>
-            <span class="wb-set-pill" data-ai-badge>Проверка…</span>
+            <div class="wb-ai-meta">
+              <span class="wb-token-total" data-ai-usage title="Суммарный учтённый расход Groq">Σ 0 ток.</span>
+              <span class="wb-set-pill" data-ai-badge>Проверка…</span>
+            </div>
           </div>
           <div class="wb-key">
             <input data-ai-key type="password" autocomplete="off" spellcheck="false" placeholder="gsk_…">
@@ -150,6 +166,17 @@
       </div>`;
   }
 
+  function applyUsage(container, usage = {}) {
+    const node = container?.querySelector?.('[data-ai-usage]');
+    if (!node) return;
+    const total = Math.max(0, Number(usage?.totalTokens || 0));
+    const prompt = Math.max(0, Number(usage?.promptTokens || 0));
+    const completion = Math.max(0, Number(usage?.completionTokens || 0));
+    const requests = Math.max(0, Number(usage?.requests || 0));
+    node.textContent = `Σ ${tokenNumber(total)} ток.`;
+    node.title = `Учтённый расход Groq · input ${tokenNumber(prompt)} · output ${tokenNumber(completion)} · запросов ${tokenNumber(requests)}`;
+  }
+
   async function hydrate(container) {
     const badge = container.querySelector('[data-ai-badge]');
     const status = container.querySelector('[data-ai-status]');
@@ -162,6 +189,7 @@
       badge.className = `wb-set-pill ${cfg.configured ? 'ok' : ''}`;
       keyInput.placeholder = cfg.configured ? `Ключ сохранён ${cfg.keyHint || ''}` : 'gsk_…';
       if (MODELS.some(([id]) => id === cfg.chatModel)) modelSelect.value = cfg.chatModel;
+      applyUsage(container, cfg.usage || {});
       status.textContent = cfg.configured
         ? 'Ключ хранится только локально в этом Chrome-профиле.'
         : 'Whisper работает без ключа; AI-разбор без него остановится на TXT.';
@@ -281,7 +309,7 @@
 
     installStyle(root);
     const compactOn = Boolean(body.querySelector('button[data-action="compact"]')?.classList.contains('on'));
-    const engineerOn = Boolean(globalThis.SIMNET_WB?.store?.state?.ui?.engineerTools);
+    const engineerOn = Boolean(globalThis.SIMNET_WB?.engineerTools?.enabled?.());
     const nav = body.querySelector('.full-nav');
     const navHtml = nav?.outerHTML || '';
     body.innerHTML = `${navHtml}${buildHtml(compactOn, engineerOn)}`;
@@ -294,6 +322,7 @@
   function attach(host) {
     const root = host?.shadowRoot;
     if (!root) return false;
+    attachedRoot = root;
     rootObserver?.disconnect();
     rootObserver = new MutationObserver(() => upgrade(root));
     rootObserver.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
@@ -312,6 +341,12 @@
     documentObserver = new MutationObserver(discover);
     documentObserver.observe(document.documentElement, { childList: true, subtree: true });
   }
+
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local' || !changes?.[AI_USAGE_LEDGER_KEY]) return;
+    const container = attachedRoot?.querySelector?.(`#${SETTINGS_ID}`);
+    if (container?.isConnected) void hydrate(container);
+  });
 
   discover();
 })();
