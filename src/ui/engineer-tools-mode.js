@@ -6,6 +6,7 @@
 
   const HOST_ID = 'simnet-workbench-rail-host';
   const STYLE_ID = 'wb-engineer-tools-mode-style';
+  const STORAGE_KEY = 'simnet_workbench_ui_engineer_tools_v1';
   const POLL_TARGETS = Object.freeze({
     '310': 'billing.poll.epon',
     '311': 'billing.poll.gpon',
@@ -17,8 +18,9 @@
   let rootObserver = null;
   let attachedRoot = null;
   let enhanceQueued = false;
+  let enabled = false;
 
-  const engineerEnabled = () => Boolean(WB.store?.state?.ui?.engineerTools);
+  const engineerEnabled = () => enabled;
 
   function installStyle(root) {
     if (!root || root.getElementById?.(STYLE_ID) || root.querySelector?.(`#${STYLE_ID}`)) return;
@@ -29,7 +31,6 @@
       .evidence-row.pending.engineer-ready .evidence-row-main b{color:#344054}
       .evidence-row.pending.engineer-ready .evidence-replay{color:#a50046;background:#fff5f8;border-color:#e9c2d2;cursor:pointer}
       .evidence-row.pending.engineer-ready .evidence-replay:hover{background:#fbeaf1;border-color:#d8a4ba}
-      #wb-human-settings .wb-engineer-note{margin-top:5px;color:#98a2b3;font-size:8.8px;line-height:1.35}
     `;
     root.appendChild(style);
   }
@@ -40,13 +41,13 @@
     return Array.isArray(summary?.items) ? summary.items : [];
   }
 
-  function makeSpacer(root) {
+  function makeSpacer() {
     const spacer = document.createElement('span');
     spacer.className = 'evidence-spacer';
     return spacer;
   }
 
-  function makeEngineerButton(root, item) {
+  function makeEngineerButton(item) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'evidence-replay wb-engineer-open';
@@ -58,7 +59,6 @@
   }
 
   function syncPendingTools(root) {
-    const enabled = engineerEnabled();
     const items = currentProgressItems();
     const rows = [...root.querySelectorAll('.evidence-history .evidence-row')];
 
@@ -76,10 +76,10 @@
           existing.title = `Открыть ${String(item.label || 'инструмент')} напрямую`;
           existing.setAttribute('aria-label', existing.title);
         } else if (spacer) {
-          spacer.replaceWith(makeEngineerButton(root, item));
+          spacer.replaceWith(makeEngineerButton(item));
         }
       } else if (existing) {
-        existing.replaceWith(makeSpacer(root));
+        existing.replaceWith(makeSpacer());
       }
     });
   }
@@ -87,7 +87,6 @@
   function syncSettingsSwitch(root) {
     const button = root.querySelector('#wb-human-settings [data-action="engineer-tools"]');
     if (!button) return;
-    const enabled = engineerEnabled();
     button.classList.toggle('on', enabled);
     button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
     button.title = enabled ? 'Инструменты инженера включены' : 'Инструменты инженера выключены';
@@ -109,15 +108,23 @@
     });
   }
 
-  async function saveEngineerMode(enabled) {
-    const state = await WB.store?.patchUi?.({ engineerTools: Boolean(enabled) });
-    if (state && WB.rail) WB.rail.state = state;
-    if (WB.rail) {
-      WB.rail._lastPanelKey = '';
-      WB.rail.render?.();
+  async function saveEngineerMode(nextEnabled) {
+    enabled = Boolean(nextEnabled);
+    await chrome.storage.local.set({ [STORAGE_KEY]: enabled });
+    queueEnhance();
+    WB.rail?._lastPanelKey && (WB.rail._lastPanelKey = '');
+    WB.rail?.render?.();
+    return enabled;
+  }
+
+  async function loadEngineerMode() {
+    try {
+      enabled = Boolean((await chrome.storage.local.get(STORAGE_KEY))?.[STORAGE_KEY]);
+    } catch {
+      enabled = false;
     }
     queueEnhance();
-    return state;
+    return enabled;
   }
 
   async function openEngineerPoll(currentCase) {
@@ -166,7 +173,7 @@
       if (toggle) {
         event.preventDefault();
         event.stopPropagation();
-        void saveEngineerMode(!engineerEnabled()).catch(error => {
+        void saveEngineerMode(!enabled).catch(error => {
           WB.rail?.toast?.(`Не удалось сохранить режим: ${String(error?.message || error || 'ошибка')}`);
         });
         return;
@@ -177,7 +184,7 @@
       event.preventDefault();
       event.stopPropagation();
       const key = String(tool.dataset.engineerKey || '');
-      if (!key || !engineerEnabled()) return;
+      if (!key || !enabled) return;
       void openEngineerTool(key).catch(error => {
         WB.rail?.toast?.(`Переход не выполнен: ${String(error?.message || error || 'ошибка')}`);
       });
@@ -202,6 +209,20 @@
     documentObserver.observe(document.documentElement, { childList: true, subtree: true });
   }
 
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local' || !changes[STORAGE_KEY]) return;
+    enabled = Boolean(changes[STORAGE_KEY].newValue);
+    queueEnhance();
+  });
+
+  WB.engineerTools = Object.freeze({
+    enabled: engineerEnabled,
+    setEnabled: saveEngineerMode,
+    openTool: openEngineerTool,
+    storageKey: STORAGE_KEY
+  });
+
   WB.bus?.on?.('store:state', () => queueEnhance());
   discover();
+  void loadEngineerMode();
 })();
