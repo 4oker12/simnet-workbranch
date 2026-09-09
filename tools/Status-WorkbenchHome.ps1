@@ -19,8 +19,9 @@ function Test-Pac {
     $url = 'http://127.0.0.1:{0}/{1}' -f $cfg.PacPort, $pacName
     try {
         $r = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 2
-        $needle = 'SOCKS5 127.0.0.1:{0}' -f $cfg.LocalSocksPort
-        return ($r.StatusCode -eq 200 -and $r.Content.Contains($needle))
+        $proxyNeedle = 'SOCKS5 127.0.0.1:{0}' -f $cfg.LocalSocksPort
+        $directNeedle = 'return "DIRECT";'
+        return ($r.StatusCode -eq 200 -and $r.Content.Contains($proxyNeedle) -and $r.Content.Contains($directNeedle))
     } catch { return $false }
 }
 
@@ -39,7 +40,7 @@ Add-Check 'SIP TUN' ([bool]$tunOk) $(if ($tun) { [string]$tun.Status } else { 'm
 
 $pacPid = Get-ListeningPid $cfg.PacPort
 $pacOk = $pacPid -and (Test-Pac)
-Add-Check 'PAC :8765' ([bool]$pacOk) $(if ($pacPid) { 'PID ' + $pacPid } else { 'not listening' })
+Add-Check 'PAC split route :8765' ([bool]$pacOk) $(if ($pacPid) { 'PID ' + $pacPid } else { 'not listening' })
 
 $socksPid = Get-ListeningPid $cfg.LocalSocksPort
 Add-Check 'SOCKS :25344' ([bool]$socksPid) $(if ($socksPid) { 'PID ' + $socksPid } else { 'not listening' })
@@ -59,17 +60,41 @@ Add-Check 'Whisper /health' $asrOk $asrDetail
 $curl = Get-Command 'curl.exe' -ErrorAction SilentlyContinue
 $simnetOk = $false
 $pbxOk = $false
+$groqOk = $false
+$groqDetail = 'unreachable'
 if ($curl -and $socksPid) {
     & $curl.Source --socks5-hostname ('127.0.0.1:{0}' -f $cfg.LocalSocksPort) -k -fsS --max-time 6 -o NUL $cfg.SimnetProbeUrl 2>$null
     $simnetOk = ($LASTEXITCODE -eq 0)
     & $curl.Source --socks5-hostname ('127.0.0.1:{0}' -f $cfg.LocalSocksPort) -k -fsSI --max-time 6 -o NUL $cfg.PbxProbeUrl 2>$null
     $pbxOk = ($LASTEXITCODE -eq 0)
 }
+if ($curl) {
+    $groqStatus = (& $curl.Source --noproxy '*' -sS --max-time 6 -o NUL -w '%{http_code}' $cfg.GroqProbeUrl 2>$null | Select-Object -Last 1)
+    $groqExit = $LASTEXITCODE
+    $groqStatus = [string]$groqStatus
+    $groqOk = ($groqExit -eq 0 -and $groqStatus -match '^[234]\d\d$')
+    $groqDetail = if ($groqOk) { 'HTTP ' + $groqStatus + ' DIRECT' } else { 'FAILED / HTTP ' + $groqStatus }
+}
 Add-Check 'SIMNET via Vast' $simnetOk $(if ($simnetOk) { 'OK' } else { 'FAILED' })
 Add-Check 'PBX via Vast' $pbxOk $(if ($pbxOk) { 'OK' } else { 'FAILED' })
+Add-Check 'Groq DIRECT' $groqOk $groqDetail
 
 $chrome = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($cfg.ChromeUserDataDir, [StringComparison]::OrdinalIgnoreCase) -ge 0 } | Select-Object -First 1
-Add-Check 'Workbench Chrome' ([bool]$chrome) $(if ($chrome) { 'PID ' + $chrome.ProcessId } else { 'not running' })
+$chromeOk = [bool]$chrome
+Add-Check 'Workbench Chrome' $chromeOk $(if ($chrome) { 'PID ' + $chrome.ProcessId } else { 'not running' })
+
+$chromeRouteOk = $false
+$chromeRouteDetail = 'Chrome not running'
+if ($chrome) {
+    $pacName = Split-Path -Leaf $cfg.PacPath
+    $pacUrl = 'http://127.0.0.1:{0}/{1}' -f $cfg.PacPort, $pacName
+    $line = [string]$chrome.CommandLine
+    $usesExpectedPac = ($line.IndexOf('--proxy-pac-url', [StringComparison]::OrdinalIgnoreCase) -ge 0 -and $line.IndexOf($pacUrl, [StringComparison]::OrdinalIgnoreCase) -ge 0)
+    $usesGlobalProxy = $line.IndexOf('--proxy-server', [StringComparison]::OrdinalIgnoreCase) -ge 0
+    $chromeRouteOk = $usesExpectedPac -and -not $usesGlobalProxy
+    $chromeRouteDetail = if ($chromeRouteOk) { 'SIMNET=SOCKS / external=DIRECT' } elseif ($usesGlobalProxy) { 'GLOBAL PROXY detected' } else { 'expected PAC flag missing' }
+}
+Add-Check 'Chrome split route' $chromeRouteOk $chromeRouteDetail
 
 $checks | Format-Table -AutoSize
 $ready = -not ($checks | Where-Object { -not $_.OK })
