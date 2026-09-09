@@ -1,5 +1,7 @@
 [CmdletBinding()]
-param()
+param(
+    [switch]$Elevated
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -138,9 +140,17 @@ Write-Host ("MODE       {0}" -f $mode)
 Write-Host ("VAST       {0}:{1}" -f $cfg.VastHost,$cfg.VastSshPort)
 
 if ($mode -eq 'HOME' -and -not (Test-IsAdministrator)) {
-    $args = '-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $PSCommandPath
-    Start-Process powershell.exe -Verb RunAs -ArgumentList $args | Out-Null
-    exit 0
+    if ($Elevated) { throw 'HOME mode requires Administrator privileges, but elevation failed.' }
+    Write-Host 'HOME requires Administrator privileges. Requesting UAC...'
+    $args = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -Elevated' -f $PSCommandPath
+    $child = Start-Process powershell.exe -Verb RunAs -ArgumentList $args -Wait -PassThru
+    if ($child.ExitCode -ne 0 -and (Test-Path $cfg.UnifiedStateFile)) {
+        try {
+            $failedState = Get-Content -Raw -Path $cfg.UnifiedStateFile | ConvertFrom-Json
+            if ($failedState.error) { Write-Host ('ERROR      ' + [string]$failedState.error) -ForegroundColor Red }
+        } catch {}
+    }
+    exit $child.ExitCode
 }
 
 try {
