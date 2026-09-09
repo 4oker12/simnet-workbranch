@@ -27,10 +27,10 @@ if (-not (Test-Path $cfg.StateFile)) {
 
 try { $state = Get-Content -Raw -Path $cfg.StateFile | ConvertFrom-Json } catch { throw 'Runtime state is unreadable.' }
 
-function Get-CommandLine([int]$Pid) {
-    $p = Get-CimInstance Win32_Process -Filter "ProcessId=$Pid" -ErrorAction SilentlyContinue
-    if ($null -eq $p) { return '' }
-    return [string]$p.CommandLine
+function Get-CommandLine([int]$ProcessId) {
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction SilentlyContinue
+    if ($null -eq $proc) { return '' }
+    return [string]$proc.CommandLine
 }
 
 function Stop-IfOwnedAndMatches([string]$Label, $PidValue, $OwnedValue, [string[]]$Needles) {
@@ -38,25 +38,24 @@ function Stop-IfOwnedAndMatches([string]$Label, $PidValue, $OwnedValue, [string[
         Write-Host ('  {0}: not owned by launcher, leave running' -f $Label)
         return
     }
-    $pid = [int]$PidValue
-    $line = Get-CommandLine $pid
+    $processId = [int]$PidValue
+    $line = Get-CommandLine $processId
     if (-not $line) {
         Write-Host ('  {0}: already stopped' -f $Label)
         return
     }
     foreach ($needle in $Needles) {
         if ($line.IndexOf($needle, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
-            Write-Host ('  {0}: PID {1} no longer matches; NOT stopping it' -f $Label, $pid)
+            Write-Host ('  {0}: PID {1} no longer matches; NOT stopping it' -f $Label, $processId)
             return
         }
     }
-    Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-    Write-Host ('  {0}: stopped PID {1}' -f $Label, $pid)
+    Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+    Write-Host ('  {0}: stopped PID {1}' -f $Label, $processId)
 }
 
 Write-Host 'Stopping only Workbench-owned HOME processes...'
 
-# Chrome may have multiple renderer/helper PIDs for the dedicated profile.
 if ([bool]$state.chromeOwned) {
     $chromeProcesses = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue
     $stoppedChrome = 0
@@ -74,11 +73,11 @@ if ([bool]$state.chromeOwned) {
 
 $asrSpec = '127.0.0.1:{0}:{1}:{2}' -f $cfg.LocalAsrPort, $cfg.RemoteAsrHost, $cfg.RemoteAsrPort
 $socksSpec = '127.0.0.1:{0}:{1}:{2}' -f $cfg.LocalSocksPort, $cfg.RemoteSocksHost, $cfg.RemoteSocksPort
-Stop-IfOwnedAndMatches 'SSH' $state.sshPid $state.sshOwned @($cfg.VastHost, $asrSpec, $socksSpec)
+$ssSpec = '127.0.0.1:{0}:{1}:{2}' -f $cfg.LocalShadowsocksPort, $cfg.RemoteShadowsocksHost, $cfg.RemoteShadowsocksPort
+Stop-IfOwnedAndMatches 'SSH' $state.sshPid $state.sshOwned @($cfg.VastHost, $asrSpec, $socksSpec, $ssSpec)
 Stop-IfOwnedAndMatches 'PAC' $state.pacPid $state.pacOwned @('http.server', [string]$cfg.PacPort)
-Stop-IfOwnedAndMatches 'sing-box' $state.singBoxPid $state.singBoxOwned @($cfg.SingBoxConfig)
+Stop-IfOwnedAndMatches 'sing-box' $state.singBoxPid $state.singBoxOwned @($cfg.RuntimeSingBoxClientConfig)
 
-# HOME invariant: do not restore the legacy local WireGuard tunnel.
 $state.ready = $false
 $state | Add-Member -NotePropertyName stoppedAt -NotePropertyValue (Get-Date).ToString('o') -Force
 $state | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 -Path $cfg.StateFile
