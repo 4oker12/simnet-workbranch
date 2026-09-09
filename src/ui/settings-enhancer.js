@@ -29,7 +29,7 @@
       #${SETTINGS_ID} .wb-set-card{border:1px solid #e2e8f0;border-radius:12px;background:#fff;padding:12px;box-shadow:0 1px 2px rgba(15,23,42,.03)}
       #${SETTINGS_ID} .wb-set-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}
       #${SETTINGS_ID} .wb-set-title{font-size:12px;font-weight:800;color:#243247}
-      #${SETTINGS_ID} .wb-set-sub{margin-top:2px;color:#7c8ba0;font-size:10px;line-height:1.35}
+      #${SETTINGS_ID} .wb-set-sub{margin-top:2px;color:#7c8ba0;font-size:9.5px;line-height:1.35}
       #${SETTINGS_ID} .wb-set-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
       #${SETTINGS_ID} .wb-set-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 7px;border-radius:999px;background:#f1f5f9;color:#64748b;font-size:9px;font-weight:800;white-space:nowrap}
       #${SETTINGS_ID} .wb-set-pill:before{content:'';width:6px;height:6px;border-radius:50%;background:#94a3b8}
@@ -47,8 +47,8 @@
       #${SETTINGS_ID} .wb-btn.danger{border:1px solid #fecaca;background:#fff7f7;color:#c24141}
       #${SETTINGS_ID} .wb-btn:disabled{opacity:.55;cursor:wait}
       #${SETTINGS_ID} .wb-ai-grid{display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:7px}
-      #${SETTINGS_ID} .wb-fallback{margin-top:8px;padding:7px 8px;border-radius:8px;background:#f8fafc;color:#7b8798;font-size:9px;line-height:1.4}
-      #${SETTINGS_ID} .wb-status{min-height:14px;margin-top:6px;color:#7c8ba0;font-size:9px;line-height:1.35}
+      #${SETTINGS_ID} .wb-fallback{margin-top:8px;padding:7px 8px;border-radius:8px;background:#f8fafc;color:#7b8798;font-size:8.8px;line-height:1.4}
+      #${SETTINGS_ID} .wb-status{min-height:14px;margin-top:6px;color:#7c8ba0;font-size:8.8px;line-height:1.35}
       #${SETTINGS_ID} .wb-status.ok{color:#047857}
       #${SETTINGS_ID} .wb-status.bad{color:#b42318}
       #${SETTINGS_ID} .wb-action-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
@@ -58,7 +58,7 @@
       #${SETTINGS_ID} details{margin:0}
       #${SETTINGS_ID} details summary{display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none;color:#7c8ba0;font-size:10px;font-weight:700}
       #${SETTINGS_ID} details summary::-webkit-details-marker{display:none}
-      #${SETTINGS_ID} .wb-danger-body{padding-top:9px;color:#8b98a9;font-size:9px;line-height:1.45}
+      #${SETTINGS_ID} .wb-danger-body{padding-top:9px;color:#8b98a9;font-size:8.8px;line-height:1.45}
       #${SETTINGS_ID} .wb-danger-body .wb-btn{margin-top:7px}
       #${SETTINGS_ID} .wb-foot{text-align:center;color:#a0adbc;font-size:9px;padding:1px 0 2px}
       #${SETTINGS_ID} .switch{flex:0 0 auto}
@@ -79,7 +79,7 @@
     return /Настройки/i.test(String(head?.textContent || ''));
   }
 
-  function buildHtml(compactOn) {
+  function buildHtml(compactOn, engineerOn) {
     return `
       <div id="${SETTINGS_ID}">
         <section class="wb-set-card">
@@ -89,6 +89,16 @@
               <div class="wb-set-sub">Компактная ширина панели Workbench</div>
             </div>
             <button class="switch ${compactOn ? 'on' : ''}" data-action="compact" title="Компактный режим"><span></span></button>
+          </div>
+        </section>
+
+        <section class="wb-set-card">
+          <div class="wb-set-row">
+            <div>
+              <div class="wb-set-title">Инструменты инженера</div>
+              <div class="wb-set-sub">Разрешает прямые переходы к ожидающим инструментам LIVE. Прогресс и evidence не меняются.</div>
+            </div>
+            <button class="switch ${engineerOn ? 'on' : ''}" data-action="engineer-tools" aria-pressed="${engineerOn ? 'true' : 'false'}" title="Инструменты инженера"><span></span></button>
           </div>
         </section>
 
@@ -271,9 +281,10 @@
 
     installStyle(root);
     const compactOn = Boolean(body.querySelector('button[data-action="compact"]')?.classList.contains('on'));
+    const engineerOn = Boolean(globalThis.SIMNET_WB?.store?.state?.ui?.engineerTools);
     const nav = body.querySelector('.full-nav');
     const navHtml = nav?.outerHTML || '';
-    body.innerHTML = `${navHtml}${buildHtml(compactOn)}`;
+    body.innerHTML = `${navHtml}${buildHtml(compactOn, engineerOn)}`;
     const container = body.querySelector(`#${SETTINGS_ID}`);
     if (!container) return;
     bind(container);
