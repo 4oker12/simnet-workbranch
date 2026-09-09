@@ -18,14 +18,14 @@
         max-width:calc(100vw - 66px)
       }
       .shell.open .drawer{
-        width:min(340px,calc(100vw - 66px))
+        width:min(352px,calc(100vw - 66px))
       }
       .panel{
         width:100%;
         min-width:0
       }
       .shell.compact.open .drawer{
-        width:min(290px,calc(100vw - 66px))
+        width:min(300px,calc(100vw - 66px))
       }
       .shell.compact .panel{
         width:100%
@@ -87,10 +87,10 @@
 
       @media (max-width: 520px){
         .shell.open .drawer{
-          width:min(330px,calc(100vw - 62px))
+          width:min(340px,calc(100vw - 62px))
         }
         .shell.compact.open .drawer{
-          width:min(280px,calc(100vw - 62px))
+          width:min(288px,calc(100vw - 62px))
         }
         .body{
           padding:10px
