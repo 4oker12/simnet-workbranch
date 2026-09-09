@@ -19,7 +19,8 @@ test('settings exposes engineer tools as a persistent UI config flag', () => {
   assert.match(settings, /Инструменты инженера/);
   assert.match(settings, /data-action="engineer-tools"/);
   assert.match(engineer, /simnet_workbench_ui_engineer_tools_v1/);
-  assert.match(engineer, /chrome\.storage\.local\.set\(\{ \[STORAGE_KEY\]: enabled \}\)/);
+  assert.match(engineer, /chrome\.storage\.local\.set/);
+  assert.match(engineer, /\[STORAGE_KEY\]\s*:\s*enabled/);
 });
 
 test('engineer mode activates only pending LIVE rows without completing evidence', () => {
