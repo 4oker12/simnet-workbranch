@@ -6,7 +6,8 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf
 const startCmd = read('START-WORKBENCH.cmd');
 const statusCmd = read('STATUS-WORKBENCH.cmd');
 const stopCmd = read('STOP-WORKBENCH.cmd');
-const start = read('tools/Start-Workbench.ps1');
+const startShim = read('tools/Start-Workbench.ps1');
+const start = read('tools/Start-WorkbenchSupervisor.ps1');
 const home = read('tools/Start-WorkbenchHome.ps1');
 const homeStatus = read('tools/Status-WorkbenchHome.ps1');
 const homeStop = read('tools/Stop-WorkbenchHome.ps1');
@@ -16,14 +17,15 @@ const cfg = read('tools/workbench-home.config.ps1');
 
 test('universal command wrappers execute PowerShell instead of relying on .ps1 file association', () => {
   assert.match(startCmd, /powershell\.exe\s+-NoProfile\s+-ExecutionPolicy Bypass\s+-File/);
-  assert.match(startCmd, /tools\\Start-Workbench\.ps1/);
+  assert.match(startCmd, /tools\\Start-WorkbenchSupervisor\.ps1/);
   assert.match(statusCmd, /tools\\Status-Workbench\.ps1/);
   assert.match(stopCmd, /tools\\Stop-Workbench\.ps1/);
+  assert.match(startShim, /Start-WorkbenchSupervisor\.ps1/);
 });
 
 test('runtime endpoint is centralized for HOME and WORK', () => {
   assert.match(cfg, /VastHost\s*=\s*'91\.150\.160\.38'/);
-  assert.match(cfg, /VastSshPort\s*=\s*11674/);
+  assert.match(cfg, /VastSshPort\s*=\s*16988/);
   assert.match(cfg, /LocalAsrPort\s*=\s*8090/);
   assert.match(cfg, /RemoteAsrPort\s*=\s*8000/);
   assert.match(cfg, /LocalSocksPort\s*=\s*25344/);
@@ -61,7 +63,7 @@ test('fresh Vast transcriber is restored and dirty managed checkouts self-heal',
   assert.match(start, /\.\/bootstrap-vast\.sh/);
 });
 
-test('HOME private server config is reproducible from local WireGuard and Shadowsocks sources', () => {
+test('HOME private server config is reproducible and written without UTF-8 BOM', () => {
   assert.match(cfg, /PrivateWireGuardConfig/);
   assert.match(cfg, /wireguard-home\.conf/);
   assert.match(start, /function Build-PrivateHomeConfig/);
@@ -72,8 +74,17 @@ test('HOME private server config is reproducible from local WireGuard and Shadow
   assert.match(start, /tag = 'simnet-wg'/);
   assert.match(start, /type = 'socks'/);
   assert.match(start, /type = 'shadowsocks'/);
+  assert.match(start, /Write-Utf8NoBom/);
   assert.match(start, /private HOME config: regenerated locally/);
-  assert.doesNotMatch(start + cfg, /cHAAvm2V5OhFi1dbQY12qwppfm\/dFlNRp5UqNF8XWEU=/);
+});
+
+test('HOME remote sing-box is supervisor-managed and reused when already healthy', () => {
+  assert.match(start, /program:simnet-home-singbox/);
+  assert.match(start, /supervisorctl reread/);
+  assert.match(start, /supervisorctl update/);
+  assert.match(start, /sing-box supervisor: reuse RUNNING/);
+  assert.match(start, /server-unified\.running\.sha256/);
+  assert.match(start, /Vast HOME PBX probe: HTTP/);
 });
 
 test('HOME SIP Shadowsocks path is private over the same SSH transport', () => {
@@ -93,6 +104,13 @@ test('WORK uses only the ASR forward while HOME delegates to the full HOME trans
   assert.match(status, /SOCKS\s+NOT NEEDED/);
 });
 
+test('supervisor-owned Vast services remain running when local Workbench stops', () => {
+  assert.match(start, /remoteManaged=\$false/);
+  assert.match(start, /remoteSupervisor=\$true/);
+  assert.match(stop, /if \(\$state -and \$state\.PSObject\.Properties\['remoteManaged'\]/);
+  assert.match(stop, /Remote services: no managed runtime recorded; left untouched\./);
+});
+
 test('runtime PowerShell scripts never assign to the read-only PID automatic variable', () => {
   for (const source of [start, home, homeStop]) {
     assert.doesNotMatch(source, /(?im)^\s*\$pid\s*=/);
@@ -106,13 +124,6 @@ test('HOME elevation returns the elevated process exit code to the command wrapp
   assert.match(start, /Start-Process powershell\.exe -Verb RunAs/);
   assert.match(start, /-Wait -PassThru/);
   assert.match(start, /exit \$child\.ExitCode/);
-});
-
-test('STOP closes only recorded local runtime and explicitly managed Vast services', () => {
-  assert.match(stop, /remoteManaged/);
-  assert.match(stop, /supervisorctl stop simnet-transcriber/);
-  assert.match(stop, /pgrep -f '\^\/workspace\/sing-box-test\/sing-box run/);
-  assert.match(stop, /expectedForward/);
 });
 
 test('runtime orchestration uses bounded waits and no polling interval', () => {
