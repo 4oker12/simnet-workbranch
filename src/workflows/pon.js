@@ -8,10 +8,9 @@
  * UserSide /customer/{id}
  *   -> parsers/userside/tmc.js reads #ref_inventory -> category=PON row
  *   -> TMC facts are stored independently from Billing persistence
- * TMC facts are independent evidence only. Workbench never copies them into
- * Billing. If Billing is missing required values, the operator fills and saves
- * the native Technical form manually. Poll becomes available only after a fresh
- * Billing document confirms the required values.
+ * TMC facts remain independent evidence and never silently overwrite Billing.
+ * A real `Найдено на OLT:` binding may select the correct native poll technology,
+ * but it still cannot unlock polling until required Billing fields are saved.
  * Poll
  *   -> the vendor/interface mapping below selects 310 / 311 / 312 / 313
  *   -> the native Billing poll request runs
@@ -175,23 +174,35 @@ export function pollRouteFromEvidence({ oltName = '', equipmentName = '', techno
 
 export function pollRouteForCase(caseData = {}) {
   const billing = billingTechnicalFacts(caseData);
-  // Poll type is derived only from server-backed Billing Technical facts. TMC
-  // may tell the operator what to enter, but it cannot unlock a poll by itself.
-  const route = pollRouteFromEvidence({
+  const tmc = tmcFacts(caseData);
+
+  // `Найдено на OLT:` is a strong UserSide binding. It may select the native
+  // technology tab, but derivePonWorkflow still keeps Billing completeness and
+  // Billing/TMC conflict checks as hard gates before an actual poll is allowed.
+  if (tmc.foundOnOlt) {
+    const tmcRoute = pollRouteFromEvidence({
+      oltName: tmc.oltName,
+      equipmentName: tmc.equipmentName,
+      interfaceName: tmc.interface,
+      technology: tmc.technology,
+      pollAction: tmc.pollAction
+    });
+    if (tmcRoute.action) return { ...tmcRoute, source: 'tmc-found-on-olt' };
+  }
+
+  const billingRoute = pollRouteFromEvidence({
     oltName: billing.oltName,
     interfaceName: factText(caseData?.pon?.port),
     technology: '',
     pollAction: ''
   });
-  return route.action
-    ? { ...route, source: 'billing' }
-    : { ...route, source: '' };
+  return billingRoute.action
+    ? { ...billingRoute, source: 'billing' }
+    : { ...billingRoute, source: '' };
 }
 
 export function requiredTechnicalFieldsForCase(caseData = {}) {
   if (comparable(valueOf(caseData?.network?.connectionFamily)) === 'ethernet') return [];
-  // OLT + ONU MAC are the fundamental poll identity. Serial is supplemental;
-  // its absence is handled explicitly through serialStatus in the workflow.
   return ['olt', 'onuMac'];
 }
 
@@ -209,8 +220,6 @@ function sameOlt(left, right) {
   const rightIp = comparable(right?.oltIp);
   if (leftDeviceId && rightDeviceId && leftDeviceId === rightDeviceId) return true;
   if (leftIp && rightIp && leftIp === rightIp) return true;
-  // Stable identifiers were available and neither matched. Do not let a short
-  // or stale display label hide a real OLT mismatch.
   if ((leftDeviceId && rightDeviceId) || (leftIp && rightIp)) return false;
   const leftName = comparable(left?.oltName);
   const rightName = comparable(right?.oltName);
@@ -254,7 +263,7 @@ export function assessPonTechnical(caseData = {}) {
       code: 'BILLING_OLT_DIFFERS_FROM_TMC',
       level: 'warning',
       blocking: false,
-      message: 'OLT в Billing отличается от TMC. Для poll используется только сохранённое значение Billing.',
+      message: 'OLT в Billing отличается от TMC. Перед poll требуется сверка источников.',
       billing: item.billing,
       tmc: item.tmc
     }));
@@ -270,7 +279,7 @@ export function assessPonTechnical(caseData = {}) {
     conflicts,
     identityConflicts: conflicts.filter(item => item.field === 'onuMac'),
     warnings,
-    tmcAuthoritativeOlt: false,
+    tmcAuthoritativeOlt: tmc.foundOnOlt,
     serialStatus: normalizePonSerial(billing.onuSerial) ? 'known' : (tmc.checked ? 'optional-missing' : 'unknown'),
     billingComplete: missingBilling.length === 0,
     effectiveComplete: missingBilling.length === 0,
@@ -473,7 +482,7 @@ export function derivePonWorkflow(caseData = {}) {
     conflicts: technical.conflicts,
     identityConflicts: technical.identityConflicts,
     warnings: technical.warnings,
-    effectiveOltSource: technical.billingComplete ? 'billing' : '',
+    effectiveOltSource: technical.billingComplete ? route.source : '',
     billing: technical.billing,
     tmc: technical.tmc,
     effective: technical.billing,
@@ -487,16 +496,12 @@ export function derivePonWorkflow(caseData = {}) {
     return result(base, PonWorkflowState.OPEN_TECHNICAL, 'open_technical', 'Технические данные этого абонента ещё не прочитаны. Результат OLT не заменяет проверку Billing Technical.');
   }
 
-  // Source conflicts always outrank downstream results. A successful poll is
-  // independent evidence and cannot reconcile Billing with TMC.
   if (technical.conflicts.length) {
     return result(base, PonWorkflowState.MANUAL_REVIEW, 'manual_review', 'Billing и TMC расходятся. Успешный OLT poll это расхождение не снимает.', {
       blockers: ['billing-tmc-conflict']
     });
   }
 
-  // TMC values that are still absent from Billing remain an upstream issue even
-  // when an OLT happened to answer successfully.
   if (technical.prefillFields.length) {
     return result(base, PonWorkflowState.FILL_TECHNICAL, 'manual_fill_billing', 'В TMC есть данные, которых ещё нет в Billing. Перенеси их вручную и сохрани Billing; результат OLT это не заменяет.', {
       source: 'tmc',
@@ -506,10 +511,9 @@ export function derivePonWorkflow(caseData = {}) {
     });
   }
 
-  // Required Billing fields are a hard gate. TMC facts never unlock poll.
   if (!technical.billingComplete) {
     if (!technical.tmc.checked) {
-      return result(base, PonWorkflowState.CHECK_TMC, 'check_tmc', `В Billing отсутствуют ${technical.missingBilling.join(', ')}. Сверь TMC как независимый источник.` , {
+      return result(base, PonWorkflowState.CHECK_TMC, 'check_tmc', `В Billing отсутствуют ${technical.missingBilling.join(', ')}. Сверь TMC как независимый источник.`, {
         fields: technical.missingBilling
       });
     }
@@ -526,9 +530,6 @@ export function derivePonWorkflow(caseData = {}) {
     });
   }
 
-  // Billing may already be complete, but until TMC was actually read there is
-  // nothing to compare it with. This is not a conflict; it is an unresolved
-  // source check, and it remains visible even after a successful poll.
   if (!technical.tmc.checked) {
     return result(base, PonWorkflowState.CHECK_TMC, 'check_tmc', 'Billing Technical заполнен, но TMC текущего абонента ещё не сверено. Успешный OLT poll не заменяет эту сверку.', {
       blockers: ['tmc-not-checked']
@@ -540,8 +541,6 @@ export function derivePonWorkflow(caseData = {}) {
     return result(base, PonWorkflowState.POLLING, 'wait_poll', 'Текущий ONU poll ещё выполняется.');
   }
 
-  // Downstream success is terminal only after the independent upstream sources
-  // have been read and reconciled.
   if (currentPoll.state === 'confirmed') {
     return result(base, PonWorkflowState.COMPLETE, 'complete_confirmed', 'Штатный ONU poll подтверждён; Billing и TMC предварительно сверены.');
   }
@@ -564,5 +563,8 @@ export function derivePonWorkflow(caseData = {}) {
     }
   }
 
-  return result(base, PonWorkflowState.READY_FOR_POLL, 'poll_candidate', 'Billing Technical содержит сохранённые OLT + ONU MAC; тип poll определён из Billing.');
+  const sourceText = route.source === 'tmc-found-on-olt'
+    ? 'тип poll определён по подтверждённой привязке «Найдено на OLT» из TMC'
+    : 'тип poll определён из Billing';
+  return result(base, PonWorkflowState.READY_FOR_POLL, 'poll_candidate', `Billing Technical содержит сохранённые OLT + ONU MAC; ${sourceText}.`);
 }

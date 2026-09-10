@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const API_VERSION = '2.1.0';
+  const API_VERSION = '2.2.0';
   const INVENTORY_HEADER_SELECTOR = '.label_h3_hr, .erp_object_subtitle, .erp_object_subtitle--rule';
 
   const compact = (value, max = 600) => {
@@ -47,9 +47,7 @@
     let sibling = header?.nextElementSibling || null;
     let steps = 0;
 
-    // UserSide has used at least two different wrappers around the TMC section.
-    // Stay within the local section, but do not bind the parser to either CSS skin.
-    while (sibling && steps < 6) {
+    while (sibling && steps < 8) {
       if (steps > 0 && sibling.matches?.(INVENTORY_HEADER_SELECTOR)) break;
 
       if (sibling.matches?.('.slider_content_double')) return sibling;
@@ -82,11 +80,16 @@
     return { status: 'ready', anchor, header, block };
   }
 
+  function exactPonCellIndex(row) {
+    const cells = [...(row?.cells || [])];
+    return cells.findIndex(cell => oneLine(cell?.innerText || cell?.textContent || '', 80).toUpperCase() === 'PON');
+  }
+
   function ponRows(root = document) {
     const scope = inventoryScope(root);
     if (!scope.block?.querySelectorAll) return { ...scope, rows: [] };
     const rows = [...scope.block.querySelectorAll('tbody tr')]
-      .filter(row => oneLine(row?.cells?.[2]?.innerText || row?.cells?.[2]?.textContent || '', 80).toUpperCase() === 'PON');
+      .filter(row => exactPonCellIndex(row) >= 0);
     return {
       ...scope,
       status: rows.length ? 'pon_rows_found' : 'pon_row_missing',
@@ -117,14 +120,46 @@
     return value ? value.replace(',', '.') : '';
   }
 
-  function parsePonRow(row) {
-    const cells = row?.cells || [];
-    if (!row || cells.length < 5) return null;
-    const category = oneLine(cells[2]?.innerText || cells[2]?.textContent || '', 80);
-    if (category.toUpperCase() !== 'PON') return null;
+  function looksLikeDetailsCell(cell) {
+    const text = textOf(cell);
+    if (!text) return false;
+    return /(?:\bs\/?n\s*:|\bserial\b|\bMAC\s*:|(?:найдено|знайдено)\s+на\s+OLT|\bInterface\s*:|\bONU\s+Rx|\bOLT\s+Rx)/i.test(text)
+      || Boolean(cell?.querySelector?.('a[href*="/device/"]'));
+  }
 
-    const equipmentCell = cells[3];
-    const detailsCell = cells[4];
+  function resolveRowCells(row) {
+    const cells = [...(row?.cells || [])];
+    const categoryIndex = exactPonCellIndex(row);
+    if (categoryIndex < 0) return null;
+
+    const equipmentCell = cells[categoryIndex + 1] || null;
+    const detailsCell = cells.slice(categoryIndex + 2).find(looksLikeDetailsCell)
+      || cells[categoryIndex + 2]
+      || null;
+
+    return {
+      cells,
+      categoryIndex,
+      categoryCell: cells[categoryIndex] || null,
+      equipmentCell,
+      detailsCell
+    };
+  }
+
+  function parseFoundOnOltTimestamp(detailsText) {
+    const match = String(detailsText || '').match(
+      /(?:найдено|знайдено)\s+на\s+OLT\s*:?\s*(?:\n|\s)*(\d{2}\.\d{2}\.\d{4}\s+\d{1,2}:\d{2}(?::\d{2})?)/i
+    );
+    return oneLine(match?.[1] || '', 80);
+  }
+
+  function parsePonRow(row) {
+    const resolved = resolveRowCells(row);
+    if (!resolved?.equipmentCell || !resolved?.detailsCell) return null;
+
+    const category = oneLine(resolved.categoryCell?.innerText || resolved.categoryCell?.textContent || '', 80);
+    const equipmentCell = resolved.equipmentCell;
+    const detailsCell = resolved.detailsCell;
     const equipmentText = textOf(equipmentCell);
     const detailsText = textOf(detailsCell);
     const combined = `${equipmentText}\n${detailsText}`;
@@ -146,18 +181,23 @@
       || ''
     );
 
+    const phraseFound = /(?:найдено|знайдено)\s+на\s+OLT\s*:/i.test(detailsText);
     const deviceLinks = [...(detailsCell?.querySelectorAll?.('a[href*="/device/"]') || [])];
-    const oltLink = deviceLinks.find(link => !/история|історія|history/i.test(oneLine(link.textContent || '', 240)))
-      || deviceLinks[0]
-      || null;
+    const oltLink = deviceLinks.find(link => {
+      const href = String(link?.getAttribute?.('href') || link?.href || '');
+      const label = oneLine(link?.textContent || link?.innerText || '', 240);
+      return /\/device\/\d+\/?(?:$|[?#])/i.test(href) && !/история|історія|history/i.test(label);
+    }) || null;
     const oltDeviceId = String(oltLink?.getAttribute?.('href') || oltLink?.href || '')
       .match(/\/device\/(\d+)/i)?.[1] || '';
     const linkedOltName = oneLine(oltLink?.innerText || oltLink?.textContent || '', 260);
-    const foundOnOlt = /(?:найдено|знайдено)\s+на\s+olt/i.test(detailsText)
-      || Boolean(oltLink && (linkedOltName || oltDeviceId));
+
+    // "Найдено на OLT:" is the binding proof. A random /device/ link in the row
+    // is not enough to claim that UserSide actually located this ONU on an OLT.
+    const foundOnOlt = Boolean(phraseFound && (linkedOltName || oltDeviceId || validIp(detailsText)));
     const oltName = linkedOltName || oneLine(
       detailsText.match(
-        /(?:найдено|знайдено)\s+на\s+OLT\s*:?\s*(?:\d{2}\.\d{2}\.\d{4}\s+\d{1,2}:\d{2}\s*)?(.+?)(?=\s+IP\s*:|\s+Interface\s*:|\s+ONU\s+Rx|\s+ONU\s+Tx|\s+OLT\s+Rx|$)/i
+        /(?:найдено|знайдено)\s+на\s+OLT\s*:?\s*(?:\d{2}\.\d{2}\.\d{4}\s+\d{1,2}:\d{2}(?::\d{2})?\s*)?(.+?)(?=\s+IP\s*:|\s+Interface\s*:|\s+ONU\s+Rx|\s+ONU\s+Tx|\s+OLT\s+Rx|$)/i
       )?.[1] || '',
       260
     );
@@ -176,11 +216,13 @@
     return {
       element: row,
       category,
+      categoryIndex: resolved.categoryIndex,
       equipmentName: firstEquipmentLine(equipmentCell),
       serial: serial || null,
       serialKey: serial,
       mac,
       foundOnOlt,
+      foundOnOltAt: parseFoundOnOltTimestamp(detailsText),
       oltName,
       oltIp,
       oltDeviceId,
@@ -190,7 +232,7 @@
       onuTx: opticalValue(detailsText, 'ONU', 'Tx'),
       oltRx: opticalValue(detailsText, 'OLT', 'Rx'),
       text: oneLine(combined, 6000),
-      phraseFound: foundOnOlt,
+      phraseFound,
       deviceLinkFound: Boolean(oltLink)
     };
   }
@@ -235,6 +277,7 @@
     parseBlock,
     parsePonRow,
     parseDocument,
+    resolveRowCells,
     normalizeMac,
     normalizeSerial,
     validIp,
