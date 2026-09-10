@@ -5,6 +5,7 @@
   if (!WB || window.top !== window.self || WB.clickDebug) return;
 
   const MAX_EVENTS = 40;
+  const WORKBENCH_HOST_ID = 'simnet-workbench-rail-host';
   const events = [];
   const byEvent = new WeakMap();
   const lifecycle = typeof AbortController === 'function' ? new AbortController() : null;
@@ -15,8 +16,20 @@
     return text.length > max ? `${text.slice(0, max)}…` : text;
   };
 
+  function eventPath(event) {
+    return typeof event?.composedPath === 'function' ? event.composedPath() : [];
+  }
+
+  function isWorkbenchUiEvent(event) {
+    return eventPath(event).some(node => {
+      if (!(node instanceof Element)) return false;
+      if (String(node.id || '') === WORKBENCH_HOST_ID) return true;
+      return String(node.dataset?.simnetWbOwned || '') === '1';
+    });
+  }
+
   function targetInfo(event) {
-    const path = typeof event?.composedPath === 'function' ? event.composedPath() : [];
+    const path = eventPath(event);
     const elements = path.filter(node => node instanceof Element);
     const actionable = elements.find(el => el.matches?.('[data-action],[data-section],a[href],button,input,select'))
       || (event?.target instanceof Element ? event.target : null);
@@ -38,6 +51,12 @@
   }
 
   function start(event) {
+    // Workbench UI lives inside its own Shadow DOM. Recording those clicks feeds
+    // debug:click back into the rail and can make the rail re-render while a
+    // native select/details control is opening. The debugger exists for CRM/page
+    // interactions, so Workbench-owned UI must never enter this feedback loop.
+    if (isWorkbenchUiEvent(event)) return;
+
     const record = {
       id: `click_${++seq}`,
       at: new Date().toISOString(),
