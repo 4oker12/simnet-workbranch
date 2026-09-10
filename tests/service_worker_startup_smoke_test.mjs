@@ -83,6 +83,13 @@ const errorHandler = globalListeners.get('error');
 assert.equal(typeof errorHandler, 'function', 'unhandled Service Worker error reporter must register');
 assert.doesNotThrow(() => errorHandler({ error: new Error('startup-smoke-synthetic') }));
 await new Promise(resolve => setTimeout(resolve, 180));
-assert.equal(storageData.simnet_workbench_diagnostics_v1, undefined, 'runtime does not persist removed telemetry logs');
+
+const diagnostics = storageData.simnet_workbench_diagnostics_v1;
+assert.ok(diagnostics, 'Service Worker diagnostics must be persisted');
+const entries = Array.isArray(diagnostics) ? diagnostics : diagnostics.entries;
+assert.ok(Array.isArray(entries), 'diagnostics storage must contain an entries array');
+assert.ok(entries.length >= 1, 'synthetic Service Worker error must produce a diagnostic entry');
+const synthetic = entries.find(entry => JSON.stringify(entry).includes('startup-smoke-synthetic'));
+assert.ok(synthetic, 'persisted diagnostics must contain the synthetic Service Worker error');
 
 console.log('service_worker_startup_smoke_test: PASS');

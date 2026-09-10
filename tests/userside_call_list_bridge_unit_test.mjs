@@ -46,4 +46,26 @@ assert.equal(call.employeeId, '243');
 assert.equal(call.durationSeconds, 19);
 assert.equal(call.timeSemantics, 'start');
 assert.equal(call.source, 'userside:call_list');
+
+const aiCommentHtml = `
+<table>
+<tr class="table_item table_item_white" id="row1Id">
+  <td id="td_0_direction_Id">IN</td>
+  <td id="td_0_DATEADD_Id">04.09.2026 14:48</td>
+  <td class="div_right" id="td_0_doing_Id"><span id="audioRecordId2480069"><a href="javascript:loadRecordFile(2480069, 'https://pbx.simnet.kiev.ua/fop2/getrec.php?id=1788522493.230916')">play</a></span></td>
+  <td id="td_0_PHONE_Id">0504585603</td>
+  <td id="td_0_CUSTOMER_Id"><a href="/customer/1">ТОВ ДЕТ ПРОМ Т-2 - abon361977</a></td>
+  <td id="td_0_ANSWERPHONE_Id">6047</td>
+  <td id="td_0_OPER_Id"><a href="/employee/243">Зятьєв А.</a></td>
+  <td id="td_0_callIntervalInt_Id">0:00:51</td>
+  <td id="td_0_comment_Id"><b>--- БАЗОВИЙ АНАЛІЗ ---</b><br>Статус вирішення: В процесі.</td>
+</tr>
+</table>`;
+
+const aiRows = parseUsersideCallListHtml(aiCommentHtml, { operatorExtension: '6047', completedOnly: true });
+assert.equal(aiRows.length, 1, 'completed call with AI comment but no call_comment_add anchor should still parse');
+assert.equal(aiRows[0].usersideCallId, '2480069');
+assert.equal(aiRows[0].recordId, '1788522493.230916');
+assert.equal(aiRows[0].durationSeconds, 51);
+
 console.log('userside_call_list_bridge_unit_test: ok');

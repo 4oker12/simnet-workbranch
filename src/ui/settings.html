@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SIMNET Workbench · Settings</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="top">
+      <div>
+        <div class="eyebrow">SIMNET Workbench</div>
+        <h1>Настройки</h1>
+      </div>
+      <div id="version" class="version">…</div>
+    </header>
+
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2>AI · Groq</h2>
+          <p>Один локальный ключ используется AI-помощником и разбором звонков.</p>
+        </div>
+        <span id="keyBadge" class="badge">Не настроен</span>
+      </div>
+
+      <label class="field-label" for="groqApiKey">Groq API key</label>
+      <div class="key-row">
+        <input id="groqApiKey" type="password" autocomplete="off" spellcheck="false" placeholder="gsk_…">
+        <button id="saveKey" type="button">Сохранить</button>
+      </div>
+      <div class="actions">
+        <button id="testKey" class="secondary" type="button">Проверить ключ</button>
+        <button id="removeKey" class="danger" type="button">Удалить ключ</button>
+      </div>
+      <div id="keyStatus" class="status">Ключ ещё не сохранён.</div>
+      <p class="note">После сохранения поле очищается. Ключ остаётся только в <code>chrome.storage.local</code> этого Chrome-профиля и не попадает в GitHub или диагностический экспорт.</p>
+    </section>
+
+    <section class="card">
+      <h2>AI-помощник</h2>
+      <p class="muted">Основная модель для короткого операторского чата.</p>
+      <label class="field-label" for="chatModel">Модель</label>
+      <select id="chatModel">
+        <option value="qwen/qwen3.6-27b">Qwen 3.6 27B</option>
+        <option value="openai/gpt-oss-120b">GPT-OSS 120B</option>
+        <option value="qwen/qwen3.8-27b">Qwen 3.8 27B</option>
+        <option value="openai/gpt-oss-20b">GPT-OSS 20B</option>
+      </select>
+      <button id="saveChatModel" class="secondary save-model" type="button">Сохранить модель</button>
+    </section>
+
+    <section class="card">
+      <h2>Разбор звонков</h2>
+      <p class="muted">Стандартный разбор остаётся режимом по умолчанию: суть → причина → действия → результат → следующий шаг. При 429, недоступности или таймауте Workbench последовательно пробует резервные модели.</p>
+      <ol class="routes">
+        <li><b>Qwen 3.6 27B</b><span>основная</span></li>
+        <li><b>GPT-OSS 120B</b><span>fallback 1</span></li>
+        <li><b>Qwen 3.8 27B</b><span>fallback 2</span></li>
+        <li><b>GPT-OSS 20B</b><span>fallback 3</span></li>
+      </ol>
+      <div id="modelAvailability" class="status compact">Доступность моделей проверится вместе с ключом.</div>
+    </section>
+
+    <section class="card">
+      <h2>Профили анализа</h2>
+      <div class="profile active">
+        <div><b>Стандартный</b><span>по умолчанию</span></div>
+        <p>Фактическая суть звонка без оценки личности оператора и без выдумывания действий, проверок или результата.</p>
+      </div>
+      <p class="muted">Дополнительные профили вроде «Оценка действий оператора», «Технический разбор» и «Клиентский сервис» будут запускаться отдельно поверх уже готового транскрипта и не потребуют повторной работы Whisper.</p>
+    </section>
+  </main>
+  <script src="settings.js"></script>
+</body>
+</html>

@@ -6,21 +6,31 @@ const diagnosticsNode = document.getElementById('diagnostics');
 const clearWorkbenchNode = document.getElementById('clearWorkbench');
 const diagCountNode = document.getElementById('diagCount');
 const workerDot = document.getElementById('workerDot');
+const groqKeyStatusNode = document.getElementById('groqKeyStatus');
+const groqKeyBadgeNode = document.getElementById('groqKeyBadge');
+const openSettingsNode = document.getElementById('openSettings');
 const VERSION = chrome.runtime.getManifest().version;
 const DIAG_KEY = 'simnet_workbench_diagnostics_v1';
 const FALLBACK_KEY = 'simnet_workbench_diagnostics_fallback_v1';
 const STATE_KEY = 'simnet_workbench_state_v5';
+const AI_RUNTIME_CONFIG_KEY = 'simnet_workbench_ai_runtime_v1';
 versionNode.textContent = `v${VERSION}`;
 
 const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const short = (value, max = 260) => { const text = String(value || '').replace(/\s+/g, ' ').trim(); return text.length > max ? `${text.slice(0, max - 1)}…` : text; };
 
 async function readDirect() {
-  const stored = await chrome.storage.local.get([DIAG_KEY, FALLBACK_KEY, STATE_KEY]);
+  const stored = await chrome.storage.local.get([DIAG_KEY, FALLBACK_KEY, STATE_KEY, AI_RUNTIME_CONFIG_KEY]);
   const primary = stored?.[DIAG_KEY] && typeof stored[DIAG_KEY] === 'object' ? stored[DIAG_KEY] : { entries: [], unreadCount: 0 };
   const fallback = Array.isArray(stored?.[FALLBACK_KEY]) ? stored[FALLBACK_KEY] : [];
   const entries = [...fallback.map(item => ({ ...item, emergencyFallback: true, unread: true })), ...(Array.isArray(primary.entries) ? primary.entries : [])].slice(0, 200);
-  return { primary, fallback, entries, state: stored?.[STATE_KEY] || null };
+  return {
+    primary,
+    fallback,
+    entries,
+    state: stored?.[STATE_KEY] || null,
+    aiRuntime: stored?.[AI_RUNTIME_CONFIG_KEY] || null
+  };
 }
 
 function renderDiagnostics(data) {
@@ -37,6 +47,16 @@ function renderDiagnostics(data) {
       <div class="diag-msg">${esc(short(entry.message || entry.reason || ''))}</div>
       <div class="diag-meta">${esc(entry.lastSeenAt || entry.timestamp || entry.firstSeenAt || '')}${entry.subscriber ? ` · ${esc(entry.subscriber)}` : ''}${entry.emergencyFallback ? ' · fallback' : ''}</div>
     </div>`).join('');
+}
+
+function renderAiStatus(aiRuntime) {
+  const configured = Boolean(String(aiRuntime?.groqApiKey || '').trim());
+  groqKeyStatusNode.textContent = configured
+    ? 'Ключ настроен локально. AI-помощник и разбор звонков могут использовать Groq.'
+    : 'Ключ не настроен. Whisper продолжит работать, AI-разбор остановится на TXT.';
+  groqKeyStatusNode.className = configured ? 'ai-state ok' : 'ai-state';
+  groqKeyBadgeNode.textContent = configured ? 'OK' : 'нет ключа';
+  groqKeyBadgeNode.className = configured ? 'mini-badge ok' : 'mini-badge';
 }
 
 async function probeWorker() {
@@ -61,6 +81,7 @@ async function probeWorker() {
 async function load() {
   const [direct] = await Promise.all([readDirect(), probeWorker()]);
   renderDiagnostics(direct);
+  renderAiStatus(direct.aiRuntime);
   const state = direct.state;
   const active = state?.cases?.[state?.activeCaseId];
   contextNode.textContent = active ? JSON.stringify({
@@ -69,6 +90,15 @@ async function load() {
     identity: active.identity
   }, null, 2) : 'Активный Case ещё не создан.';
 }
+
+openSettingsNode?.addEventListener('click', () => {
+  chrome.runtime.openOptionsPage();
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local' || !changes?.[AI_RUNTIME_CONFIG_KEY]) return;
+  renderAiStatus(changes[AI_RUNTIME_CONFIG_KEY].newValue || {});
+});
 
 exportNode.addEventListener('click', async () => {
   const direct = await readDirect();
@@ -119,7 +149,7 @@ async function emergencyClearWorkbench() {
 }
 
 clearWorkbenchNode?.addEventListener('click', async () => {
-  if (!confirm('Полностью очистить данные Workbench?\n\nCase, CALL evidence/snapshots, AI-сессии, CRM-кэш и Audit DB будут удалены. Cookies и авторизация UserSide/Billing не затрагиваются.')) return;
+  if (!confirm('Полностью очистить данные Workbench?\n\nCase, CALL evidence/snapshots, AI-сессии, CRM-кэш, локальный Groq key и Audit DB будут удалены. Cookies и авторизация UserSide/Billing не затрагиваются.')) return;
   clearWorkbenchNode.disabled = true;
   clearWorkbenchNode.textContent = 'Очищаю…';
   try {
