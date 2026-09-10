@@ -1,7 +1,8 @@
 (() => {
   'use strict';
 
-  const API_VERSION = '2.0.0';
+  const API_VERSION = '2.1.0';
+  const INVENTORY_HEADER_SELECTOR = '.label_h3_hr, .erp_object_subtitle, .erp_object_subtitle--rule';
 
   const compact = (value, max = 600) => {
     const text = String(value == null ? '' : value)
@@ -38,6 +39,31 @@
     6000
   );
 
+  function containsTableRows(node) {
+    return Boolean(node?.querySelector?.('tbody tr'));
+  }
+
+  function inventoryBlockAfter(header) {
+    let sibling = header?.nextElementSibling || null;
+    let steps = 0;
+
+    // UserSide has used at least two different wrappers around the TMC section.
+    // Stay within the local section, but do not bind the parser to either CSS skin.
+    while (sibling && steps < 6) {
+      if (steps > 0 && sibling.matches?.(INVENTORY_HEADER_SELECTOR)) break;
+
+      if (sibling.matches?.('.slider_content_double')) return sibling;
+      const legacy = sibling.querySelector?.('.slider_content_double') || null;
+      if (legacy) return legacy;
+      if (containsTableRows(sibling)) return sibling;
+
+      sibling = sibling.nextElementSibling || null;
+      steps += 1;
+    }
+
+    return null;
+  }
+
   function inventoryScope(root = document) {
     if (!root?.querySelector) {
       return { status: 'document_missing', anchor: null, header: null, block: null };
@@ -45,13 +71,12 @@
     const anchor = root.querySelector('#ref_inventory');
     if (!anchor) return { status: 'inventory_missing', anchor: null, header: null, block: null };
 
-    const header = anchor.closest?.('.label_h3_hr') || null;
+    const parent = anchor.parentElement || null;
+    const header = anchor.closest?.(INVENTORY_HEADER_SELECTOR)
+      || (parent && /\bТМЦ\b/i.test(oneLine(parent.innerText || parent.textContent || '', 120)) ? parent : null);
     if (!header) return { status: 'header_missing', anchor, header: null, block: null };
 
-    const sibling = header.nextElementSibling || null;
-    const block = sibling?.matches?.('.slider_content_double')
-      ? sibling
-      : sibling?.querySelector?.('.slider_content_double') || null;
+    const block = inventoryBlockAfter(header);
     if (!block) return { status: 'tmc_block_missing', anchor, header, block: null };
 
     return { status: 'ready', anchor, header, block };
@@ -60,7 +85,7 @@
   function ponRows(root = document) {
     const scope = inventoryScope(root);
     if (!scope.block?.querySelectorAll) return { ...scope, rows: [] };
-    const rows = [...scope.block.querySelectorAll('tbody tr.table_item')]
+    const rows = [...scope.block.querySelectorAll('tbody tr')]
       .filter(row => oneLine(row?.cells?.[2]?.innerText || row?.cells?.[2]?.textContent || '', 80).toUpperCase() === 'PON');
     return {
       ...scope,
