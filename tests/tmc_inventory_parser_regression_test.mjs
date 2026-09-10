@@ -23,14 +23,16 @@ const deviceLink = {
   href: `https://userside.simnet.kiev.ua/device/${fixture.tmc.oltDeviceId}`,
   getAttribute(name) { return name === 'href' ? `/device/${fixture.tmc.oltDeviceId}` : ''; }
 };
+const detailsText = `MAC: ${fixture.tmc.mac}\nНайдено на OLT:\n27.08.2026 12:00\n${fixture.tmc.oltName}\nIP: ${fixture.tmc.oltIp}\nInterface: ${fixture.tmc.interface}\nONU Rx: ${fixture.tmc.onuRx}\nONU Tx: ${fixture.tmc.onuTx}\nOLT Rx: ${fixture.tmc.oltRx}`;
 const cells = [
   { innerText: '1', textContent: '1' },
   { innerText: 'ONU', textContent: 'ONU' },
   { innerText: 'PON', textContent: 'PON' },
   { innerText: fixture.tmc.equipmentName, textContent: fixture.tmc.equipmentName },
   {
-    innerText: `MAC: ${fixture.tmc.mac}\nНайдено на OLT: ${fixture.tmc.oltName}\nIP: ${fixture.tmc.oltIp}\nInterface: ${fixture.tmc.interface}\nONU Rx: ${fixture.tmc.onuRx}\nONU Tx: ${fixture.tmc.onuTx}\nOLT Rx: ${fixture.tmc.oltRx}`,
-    textContent: `MAC: ${fixture.tmc.mac} Найдено на OLT: ${fixture.tmc.oltName} IP: ${fixture.tmc.oltIp} Interface: ${fixture.tmc.interface} ONU Rx: ${fixture.tmc.onuRx} ONU Tx: ${fixture.tmc.onuTx} OLT Rx: ${fixture.tmc.oltRx}`,
+    innerText: detailsText,
+    textContent: detailsText.replace(/\n/g, ' '),
+    querySelector(selector) { return selector === 'a[href*="/device/"]' ? deviceLink : null; },
     querySelectorAll(selector) { return selector === 'a[href*="/device/"]' ? [deviceLink] : []; }
   }
 ];
@@ -38,14 +40,19 @@ const row = { cells };
 const block = {
   className: 'slider_content_double',
   matches(selector) { return selector === '.slider_content_double'; },
-  querySelectorAll(selector) { return selector === 'tbody tr.table_item' ? [row] : []; }
+  querySelector(selector) { return selector === 'tbody tr' ? row : null; },
+  querySelectorAll(selector) { return selector === 'tbody tr' ? [row] : []; }
 };
 const header = {
   innerText: 'ТМЦ',
   textContent: 'ТМЦ',
-  nextElementSibling: block
+  nextElementSibling: block,
+  matches(selector) { return selector.includes('.label_h3_hr'); }
 };
-const anchor = { closest(selector) { return selector === '.label_h3_hr' ? header : null; } };
+const anchor = {
+  parentElement: header,
+  closest(selector) { return selector.includes('.label_h3_hr') ? header : null; }
+};
 const documentFixture = { querySelector(selector) { return selector === '#ref_inventory' ? anchor : null; } };
 
 const parsed = parser.parseDocument(documentFixture);
@@ -72,6 +79,7 @@ const caseData = {
     tmcPort: fact(parsed.item.interface, 'userside:tmc-interface'),
     tmcOnuMac: fact(parsed.item.mac, 'userside:tmc-onu-mac'),
     tmcOnuSerial: fact('', 'userside:tmc-onu-serial'),
+    tmcFoundOnOlt: fact('true', 'userside:tmc-found-on-olt'),
     tmcOnuRx: fact(parsed.item.onuRx, 'userside:tmc-onu-rx'),
     tmcOnuTx: fact(parsed.item.onuTx, 'userside:tmc-onu-tx'),
     tmcOltRx: fact(parsed.item.oltRx, 'userside:tmc-olt-rx')
@@ -111,8 +119,6 @@ assert.equal(workflow.pollAction, fixture.expected.pollAction);
 assert.equal(workflow.pollAllowed, fixture.expected.pollAllowed);
 assert.deepEqual(workflow.blockers, []);
 
-// Missing Serial is not an EPON classifier. Without real technology evidence,
-// readiness remains blocked on route selection instead of defaulting to 310.
 const unknownTechnology = structuredClone(caseData);
 unknownTechnology.pon.oltName = fact('Unknown access node', 'billing:olt-selected-option');
 unknownTechnology.pon.tmcOltName = fact('Unknown access node', 'userside:tmc-olt-name');
