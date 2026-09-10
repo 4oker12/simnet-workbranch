@@ -85,7 +85,10 @@
     if (immediate) return immediate;
     if (waitInFlight) return waitInFlight;
 
-    const maxWait = Math.max(500, Math.min(6000, Number(timeoutMs || 4500)));
+    // Old callers still pass 1200ms. After the UserSide refresh the TMC table can
+    // arrive later, so keep a bounded but useful floor instead of failing before
+    // the section finishes rendering.
+    const maxWait = Math.max(3500, Math.min(6000, Number(timeoutMs || 4500)));
     const promise = new Promise(resolve => {
       let done = false;
       let timer = null;
