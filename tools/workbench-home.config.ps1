@@ -3,7 +3,7 @@
 
 $WorkbenchHomeConfig = [ordered]@{
     VastHost = '91.150.160.38'
-    VastSshPort = 11674
+    VastSshPort = 16988
     VastUser = 'root'
 
     LocalSocksPort = 25344
