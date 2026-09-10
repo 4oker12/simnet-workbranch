@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const API_VERSION = '1.0.0';
+  const API_VERSION = '1.1.0';
 
   const compact = (value, max = 1000) => {
     const text = String(value == null ? '' : value)
@@ -24,20 +24,20 @@
   };
 
   const FIELD_PATTERNS = [
-    ['bras', /\bBRAS\s*-\s*/i],
-    ['source', /Джерело\s+сесії\s*-\s*/i],
-    ['sessionId', /Сесія\s*-\s*/i],
-    ['statusRaw', /Статус\s+сесії\s*-\s*/i],
-    ['username', /\bUSERNAME\s*-\s*/i],
-    ['authType', /Тип\s+авторизації(?:\s+Radius2)?\s*-\s*/i],
-    ['startTime', /Час\s+старту\s*-\s*/i],
-    ['bytesRaw', /Байти\s+прийнято\/передано\s*-\s*/i],
-    ['speedRaw', /Швидкість\s+прийом\/передача\s+за\s+останню\s+секунду\s*-\s*/i],
-    ['lastEventTime', /Час\s+останньої\s+події\s*-\s*/i],
-    ['lastEvent', /Остання\s+подія\s*-\s*/i],
-    ['router', /\bROUTER\s*-\s*/i],
-    ['vendor', /\bVENDOR\s*-\s*/i],
-    ['vlan', /\bVLAN\s*-\s*/i]
+    ['bras', /\bBRAS\s*[-:–—]\s*/i],
+    ['source', /Джерело\s+сесії\s*[-:–—]\s*/i],
+    ['sessionId', /Сесія\s*[-:–—]\s*/i],
+    ['statusRaw', /Статус\s+сесії\s*[-:–—]\s*/i],
+    ['username', /\bUSERNAME\s*[-:–—]\s*/i],
+    ['authType', /Тип\s+авторизації(?:\s+Radius2)?\s*[-:–—]\s*/i],
+    ['startTime', /Час\s+старту\s*[-:–—]\s*/i],
+    ['bytesRaw', /Байти\s+прийнято\/передано\s*[-:–—]\s*/i],
+    ['speedRaw', /Швидкість\s+прийом\/передача\s+за\s+останню\s+секунду\s*[-:–—]\s*/i],
+    ['lastEventTime', /Час\s+останньої\s+події\s*[-:–—]\s*/i],
+    ['lastEvent', /Остання\s+подія\s*[-:–—]\s*/i],
+    ['router', /\bROUTER\s*[-:–—]\s*/i],
+    ['vendor', /\bVENDOR\s*[-:–—]\s*/i],
+    ['vlan', /\bVLAN\s*[-:–—]\s*/i]
   ];
 
   function fieldSlices(text) {
@@ -83,10 +83,24 @@
     };
   }
 
+  function detectSourceError(rawText) {
+    const text = compact(rawText, 12000);
+    if (/Permission\s+denied\s*\(publickey\)/i.test(text)) {
+      return { type: 'backend_auth', code: 'SSH_PUBLICKEY_DENIED', retryable: false, message: 'Billing не смог авторизоваться во внутреннем Juniper/BRAS источнике.' };
+    }
+    if (/connection\s+timed?\s*out|request\s+timed?\s*out|operation\s+timed?\s*out|таймаут/i.test(text)) {
+      return { type: 'timeout', code: 'JUNIPER_SOURCE_TIMEOUT', retryable: true, message: 'Внутренний источник Juniper не ответил вовремя.' };
+    }
+    if (/no\s+route\s+to\s+host|host\s+unreachable|connection\s+refused|failed\s+to\s+connect/i.test(text)) {
+      return { type: 'transport', code: 'JUNIPER_SOURCE_UNREACHABLE', retryable: true, message: 'Billing не смог подключиться к внутреннему Juniper/BRAS источнику.' };
+    }
+    return null;
+  }
+
   function parseSessionText(rawText) {
     const text = compact(rawText, 12000);
     const { fields, firstIndex } = fieldSlices(text);
-    const header = compact(text.slice(0, firstIndex), 500);
+    const header = compact(text.slice(0, firstIndex), 700);
     const subscriberIp = validIp(header);
     const subscriberMac = normalizeMac(
       header.match(/(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}|[0-9a-f]{4}(?:\.[0-9a-f]{4}){2}|[0-9a-f]{12}/i)?.[0] || ''
@@ -100,9 +114,11 @@
       160
     );
     const statusRaw = compact(fields.statusRaw || '', 120);
+    const noActiveSession = /online[-\s]?сесію\s+не\s+знайдено|online[-\s]?сес(?:сию|ія)\s+не\s+найден/i.test(text);
     const staleRadius = /сесія\s+є\s+в\s+Radius,?\s+але\s+на\s+BRAS\s+не\s+знайдена/i.test(text);
-    const online = /\bonline\b/i.test(statusRaw) && !staleRadius;
-    const offline = /\boffline\b/i.test(statusRaw) || staleRadius;
+    const stopped = /\bstopped\b/i.test(statusRaw) || noActiveSession;
+    const online = /\bonline\b/i.test(statusRaw) && !staleRadius && !stopped && !noActiveSession;
+    const offline = /\boffline\b/i.test(statusRaw) || staleRadius || stopped || noActiveSession;
     const status = online ? 'online' : offline ? 'offline' : (statusRaw ? 'unknown' : 'no_session');
     const rate = parseRatePair(fields.speedRaw || '');
 
@@ -115,6 +131,9 @@
       sessionId: compact(fields.sessionId || '', 120),
       status,
       statusRaw,
+      activeSessionFound: status === 'online',
+      noActiveSession,
+      stopped,
       username: compact(fields.username || '', 180),
       authType: compact(fields.authType || '', 120),
       startTime: compact(fields.startTime || '', 180),
@@ -136,6 +155,7 @@
   function scoreSession(session) {
     let score = 0;
     if (session.status === 'online') score += 100;
+    if (session.noActiveSession) score += 30;
     if (!session.staleRadius) score += 20;
     if (session.brasName) score += 8;
     if (session.sessionId) score += 6;
@@ -143,7 +163,7 @@
     return score;
   }
 
-  function educationalSummary(session, result) {
+  function educationalSummary(session, result, sourceError = null) {
     if (result === 'online') {
       if (session.hasTraffic === true) {
         return 'Juniper: активная сессия на BRAS есть, в момент снимка идёт обмен пакетами. Это подтверждает L3-сессию, но не качество Wi‑Fi или скорость доступа.';
@@ -154,6 +174,9 @@
       return 'Juniper: активная сессия на BRAS есть. Это подтверждает авторизацию/L3-сессию; PON, оптика и Wi‑Fi проверяются отдельно.';
     }
     if (result === 'offline') {
+      if (session.noActiveSession || session.stopped) {
+        return 'Juniper: активная online-сессия не найдена; Billing показывает последнюю stopped-сессию как справочную.';
+      }
       if (session.staleRadius) {
         return 'Juniper: запись сессии есть в Radius, но на BRAS активная сессия не найдена. Это полезный L3-факт, но состояние ONU нужно проверять отдельно.';
       }
@@ -162,45 +185,85 @@
     if (result === 'no_session') {
       return 'Juniper: активная сессия не найдена. Продолжай обычную диагностику; отсутствие L3-сессии не заменяет проверку Billing/ТМЦ/ONU.';
     }
+    if (result === 'error' && sourceError) {
+      return `Juniper: данные сессии сейчас недоступны — ${sourceError.message}`;
+    }
     return 'Juniper: данные сессии не удалось уверенно разобрать. Основной диагностический маршрут не блокируется.';
+  }
+
+  function sessionBlocks(root) {
+    const all = [...(root?.querySelectorAll?.('table.table10, .message table') || [])];
+    const unique = [...new Set(all)];
+    return unique.filter(block => /(?:\bBRAS\b|Статус\s+сесії|Джерело\s+сесії|\bСесія\s*[-:–—])/i.test(
+      block?.innerText || block?.textContent || ''
+    ));
   }
 
   function parseDocument(root) {
     if (!root?.querySelectorAll) {
-      return { parserVersion: API_VERSION, result: 'error', sessions: [], session: null, summary: educationalSummary({}, 'error') };
+      return { parserVersion: API_VERSION, result: 'error', sessions: [], session: null, sourceError: null, summary: educationalSummary({}, 'error') };
     }
 
-    let blocks = [...root.querySelectorAll('table.table10')]
-      .map(table => table.querySelector('td[valign="middle"], td[align="left"], td:nth-of-type(3)') || table)
-      .filter(Boolean);
-
-    if (!blocks.length && root.body) blocks = [root.body];
+    const rootText = root.body?.innerText || root.body?.textContent || root.innerText || root.textContent || '';
+    let blocks = sessionBlocks(root);
+    if (!blocks.length && /(?:\bBRAS\b|Статус\s+сесії|Джерело\s+сесії)/i.test(rootText)) {
+      blocks = [root.body || root];
+    }
 
     const sessions = blocks
       .map(block => parseSessionText(block.innerText || block.textContent || ''))
-      .filter(session => session.sessionId || session.statusRaw || session.staleRadius || session.brasName);
+      .filter(session => session.sessionId || session.statusRaw || session.staleRadius || session.brasName || session.noActiveSession);
 
     const session = [...sessions].sort((a, b) => scoreSession(b) - scoreSession(a))[0] || null;
-    const result = session?.status || 'no_session';
+    const sourceError = detectSourceError(rootText);
+
+    // A valid session block is authoritative even if the same Billing page also
+    // prints a backend warning below it. This happens in the current Juniper tab.
+    if (session) {
+      const result = session.status || 'unknown';
+      return {
+        parserVersion: API_VERSION,
+        result,
+        sessions,
+        session,
+        sourceError: null,
+        sourceWarning: sourceError,
+        summary: educationalSummary(session, result)
+      };
+    }
+
+    if (sourceError) {
+      return {
+        parserVersion: API_VERSION,
+        result: 'error',
+        sessions: [],
+        session: null,
+        sourceError,
+        sourceWarning: null,
+        summary: educationalSummary({}, 'error', sourceError)
+      };
+    }
 
     return {
       parserVersion: API_VERSION,
-      result,
-      sessions,
-      session,
-      summary: educationalSummary(session || {}, result)
+      result: 'no_session',
+      sessions: [],
+      session: null,
+      sourceError: null,
+      sourceWarning: null,
+      summary: educationalSummary({}, 'no_session')
     };
   }
 
   function parseHtml(html) {
     if (typeof DOMParser === 'undefined') {
-      return { parserVersion: API_VERSION, result: 'error', sessions: [], session: null, summary: educationalSummary({}, 'error') };
+      return { parserVersion: API_VERSION, result: 'error', sessions: [], session: null, sourceError: null, summary: educationalSummary({}, 'error') };
     }
     try {
       const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
       return parseDocument(doc);
     } catch {
-      return { parserVersion: API_VERSION, result: 'error', sessions: [], session: null, summary: educationalSummary({}, 'error') };
+      return { parserVersion: API_VERSION, result: 'error', sessions: [], session: null, sourceError: null, summary: educationalSummary({}, 'error') };
     }
   }
 
@@ -210,6 +273,7 @@
     normalizeMac,
     validIp,
     parseRatePair,
+    detectSourceError,
     parseSessionText,
     parseDocument,
     parseHtml,
