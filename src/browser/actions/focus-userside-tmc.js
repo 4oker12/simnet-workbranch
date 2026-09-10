@@ -66,19 +66,26 @@
     active = null;
   }
 
-  function parserResult() {
+  function parserResult({ allowSectionFallback = false } = {}) {
     const block = WB.tmcParser?.findBlocks?.(document)?.[0] || null;
-    if (!block?.isConnected) return null;
-    const facts = WB.tmcParser?.parseBlock?.(block) || null;
-    return { block, facts };
+    if (block?.isConnected) {
+      const facts = WB.tmcParser?.parseBlock?.(block) || null;
+      return { block, facts, sectionFallback: false };
+    }
+
+    if (!allowSectionFallback) return null;
+    const parsed = WB.tmcParser?.parseDocument?.(document) || null;
+    const section = parsed?.block || parsed?.header || null;
+    if (!section || section.isConnected === false) return null;
+    return { block: section, facts: parsed?.item || null, sectionFallback: true };
   }
 
-  async function waitForTmcBlock(timeoutMs = 1200) {
+  async function waitForTmcBlock(timeoutMs = 4500) {
     const immediate = parserResult();
     if (immediate) return immediate;
     if (waitInFlight) return waitInFlight;
 
-    const maxWait = Math.max(250, Math.min(1800, Number(timeoutMs || 1200)));
+    const maxWait = Math.max(500, Math.min(6000, Number(timeoutMs || 4500)));
     const promise = new Promise(resolve => {
       let done = false;
       let timer = null;
@@ -95,7 +102,7 @@
       };
       const observer = new MutationObserver(check);
       observer.observe(document.documentElement, { childList: true, subtree: true });
-      timer = setTimeout(() => finish(parserResult()), maxWait);
+      timer = setTimeout(() => finish(parserResult() || parserResult({ allowSectionFallback: true })), maxWait);
       queueMicrotask(check);
     }).finally(() => {
       if (waitInFlight === promise) waitInFlight = null;
@@ -158,7 +165,7 @@
     return marked;
   }
 
-  async function run({ mode = 'focus', commandId = '', caseId = '', timeoutMs = 2200 } = {}) {
+  async function run({ mode = 'focus', commandId = '', caseId = '', timeoutMs = 4500 } = {}) {
     const id = String(commandId || '');
     if (!['focus', 'scroll'].includes(mode)) return { ok: false, reason: 'unsupported-tmc-command' };
     if (id && consumed.has(id)) return { ok: true, consumed: true, mode };
@@ -172,7 +179,13 @@
       resolved.block.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' });
     }
     remember(id);
-    return { ok: true, mode, marked, element: resolved.block };
+    return {
+      ok: true,
+      mode,
+      marked,
+      sectionFallback: Boolean(resolved.sectionFallback),
+      element: resolved.block
+    };
   }
 
   function execute(command = {}) {
