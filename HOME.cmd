@@ -1,5 +1,5 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\Start-HomeFresh.ps1"
+call "%~dp0START-WORKBENCH-HOME.cmd"
 exit /b %ERRORLEVEL%
