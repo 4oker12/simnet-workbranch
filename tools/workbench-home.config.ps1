@@ -10,8 +10,8 @@ $WorkbenchHomeConfig = [ordered]@{
     RemoteSocksHost = '127.0.0.1'
     RemoteSocksPort = 25344
 
-    # Private Shadowsocks bridge for the local SIP/TUN path. It is carried only
-    # inside the SSH session; no public Vast port mapping is required.
+    # Private Shadowsocks bridge for the optional local SIP/TUN path. It is
+    # carried only inside the SSH session; no public Vast port is required.
     LocalShadowsocksPort = 10200
     RemoteShadowsocksHost = '127.0.0.1'
     RemoteShadowsocksPort = 10200
@@ -20,19 +20,22 @@ $WorkbenchHomeConfig = [ordered]@{
     RemoteAsrHost = '127.0.0.1'
     RemoteAsrPort = 8000
 
-    PacPort = 8765
+    # HOME browser routing uses the proven local PAC file directly. No local
+    # HTTP server is required for Chrome.
     PacPath = Join-Path $env:USERPROFILE 'simnet-vast.pac'
-    PacDirectory = $env:USERPROFILE
 
     AsrHealthUrl = 'http://127.0.0.1:8090/health'
     # PBX is the decisive HOME/WORK probe: at HOME Billing/UserSide may still be
     # reachable directly, while PBX requires the Vast/SOCKS route.
     SimnetProbeUrl = 'https://pbx.simnet.kiev.ua/'
     PbxProbeUrl = 'https://pbx.simnet.kiev.ua/'
+    UsersideUrl = 'https://userside.simnet.kiev.ua/'
+    BillingUrl = 'https://admin.simnet.kiev.ua/cgi-bin/adm/adm.pl'
     GroqProbeUrl = 'https://api.groq.com/openai/v1/models'
 
     # Original local client config remains the private source of the Shadowsocks
-    # method/password. START writes a runtime copy pointed at localhost:10200.
+    # method/password. START writes a runtime copy pointed at localhost:10200
+    # only when attempting the optional SIP/TUN layer.
     SingBoxConfig = Join-Path $env:LOCALAPPDATA 'sing-box-simnet\client.json'
     RuntimeSingBoxClientConfig = Join-Path $env:LOCALAPPDATA 'SIMNET-Workbench\runtime\client-home-runtime.json'
     SingBoxTunName = 'simnet-uot'
@@ -49,7 +52,9 @@ $WorkbenchHomeConfig = [ordered]@{
     WireGuardService = 'WireGuardTunnel$Zyatyev_Andriy-HOME'
     StopConflictingWireGuard = $true
 
-    ChromeUserDataDir = Join-Path $env:LOCALAPPDATA 'SIMNET-Workbench\ChromeProfile'
+    # Reuse the previously proven dedicated HOME Chrome profile so cookies and
+    # logins survive between one-click starts.
+    ChromeUserDataDir = Join-Path $env:USERPROFILE 'SIMNET-Chrome-Home'
 
     RuntimeDir = Join-Path $env:LOCALAPPDATA 'SIMNET-Workbench\runtime'
     StateFile = Join-Path $env:LOCALAPPDATA 'SIMNET-Workbench\runtime\home-state.json'
