@@ -36,8 +36,6 @@
   }
 
   function firstInterface(text) {
-    // Prefer the most specific F/S/P[:ONT] representation. The old order
-    // truncated Huawei GPON0/1/10:19 to GPON0/1 and weakened identity evidence.
     const patterns = [
       /\b((?:gpon|epon)\d+\/\d+\/\d+(?::\d+)?)\b/i,
       /\b((?:E|G)PON\d+\/\d+(?:\/\d+)?(?::\d+)?)\b/i,
@@ -58,7 +56,6 @@
       if (normalized && !values.includes(normalized)) values.push(normalized);
     };
 
-    // Command arguments identify what was requested; they are not observed serial evidence.
     push(source.match(/\bSN\s*:\s*[0-9A-F]{8,32}\s*\(([^)]+)\)/i)?.[1] || '');
     push(source.match(/(?:SN\s*ONU|serial|серийн\w*|серійн\w*)\s*[:#=]?\s*([A-Z0-9]{4,16}:[A-Z0-9]{4,32}|[A-Z0-9]{8,64})/i)?.[1] || '');
     return values;
@@ -80,7 +77,7 @@
       || ''
     ).toUpperCase();
 
-    const notFound = /ONU\s+(?:не\s+найдена|не\s+знайдена)\s+на\s+OLT|ONU\s+not\s+found|ONT\s+not\s+found|no\s+such\s+(?:ONU|ONT)|(?:ONU|ONT).{0,50}(?:does\s+not\s+exist|not\s+exist)/i.test(sourceText);
+    const notFound = /ONU\s+(?:не\s+найден(?:а|о)?|не\s+знайден(?:а|о)?)\s+на\s+OLT|ONU\s+(?:не\s+найден(?:а|о)?|не\s+знайден(?:а|о)?)(?:\b|$)|ONU\s+not\s+found|ONT\s+not\s+found|no\s+such\s+(?:ONU|ONT)|(?:ONU|ONT).{0,50}(?:does\s+not\s+exist|not\s+exist)/i.test(sourceText);
     const pending = /(?:данные\s+посланы|ждите|wait\.\.\.|очікуйте|выполняется\s+опрос|загрузка)/i.test(sourceText)
       && !notFound;
     const timeout = /request\s+timed\s+out|timed?\s*out|таймаут|час\s+очікування\s+вичерпано/i.test(sourceText);
@@ -104,13 +101,6 @@
     const observedSerial = observedSerialAliases[0] || '';
     const interfaceName = firstInterface(sourceText);
 
-    // `pollResponded` answers one question only: did the OLT/ONU actually return
-    // technical output for the poll?  It is intentionally independent from identity
-    // matching.  A different client MAC, different Serial or other conflict is still
-    // a successful poll; those differences belong to Terminal Interpretation.
-    //
-    // Keep these markers terminal-specific.  A generic word such as `online` may occur
-    // elsewhere on the Billing page (for example IPTV copy) and must not finish a poll.
     const pollResponded = Boolean(
       /ONU\s+(?:gpon|epon)[^\n\r]{0,120}\s+is\s*-\s*(?:online|offline)/i.test(sourceText)
       || /has\s+bound\s+\d+\s+active\s+ONUs?/i.test(sourceText)
@@ -131,10 +121,6 @@
     );
     const strongEvidence = pollResponded;
 
-    // Match only values actually parsed from terminal output. The Billing profile row
-    // and command arguments (for example `| exclude <expected MAC>`) are context, not
-    // observed network evidence.  Matching enriches the result, but no longer decides
-    // whether the poll itself succeeded.
     const matchedBy = [];
 
     if (
