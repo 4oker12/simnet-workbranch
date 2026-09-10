@@ -21,8 +21,11 @@ $WorkbenchHomeConfig = [ordered]@{
     RemoteAsrPort = 8000
 
     # HOME browser routing uses the proven local PAC file directly. No local
-    # HTTP server is required for Chrome.
+    # HTTP server is required for Chrome. PacPort/PacDirectory are retained only
+    # for backward-compatible STOP/state handling from older runs.
     PacPath = Join-Path $env:USERPROFILE 'simnet-vast.pac'
+    PacPort = 8765
+    PacDirectory = $env:USERPROFILE
 
     AsrHealthUrl = 'http://127.0.0.1:8090/health'
     # PBX is the decisive HOME/WORK probe: at HOME Billing/UserSide may still be
