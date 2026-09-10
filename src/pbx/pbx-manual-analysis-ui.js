@@ -123,6 +123,7 @@
       .qaSend:disabled{opacity:.55;cursor:wait}
       .answer{margin-top:9px;padding:11px 13px;border-radius:10px;background:#f6f8fb;color:#344256;font-size:13px;line-height:1.48;white-space:pre-wrap;overflow-wrap:anywhere}
       .answer[data-tone="error"]{background:#fff5f5;color:#9b2c2c}
+      .timecode{display:inline-flex;align-items:center;margin:0 2px;padding:2px 6px;border-radius:6px;background:#fceef4;color:#a50046;font-size:11.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
       details.tech{margin-top:13px;padding-top:11px;border-top:1px solid #eef2f6;color:#7a8594}
       details.tech summary{cursor:pointer;list-style:none;font-size:10.5px;font-weight:650;user-select:none}
       details.tech summary::-webkit-details-marker{display:none}
@@ -359,8 +360,14 @@
     meta.appendChild(span);
   }
 
-  function addFact(body, label, value) {
+  function displayFactText(value) {
     const text = String(value || '').trim();
+    if (!text || /^(?:[.…·*_\-–—]+)$/u.test(text)) return '';
+    return text;
+  }
+
+  function addFact(body, label, value) {
+    const text = displayFactText(value);
     if (!text) return;
     const row = document.createElement('div');
     row.className = 'fact';
@@ -380,6 +387,31 @@
     text = text.replace(/^\s*(?:ОТВЕТ|ANSWER)\s*:\s*/i, '').trim();
     if (/^(?:here'?s? (?:a )?thinking process|analy[sz]e user input|scan transcript)/i.test(text)) return '';
     return text.slice(0, 1800);
+  }
+
+  function appendAnswerWithTimecodes(node, value) {
+    const text = String(value || '');
+    const pattern = /\[(?:\d{1,2}:)?\d{2}:\d{2}\s*[–—-]\s*(?:\d{1,2}:)?\d{2}:\d{2}\]/g;
+    let offset = 0;
+
+    for (const match of text.matchAll(pattern)) {
+      const index = Number(match.index || 0);
+
+      if (index > offset) {
+        node.append(document.createTextNode(text.slice(offset, index)));
+      }
+
+      const mark = document.createElement('span');
+      mark.className = 'timecode';
+      mark.textContent = match[0];
+      node.appendChild(mark);
+
+      offset = index + match[0].length;
+    }
+
+    if (offset < text.length) {
+      node.append(document.createTextNode(text.slice(offset)));
+    }
   }
 
   function positionCard(anchor) {
@@ -491,7 +523,7 @@
       notice.textContent = state.text;
       body.appendChild(notice);
     } else {
-      const summary = String(record.analysis?.summary || '').trim();
+      const summary = displayFactText(record.analysis?.summary);
       if (summary) {
         const topic = document.createElement('div');
         topic.className = 'topic';

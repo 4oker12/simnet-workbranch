@@ -15,7 +15,10 @@ test('PBX transcript questions are loaded without re-running transcription', () 
 });
 
 test('question prompt is grounded in the saved transcript and retains segment timestamps', () => {
-  assert.match(backend, /\[\$\{start\}-\$\{end\}\]/);
+  assert.match(backend, /formatTimecode\(segment\?\.start\)/);
+  assert.match(backend, /\[\$\{start\}–\$\{end\}\]/);
+  assert.match(ui, /\.timecode\{/);
+  assert.match(ui, /appendAnswerWithTimecodes/);
   assert.match(backend, /Отвечай только по предоставленной расшифровке звонка/);
   assert.match(backend, /Если нужная информация не упоминалась/);
   assert.match(backend, /Не показывай рассуждения/);

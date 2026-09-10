@@ -51,6 +51,9 @@ test('PBX hover result exposes AI summary, transcript and exact Groq token usage
   assert.match(ai, /data\?\.usage/);
   assert.match(ai, /usageAttempts/);
   assert.match(ai, /sumUsage/);
+  assert.match(ai, /BRIEF_COMPLETION_TOKENS = 3200/);
+  assert.match(ai, /isPlaceholderFact/);
+  assert.match(ai, /заглушки вместо анализа/);
   assert.match(ui, /Транскрипт/);
   assert.doesNotMatch(ui, /CALL_REGISTRATION_SUBMIT|save_call/);
 });

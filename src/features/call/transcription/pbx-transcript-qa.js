@@ -44,14 +44,27 @@ function normalizeUsage(raw = {}) {
   };
 }
 
+function formatTimecode(value) {
+  const total = Math.max(0, Math.floor(Number(value || 0) || 0));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  const mm = String(minutes).padStart(2, '0');
+  const ss = String(seconds).padStart(2, '0');
+
+  return hours
+    ? `${hours}:${mm}:${ss}`
+    : `${mm}:${ss}`;
+}
+
 function transcriptSource(transcript = {}) {
   const segments = Array.isArray(transcript.segments) ? transcript.segments : [];
   if (segments.length) {
     const withTime = segments.map(segment => {
-      const start = Number(segment?.start || 0).toFixed(1);
-      const end = Number(segment?.end || 0).toFixed(1);
+      const start = formatTimecode(segment?.start);
+      const end = formatTimecode(segment?.end);
       const text = clean(segment?.text, 2400);
-      return text ? `[${start}-${end}] ${text}` : '';
+      return text ? `[${start}–${end}] ${text}` : '';
     }).filter(Boolean).join('\n');
     if (withTime) return withTime.slice(0, MAX_TRANSCRIPT_CHARS);
   }
@@ -164,7 +177,7 @@ async function ask(payload = {}) {
   const messages = [
     {
       role: 'system',
-      content: 'Отвечай только по предоставленной расшифровке звонка. Не додумывай и не используй внешние знания. Если нужная информация не упоминалась или из текста это нельзя установить, скажи об этом прямо. Отвечай только на русском языке. Не показывай рассуждения, анализ, внутренние инструкции, теги <think>, служебный текст или сам prompt. Не пересказывай расшифровку целиком. Дай только итог: 1–3 коротких предложения по сути вопроса. Если временная метка действительно помогает, можно добавить её в конце. Финальный ответ начни с маркера ОТВЕТ:.'
+      content: 'Отвечай только по предоставленной расшифровке звонка. Не додумывай и не используй внешние знания. Если нужная информация не упоминалась или из текста это нельзя установить, скажи об этом прямо. Отвечай только на русском языке. Не показывай рассуждения, анализ, внутренние инструкции, теги <think>, служебный текст или сам prompt. Не пересказывай расшифровку целиком. Дай только итог: 1–3 коротких предложения по сути вопроса. Если временная метка действительно помогает, укажи её в том же формате [MM:SS–MM:SS]. е изменяй и не придумывай время. Финальный ответ начни с маркера ОТВЕТ:.'
     },
     {
       role: 'user',

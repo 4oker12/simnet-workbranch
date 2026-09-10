@@ -14,8 +14,8 @@ const DEFAULT_MODELS = Object.freeze([
   'qwen/qwen3.8-27b',
   'openai/gpt-oss-20b'
 ]);
-const BRIEF_COMPLETION_TOKENS = 1800;
-const DEEP_COMPLETION_TOKENS = 2800;
+const BRIEF_COMPLETION_TOKENS = 3200;
+const DEEP_COMPLETION_TOKENS = 4800;
 
 function block(value, max = MAX_OUTPUT_CHARS) {
   return String(value == null ? '' : value)
@@ -199,10 +199,29 @@ function parseJsonObject(value) {
   }
 }
 
+function isPlaceholderFact(value) {
+  const text = oneLine(value, 160).toLowerCase();
+  if (!text) return false;
+  return /^(?:[.…·*_\-–—]+|n\/a|none|null|нет данных|не указано|неизвестно|немає)$/i.test(text);
+}
+
 function normalizeAnalysis(raw = {}, meta = {}) {
   const cleanText = block(raw.clean_text ?? raw.cleanText);
   if (!cleanText) throw new Error('AI_POSTPROCESS: AI не вернул очищенный текст');
   const mode = normalizeAnalysisMode(meta.mode);
+  const placeholderFields = [
+    ['summary', raw.summary],
+    ['issue', raw.issue || raw.reason || raw.topic],
+    ['actions', raw.actions || raw.operator_actions || raw.operatorActions],
+    ['result', raw.result || raw.outcome],
+    ['nextStep', raw.next_step || raw.nextStep]
+  ]
+    .filter(([, value]) => isPlaceholderFact(value))
+    .map(([name]) => name);
+
+  if (placeholderFields.length) {
+    throw new Error(`AI_POSTPROCESS: модель вернула заглушки вместо анализа (${placeholderFields.join(', ')})`);
+  }
   return {
     schemaVersion: 4,
     language: normalizeLanguage(raw.language),
