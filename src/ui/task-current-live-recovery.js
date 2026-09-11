@@ -56,10 +56,12 @@
     let state = stateByForm.get(form);
     if (state) return state;
     state = {
+      contextKey: '',
+      requestToken: 0,
       resolvedBuildingUuid: '',
-      resolveSignature: '',
-      resolvePromise: null,
       infoRows: [],
+      resolvePromise: null,
+      resolvePromiseKey: '',
       crewSignature: '',
       crewPromise: null,
       approvedSignature: ''
@@ -82,8 +84,7 @@
       form.querySelector('input[name="building_uuidtask_address"]'),
       form.querySelector('#buildingUuidtask_addressHidden'),
       form.querySelector('#buildingUuidtask_address'),
-      form.querySelector('input[name="building_uuid"]'),
-      form.querySelector('[id*="buildingUuid"]')
+      form.querySelector('input[name="building_uuid"]')
     ];
     for (const field of fields) {
       const value = String(field?.value || field?.dataset?.buildingUuid || '').trim();
@@ -122,7 +123,7 @@
     if (direct) return direct;
     const building = form.querySelector('#buildingUuidtask_address');
     const buildingText = compact(building?.selectedOptions?.[0]?.textContent || '', 320);
-    if (buildingText) return buildingText;
+    if (buildingText && !/^[-—]?$/.test(buildingText)) return buildingText;
     const parts = Array.from(form.querySelectorAll('select[name="address_unit_selectortask_address[]"]'))
       .map(select => compact(select.selectedOptions?.[0]?.textContent || '', 120))
       .filter(Boolean)
@@ -130,6 +131,20 @@
     if (parts.length) return compact(parts.join(' → '), 320);
     const customer = form.querySelector('select[name="customer_uuid"]');
     return compact(customer?.selectedOptions?.[0]?.getAttribute('title') || '', 420) || 'Текущий адрес заявки';
+  }
+
+  function currentContextKey(form) {
+    return [taskTypeUuid(form), addressUnitUuid(form), directBuildingUuid(form), currentAddress(form)].join('|');
+  }
+
+  function hasBuildingLevelSelection(form) {
+    if (UUID_RE.test(directBuildingUuid(form))) return true;
+    const selects = Array.from(form.querySelectorAll('select[name="address_unit_selectortask_address[]"]'));
+    if (!selects.length) return false;
+    const last = selects[selects.length - 1];
+    const text = compact(last?.selectedOptions?.[0]?.textContent || '', 160);
+    if (!UUID_RE.test(String(last?.value || '').trim()) || !text) return false;
+    return !/\[(?:city|area|street)\]|\b(?:город|місто|район|улица|вулиця)\b/iu.test(text);
   }
 
   function parseBuildingUuidFromScripts(root) {
@@ -179,6 +194,115 @@
       }
     }
     return out;
+  }
+
+  function resetAddressContext(form, reason = 'change') {
+    const state = getState(form);
+    state.contextKey = '';
+    state.requestToken += 1;
+    state.resolvedBuildingUuid = '';
+    state.infoRows = [];
+    state.resolvePromise = null;
+    state.resolvePromiseKey = '';
+    state.crewSignature = '';
+    state.approvedSignature = '';
+    clearSyntheticCrew(form);
+    form.querySelector(`[${CREW_HOST_ATTR}]`)?.remove();
+    log('info', 'address_context_reset', { reason, taskTypeUuid: taskTypeUuid(form), addressUnitUuid: addressUnitUuid(form), address: currentAddress(form) });
+  }
+
+  async function resolveAddressContext(form, reason = 'resolve') {
+    if (!isTaskForm(form)) return { buildingUuid: '', rows: [] };
+    const state = getState(form);
+    const key = currentContextKey(form);
+    const typeUuid = taskTypeUuid(form);
+    const unitUuid = addressUnitUuid(form);
+    const direct = directBuildingUuid(form);
+    const domRows = noteRowsFrom(document);
+
+    if (state.contextKey && state.contextKey !== key) resetAddressContext(form, `key-change:${reason}`);
+    state.contextKey = key;
+
+    if (UUID_RE.test(direct)) {
+      state.resolvedBuildingUuid = direct;
+      state.infoRows = domRows;
+      log('info', 'address_context_resolve_result', {
+        reason, source: 'direct-field', taskTypeUuid: typeUuid, addressUnitUuid: unitUuid,
+        buildingUuid: direct, remoteNoteCount: 0, noteCount: state.infoRows.length
+      });
+      return { buildingUuid: direct, rows: state.infoRows };
+    }
+
+    if (!UUID_RE.test(typeUuid) || !UUID_RE.test(unitUuid) || !hasBuildingLevelSelection(form)) {
+      state.resolvedBuildingUuid = '';
+      state.infoRows = [];
+      log('info', 'address_context_waiting_for_building', {
+        reason, taskTypeUuid: typeUuid, addressUnitUuid: unitUuid, address: currentAddress(form)
+      });
+      return { buildingUuid: '', rows: [] };
+    }
+
+    if (state.resolvePromise && state.resolvePromiseKey === key) return state.resolvePromise;
+
+    const token = ++state.requestToken;
+    state.resolvePromiseKey = key;
+    log('info', 'address_context_resolve_start', { reason, taskTypeUuid: typeUuid, addressUnitUuid: unitUuid, address: currentAddress(form), domNoteCount: domRows.length });
+
+    state.resolvePromise = (async () => {
+      try {
+        const url = new URL('/task/load_building_work_description', location.origin);
+        url.searchParams.set('unit_uuid', unitUuid);
+        url.searchParams.set('task_type_uuid', typeUuid);
+        const response = await fetch(url.toString(), {
+          method: 'GET', credentials: 'same-origin', cache: 'no-store',
+          headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const html = await response.text();
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const resolved = parseBuildingUuidFromScripts(doc);
+        const remoteRows = noteRowsFrom(doc);
+
+        if (token !== state.requestToken || key !== currentContextKey(form)) {
+          log('info', 'address_context_resolve_discarded', {
+            reason, taskTypeUuid: typeUuid, addressUnitUuid: unitUuid,
+            resolvedBuildingUuid: resolved, currentAddressUnitUuid: addressUnitUuid(form)
+          });
+          return { buildingUuid: state.resolvedBuildingUuid, rows: state.infoRows };
+        }
+
+        state.resolvedBuildingUuid = UUID_RE.test(resolved) ? resolved : '';
+        const liveContainer = document.querySelector('#buildingWorkDescriptionId');
+        const liveContainerBuilding = parseBuildingUuidFromScripts(liveContainer);
+        const safeDomRows = state.resolvedBuildingUuid && liveContainerBuilding === state.resolvedBuildingUuid
+          ? noteRowsFrom(document)
+          : [];
+        state.infoRows = mergeRows(remoteRows, safeDomRows);
+        log('info', 'address_context_resolve_result', {
+          reason, source: 'userside-endpoint', taskTypeUuid: typeUuid, addressUnitUuid: unitUuid,
+          buildingUuid: state.resolvedBuildingUuid, remoteNoteCount: remoteRows.length, noteCount: state.infoRows.length
+        });
+        return { buildingUuid: state.resolvedBuildingUuid, rows: state.infoRows };
+      } catch (error) {
+        if (token !== state.requestToken || key !== currentContextKey(form)) {
+          return { buildingUuid: state.resolvedBuildingUuid, rows: state.infoRows };
+        }
+        state.resolvedBuildingUuid = '';
+        state.infoRows = noteRowsFrom(document);
+        log('warn', 'address_context_resolve_failed', {
+          reason, taskTypeUuid: typeUuid, addressUnitUuid: unitUuid,
+          message: compact(error?.message || error, 180)
+        });
+        return { buildingUuid: '', rows: state.infoRows };
+      } finally {
+        if (state.resolvePromiseKey === key) {
+          state.resolvePromise = null;
+          state.resolvePromiseKey = '';
+        }
+      }
+    })();
+
+    return state.resolvePromise;
   }
 
   function phoneDigits(raw) {
@@ -240,17 +364,12 @@
     });
   }
 
-  function interpretSpecialInfo(rows) {
-    const rawRows = mergeRows(rows);
-    const sourceKeys = rawRows.map(row => row.key);
-    const raw = compact(rawRows.map(row => row.text).join(' • '), 12000);
-    const normalized = fold(raw);
-    const items = [];
+  function interpretRow(row, items) {
+    const raw = compact(row?.text || '', 6000);
+    if (!raw) return;
+    const sourceKeys = [row.key].filter(Boolean);
 
-    if (!normalized) return [];
-
-    const entranceBlock = raw.match(/(?:перв\w*|1\s*[-–]?\s*(?:й|ый|ий)?)[^.!?]{0,45}(?:подъезд|під.?їзд)[^.!?]{0,60}(?:не\s*(?:подключ|підключ)|не\s*включ)/iu);
-    if (entranceBlock) {
+    if (/(?:перв\w*|1\s*[-–]?\s*(?:й|ый|ий)?)[^.!?]{0,45}(?:подъезд|під.?їзд)[^.!?]{0,60}(?:не\s*(?:подключ|підключ)|не\s*включ)/iu.test(raw)) {
       addActionItem(items, {
         type: 'entrance_scope', severity: 'critical', title: 'Ограничение подключения',
         text: '1-й подъезд не подключаем. Проверь адрес/подъезд до сохранения заявки.', sourceKeys
@@ -322,7 +441,7 @@
       });
     }
 
-    if (/(?:предупред|поперед)[^.!?]{0,55}(?:осбб|жек|жек|управля|керуюч)|(?:абонент|клиент)[^.!?]{0,55}(?:открыть|відкрити)[^.!?]{0,35}(?:тамбур|двер|доступ)/iu.test(raw)) {
+    if (/(?:предупред|поперед)[^.!?]{0,55}(?:осбб|жек|управля|керуюч)|(?:абонент|клиент)[^.!?]{0,55}(?:открыть|відкрити)[^.!?]{0,35}(?:тамбур|двер|доступ)/iu.test(raw)) {
       addActionItem(items, {
         type: 'precondition', severity: 'warning', title: 'Перед выездом',
         text: 'Нужно заранее согласовать доступ/предупредить ответственную сторону. Проверь это до сохранения заявки.', sourceKeys
@@ -340,73 +459,16 @@
         text: `${parts.join(' ')} Проверь выбранную услугу перед оформлением.`, sourceKeys
       });
     }
+  }
 
+  function interpretSpecialInfo(rows) {
+    const rawRows = mergeRows(rows);
+    const items = [];
+    for (const row of rawRows) interpretRow(row, items);
     const rank = { critical: 0, warning: 1 };
     return items
       .sort((a, b) => (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9))
       .slice(0, MAX_ACTIONABLE);
-  }
-
-  async function resolveAddressContext(form, reason = 'resolve') {
-    if (!isTaskForm(form)) return { buildingUuid: '', rows: [] };
-    const state = getState(form);
-    const typeUuid = taskTypeUuid(form);
-    const unitUuid = addressUnitUuid(form);
-    const direct = directBuildingUuid(form);
-    const scriptBuilding = parseBuildingUuidFromScripts(document);
-    const domRows = noteRowsFrom(document);
-    const signature = `${typeUuid}|${direct}|${unitUuid}|${scriptBuilding}`;
-
-    if (UUID_RE.test(direct)) {
-      state.resolvedBuildingUuid = direct;
-      state.infoRows = mergeRows(domRows, state.infoRows);
-      state.resolveSignature = signature;
-      return { buildingUuid: direct, rows: state.infoRows };
-    }
-    if (UUID_RE.test(scriptBuilding)) {
-      state.resolvedBuildingUuid = scriptBuilding;
-      state.infoRows = mergeRows(domRows, state.infoRows);
-      state.resolveSignature = signature;
-      return { buildingUuid: scriptBuilding, rows: state.infoRows };
-    }
-    if (!UUID_RE.test(typeUuid) || !UUID_RE.test(unitUuid)) {
-      state.infoRows = mergeRows(domRows, state.infoRows);
-      return { buildingUuid: state.resolvedBuildingUuid, rows: state.infoRows };
-    }
-    if (state.resolvePromise && state.resolveSignature === signature) return state.resolvePromise;
-    if (state.resolveSignature === signature && UUID_RE.test(state.resolvedBuildingUuid)) {
-      return { buildingUuid: state.resolvedBuildingUuid, rows: mergeRows(domRows, state.infoRows) };
-    }
-
-    state.resolveSignature = signature;
-    log('info', 'address_context_resolve_start', { reason, taskTypeUuid: typeUuid, addressUnitUuid: unitUuid, address: currentAddress(form), domNoteCount: domRows.length });
-    state.resolvePromise = (async () => {
-      try {
-        const url = new URL('/task/load_building_work_description', location.origin);
-        url.searchParams.set('unit_uuid', unitUuid);
-        url.searchParams.set('task_type_uuid', typeUuid);
-        const response = await fetch(url.toString(), { method: 'GET', credentials: 'same-origin', cache: 'no-store', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const html = await response.text();
-        const doc = new DOMParser().parseFromString(html, 'text/html');
-        const resolved = parseBuildingUuidFromScripts(doc);
-        const remoteRows = noteRowsFrom(doc);
-        if (UUID_RE.test(resolved)) state.resolvedBuildingUuid = resolved;
-        state.infoRows = mergeRows(domRows, remoteRows, state.infoRows);
-        log('info', 'address_context_resolve_result', {
-          reason, taskTypeUuid: typeUuid, addressUnitUuid: unitUuid,
-          buildingUuid: state.resolvedBuildingUuid, remoteNoteCount: remoteRows.length, noteCount: state.infoRows.length
-        });
-        return { buildingUuid: state.resolvedBuildingUuid, rows: state.infoRows };
-      } catch (error) {
-        state.infoRows = mergeRows(domRows, state.infoRows);
-        log('warn', 'address_context_resolve_failed', { reason, taskTypeUuid: typeUuid, addressUnitUuid: unitUuid, message: compact(error?.message || error, 180) });
-        return { buildingUuid: state.resolvedBuildingUuid, rows: state.infoRows };
-      } finally {
-        state.resolvePromise = null;
-      }
-    })();
-    return state.resolvePromise;
   }
 
   function nativeBrigadeInputs(form) {
@@ -449,7 +511,7 @@
   }
 
   function clearSyntheticCrew(form) {
-    form.querySelectorAll(`[${CREW_INPUT_ATTR}]`).forEach(node => node.remove());
+    form.querySelectorAll(`[${CREW_INPUT_ATTR}]`).forEach(node => node.closest('label')?.remove() || node.remove());
   }
 
   function setSyntheticCrew(form, uuid, label) {
@@ -525,7 +587,7 @@
     const bUuid = context.buildingUuid;
     if (!UUID_RE.test(bUuid)) {
       log('warn', 'crew_recovery_context_missing', { reason, taskTypeUuid: typeUuid, addressUnitUuid: addressUnitUuid(form), date, time });
-      renderCrewPicker(form, [], 'Не удалось определить дом. Измени адрес или обнови форму.');
+      renderCrewPicker(form, [], 'Не удалось определить дом. Выбери дом полностью.');
       return [];
     }
 
@@ -545,16 +607,21 @@
         if (customer) url.searchParams.set('customer_uuid', customer);
         url.searchParams.set('date', date);
         url.searchParams.set('time', time);
-        const response = await fetch(url.toString(), { method: 'GET', credentials: 'same-origin', cache: 'no-store', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        const response = await fetch(url.toString(), {
+          method: 'GET', credentials: 'same-origin', cache: 'no-store',
+          headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const html = await response.text();
         const doc = new DOMParser().parseFromString(html, 'text/html');
+        const seen = new Set();
         const crews = Array.from(doc.querySelectorAll('input[name="division_auto_task_staffuuids[]"], input[name="division_task_staffuuids[]"]'))
           .map(input => ({
             uuid: String(input.value || '').trim(),
             label: compact(input.closest('.div_space2,label,.item,.erp-object-props__value')?.textContent || input.parentElement?.textContent || '', 180)
           }))
-          .filter(item => UUID_RE.test(item.uuid) && BRIGADE_RE.test(item.label));
+          .filter(item => UUID_RE.test(item.uuid) && BRIGADE_RE.test(item.label))
+          .filter(item => !seen.has(item.uuid) && seen.add(item.uuid));
         renderCrewPicker(form, crews, crews.length ? `Доступно бригад: ${crews.length}.` : 'UserSide не вернул доступных бригад.');
         log('info', 'crew_recovery_load_result', { reason, taskTypeUuid: typeUuid, buildingUuid: bUuid, crewCount: crews.length, crews: crews.slice(0, 12).map(item => item.label) });
         return crews;
@@ -570,7 +637,8 @@
   }
 
   function specialSignature(form, items) {
-    return `${taskTypeUuid(form)}|${getState(form).resolvedBuildingUuid}|${items.map(item => `${item.type}:${fold(item.text)}`).join('|')}`;
+    const state = getState(form);
+    return `${currentContextKey(form)}|${state.resolvedBuildingUuid}|${items.map(item => `${item.type}:${fold(item.text)}`).join('|')}`;
   }
 
   function writeAudit(form, rows, items) {
@@ -591,7 +659,14 @@
           rawSources: rows.map(row => row.key),
           rawNotes: rows.map(row => compact(row.text, 800))
         });
-        chrome.storage.local.set({ [AUDIT_KEY]: { ...(current || {}), schema: 'simnet-crm-constraint-ack-v1', updatedAt: new Date().toISOString(), entries: entries.slice(0, MAX_AUDIT) } });
+        chrome.storage.local.set({
+          [AUDIT_KEY]: {
+            ...(current || {}),
+            schema: 'simnet-crm-constraint-ack-v1',
+            updatedAt: new Date().toISOString(),
+            entries: entries.slice(0, MAX_AUDIT)
+          }
+        });
       });
     } catch {}
   }
@@ -671,38 +746,35 @@
     }
     if (event.defaultPrevented || document.getElementById('simnet-wb-current-task-special-info')) return;
 
-    const state = getState(form);
-    let rows = mergeRows(noteRowsFrom(document), state.infoRows);
-    let paused = false;
-    if (!rows.length || !UUID_RE.test(state.resolvedBuildingUuid)) {
-      event.preventDefault();
-      event.stopPropagation();
-      paused = true;
-      const context = await resolveAddressContext(form, 'submit-confirm');
-      rows = mergeRows(noteRowsFrom(document), context.rows);
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const submitKey = currentContextKey(form);
+    const context = await resolveAddressContext(form, 'submit-confirm');
+    if (submitKey !== currentContextKey(form)) {
+      log('warn', 'special_info_recovery_submit_context_changed', { before: submitKey, after: currentContextKey(form) });
+      return;
     }
 
+    const rows = mergeRows(noteRowsFrom(document), context.rows);
     const items = interpretSpecialInfo(rows);
     log('info', 'special_info_interpreted', {
-      taskTypeUuid: taskTypeUuid(form), buildingUuid: state.resolvedBuildingUuid,
+      taskTypeUuid: taskTypeUuid(form), buildingUuid: context.buildingUuid,
       rawNoteCount: rows.length, actionableCount: items.length,
       actionableTypes: items.map(item => item.type),
       suppressedRawCount: Math.max(0, rows.length - items.length)
     });
-
-    const signature = specialSignature(form, items);
     log('info', 'special_info_recovery_evaluated', {
-      taskTypeUuid: taskTypeUuid(form), buildingUuid: state.resolvedBuildingUuid,
+      taskTypeUuid: taskTypeUuid(form), buildingUuid: context.buildingUuid,
       rawNoteCount: rows.length, actionableCount: items.length,
       actionableTypes: items.map(item => item.type)
     });
 
+    const state = getState(form);
+    const signature = specialSignature(form, items);
     if (!items.length || state.approvedSignature === signature) {
-      if (paused) replay(form, event.submitter || null);
+      replay(form, event.submitter || null);
       return;
     }
-    event.preventDefault();
-    event.stopPropagation();
     showSpecialModal(form, rows, items, event.submitter || null);
   }
 
@@ -714,20 +786,22 @@
     });
   }
 
-  function resetForChange(form) {
-    const state = getState(form);
-    state.resolveSignature = '';
-    state.crewSignature = '';
-    state.approvedSignature = '';
-  }
-
   function onChange(event) {
     const form = event.target?.closest?.('form');
     if (!isTaskForm(form)) return;
     const target = event.target;
-    if (target?.matches?.('select[name="task_type_uuid"], #buildingUuidtask_address, input[name="building_uuidtask_address"], select[name="address_unit_selectortask_address[]"], select[name="customer_uuid"], #datedo_id, #timedo_id, #timedo_id2')) {
-      resetForChange(form);
+    if (target?.matches?.('select[name="task_type_uuid"], #buildingUuidtask_address, input[name="building_uuidtask_address"], select[name="address_unit_selectortask_address[]"], select[name="customer_uuid"]')) {
+      resetAddressContext(form, 'form-change');
       scheduleRefresh(form, 'form-change');
+      return;
+    }
+    if (target?.matches?.('#datedo_id, #timedo_id, #timedo_id2')) {
+      const state = getState(form);
+      state.crewSignature = '';
+      state.approvedSignature = '';
+      clearSyntheticCrew(form);
+      form.querySelector(`[${CREW_HOST_ATTR}]`)?.remove();
+      scheduleRefresh(form, 'schedule-change');
     }
   }
 
@@ -778,7 +852,7 @@
       documentObserver = null;
       document.getElementById(MODAL_ID)?.remove();
       document.getElementById(STYLE_ID)?.remove();
-      document.querySelectorAll(`[${CREW_HOST_ATTR}], [${CREW_INPUT_ATTR}]`).forEach(node => node.remove());
+      document.querySelectorAll(`[${CREW_HOST_ATTR}], [${CREW_INPUT_ATTR}]`).forEach(node => node.closest('label')?.remove() || node.remove());
     }
   });
 })();
