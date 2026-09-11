@@ -4,6 +4,9 @@ import assert from 'node:assert/strict';
 const controls = fs.readFileSync(new URL('../src/ui/operator-companion-session-controls.js', import.meta.url), 'utf8');
 const loader = fs.readFileSync(new URL('../src/infrastructure/feature-loader.js', import.meta.url), 'utf8');
 
+assert.doesNotThrow(() => new Function(controls),
+  'session controls source must remain valid browser JavaScript');
+
 assert.match(loader, /operator-companion-session-controls\.js/,
   'companion feature pack must inject the session controls after the chat UI');
 
