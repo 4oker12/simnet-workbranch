@@ -16,7 +16,7 @@
   const BUSY_ATTR = 'data-simnet-wb-current-staff-busy';
   const PANEL_ATTR = 'data-simnet-wb-current-staff-transition';
   const STYLE_ID = 'simnet-wb-current-staff-transition-style';
-  const BRIGADE_RE = /^\s*бр\.\s*/iu;
+  const BRIGADE_RE = /(?:^|\s)бр\.\s*/iu;
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
   const L1_TYPE_UUIDS = new Set([
@@ -48,12 +48,26 @@
   const stateByForm = new WeakMap();
   const observerByForm = new WeakMap();
   const activeObservers = new Set();
+  let documentObserver = null;
   let destroyed = false;
+  let pageSourceSeed = null;
 
   const compact = (value, max = 220) => {
     const text = String(value == null ? '' : value).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
     return text.length > max ? `${text.slice(0, max)}…` : text;
   };
+
+  function taskLog(level, event, details = null) {
+    try {
+      const method = WB.log?.[level];
+      if (typeof method === 'function') return method.call(WB.log, 'TASK_FLOW', event, details || {});
+    } catch {}
+    try {
+      const fn = level === 'error' ? console.error : level === 'warn' ? console.warn : console.info;
+      fn(`[SIMNET WB][TASK_FLOW] ${event}`, details || {});
+    } catch {}
+    return null;
+  }
 
   function actionPath(form) {
     try { return new URL(String(form?.action || ''), location.href).pathname; }
@@ -127,22 +141,52 @@
       .filter(value => UUID_RE.test(value))));
   }
 
+  function selectedCrewLabels(form) {
+    return staffUuidInputs(form)
+      .filter(input => input.checked && !input.disabled && BRIGADE_RE.test(inputLabel(input)))
+      .map(input => compact(inputLabel(input), 120))
+      .filter(Boolean)
+      .slice(0, 8);
+  }
+
   function baselineHasL1(form) {
     if (parseDummyDivisionUuids(form).includes(L1_DIVISION_UUID)) return true;
     const performers = Array.from(form.querySelectorAll('.erp-object-props__value, .item, .table_block'));
     return performers.some(node => /техподдержка\s*l1/iu.test(compact(node.textContent || '', 600)));
   }
 
+  function sourceSeedFromForm(form) {
+    const type = taskType(form);
+    return {
+      sourceTypeUuid: type.uuid,
+      sourceTypeLabel: type.label,
+      sourceWasL1: L1_TYPE_UUIDS.has(type.uuid),
+      sourceHadL1Division: baselineHasL1(form),
+      taskId: taskNumericId(form)
+    };
+  }
+
+  function rememberPageSource(form) {
+    if (pageSourceSeed || !isCurrentTaskForm(form)) return pageSourceSeed;
+    pageSourceSeed = sourceSeedFromForm(form);
+    taskLog('info', 'staff_source_captured', pageSourceSeed);
+    return pageSourceSeed;
+  }
+
   function ensureState(form) {
     let state = stateByForm.get(form);
     if (state) return state;
-    const type = taskType(form);
+    const live = sourceSeedFromForm(form);
+    const seed = rememberPageSource(form) || live;
     state = {
-      sourceTypeUuid: type.uuid,
-      sourceWasL1: L1_TYPE_UUIDS.has(type.uuid),
-      sourceHadL1Division: baselineHasL1(form),
+      sourceTypeUuid: seed.sourceTypeUuid,
+      sourceTypeLabel: seed.sourceTypeLabel,
+      sourceWasL1: Boolean(seed.sourceWasL1),
+      sourceHadL1Division: Boolean(seed.sourceHadL1Division),
       l1Removed: false,
-      lastTypeUuid: type.uuid
+      lastTypeUuid: live.sourceTypeUuid,
+      lastDecisionSignature: '',
+      taskId: live.taskId || seed.taskId || ''
     };
     stateByForm.set(form, state);
     return state;
@@ -158,23 +202,63 @@
     );
   }
 
+  function decisionSnapshot(form, state = ensureState(form)) {
+    const type = taskType(form);
+    const inputs = staffUuidInputs(form);
+    const crews = selectedCrewUuids(form);
+    return {
+      taskId: taskNumericId(form) || state.taskId || '',
+      sourceTypeUuid: state.sourceTypeUuid,
+      sourceWasL1: state.sourceWasL1,
+      sourceHadL1Division: state.sourceHadL1Division,
+      currentTypeUuid: type.uuid,
+      currentTypeLabel: type.label,
+      fieldVisit: FIELD_VISIT_UUIDS.has(type.uuid),
+      transitionApplies: transitionApplies(form, state),
+      l1Removed: state.l1Removed,
+      staffInputCount: inputs.length,
+      checkedDivisionUuids: checkedDivisionUuids(form),
+      crewUuids: crews,
+      crewLabels: selectedCrewLabels(form)
+    };
+  }
+
+  function logDecisionIfChanged(form, state, reason) {
+    const snapshot = decisionSnapshot(form, state);
+    const signature = JSON.stringify({
+      currentTypeUuid: snapshot.currentTypeUuid,
+      transitionApplies: snapshot.transitionApplies,
+      l1Removed: snapshot.l1Removed,
+      staffInputCount: snapshot.staffInputCount,
+      checkedDivisionUuids: snapshot.checkedDivisionUuids,
+      crewUuids: snapshot.crewUuids
+    });
+    if (signature === state.lastDecisionSignature) return snapshot;
+    state.lastDecisionSignature = signature;
+    taskLog('info', 'staff_transition_state', { reason, ...snapshot });
+    return snapshot;
+  }
+
   function ensureStyles() {
     if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.dataset.simnetWbOwned = '1';
     style.textContent = `
-      [${PANEL_ATTR}]{box-sizing:border-box;max-width:640px;margin:8px 0 10px;padding:9px 11px;border:1px solid #dcc8d1;border-left:5px solid #a50046;border-radius:8px;background:#fff8fb;color:#3e1d2b;font:12px/1.4 Arial,sans-serif}
+      [${PANEL_ATTR}]{box-sizing:border-box;max-width:640px;margin:7px 0 9px;padding:8px 10px;border:1px solid #cbd6df;border-radius:3px;background:#f7f9fb;color:#40505e;font:12px/1.35 Arial,sans-serif}
       [${PANEL_ATTR}][hidden]{display:none!important}
-      [${PANEL_ATTR}] .wb-cst-title{font-weight:800;color:#8f1746;margin-bottom:5px}
-      [${PANEL_ATTR}] .wb-cst-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:4px 0}
-      [${PANEL_ATTR}] .wb-cst-assignment{display:inline-flex;align-items:center;gap:5px;padding:3px 7px;border:1px solid #d7c6cd;border-radius:999px;background:#fff}
+      [${PANEL_ATTR}] .wb-cst-title{font-weight:700;color:#3f607a;margin-bottom:5px}
+      [${PANEL_ATTR}] .wb-cst-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:4px 0}
+      [${PANEL_ATTR}] .wb-cst-assignment{display:inline-flex;align-items:center;gap:5px;padding:2px 6px;border:1px solid #cbd6df;border-radius:3px;background:#fff;color:#465764}
       [${PANEL_ATTR}] .wb-cst-assignment[data-removed="1"]{opacity:.55;text-decoration:line-through}
-      [${PANEL_ATTR}] button{cursor:pointer;border:1px solid #b99daa;border-radius:6px;background:#fff;color:#6f173a;padding:3px 7px;font:700 11px/1.2 Arial,sans-serif}
-      [${PANEL_ATTR}] button:hover{background:#f7edf1}
-      [${PANEL_ATTR}] .wb-cst-status{font-weight:700}
-      [${PANEL_ATTR}] .wb-cst-ok{color:#256b36}.wb-cst-bad{color:#9b173f}
-      [${PANEL_ATTR}] .wb-cst-note{margin-top:5px;color:#6d5260}
+      [${PANEL_ATTR}] button{cursor:pointer;border:1px solid #aebdca;border-radius:3px;background:#fff;color:#35566f;padding:3px 8px;font:600 11px/1.2 Arial,sans-serif}
+      [${PANEL_ATTR}] button:hover{background:#eef4f8;border-color:#93a8b8}
+      [${PANEL_ATTR}] .wb-cst-status{font-weight:600}
+      [${PANEL_ATTR}] .wb-cst-ok{color:#4d6b55}.wb-cst-bad{color:#8a5c2c}
+      [${PANEL_ATTR}] .wb-cst-note{margin-top:5px;color:#65737e}
+      [data-simnet-wb-current-staff-error="1"]{position:fixed;z-index:2147483647;top:16px;left:50%;transform:translateX(-50%);width:min(650px,calc(100vw - 36px));box-sizing:border-box;padding:10px 13px;border:1px solid #c6d2dc;border-left:4px solid #c18b3b;border-radius:3px;background:#fff;color:#40505e;box-shadow:0 6px 18px rgba(40,55,70,.18);font:12px/1.4 Arial,sans-serif}
+      [data-simnet-wb-current-staff-error="1"] b{color:#6b552d}
+      [data-simnet-wb-current-staff-error="1"] ul{margin:5px 0 0;padding-left:18px}
     `;
     (document.head || document.documentElement).appendChild(style);
   }
@@ -211,12 +295,17 @@
     panel.querySelector('[data-wb-cst-remove-l1="1"]')?.addEventListener('click', () => {
       const state = ensureState(form);
       state.l1Removed = !state.l1Removed;
-      render(form);
+      taskLog('info', 'l1_detach_toggled', {
+        taskId: taskNumericId(form) || state.taskId || '',
+        detached: state.l1Removed,
+        currentTypeUuid: taskType(form).uuid
+      });
+      render(form, 'l1-toggle');
     });
     return panel;
   }
 
-  function render(form) {
+  function render(form, reason = 'render') {
     if (!isCurrentTaskForm(form)) return;
     const state = ensureState(form);
     const panel = ensurePanel(form);
@@ -224,6 +313,7 @@
     panel.hidden = !applies;
     if (!applies) {
       state.l1Removed = false;
+      logDecisionIfChanged(form, state, reason);
       return;
     }
 
@@ -237,26 +327,25 @@
     if (crewStatus) {
       crewStatus.className = `wb-cst-row wb-cst-status ${crews.length ? 'wb-cst-ok' : 'wb-cst-bad'}`;
       crewStatus.textContent = crews.length
-        ? `Бригада выбрана: ${crews.length}`
+        ? `Бригада выбрана: ${selectedCrewLabels(form).join(', ') || crews.length}`
         : 'Бригада ещё не выбрана';
     }
+    logDecisionIfChanged(form, state, reason);
   }
 
   function showBlockingMessage(form, messages) {
-    let box = form.querySelector('[data-simnet-wb-current-staff-error="1"]');
+    ensureStyles();
+    let box = document.querySelector('[data-simnet-wb-current-staff-error="1"]');
     if (!box) {
       box = document.createElement('div');
       box.dataset.simnetWbCurrentStaffError = '1';
       box.dataset.simnetWbOwned = '1';
-      box.style.cssText = 'position:fixed;z-index:2147483647;top:18px;left:50%;transform:translateX(-50%);width:min(650px,calc(100vw - 36px));box-sizing:border-box;padding:12px 16px;border:1px solid #a50046;border-left:6px solid #a50046;border-radius:10px;background:#fff;color:#351522;box-shadow:0 12px 34px rgba(45,0,18,.24);font:13px/1.4 Arial,sans-serif';
       (document.body || document.documentElement).appendChild(box);
     }
     box.innerHTML = '';
     const title = document.createElement('b');
     title.textContent = 'Заявка не сохранена — проверь исполнителей';
     const list = document.createElement('ul');
-    list.style.margin = '6px 0 0';
-    list.style.paddingLeft = '20px';
     messages.forEach(message => {
       const li = document.createElement('li');
       li.textContent = message;
@@ -309,6 +398,7 @@
     const taskId = taskNumericId(form);
     if (!/^\d+$/.test(taskId)) throw new Error('Не удалось определить номер редактируемой заявки');
 
+    taskLog('info', 'native_staff_dialog_load_start', { taskId, divisionUuids });
     const dialogUrl = sameOriginTaskUrl(`${STAFF_DIALOG_PATH}?id=${encodeURIComponent(taskId)}`, STAFF_DIALOG_PATH);
     const response = await fetch(dialogUrl.toString(), {
       method: 'GET',
@@ -325,6 +415,12 @@
 
     const action = sameOriginTaskUrl(dialogForm.getAttribute('action') || STAFF_SAVE_PATH, STAFF_SAVE_PATH);
     const namespace = dialogStaffNamespace(dialogForm);
+    taskLog('info', 'native_staff_dialog_loaded', {
+      taskId,
+      namespace,
+      originalInputCount: dialogForm.querySelectorAll('input[name*="staffuuid"], input[name*="staffid"]').length
+    });
+
     dialogForm.querySelectorAll([
       'input[name="division_task_staffuuids[]"]',
       'input[name="division_auto_task_staffuuids[]"]',
@@ -342,6 +438,13 @@
 
     const preferred = divisionUuids.find(uuid => uuid !== L1_DIVISION_UUID) || divisionUuids[0] || '';
     setDialogHidden(dialogForm, 'dummy_pers_id', preferred ? `*division_${preferred}*` : '', doc);
+    taskLog('info', 'native_staff_payload_prepared', {
+      taskId,
+      namespace,
+      divisionUuids,
+      containsL1: divisionUuids.includes(L1_DIVISION_UUID),
+      preferredDivisionUuid: preferred
+    });
 
     const saveResponse = await fetch(action.toString(), {
       method: 'POST',
@@ -351,6 +454,7 @@
       body: new FormData(dialogForm)
     });
     if (!saveResponse.ok) throw new Error(`Не удалось сохранить исполнителей (HTTP ${saveResponse.status})`);
+    taskLog('info', 'native_staff_save_success', { taskId, namespace, divisionUuids, status: saveResponse.status });
     return { ok: true, taskId, namespace, divisionUuids };
   }
 
@@ -370,6 +474,8 @@
   }
 
   function resumeNativeSubmit(form, submitter) {
+    const state = ensureState(form);
+    taskLog('info', 'native_task_submit_resume', decisionSnapshot(form, state));
     form.setAttribute(BYPASS_ATTR, '1');
     try {
       if (typeof form.requestSubmit === 'function') {
@@ -388,31 +494,55 @@
     const form = isCurrentTaskForm(event.target) ? event.target : null;
     if (!form || form.hasAttribute(BYPASS_ATTR)) return;
     const state = ensureState(form);
+
+    // task-current-contract-guard runs before this module. If it blocked the
+    // save (date/time/crew/special-info modal), this staff layer must not race it.
+    if (event.defaultPrevented) {
+      taskLog('info', 'staff_transition_skipped_prior_guard', decisionSnapshot(form, state));
+      return;
+    }
     if (!transitionApplies(form, state)) return;
 
-    const messages = [];
     const crews = selectedCrewUuids(form);
+    taskLog('info', 'staff_save_preflight', decisionSnapshot(form, state));
+    const messages = [];
     if (!state.l1Removed) messages.push('Открепи «Техподдержка L1» — выездная заявка не должна оставаться на L1.');
     if (!crews.length) messages.push('Выбери выездную бригаду «Бр. …».');
     if (messages.length) {
       event.preventDefault();
       event.stopImmediatePropagation();
+      taskLog('warn', 'staff_save_blocked', {
+        ...decisionSnapshot(form, state),
+        reasons: [
+          ...(!state.l1Removed ? ['l1-still-attached'] : []),
+          ...(!crews.length ? ['crew-not-selected'] : [])
+        ]
+      });
       showBlockingMessage(form, messages);
-      render(form);
+      render(form, 'save-blocked');
       return;
     }
 
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (form.hasAttribute(BUSY_ATTR)) return;
+    if (form.hasAttribute(BUSY_ATTR)) {
+      taskLog('warn', 'staff_save_duplicate_ignored', decisionSnapshot(form, state));
+      return;
+    }
     form.setAttribute(BUSY_ATTR, '1');
     try {
       const divisionUuids = finalDivisionUuids(form, state);
       if (divisionUuids.includes(L1_DIVISION_UUID)) throw new Error('L1 остался в итоговом составе исполнителей');
+      taskLog('info', 'staff_save_apply_start', { ...decisionSnapshot(form, state), divisionUuids });
       await applyStaffViaNativeDialog(form, divisionUuids);
       syncMainFormStaff(form, divisionUuids);
+      taskLog('info', 'staff_save_apply_complete', { ...decisionSnapshot(form, state), divisionUuids });
       resumeNativeSubmit(form, event.submitter || null);
     } catch (error) {
+      taskLog('error', 'staff_transition_failure', {
+        ...decisionSnapshot(form, state),
+        message: compact(error?.message || error, 220)
+      });
       console.error('[SIMNET WB][TASK STAFF UUID] transition save failed', error);
       showBlockingMessage(form, [`Не удалось применить исполнителей: ${compact(error?.message || error, 180)}`]);
     } finally {
@@ -422,8 +552,9 @@
 
   function enhance(form) {
     if (!isCurrentTaskForm(form)) return false;
-    ensureState(form);
-    render(form);
+    rememberPageSource(form);
+    const state = ensureState(form);
+    render(form, 'enhance');
     if (!observerByForm.has(form)) {
       let queued = false;
       const observer = new MutationObserver(records => {
@@ -433,12 +564,16 @@
         queued = true;
         queueMicrotask(() => {
           queued = false;
-          if (!destroyed && form.isConnected) render(form);
+          if (!destroyed && form.isConnected) render(form, 'form-mutation');
         });
       });
       observer.observe(form, { childList: true, subtree: true });
       observerByForm.set(form, observer);
       activeObservers.add(observer);
+      taskLog('info', 'staff_form_observer_attached', {
+        taskId: taskNumericId(form) || state.taskId || '',
+        sourceTypeUuid: state.sourceTypeUuid
+      });
     }
     return true;
   }
@@ -454,22 +589,55 @@
     if (!form) return;
     const state = ensureState(form);
     if (target.matches?.('select[name="task_type_uuid"]')) {
+      const previous = state.lastTypeUuid;
       const current = taskType(form);
       if (L1_TYPE_UUIDS.has(current.uuid)) state.l1Removed = false;
       state.lastTypeUuid = current.uuid;
+      taskLog('info', 'task_type_changed', {
+        taskId: taskNumericId(form) || state.taskId || '',
+        fromTypeUuid: previous,
+        toTypeUuid: current.uuid,
+        toTypeLabel: current.label,
+        sourceWasL1: state.sourceWasL1,
+        sourceHadL1Division: state.sourceHadL1Division,
+        fieldVisit: FIELD_VISIT_UUIDS.has(current.uuid)
+      });
+    } else if (target.matches?.('input[name^="division_auto_task_staffuuid"], input[name^="division_task_staffuuid"]')) {
+      taskLog('info', 'crew_selection_changed', decisionSnapshot(form, state));
     }
-    render(form);
+    render(form, 'input-change');
+  }
+
+  function onFocusIn(event) {
+    const form = formFromTarget(event.target instanceof Element ? event.target : null);
+    if (form) enhance(form);
+  }
+
+  function enhanceAllCurrentForms(reason = 'scan') {
+    let count = 0;
+    document.querySelectorAll('form').forEach(form => {
+      if (isCurrentTaskForm(form) && enhance(form)) count += 1;
+    });
+    if (count) taskLog('info', 'staff_forms_discovered', { reason, count });
   }
 
   function init() {
     document.addEventListener('submit', onSubmit, true);
     document.addEventListener('change', onChange, true);
     document.addEventListener('input', onChange, true);
-    document.addEventListener('focusin', event => {
-      const form = formFromTarget(event.target instanceof Element ? event.target : null);
-      if (form) enhance(form);
-    }, true);
-    document.querySelectorAll('form').forEach(form => { if (isCurrentTaskForm(form)) enhance(form); });
+    document.addEventListener('focusin', onFocusIn, true);
+    enhanceAllCurrentForms('init');
+
+    documentObserver = new MutationObserver(records => {
+      if (destroyed) return;
+      const mightContainForm = records.some(record => Array.from(record.addedNodes || []).some(node => (
+        node instanceof Element
+        && (node.matches?.('form') || node.querySelector?.('form'))
+      )));
+      if (!mightContainForm) return;
+      queueMicrotask(() => enhanceAllCurrentForms('document-form-replaced'));
+    });
+    documentObserver.observe(document.documentElement, { childList: true, subtree: true });
   }
 
   function destroy() {
@@ -477,16 +645,25 @@
     document.removeEventListener('submit', onSubmit, true);
     document.removeEventListener('change', onChange, true);
     document.removeEventListener('input', onChange, true);
+    document.removeEventListener('focusin', onFocusIn, true);
+    documentObserver?.disconnect();
+    documentObserver = null;
     activeObservers.forEach(observer => observer.disconnect());
     activeObservers.clear();
     document.querySelectorAll(`[${PANEL_ATTR}], [data-simnet-wb-current-staff-error="1"]`).forEach(node => node.remove());
     document.getElementById(STYLE_ID)?.remove();
+    taskLog('info', 'staff_transition_destroyed', {});
   }
 
   WB.taskCurrentStaffTransition = Object.freeze({
     destroy,
     refresh() {
-      document.querySelectorAll('form').forEach(form => { if (isCurrentTaskForm(form)) enhance(form); });
+      enhanceAllCurrentForms('manual-refresh');
+    },
+    debugSnapshot(form = null) {
+      const target = isCurrentTaskForm(form) ? form : Array.from(document.querySelectorAll('form')).find(isCurrentTaskForm) || null;
+      if (!target) return null;
+      return decisionSnapshot(target, ensureState(target));
     }
   });
 
