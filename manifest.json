@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET Workbench",
-  "version": "1.7.36.127",
+  "version": "1.7.36.128",
   "description": "SIMNET Workbench: facts + visits + direct if/else actions, without continuous page rescanning.",
   "permissions": [
     "storage",
@@ -34,6 +34,7 @@
         "src/core/event-bus.js",
         "src/core/crm-constraint-index.js",
         "src/core/task-special-policy-v3.js",
+        "src/core/task-special-indexed-notes.js",
         "src/core/click-debug.js",
         "src/core/junction-debug.js",
         "src/parsers/billing/poll-result.js",
@@ -121,7 +122,7 @@
       ]
     }
   ],
-  "version_name": "1.7.36.127-userside-address-context-isolation",
+  "version_name": "1.7.36.128-indexed-special-notes",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }
