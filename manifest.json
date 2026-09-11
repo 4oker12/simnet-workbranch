@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET Workbench",
-  "version": "1.7.36.130",
+  "version": "1.7.36.131",
   "description": "SIMNET Workbench: facts + visits + direct if/else actions, without continuous page rescanning.",
   "permissions": [
     "storage",
@@ -36,6 +36,7 @@
         "src/core/task-special-policy-v3.js",
         "src/core/task-special-indexed-notes.js",
         "src/core/task-special-operational-notes.js",
+        "src/core/task-special-policy-v3-contextual.js",
         "src/core/click-debug.js",
         "src/core/junction-debug.js",
         "src/parsers/billing/poll-result.js",
@@ -65,6 +66,8 @@
         "src/ui/task-current-contract-guard.js",
         "src/ui/task-current-staff-transition.js",
         "src/ui/task-current-live-recovery.js",
+        "src/ui/task-live-crm-context.js",
+        "src/ui/task-field-visit-universal-crew.js",
         "src/ui/task-special-save-policy-v3.js",
         "src/ui/task-constraint-guard.js",
         "src/ui/operator-companion-loader.js",
@@ -123,7 +126,7 @@
       ]
     }
   ],
-  "version_name": "1.7.36.130-staff-native-uuid",
+  "version_name": "1.7.36.131-field-visit-universal-crew",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }
