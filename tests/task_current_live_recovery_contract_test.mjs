@@ -15,13 +15,34 @@ test('live recovery is loaded after current task guards', () => {
   assert.ok(recovery > staff);
 });
 
-test('live recovery re-reads UserSide building work description', () => {
+test('live recovery re-reads current UserSide address context and notes', () => {
   assert.match(source, /\/task\/load_building_work_description/);
   assert.match(source, /buildingTaskCommentId/);
   assert.match(source, /buildingTaskInfoId/);
   assert.match(source, /buildingWorkDescriptionId/);
+  assert.match(source, /address_context_resolve_result/);
   assert.match(source, /special_info_recovery_shown/);
-  assert.match(source, /Особенности по адресу/);
+});
+
+test('special info guard shows only actionable operator warnings', () => {
+  assert.match(source, /function interpretSpecialInfo/);
+  assert.match(source, /special_info_interpreted/);
+  assert.match(source, /infrastructure_capacity/);
+  assert.match(source, /connection_block/);
+  assert.match(source, /access_coordination/);
+  assert.match(source, /access_window/);
+  assert.match(source, /speed_limit/);
+  assert.match(source, /technology_restriction/);
+  assert.match(source, /Показано только то, что может повлиять на выполнение заявки/);
+  assert.match(source, /if \(!items\.length \|\| state\.approvedSignature === signature\)/);
+});
+
+test('special info UI keeps important text short, black and bold', () => {
+  assert.match(source, /MAX_ACTIONABLE = 3/);
+  assert.match(source, /wb-live-item-text/);
+  assert.match(source, /font-weight:700;color:#111/);
+  assert.match(source, /data-severity="critical"/);
+  assert.match(source, /Важно перед сохранением/);
 });
 
 test('L1 transition can recover brigade choices from current UserSide endpoint', () => {
@@ -34,7 +55,8 @@ test('L1 transition can recover brigade choices from current UserSide endpoint',
 
 test('decision trace records recovery branches', () => {
   assert.match(source, /TASK_FLOW/);
-  assert.match(source, /live_info_prefetch_result/);
+  assert.match(source, /address_context_resolve_result/);
   assert.match(source, /special_info_recovery_evaluated/);
+  assert.match(source, /special_info_interpreted/);
   assert.match(source, /crew_recovery_selected/);
 });
