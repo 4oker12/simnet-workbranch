@@ -8,7 +8,6 @@
   if (location.hostname !== 'userside.simnet.kiev.ua') return;
 
   const FORM_ACTION_RE = /^\/task\/save\/?$/i;
-  const STAFF_DIALOG_PATH = '/task/dialog_change_staff';
   const STAFF_SAVE_PATH = '/task/staff_save';
   const L1_DIVISION_UUID = '76fce89d-3304-4d26-a4cf-86dd78a9d89e';
   const L1_DIVISION_LABEL = 'Техподдержка L1';
@@ -95,6 +94,70 @@
     const href = String(cancel?.getAttribute('href') || '');
     const hrefMatch = href.match(/^\/task\/(\d+)(?:\/|$)/i);
     return hrefMatch ? hrefMatch[1] : '';
+  }
+
+  function taskUuidFromStaffLink(root) {
+    if (!root?.querySelectorAll) return '';
+    for (const link of Array.from(root.querySelectorAll('a[href*="/dialog_change_staff"]'))) {
+      const href = String(link.getAttribute('href') || '').trim();
+      let pathname = '';
+      try { pathname = new URL(href, location.href).pathname; } catch { continue; }
+      const match = pathname.match(/^\/task\/([0-9a-f-]{36})\/dialog_change_staff\/?$/i);
+      if (match && UUID_RE.test(match[1])) return match[1];
+    }
+    return '';
+  }
+
+  function taskUuidFromNode(root) {
+    if (!root?.querySelector) return '';
+    const direct = String(
+      root.querySelector('input[name="uuid"], input#taskId, [data-task-uuid]')?.value
+      || root.querySelector('[data-task-uuid]')?.getAttribute?.('data-task-uuid')
+      || ''
+    ).trim();
+    if (UUID_RE.test(direct)) return direct;
+    return taskUuidFromStaffLink(root);
+  }
+
+  async function resolveTaskUuid(form, taskId) {
+    const formUuid = taskUuidFromNode(form);
+    if (formUuid) {
+      taskLog('info', 'native_staff_task_uuid_resolved', { taskId, taskUuid: formUuid, source: 'edit-form' });
+      return formUuid;
+    }
+
+    const documentUuid = taskUuidFromNode(document);
+    if (documentUuid) {
+      taskLog('info', 'native_staff_task_uuid_resolved', { taskId, taskUuid: documentUuid, source: 'document' });
+      return documentUuid;
+    }
+
+    if (!/^\d+$/.test(taskId)) throw new Error('Не удалось определить номер редактируемой заявки');
+    const taskUrl = new URL(`/task/${encodeURIComponent(taskId)}`, location.origin);
+    const response = await fetch(taskUrl.toString(), {
+      method: 'GET',
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+    if (!response.ok) throw new Error(`Не удалось определить UUID заявки (HTTP ${response.status})`);
+
+    const html = await response.text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    let taskUuid = taskUuidFromNode(doc);
+    if (!taskUuid) {
+      for (const node of Array.from(doc.querySelectorAll('[href],[action]'))) {
+        const raw = String(node.getAttribute('href') || node.getAttribute('action') || '');
+        const match = raw.match(/\/task\/([0-9a-f-]{36})(?:\/|\?|$)/i);
+        if (match && UUID_RE.test(match[1])) {
+          taskUuid = match[1];
+          break;
+        }
+      }
+    }
+    if (!taskUuid) throw new Error('UserSide не отдал UUID заявки для формы исполнителей');
+
+    taskLog('info', 'native_staff_task_uuid_resolved', { taskId, taskUuid, source: 'task-card' });
+    return taskUuid;
   }
 
   function parseDummyDivisionUuids(form) {
@@ -398,8 +461,10 @@
     const taskId = taskNumericId(form);
     if (!/^\d+$/.test(taskId)) throw new Error('Не удалось определить номер редактируемой заявки');
 
-    taskLog('info', 'native_staff_dialog_load_start', { taskId, divisionUuids });
-    const dialogUrl = sameOriginTaskUrl(`${STAFF_DIALOG_PATH}?id=${encodeURIComponent(taskId)}`, STAFF_DIALOG_PATH);
+    const taskUuid = await resolveTaskUuid(form, taskId);
+    const dialogPath = `/task/${taskUuid}/dialog_change_staff`;
+    taskLog('info', 'native_staff_dialog_load_start', { taskId, taskUuid, divisionUuids, dialogPath });
+    const dialogUrl = sameOriginTaskUrl(dialogPath, dialogPath);
     const response = await fetch(dialogUrl.toString(), {
       method: 'GET',
       credentials: 'same-origin',
@@ -410,13 +475,20 @@
 
     const html = await response.text();
     const doc = new DOMParser().parseFromString(html, 'text/html');
-    const dialogForm = doc.querySelector('form[action*="/task/staff_save"]') || doc.querySelector('form');
+    const dialogForm = doc.querySelector('form[action="/task/staff_save"], form[action*="/task/staff_save"]');
     if (!dialogForm) throw new Error('UserSide не вернул форму исполнителей');
 
     const action = sameOriginTaskUrl(dialogForm.getAttribute('action') || STAFF_SAVE_PATH, STAFF_SAVE_PATH);
+    const returnedTaskUuid = String(dialogForm.querySelector('input[name="uuid"]')?.value || '').trim();
+    if (returnedTaskUuid && UUID_RE.test(returnedTaskUuid) && returnedTaskUuid !== taskUuid) {
+      throw new Error('UserSide вернул форму исполнителей другой заявки');
+    }
+    setDialogHidden(dialogForm, 'uuid', taskUuid, doc);
+
     const namespace = dialogStaffNamespace(dialogForm);
     taskLog('info', 'native_staff_dialog_loaded', {
       taskId,
+      taskUuid,
       namespace,
       originalInputCount: dialogForm.querySelectorAll('input[name*="staffuuid"], input[name*="staffid"]').length
     });
@@ -436,14 +508,12 @@
       dialogForm.appendChild(input);
     });
 
-    const preferred = divisionUuids.find(uuid => uuid !== L1_DIVISION_UUID) || divisionUuids[0] || '';
-    setDialogHidden(dialogForm, 'dummy_pers_id', preferred ? `*division_${preferred}*` : '', doc);
     taskLog('info', 'native_staff_payload_prepared', {
       taskId,
+      taskUuid,
       namespace,
       divisionUuids,
-      containsL1: divisionUuids.includes(L1_DIVISION_UUID),
-      preferredDivisionUuid: preferred
+      containsL1: divisionUuids.includes(L1_DIVISION_UUID)
     });
 
     const saveResponse = await fetch(action.toString(), {
@@ -454,8 +524,13 @@
       body: new FormData(dialogForm)
     });
     if (!saveResponse.ok) throw new Error(`Не удалось сохранить исполнителей (HTTP ${saveResponse.status})`);
-    taskLog('info', 'native_staff_save_success', { taskId, namespace, divisionUuids, status: saveResponse.status });
-    return { ok: true, taskId, namespace, divisionUuids };
+
+    const saveText = await saveResponse.text();
+    if (/erp_empty_state[^>]*>\s*Необходимо выбрать|необходимо\s+выбрать/iu.test(saveText)) {
+      throw new Error('UserSide не принял выбранную бригаду');
+    }
+    taskLog('info', 'native_staff_save_success', { taskId, taskUuid, namespace, divisionUuids, status: saveResponse.status });
+    return { ok: true, taskId, taskUuid, namespace, divisionUuids };
   }
 
   function syncMainFormStaff(form, divisionUuids) {
