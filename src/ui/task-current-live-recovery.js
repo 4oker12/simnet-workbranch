@@ -17,6 +17,7 @@
   const STYLE_ID = 'simnet-wb-live-recovery-style';
   const AUDIT_KEY = 'simnet_crm_constraint_ack_v1';
   const MAX_AUDIT = 500;
+  const MAX_ACTIONABLE = 3;
 
   const stateByForm = new WeakMap();
   const replayBypass = new WeakSet();
@@ -119,6 +120,9 @@
   function currentAddress(form) {
     const direct = compact(form.querySelector('#fastSearchInputtask_address, #inputAddressFastFindtask_addressId')?.value || '', 320);
     if (direct) return direct;
+    const building = form.querySelector('#buildingUuidtask_address');
+    const buildingText = compact(building?.selectedOptions?.[0]?.textContent || '', 320);
+    if (buildingText) return buildingText;
     const parts = Array.from(form.querySelectorAll('select[name="address_unit_selectortask_address[]"]'))
       .map(select => compact(select.selectedOptions?.[0]?.textContent || '', 120))
       .filter(Boolean)
@@ -177,6 +181,172 @@
     return out;
   }
 
+  function phoneDigits(raw) {
+    const digits = String(raw || '').replace(/\D/g, '');
+    if (digits.length === 12 && digits.startsWith('38')) return digits.slice(2);
+    if (digits.length === 10 && digits.startsWith('0')) return digits;
+    return '';
+  }
+
+  function formatPhone(raw) {
+    const digits = phoneDigits(raw);
+    if (!digits) return compact(raw, 32);
+    return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6, 8)} ${digits.slice(8, 10)}`;
+  }
+
+  function extractPhones(text) {
+    const matches = String(text || '').match(/(?:\+?38\s*)?0\d{2}(?:[\s()\-]*\d){7}/gu) || [];
+    const out = [];
+    const seen = new Set();
+    for (const raw of matches) {
+      const digits = phoneDigits(raw);
+      if (!digits || seen.has(digits)) continue;
+      seen.add(digits);
+      out.push({ raw, digits, formatted: formatPhone(raw), index: String(text).indexOf(raw) });
+    }
+    return out;
+  }
+
+  function findContactName(text, phone) {
+    const source = String(text || '');
+    const idx = Number(phone?.index ?? -1);
+    if (idx < 0) return '';
+    const before = source.slice(Math.max(0, idx - 55), idx);
+    const after = source.slice(idx + String(phone.raw || '').length, idx + String(phone.raw || '').length + 55);
+    const stop = /^(?:мастер|диспетчер|бухгалтерия|начальник|жека|жек|осбб|ключи|ключ|тел|телефон|звонить|набирать)$/iu;
+    const afterWords = after.match(/[А-ЯЁІЇЄ][а-яёіїєґ]{2,}/gu) || [];
+    for (const word of afterWords) if (!stop.test(word)) return word;
+    const beforeWords = before.match(/[А-ЯЁІЇЄ][а-яёіїєґ]{2,}/gu) || [];
+    for (let i = beforeWords.length - 1; i >= 0; i -= 1) if (!stop.test(beforeWords[i])) return beforeWords[i];
+    return '';
+  }
+
+  function formatClock(hour, minute = '00') {
+    const h = Math.max(0, Math.min(23, Number(hour)));
+    const m = Math.max(0, Math.min(59, Number(minute || 0)));
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
+
+  function addActionItem(items, item) {
+    if (!item?.text) return;
+    const key = `${item.type}|${fold(item.text)}`;
+    if (items.some(existing => `${existing.type}|${fold(existing.text)}` === key)) return;
+    items.push({
+      type: item.type || 'operational',
+      severity: item.severity === 'critical' ? 'critical' : 'warning',
+      title: compact(item.title || 'Важно перед сохранением', 100),
+      text: compact(item.text, 500),
+      sourceKeys: Array.isArray(item.sourceKeys) ? item.sourceKeys : []
+    });
+  }
+
+  function interpretSpecialInfo(rows) {
+    const rawRows = mergeRows(rows);
+    const sourceKeys = rawRows.map(row => row.key);
+    const raw = compact(rawRows.map(row => row.text).join(' • '), 12000);
+    const normalized = fold(raw);
+    const items = [];
+
+    if (!normalized) return [];
+
+    const entranceBlock = raw.match(/(?:перв\w*|1\s*[-–]?\s*(?:й|ый|ий)?)[^.!?]{0,45}(?:подъезд|під.?їзд)[^.!?]{0,60}(?:не\s*(?:подключ|підключ)|не\s*включ)/iu);
+    if (entranceBlock) {
+      addActionItem(items, {
+        type: 'entrance_scope', severity: 'critical', title: 'Ограничение подключения',
+        text: '1-й подъезд не подключаем. Проверь адрес/подъезд до сохранения заявки.', sourceKeys
+      });
+    }
+
+    const capacityBlocked = /(?:труб\w*|канал\w*|бокс\w*|стояк\w*)[^.!?]{0,45}(?:забит|зайнят|занят|переполн|нет\s+мест|нема\s+місц)/iu.test(raw);
+    const connectionBlocked = /(?:нет|нема|відсутн\w*)\s+(?:технич\w*\s+)?(?:возможност|можливост)[^.!?]{0,80}(?:подключ|підключ|включ)|(?:не\s*(?:подключаем|підключаємо|подключать|підключати))|комунікац\w*[^.!?]{0,35}замурован/iu.test(raw);
+    if (capacityBlocked || connectionBlocked) {
+      addActionItem(items, {
+        type: capacityBlocked ? 'infrastructure_capacity' : 'connection_block',
+        severity: 'critical', title: 'Ограничение подключения',
+        text: capacityBlocked
+          ? 'Каналы/трубки/боксы заняты или забиты — подключение может быть невозможно. Проверь возможность до оформления.'
+          : 'По дому есть ограничение или запрет на подключение. Проверь возможность до оформления заявки.',
+        sourceKeys
+      });
+    }
+
+    const speed = raw.match(/(?:не\s+более|макс(?:имум)?|до)\s*(\d{2,4})\s*(?:мбит|мб\/с|mbit|mbps)/iu);
+    if (speed) {
+      addActionItem(items, {
+        type: 'speed_limit', severity: 'critical', title: 'Ограничение тарифа',
+        text: `Максимальная скорость по дому: ${speed[1]} Мбит/с. Проверь выбранный тариф.`, sourceKeys
+      });
+    }
+
+    const requestUntil = raw.match(/заявк\w*\s+(?:только|лише)\s+до\s*(\d{1,2})(?:[:.]([0-5]\d))?/iu);
+    if (requestUntil) {
+      addActionItem(items, {
+        type: 'access_window', severity: 'warning', title: 'Ограничение по времени',
+        text: `Заявки по этому дому оформлять только до ${formatClock(requestUntil[1], requestUntil[2])}.`, sourceKeys
+      });
+    }
+
+    if (/(?:в\s+выходн|у\s+вихідн)[^.!?]{0,65}ключ\w*[^.!?]{0,35}(?:не\s*(?:дают|выдают|видають)|нет|немає)/iu.test(raw)) {
+      addActionItem(items, {
+        type: 'access_window', severity: 'warning', title: 'Доступ к дому',
+        text: 'В выходные ключи не выдают. Не ставь выезд без предварительного согласования доступа.', sourceKeys
+      });
+    }
+
+    const keyReturn = raw.match(/ключ\w*[^.!?]{0,30}(?:вернуть|повернути)\s+до\s*(\d{1,2})(?:[:.]([0-5]\d))?/iu);
+    if (keyReturn) {
+      addActionItem(items, {
+        type: 'access_window', severity: 'warning', title: 'Доступ к дому',
+        text: `Ключи нужно вернуть до ${formatClock(keyReturn[1], keyReturn[2])}.`, sourceKeys
+      });
+    }
+
+    const accessSignal = /ключ|доступ|договар|согласов|узгод|предупред|поперед|звонить|дзвонити|набирать|подготов\w*\s+ключ|тамбур|щитк\w*\s+закрыт|тех.?этаж\w*\s+закрыт/iu.test(raw);
+    const phones = extractPhones(raw);
+    if (accessSignal && phones.length) {
+      const phone = phones[0];
+      const name = findContactName(raw, phone);
+      const range = raw.match(/(?:звонить|дзвонити|набирать)[^0-9]{0,20}(?:с|з)\s*(\d{1,2})(?::([0-5]\d))?\s*(?:-|–|до)\s*(\d{1,2})(?::([0-5]\d))?/iu);
+      const prepareKeys = /(?:заранее|заздалегідь|утром|вранці)[^.!?]{0,60}(?:подготов\w*|підгот\w*)[^.!?]{0,35}ключ|(?:подготов\w*|підгот\w*)[^.!?]{0,35}ключ/iu.test(raw);
+      const agree = /договар|согласов|узгод|набирать|звонить|дзвонити|предупред|поперед/iu.test(raw);
+      let text = name
+        ? `Перед выездом ${agree ? 'согласовать доступ' : 'связаться'} с ${name} — ${phone.formatted}.`
+        : `Перед выездом ${agree ? 'согласовать доступ' : 'связаться'}: ${phone.formatted}.`;
+      if (range) text += ` Звонить ${formatClock(range[1], range[2])}–${formatClock(range[3], range[4])}.`;
+      if (prepareKeys) text += ' Позвонить заранее, чтобы подготовили ключи.';
+      addActionItem(items, { type: 'access_coordination', severity: 'warning', title: 'Доступ к дому', text, sourceKeys });
+    } else if (accessSignal && /ключ/iu.test(raw) && /(?:взять|получить|забрать|у\s+[А-ЯЁІЇЄ]|ключ\s+в\s+кв|ключ\s+у|ключі\s+у)/u.test(raw)) {
+      addActionItem(items, {
+        type: 'access_coordination', severity: 'warning', title: 'Доступ к дому',
+        text: 'Для доступа нужны ключи. Проверь, где и у кого их получить, до назначения выезда.', sourceKeys
+      });
+    }
+
+    if (/(?:предупред|поперед)[^.!?]{0,55}(?:осбб|жек|жек|управля|керуюч)|(?:абонент|клиент)[^.!?]{0,55}(?:открыть|відкрити)[^.!?]{0,35}(?:тамбур|двер|доступ)/iu.test(raw)) {
+      addActionItem(items, {
+        type: 'precondition', severity: 'warning', title: 'Перед выездом',
+        text: 'Нужно заранее согласовать доступ/предупредить ответственную сторону. Проверь это до сохранения заявки.', sourceKeys
+      });
+    }
+
+    const noTv = /(?:без\s+(?:тв|tv|ктв)|тв\s+не\s+подключ)/iu.test(raw);
+    const onlyTech = /(?:только|лише)\s+(?:по\s+)?(?:gpon|pon|epon|вит\w*\s+пар|ethernet)/iu.test(raw);
+    if (noTv || onlyTech) {
+      const parts = [];
+      if (onlyTech) parts.push('Есть ограничение по технологии подключения.');
+      if (noTv) parts.push('ТВ по этому подключению не предоставляется.');
+      addActionItem(items, {
+        type: 'technology_restriction', severity: 'warning', title: 'Условия подключения',
+        text: `${parts.join(' ')} Проверь выбранную услугу перед оформлением.`, sourceKeys
+      });
+    }
+
+    const rank = { critical: 0, warning: 1 };
+    return items
+      .sort((a, b) => (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9))
+      .slice(0, MAX_ACTIONABLE);
+  }
+
   async function resolveAddressContext(form, reason = 'resolve') {
     if (!isTaskForm(form)) return { buildingUuid: '', rows: [] };
     const state = getState(form);
@@ -224,12 +394,8 @@
         if (UUID_RE.test(resolved)) state.resolvedBuildingUuid = resolved;
         state.infoRows = mergeRows(domRows, remoteRows, state.infoRows);
         log('info', 'address_context_resolve_result', {
-          reason,
-          taskTypeUuid: typeUuid,
-          addressUnitUuid: unitUuid,
-          buildingUuid: state.resolvedBuildingUuid,
-          remoteNoteCount: remoteRows.length,
-          noteCount: state.infoRows.length
+          reason, taskTypeUuid: typeUuid, addressUnitUuid: unitUuid,
+          buildingUuid: state.resolvedBuildingUuid, remoteNoteCount: remoteRows.length, noteCount: state.infoRows.length
         });
         return { buildingUuid: state.resolvedBuildingUuid, rows: state.infoRows };
       } catch (error) {
@@ -261,11 +427,23 @@
       [${CREW_HOST_ATTR}] select{min-width:260px;max-width:100%;height:26px;border:1px solid #aebdca;border-radius:3px;background:#fff;color:#40505e;padding:2px 24px 2px 6px;font:12px Arial,sans-serif}
       [${CREW_HOST_ATTR}] .wb-live-crew-hint{margin-top:4px;color:#687783;font-size:11px}
       #${MODAL_ID}{position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:18px;background:rgba(38,49,59,.34);font-family:Arial,sans-serif}
-      #${MODAL_ID} .wb-live-card{box-sizing:border-box;width:min(700px,calc(100vw - 32px));max-height:min(740px,calc(100vh - 36px));overflow:auto;background:#fff;border:1px solid #c6d2dc;border-radius:3px;box-shadow:0 10px 30px rgba(40,55,70,.24);color:#40505e}
-      #${MODAL_ID} .wb-live-head{padding:11px 13px 9px;border-bottom:1px solid #d8e1e8;background:#f3f6f8}.wb-live-title{font-size:14px;font-weight:700;color:#3f607a}.wb-live-address{margin-top:3px;font-size:11px;color:#687783}
-      #${MODAL_ID} .wb-live-body{padding:11px 13px}.wb-live-note{margin-bottom:9px;font-size:11px;color:#65737e}.wb-live-item{padding:8px;margin:6px 0;border:1px solid #d8e1e8;border-left:4px solid #c18b3b;border-radius:3px;background:#fffdf7}.wb-live-item-title{font-size:12px;font-weight:700;color:#465764}.wb-live-item-text{margin-top:3px;font-size:11px;line-height:1.45;white-space:pre-wrap}
-      #${MODAL_ID} .wb-live-checks{display:grid;gap:7px;margin-top:11px;padding:9px;border:1px solid #d8e1e8;border-radius:3px;background:#f7f9fb}.wb-live-checks label{display:flex;gap:7px;align-items:flex-start;font-size:11px;line-height:1.35}.wb-live-foot{display:flex;gap:7px;justify-content:flex-end;padding:9px 13px 11px;border-top:1px solid #d8e1e8;background:#f8fafb}
-      #${MODAL_ID} button{border-radius:3px;padding:5px 9px;font:600 11px/1.2 Arial,sans-serif;cursor:pointer}.wb-live-cancel{border:1px solid #aebdca;background:#fff;color:#405a70}.wb-live-confirm{border:1px solid #3f6f93;background:#4c7da1;color:#fff}.wb-live-confirm[disabled]{opacity:.45;cursor:default}
+      #${MODAL_ID} .wb-live-card{box-sizing:border-box;width:min(620px,calc(100vw - 32px));max-height:min(680px,calc(100vh - 36px));overflow:auto;background:#fff;border:1px solid #c6d2dc;border-radius:3px;box-shadow:0 10px 30px rgba(40,55,70,.24);color:#111}
+      #${MODAL_ID} .wb-live-head{padding:10px 12px 8px;border-bottom:1px solid #d8e1e8;background:#f3f6f8}
+      #${MODAL_ID} .wb-live-title{font-size:14px;font-weight:700;color:#111}
+      #${MODAL_ID} .wb-live-address{margin-top:3px;font-size:11px;color:#687783}
+      #${MODAL_ID} .wb-live-body{padding:10px 12px}
+      #${MODAL_ID} .wb-live-note{margin-bottom:7px;font-size:11px;color:#65737e}
+      #${MODAL_ID} .wb-live-item{padding:8px 9px;margin:6px 0;border:1px solid #d8e1e8;border-left:4px solid #c18b3b;border-radius:3px;background:#fffdf7}
+      #${MODAL_ID} .wb-live-item[data-severity="critical"]{border-left-color:#b42318;background:#fff8f7}
+      #${MODAL_ID} .wb-live-item-title{font-size:12px;font-weight:800;color:#111}
+      #${MODAL_ID} .wb-live-item-text{margin-top:3px;font-size:12px;line-height:1.4;font-weight:700;color:#111;white-space:pre-wrap}
+      #${MODAL_ID} .wb-live-checks{display:grid;gap:6px;margin-top:9px;padding:8px;border:1px solid #d8e1e8;border-radius:3px;background:#f7f9fb}
+      #${MODAL_ID} .wb-live-checks label{display:flex;gap:7px;align-items:flex-start;font-size:11px;line-height:1.35;color:#33414c}
+      #${MODAL_ID} .wb-live-foot{display:flex;gap:7px;justify-content:flex-end;padding:8px 12px 10px;border-top:1px solid #d8e1e8;background:#f8fafb}
+      #${MODAL_ID} button{border-radius:3px;padding:5px 9px;font:600 11px/1.2 Arial,sans-serif;cursor:pointer}
+      #${MODAL_ID} .wb-live-cancel{border:1px solid #aebdca;background:#fff;color:#405a70}
+      #${MODAL_ID} .wb-live-confirm{border:1px solid #3f6f93;background:#4c7da1;color:#fff}
+      #${MODAL_ID} .wb-live-confirm[disabled]{opacity:.45;cursor:default}
     `;
     (document.head || document.documentElement).appendChild(style);
   }
@@ -391,11 +569,11 @@
     return state.crewPromise;
   }
 
-  function specialSignature(form, rows) {
-    return `${taskTypeUuid(form)}|${getState(form).resolvedBuildingUuid}|${rows.map(row => fold(row.text)).join('|')}`;
+  function specialSignature(form, items) {
+    return `${taskTypeUuid(form)}|${getState(form).resolvedBuildingUuid}|${items.map(item => `${item.type}:${fold(item.text)}`).join('|')}`;
   }
 
-  function writeAudit(form, rows) {
+  function writeAudit(form, rows, items) {
     try {
       chrome.storage.local.get(AUDIT_KEY, stored => {
         const current = stored?.[AUDIT_KEY];
@@ -409,6 +587,7 @@
           address: currentAddress(form),
           taskTypeUuid: taskTypeUuid(form),
           acknowledged: true,
+          actionable: items.map(item => ({ type: item.type, severity: item.severity, title: item.title, text: item.text })),
           rawSources: rows.map(row => row.key),
           rawNotes: rows.map(row => compact(row.text, 800))
         });
@@ -432,24 +611,27 @@
     });
   }
 
-  function showSpecialModal(form, rows, submitter) {
+  function showSpecialModal(form, rows, items, submitter) {
     document.getElementById(MODAL_ID)?.remove();
     ensureStyles();
     const state = getState(form);
-    const signature = specialSignature(form, rows);
+    const signature = specialSignature(form, items);
     const host = document.createElement('div');
     host.id = MODAL_ID;
     host.dataset.simnetWbOwned = '1';
-    host.innerHTML = '<section class="wb-live-card"><div class="wb-live-head"><div class="wb-live-title">Особенности по адресу</div><div class="wb-live-address"></div></div><div class="wb-live-body"><div class="wb-live-note">UserSide хранит дополнительную информацию по этому дому. Проверь её перед сохранением заявки.</div><div data-wb-live-items="1"></div><div class="wb-live-checks"><label><input type="checkbox" data-role="customer-warned"> <span>Абонент предупреждён / условия уже оговорены</span></label><label><input type="checkbox" data-role="ack"> <span><b>Ознакомлен.</b> Учту информацию при оформлении и выполнении заявки.</span></label></div></div><div class="wb-live-foot"><button type="button" class="wb-live-cancel" data-action="cancel">Вернуться</button><button type="button" class="wb-live-confirm" data-action="confirm" disabled>Подтвердить и сохранить</button></div></section>';
+    host.setAttribute('role', 'dialog');
+    host.setAttribute('aria-modal', 'true');
+    host.innerHTML = '<section class="wb-live-card"><div class="wb-live-head"><div class="wb-live-title">Важно перед сохранением</div><div class="wb-live-address"></div></div><div class="wb-live-body"><div class="wb-live-note">Показано только то, что может повлиять на выполнение заявки.</div><div data-wb-live-items="1"></div><div class="wb-live-checks"><label><input type="checkbox" data-role="customer-warned"> <span>Абонент предупреждён / условия уже оговорены</span></label><label><input type="checkbox" data-role="ack"> <span><b>Ознакомлен.</b> Учту это при оформлении заявки.</span></label></div></div><div class="wb-live-foot"><button type="button" class="wb-live-cancel" data-action="cancel">Вернуться</button><button type="button" class="wb-live-confirm" data-action="confirm" disabled>Подтвердить и сохранить</button></div></section>';
     host.querySelector('.wb-live-address').textContent = currentAddress(form);
-    const items = host.querySelector('[data-wb-live-items="1"]');
-    rows.slice(0, 6).forEach(row => {
-      const item = document.createElement('div');
-      item.className = 'wb-live-item';
-      item.innerHTML = '<div class="wb-live-item-title"></div><div class="wb-live-item-text"></div>';
-      item.querySelector('.wb-live-item-title').textContent = row.label || 'Информация по дому';
-      item.querySelector('.wb-live-item-text').textContent = row.text;
-      items.appendChild(item);
+    const container = host.querySelector('[data-wb-live-items="1"]');
+    items.slice(0, MAX_ACTIONABLE).forEach(item => {
+      const node = document.createElement('div');
+      node.className = 'wb-live-item';
+      node.dataset.severity = item.severity;
+      node.innerHTML = '<div class="wb-live-item-title"></div><div class="wb-live-item-text"></div>';
+      node.querySelector('.wb-live-item-title').textContent = item.title;
+      node.querySelector('.wb-live-item-text').textContent = item.text;
+      container.appendChild(node);
     });
     const ack = host.querySelector('[data-role="ack"]');
     const confirm = host.querySelector('[data-action="confirm"]');
@@ -457,19 +639,27 @@
     host.addEventListener('click', event => {
       const action = event.target?.closest?.('[data-action]')?.dataset?.action || '';
       if (action === 'cancel') {
-        log('info', 'special_info_recovery_cancelled', { noteCount: rows.length });
+        log('info', 'special_info_recovery_cancelled', { actionableCount: items.length });
         host.remove();
         return;
       }
       if (action !== 'confirm' || !ack.checked) return;
       state.approvedSignature = signature;
-      writeAudit(form, rows);
-      log('info', 'special_info_recovery_confirmed', { buildingUuid: state.resolvedBuildingUuid, noteCount: rows.length, noteSources: rows.map(row => row.key) });
+      writeAudit(form, rows, items);
+      log('info', 'special_info_recovery_confirmed', {
+        buildingUuid: state.resolvedBuildingUuid,
+        actionableCount: items.length,
+        actionableTypes: items.map(item => item.type)
+      });
       host.remove();
       replay(form, submitter);
     });
     (document.body || document.documentElement).appendChild(host);
-    log('warn', 'special_info_recovery_shown', { taskTypeUuid: taskTypeUuid(form), buildingUuid: state.resolvedBuildingUuid, address: currentAddress(form), noteCount: rows.length, noteSources: rows.map(row => row.key) });
+    log('warn', 'special_info_recovery_shown', {
+      taskTypeUuid: taskTypeUuid(form), buildingUuid: state.resolvedBuildingUuid,
+      address: currentAddress(form), rawNoteCount: rows.length,
+      actionableCount: items.length, actionableTypes: items.map(item => item.type)
+    });
   }
 
   async function onSubmit(event) {
@@ -483,21 +673,37 @@
 
     const state = getState(form);
     let rows = mergeRows(noteRowsFrom(document), state.infoRows);
+    let paused = false;
     if (!rows.length || !UUID_RE.test(state.resolvedBuildingUuid)) {
       event.preventDefault();
       event.stopPropagation();
+      paused = true;
       const context = await resolveAddressContext(form, 'submit-confirm');
       rows = mergeRows(noteRowsFrom(document), context.rows);
     }
-    const signature = specialSignature(form, rows);
-    log('info', 'special_info_recovery_evaluated', { taskTypeUuid: taskTypeUuid(form), buildingUuid: state.resolvedBuildingUuid, noteCount: rows.length, noteSources: rows.map(row => row.key) });
-    if (!rows.length || state.approvedSignature === signature) {
-      if (event.defaultPrevented) replay(form, event.submitter || null);
+
+    const items = interpretSpecialInfo(rows);
+    log('info', 'special_info_interpreted', {
+      taskTypeUuid: taskTypeUuid(form), buildingUuid: state.resolvedBuildingUuid,
+      rawNoteCount: rows.length, actionableCount: items.length,
+      actionableTypes: items.map(item => item.type),
+      suppressedRawCount: Math.max(0, rows.length - items.length)
+    });
+
+    const signature = specialSignature(form, items);
+    log('info', 'special_info_recovery_evaluated', {
+      taskTypeUuid: taskTypeUuid(form), buildingUuid: state.resolvedBuildingUuid,
+      rawNoteCount: rows.length, actionableCount: items.length,
+      actionableTypes: items.map(item => item.type)
+    });
+
+    if (!items.length || state.approvedSignature === signature) {
+      if (paused) replay(form, event.submitter || null);
       return;
     }
     event.preventDefault();
     event.stopPropagation();
-    showSpecialModal(form, rows, event.submitter || null);
+    showSpecialModal(form, rows, items, event.submitter || null);
   }
 
   function scheduleRefresh(form, reason) {
@@ -546,10 +752,12 @@
 
   WB.taskCurrentLiveRecovery = Object.freeze({
     refresh() { scan('manual-refresh'); },
+    interpretSpecialInfo,
     async debug(form = null) {
       const target = isTaskForm(form) ? form : Array.from(document.querySelectorAll('form')).find(isTaskForm) || null;
       if (!target) return null;
       const context = await resolveAddressContext(target, 'debug');
+      const rows = mergeRows(noteRowsFrom(document), context.rows);
       return {
         taskTypeUuid: taskTypeUuid(target),
         directBuildingUuid: directBuildingUuid(target),
@@ -557,7 +765,8 @@
         resolvedBuildingUuid: context.buildingUuid,
         customerUuid: customerUuid(target),
         address: currentAddress(target),
-        noteRows: mergeRows(noteRowsFrom(document), context.rows),
+        noteRows: rows,
+        actionableItems: interpretSpecialInfo(rows),
         nativeBrigadeCount: nativeBrigadeInputs(target).length,
         syntheticCrewUuid: target.querySelector(`[${CREW_INPUT_ATTR}]`)?.value || ''
       };
