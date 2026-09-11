@@ -61,6 +61,7 @@
         "src/ui/task-form-assistant.js",
         "src/ui/task-current-contract-guard.js",
         "src/ui/task-current-staff-transition.js",
+        "src/ui/task-current-live-recovery.js",
         "src/ui/task-constraint-guard.js",
         "src/ui/operator-companion-loader.js",
         "src/ui/rail-styles.js",
