@@ -13,8 +13,7 @@
 
   const STRUCTURAL_FIELDS = new Set([
     'building_id', 'subscriber_count', 'activity', 'building_type', 'entrances', 'floors',
-    'apartments', 'penetration', 'coordinates', 'manager', 'owner', 'management', 'ktv', 'gpon',
-    'можем_подключать_абонентов'
+    'apartments', 'penetration', 'coordinates', 'manager', 'owner', 'management', 'ktv', 'gpon'
   ]);
 
   const TYPE_META = Object.freeze({
@@ -208,6 +207,21 @@
       found.push(constraint);
     };
 
+    for (const field of Array.isArray(building?.fields) ? building.fields : []) {
+      const key = String(field?.key || '').toLowerCase();
+      if (key !== 'можем_подключать_абонентов') continue;
+      const value = fold(field?.text || '');
+      if (/^(?:нет|не|ни|ні|нема|немае|false|0)$/iu.test(value)) {
+        add(normalizedConstraint(
+          'connection_block',
+          building,
+          field,
+          `${compact(field?.label || 'Можем ПОДКЛЮЧАТЬ абонентов', 120)}: ${compact(field?.text, 120)}`,
+          0.99
+        ));
+      }
+    }
+
     for (const field of sourceFields(building)) {
       const text = compact(field.text, 5000);
       for (const rule of RULES) {
@@ -322,6 +336,12 @@
         cachedIndex = null;
         return null;
       }
+
+      if (!snapshot?.stats?.complete && !force) {
+        cachedIndex = existing?.schema === SCHEMA && existing?.source?.snapshotComplete ? existing : null;
+        return cachedIndex;
+      }
+
       if (!force && indexMatchesSnapshot(existing, snapshot)) {
         cachedIndex = existing;
         return existing;
@@ -367,7 +387,8 @@
 
   try {
     chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName !== 'local' || !changes?.[SNAPSHOT_KEY]?.newValue) return;
+      const nextSnapshot = changes?.[SNAPSHOT_KEY]?.newValue;
+      if (areaName !== 'local' || !nextSnapshot?.stats?.complete) return;
       cachedIndex = null;
       void ensureIndex({ force: true }).catch(error => {
         WB.log?.warn?.('CRM', 'Constraint index rebuild failed after snapshot change', { message: error?.message || String(error) });
