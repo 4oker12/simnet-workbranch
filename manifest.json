@@ -70,6 +70,7 @@
         "src/ui/task-field-visit-universal-crew.js",
         "src/ui/task-special-save-policy-v3.js",
         "src/ui/task-constraint-guard.js",
+        "src/ui/task-save-runtime-fixes.js",
         "src/ui/operator-companion-loader.js",
         "src/ui/rail-styles.js",
         "src/ui/rail.js",
