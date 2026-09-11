@@ -7,7 +7,7 @@
   const SNAPSHOT_KEY = 'simnet_crm_building_snapshot_v1';
   const INDEX_KEY = 'simnet_crm_filtered_special_notes_v1';
   const SCHEMA = 'simnet-crm-filtered-special-notes-v1';
-  const VERSION = 1;
+  const VERSION = 2;
   const NOTE_KEYS = new Set(['notes', 'working_note', 'можем_подключать_абонентов']);
   const originalPolicy = WB.taskSpecialPolicyV3;
 
@@ -95,11 +95,36 @@
     return rows;
   }
 
+  function normalizeRowsForPolicy(rows) {
+    const out = [];
+    for (const row of Array.isArray(rows) ? rows : []) {
+      if (!row || typeof row !== 'object') continue;
+      const text = compact(row.text, 6000);
+      if (!text) continue;
+      out.push({ ...row, text });
+
+      // Some CRM notes express the same hard block in reverse word order, e.g.
+      // "подключать нет возможности". The base policy recognizes the canonical
+      // "нет возможности подключать" form, so add a semantic hint without
+      // replacing or hiding the original evidence.
+      if (/(?:подключ\w*|підключ\w*)[^.!?]{0,55}(?:нет|нема(?:є)?|немае)\s+(?:техническ\w*\s+)?(?:возможност\w*|можливост\w*)/iu.test(text)) {
+        out.push({
+          ...row,
+          key: `${String(row.key || 'note')}:connection_block_hint`,
+          label: compact(row.label || row.key || 'Заметка', 120),
+          text: `Нет возможности подключать абонентов. Исходная заметка: ${text}`
+        });
+      }
+    }
+    return out;
+  }
+
   function hasActionableRows(rows, address) {
     if (!rows.length) return false;
-    const normal = originalPolicy.interpretRows(rows, { address });
+    const prepared = normalizeRowsForPolicy(rows);
+    const normal = originalPolicy.interpretRows(prepared, { address });
     if (normal.length) return true;
-    const domophone = originalPolicy.interpretRows(rows, { address, taskTypeLabel: 'Домофон' });
+    const domophone = originalPolicy.interpretRows(prepared, { address, taskTypeLabel: 'Домофон' });
     return domophone.length > 0;
   }
 
@@ -216,8 +241,8 @@
   }
 
   function interpretRows(rows, context = {}) {
-    const liveRows = Array.isArray(rows) ? rows : [];
-    const indexedRows = indexedRowsForAddress(context?.address || '');
+    const liveRows = normalizeRowsForPolicy(rows);
+    const indexedRows = normalizeRowsForPolicy(indexedRowsForAddress(context?.address || ''));
     if (!indexedRows.length) return originalPolicy.interpretRows(liveRows, context);
 
     const livePositive = liveRows.some(row => /(?:можно|можна)\s+(?:полностью\s+)?(?:подключ|підключ)|(?:подключ|підключ)[\p{L}]*\s+(?:можно|можна)/iu.test(String(row?.text || '')));
