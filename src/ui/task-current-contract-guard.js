@@ -9,7 +9,7 @@
 
   const FORM_ACTION_RE = /^\/task\/save\/?$/i;
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  const BRIGADE_RE = /^\s*бр\.\s*/iu;
+  const BRIGADE_RE = /(?:^|\s)бр\.\s*/iu;
   const FIELD_MIN_LEAD_MS = 3 * 60 * 60 * 1000;
   const PAST_GRACE_MS = 60 * 1000;
   const VALIDATION_HOST_ID = 'simnet-wb-current-task-validation';
@@ -73,6 +73,18 @@
     .replace(/ё/g, 'е').replace(/э/g, 'е').replace(/ґ/g, 'г')
     .replace(/[ії]/g, 'и').replace(/є/g, 'е').replace(/ы/g, 'и').replace(/ь/g, '')
     .replace(/[^a-zа-я0-9]+/giu, ' ').trim();
+
+  function taskLog(level, event, details = null) {
+    try {
+      const method = WB.log?.[level];
+      if (typeof method === 'function') return method.call(WB.log, 'TASK_FLOW', event, details || {});
+    } catch {}
+    try {
+      const fn = level === 'error' ? console.error : level === 'warn' ? console.warn : console.info;
+      fn(`[SIMNET WB][TASK_FLOW] ${event}`, details || {});
+    } catch {}
+    return null;
+  }
 
   function hashText(value) {
     const text = String(value || '');
@@ -140,6 +152,10 @@
     return staffInputs(form).filter(input => input.checked && BRIGADE_RE.test(inputLabel(input)));
   }
 
+  function selectedCrewLabels(form) {
+    return selectedCrews(form).map(input => inputLabel(input)).filter(Boolean).slice(0, 8);
+  }
+
   function fieldVisitApplies(form, type = typeContext(form)) {
     if (FIELD_VISIT_UUIDS.has(type.id)) return true;
     const fields = scheduleFields(form);
@@ -180,6 +196,7 @@
     const schedule = scheduleState(form);
     return {
       typeUuid: type.id,
+      typeLabel: type.label,
       dateText: schedule.dateText,
       hourText: schedule.hourText,
       minuteText: schedule.minuteText,
@@ -189,7 +206,14 @@
 
   function rememberBaseline(form) {
     if (!isCurrentTaskForm(form) || baselineByForm.has(form)) return;
-    baselineByForm.set(form, baselineSnapshot(form));
+    const baseline = baselineSnapshot(form);
+    baselineByForm.set(form, baseline);
+    taskLog('info', 'task_form_baseline_captured', {
+      mode: formMode(),
+      ...baseline,
+      buildingUuid: buildingUuid(form),
+      addressUnitUuid: selectedAddressUnitUuid(form)
+    });
   }
 
   function parseWorkWindow() {
@@ -267,14 +291,14 @@
     style.id = STYLE_ID;
     style.dataset.simnetWbOwned = '1';
     style.textContent = `
-      #${VALIDATION_HOST_ID}{position:fixed;z-index:2147483647;top:18px;left:50%;transform:translateX(-50%);box-sizing:border-box;width:min(650px,calc(100vw - 36px));padding:12px 16px;border:1px solid #a50046;border-left:6px solid #a50046;border-radius:10px;background:#fff;color:#351522;box-shadow:0 12px 34px rgba(45,0,18,.24);font:13px/1.4 Arial,sans-serif}
-      #${VALIDATION_HOST_ID} b{color:#8f1746} #${VALIDATION_HOST_ID} ul{margin:6px 0 0;padding-left:20px} #${VALIDATION_HOST_ID} li{margin:3px 0}
-      #${MODAL_HOST_ID}{position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:18px;background:rgba(30,12,20,.54);font-family:Inter,Arial,sans-serif}
-      #${MODAL_HOST_ID} .wb-tcg-card{box-sizing:border-box;width:min(700px,calc(100vw - 32px));max-height:min(740px,calc(100vh - 36px));overflow:auto;background:#fff;border:1px solid rgba(123,20,62,.25);border-radius:14px;box-shadow:0 24px 70px rgba(41,5,22,.32);color:#2f1721}
-      #${MODAL_HOST_ID} .wb-tcg-head{padding:15px 17px 11px;border-bottom:1px solid #eee1e7;background:#fff9fb}.wb-tcg-title{font-size:17px;font-weight:800;color:#8f1746}.wb-tcg-address{margin-top:4px;font-size:12px;color:#70515f}
-      #${MODAL_HOST_ID} .wb-tcg-body{padding:13px 17px}.wb-tcg-note{margin-bottom:10px;font-size:12px;line-height:1.4;color:#5f4751}.wb-tcg-list{display:grid;gap:8px}.wb-tcg-item{padding:9px 10px;border:1px solid #e7d9df;border-radius:9px;background:#fff}.wb-tcg-item[data-severity="blocker"]{border-left:5px solid #a50046;background:#fff8fb}.wb-tcg-item[data-severity="warning"]{border-left:5px solid #b77900;background:#fffdf5}.wb-tcg-item[data-severity="info"]{border-left:5px solid #777;background:#fafafa}.wb-tcg-item-title{font-size:12px;font-weight:800;color:#4a1d31}.wb-tcg-evidence{margin-top:4px;font-size:12px;line-height:1.42;color:#3d3036}.wb-tcg-action{margin-top:5px;font-size:10.5px;color:#7b5968}
-      #${MODAL_HOST_ID} .wb-tcg-checks{display:grid;gap:8px;margin-top:14px;padding:11px;border-radius:9px;background:#f8f4f6}.wb-tcg-checks label{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.35;cursor:pointer}.wb-tcg-checks input{margin-top:2px}.wb-tcg-foot{display:flex;gap:8px;justify-content:flex-end;padding:11px 17px 15px;border-top:1px solid #eee1e7}
-      #${MODAL_HOST_ID} button{appearance:none;border-radius:9px;padding:8px 11px;font:600 12px/1 Inter,Arial,sans-serif;cursor:pointer}.wb-tcg-cancel{border:1px solid #d9cbd1;background:#fff;color:#5d4650}.wb-tcg-confirm{border:1px solid #8f1746;background:#8f1746;color:#fff}.wb-tcg-confirm[disabled]{opacity:.42;cursor:default}
+      #${VALIDATION_HOST_ID}{position:fixed;z-index:2147483647;top:16px;left:50%;transform:translateX(-50%);box-sizing:border-box;width:min(650px,calc(100vw - 36px));padding:10px 13px;border:1px solid #c6d2dc;border-left:4px solid #c18b3b;border-radius:3px;background:#fff;color:#40505e;box-shadow:0 6px 18px rgba(40,55,70,.18);font:12px/1.4 Arial,sans-serif}
+      #${VALIDATION_HOST_ID} b{color:#6b552d} #${VALIDATION_HOST_ID} ul{margin:5px 0 0;padding-left:18px} #${VALIDATION_HOST_ID} li{margin:2px 0}
+      #${MODAL_HOST_ID}{position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:18px;background:rgba(38,49,59,.34);font-family:Arial,sans-serif}
+      #${MODAL_HOST_ID} .wb-tcg-card{box-sizing:border-box;width:min(700px,calc(100vw - 32px));max-height:min(740px,calc(100vh - 36px));overflow:auto;background:#fff;border:1px solid #c6d2dc;border-radius:3px;box-shadow:0 10px 30px rgba(40,55,70,.24);color:#40505e}
+      #${MODAL_HOST_ID} .wb-tcg-head{padding:11px 13px 9px;border-bottom:1px solid #d8e1e8;background:#f3f6f8}.wb-tcg-title{font-size:14px;font-weight:700;color:#3f607a}.wb-tcg-address{margin-top:3px;font-size:11px;color:#687783}
+      #${MODAL_HOST_ID} .wb-tcg-body{padding:11px 13px}.wb-tcg-note{margin-bottom:9px;font-size:11px;line-height:1.4;color:#65737e}.wb-tcg-list{display:grid;gap:6px}.wb-tcg-item{padding:7px 8px;border:1px solid #d8e1e8;border-radius:3px;background:#fff}.wb-tcg-item[data-severity="blocker"]{border-left:4px solid #b75c5c;background:#fffafa}.wb-tcg-item[data-severity="warning"]{border-left:4px solid #c18b3b;background:#fffdf7}.wb-tcg-item[data-severity="info"]{border-left:4px solid #7d95a8;background:#f9fbfc}.wb-tcg-item-title{font-size:12px;font-weight:700;color:#465764}.wb-tcg-evidence{margin-top:3px;font-size:11px;line-height:1.4;color:#46525c}.wb-tcg-action{margin-top:4px;font-size:10.5px;color:#687783}
+      #${MODAL_HOST_ID} .wb-tcg-checks{display:grid;gap:7px;margin-top:11px;padding:9px;border:1px solid #d8e1e8;border-radius:3px;background:#f7f9fb}.wb-tcg-checks label{display:flex;gap:7px;align-items:flex-start;font-size:11px;line-height:1.35;cursor:pointer}.wb-tcg-checks input{margin-top:1px}.wb-tcg-foot{display:flex;gap:7px;justify-content:flex-end;padding:9px 13px 11px;border-top:1px solid #d8e1e8;background:#f8fafb}
+      #${MODAL_HOST_ID} button{appearance:none;border-radius:3px;padding:5px 9px;font:600 11px/1.2 Arial,sans-serif;cursor:pointer}.wb-tcg-cancel{border:1px solid #aebdca;background:#fff;color:#405a70}.wb-tcg-cancel:hover{background:#eef4f8}.wb-tcg-confirm{border:1px solid #3f6f93;background:#4c7da1;color:#fff}.wb-tcg-confirm:hover{background:#406f91}.wb-tcg-confirm[disabled]{opacity:.45;cursor:default}
     `;
     (document.head || document.documentElement).appendChild(style);
   }
@@ -389,7 +413,9 @@
       constraints = Array.isArray(WB.crmConstraints?.extractBuildingConstraints?.(synthetic))
         ? WB.crmConstraints.extractBuildingConstraints(synthetic)
         : [];
-    } catch {}
+    } catch (error) {
+      taskLog('warn', 'live_constraint_extractor_failed', { message: compact(error?.message || error, 180) });
+    }
     constraints = constraints.map(item => ({ ...item, source: 'userside-live' }));
 
     const manual = [];
@@ -452,6 +478,36 @@
     return Boolean(row && row.signature === signature && Number(row.expiresAt || 0) > Date.now());
   }
 
+  function decisionContext(form, issues = null, constraints = null) {
+    const type = typeContext(form);
+    const schedule = scheduleState(form);
+    const staff = staffInputs(form);
+    const workWindow = parseWorkWindow();
+    const rows = liveNoteRows();
+    return {
+      mode: formMode(),
+      taskTypeUuid: type.id,
+      taskTypeLabel: type.label || TYPE_LABELS[type.id] || '',
+      fieldVisit: fieldVisitApplies(form, type),
+      date: schedule.dateText,
+      hour: schedule.hourText,
+      minute: schedule.minuteText,
+      scheduledAt: schedule.at?.toISOString?.() || '',
+      workWindow: workWindow?.text || '',
+      staffInputCount: staff.length,
+      selectedCrewCount: selectedCrews(form).length,
+      selectedCrewLabels: selectedCrewLabels(form),
+      buildingUuid: buildingUuid(form),
+      addressUnitUuid: selectedAddressUnitUuid(form),
+      address: currentAddress(form),
+      liveNoteSources: rows.map(row => row.key),
+      liveNoteCount: rows.length,
+      issueCodes: Array.isArray(issues) ? issues.map(item => item.code) : [],
+      constraintTypes: Array.isArray(constraints) ? constraints.map(item => item.type) : [],
+      constraintCount: Array.isArray(constraints) ? constraints.length : 0
+    };
+  }
+
   function writeAudit(entry) {
     return new Promise(resolve => {
       try {
@@ -474,13 +530,15 @@
   }
 
   function resubmit(form, submitter) {
+    taskLog('info', 'task_save_replay_requested', decisionContext(form));
     replayBypass.add(form);
     queueMicrotask(() => {
       try {
         if (submitter instanceof HTMLElement && submitter.isConnected) form.requestSubmit(submitter);
         else form.requestSubmit();
-      } catch {
+      } catch (error) {
         replayBypass.delete(form);
+        taskLog('warn', 'task_save_replay_requestsubmit_failed', { message: compact(error?.message || error, 180) });
         try { form.submit(); } catch {}
       }
     });
@@ -500,11 +558,11 @@
     host.innerHTML = `
       <section class="wb-tcg-card">
         <div class="wb-tcg-head">
-          <div class="wb-tcg-title">${blocker ? '⚠ Особое условие по адресу' : 'Особенности по адресу'}</div>
+          <div class="wb-tcg-title">${blocker ? 'Особое условие по адресу' : 'Особенности по адресу'}</div>
           <div class="wb-tcg-address"></div>
         </div>
         <div class="wb-tcg-body">
-          <div class="wb-tcg-note">Workbench прочитал актуальные заметки, которые UserSide подтянул для выбранного дома. Проверь условия до сохранения заявки.</div>
+          <div class="wb-tcg-note">Проверь актуальные условия по дому перед сохранением заявки.</div>
           <div class="wb-tcg-list"></div>
           <div class="wb-tcg-checks">
             <label><input type="checkbox" data-role="customer-warned"> <span>Абонент предупреждён / условия с ним уже оговорены</span></label>
@@ -536,6 +594,12 @@
       list.appendChild(node);
     }
 
+    taskLog('info', 'special_info_guard_shown', {
+      ...decisionContext(form, null, constraints),
+      blocker,
+      signature
+    });
+
     const ack = host.querySelector('[data-role="ack"]');
     const customerWarned = host.querySelector('[data-role="customer-warned"]');
     const confirm = host.querySelector('[data-action="confirm"]');
@@ -543,7 +607,11 @@
 
     host.addEventListener('click', async event => {
       const action = event.target?.closest?.('[data-action]')?.dataset?.action || '';
-      if (action === 'cancel') { closeSpecialModal(); return; }
+      if (action === 'cancel') {
+        taskLog('info', 'special_info_guard_cancelled', decisionContext(form, null, constraints));
+        closeSpecialModal();
+        return;
+      }
       if (action !== 'confirm' || !ack.checked || confirm.disabled) return;
       confirm.disabled = true;
       const at = new Date().toISOString();
@@ -565,12 +633,11 @@
         constraintTypes: [...new Set(constraints.map(item => item.type).filter(Boolean))],
         blocker
       });
-      WB.log?.info?.('TASK', 'UserSide LIVE special conditions acknowledged', {
-        buildingUuid: bUuid,
-        addressUnitUuid,
-        taskTypeUuid: type.id,
+      taskLog('info', 'UserSide LIVE special conditions acknowledged', {
+        ...decisionContext(form, null, constraints),
         customerWarned: Boolean(customerWarned.checked),
-        constraints: constraints.map(item => item.type)
+        acknowledged: true,
+        blocker
       });
       closeSpecialModal();
       resubmit(form, submitter);
@@ -585,28 +652,37 @@
     if (!isCurrentTaskForm(form)) return;
     if (replayBypass.has(form)) {
       replayBypass.delete(form);
+      taskLog('info', 'task_save_replay_passed', decisionContext(form));
       return;
     }
-    if (event.defaultPrevented) return;
+    if (event.defaultPrevented) {
+      taskLog('info', 'task_save_skipped_prior_guard', decisionContext(form));
+      return;
+    }
     rememberBaseline(form);
 
     const issues = validateFieldVisit(form);
+    taskLog('info', 'task_save_decision', decisionContext(form, issues));
     if (issues.length) {
       event.preventDefault();
       event.stopPropagation();
       showValidation(issues);
-      WB.log?.warn?.('TASK', 'Current UserSide field visit validation blocked save', {
-        taskTypeUuid: typeContext(form).id,
-        codes: issues.map(item => item.code)
-      });
+      taskLog('warn', 'Current UserSide field visit validation blocked save', decisionContext(form, issues));
       return;
     }
 
     const type = typeContext(form);
     const constraints = applicableLiveConstraints(form, type);
-    if (!constraints.length) return;
+    taskLog('info', 'special_info_evaluated', decisionContext(form, null, constraints));
+    if (!constraints.length) {
+      taskLog('info', 'task_save_passed_no_special_info', decisionContext(form));
+      return;
+    }
     const signature = constraintSignature(form, type, constraints);
-    if (approvalValid(form, signature)) return;
+    if (approvalValid(form, signature)) {
+      taskLog('info', 'special_info_approval_reused', { ...decisionContext(form, null, constraints), signature });
+      return;
+    }
 
     event.preventDefault();
     event.stopPropagation();
@@ -627,6 +703,11 @@
     fieldVisitUuids: Object.freeze([...FIELD_VISIT_UUIDS]),
     extractLiveConstraints,
     validateFieldVisit,
+    debugDecision(form = null) {
+      const target = isCurrentTaskForm(form) ? form : Array.from(document.querySelectorAll('form')).find(isCurrentTaskForm) || null;
+      if (!target) return null;
+      return decisionContext(target, validateFieldVisit(target), applicableLiveConstraints(target, typeContext(target)));
+    },
     close() {
       document.getElementById(VALIDATION_HOST_ID)?.remove();
       closeSpecialModal();
@@ -639,6 +720,7 @@
       document.getElementById(VALIDATION_HOST_ID)?.remove();
       closeSpecialModal();
       document.getElementById(STYLE_ID)?.remove();
+      taskLog('info', 'task_current_contract_guard_destroyed', {});
     }
   });
 })();
