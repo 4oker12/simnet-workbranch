@@ -24,6 +24,16 @@ test('live recovery re-reads current UserSide address context and notes', () => 
   assert.match(source, /special_info_recovery_shown/);
 });
 
+test('address context cannot leak from a previous street or building', () => {
+  assert.match(source, /address_context_reset/);
+  assert.match(source, /address_context_resolve_discarded/);
+  assert.match(source, /address_context_waiting_for_building/);
+  assert.match(source, /hasBuildingLevelSelection/);
+  assert.match(source, /state\.resolvedBuildingUuid = ''/);
+  assert.match(source, /state\.infoRows = \[\]/);
+  assert.doesNotMatch(source, /parseBuildingUuidFromScripts\(document\)/);
+});
+
 test('special info guard shows only actionable operator warnings', () => {
   assert.match(source, /function interpretSpecialInfo/);
   assert.match(source, /special_info_interpreted/);
@@ -35,6 +45,11 @@ test('special info guard shows only actionable operator warnings', () => {
   assert.match(source, /technology_restriction/);
   assert.match(source, /Показано только то, что может повлиять на выполнение заявки/);
   assert.match(source, /if \(!items\.length \|\| state\.approvedSignature === signature\)/);
+});
+
+test('contact facts are interpreted row-by-row so unrelated notes are not mixed', () => {
+  assert.match(source, /function interpretRow/);
+  assert.match(source, /for \(const row of rawRows\) interpretRow\(row, items\)/);
 });
 
 test('special info UI keeps important text short, black and bold', () => {
