@@ -32,6 +32,7 @@
       "js": [
         "src/content/namespace.js",
         "src/core/event-bus.js",
+        "src/core/crm-constraint-index.js",
         "src/core/click-debug.js",
         "src/core/junction-debug.js",
         "src/parsers/billing/poll-result.js",
@@ -58,6 +59,7 @@
         "src/ui/call-transcription-assistant.js",
         "src/ui/call-pbx-diagnostic.js",
         "src/ui/task-form-assistant.js",
+        "src/ui/task-constraint-guard.js",
         "src/ui/operator-companion-loader.js",
         "src/ui/rail-styles.js",
         "src/ui/rail.js",
