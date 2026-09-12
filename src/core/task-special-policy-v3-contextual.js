@@ -6,7 +6,7 @@
   WB.__taskSpecialPolicyV3ContextualLoaded = true;
 
   const basePolicy = WB.taskSpecialPolicyV3;
-  const VERSION = 1;
+  const VERSION = 2;
 
   const compact = (value, max = 6000) => {
     const text = String(value == null ? '' : value).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
@@ -40,6 +40,136 @@
       return { technology, evidence: raw, sourceKey: String(row?.key || '') };
     }
     return null;
+  }
+
+  function severityMeta(item = {}) {
+    if (item.needsReview || item.severity === 'review' || item.decisionMode === 'manual_review') {
+      return { level: 'review', label: 'НУЖНА ПРОВЕРКА' };
+    }
+    if (item.severity === 'blocker' || item.decisionMode === 'hard_block_if_scope_matches') {
+      return { level: 'blocker', label: 'МОЖЕТ СОРВАТЬ ЗАЯВКУ' };
+    }
+    if (item.severity === 'info' || item.decisionMode === 'info') {
+      return { level: 'info', label: 'УЧЕСТЬ' };
+    }
+    return { level: 'warning', label: 'ВАЖНО ДО СОХРАНЕНИЯ' };
+  }
+
+  function accessWindowAction(summary) {
+    const until = String(summary || '').match(/до\s*(\d{1,2}:\d{2})/u);
+    if (until) return `Поставить визит до ${until[1]} и передать ограничение исполнителю.`;
+    if (/выходн/iu.test(summary || '')) return 'Не ставить выезд на закрытое время; заранее проверить, когда выдадут доступ.';
+    return 'Назначить визит в допустимое время и передать это ограничение исполнителю.';
+  }
+
+  function presentItem(item = {}, context = {}) {
+    const summary = compact(item.summary, 220) || 'Важное условие по адресу';
+    const severity = severityMeta(item);
+    const type = String(item.type || 'special_instruction');
+    const taskType = compact(context.taskTypeLabel, 120);
+    const common = { summary, severity: severity.level, severityLabel: severity.label };
+
+    switch (type) {
+      case 'connection_block':
+        return {
+          ...common,
+          tag: 'ПОДКЛЮЧЕНИЕ',
+          impact: 'Заявка может быть технически невыполнима и уйти в работу ошибочно.',
+          action: 'Не обещать подключение. Уточнить техническую возможность или эскалировать до оформления.'
+        };
+      case 'infrastructure_capacity':
+        return {
+          ...common,
+          tag: 'РЕСУРС',
+          impact: 'Бригаде может не хватить порта, волокна или другого ресурса для выполнения работ.',
+          action: 'Проверить свободный ресурс или согласовать расширение до назначения заявки.'
+        };
+      case 'entrance_scope':
+        return {
+          ...common,
+          tag: 'ПОДЪЕЗД / СЕКЦИЯ',
+          impact: 'Ограничение действует не на весь дом: неверный подъезд может сделать выезд бесполезным.',
+          action: 'Сверить подъезд/секцию заявки. Если выбран запрещённый — не отправлять заявку как обычную.'
+        };
+      case 'manual_review':
+        return {
+          ...common,
+          tag: 'ПРОВЕРИТЬ',
+          impact: 'Формулировка неоднозначна — Workbench не может безопасно решить за оператора.',
+          action: 'Прочитать исходную заметку и уточнить условие до сохранения заявки.'
+        };
+      case 'speed_limit':
+        return {
+          ...common,
+          tag: 'СКОРОСТЬ',
+          impact: 'Абоненту нельзя обещать скорость выше ограничения по этому адресу.',
+          action: 'Сверить тариф и ожидания абонента; зафиксировать ограничение в заявке.'
+        };
+      case 'technology_restriction':
+        return {
+          ...common,
+          tag: 'ТЕХНОЛОГИЯ',
+          impact: 'Неверная технология может сделать заявку невыполнимой или потребовать переоформления.',
+          action: 'Сверить технологию заявки с разрешённой для этого адреса.'
+        };
+      case 'service_restriction':
+        return {
+          ...common,
+          tag: 'УСЛУГА',
+          impact: `${taskType ? `Для «${taskType}» это может быть критично: ` : ''}услуга может быть недоступна по адресу.`,
+          action: 'Не обещать недоступную услугу; сверить допустимый вариант до сохранения.'
+        };
+      case 'visit_duration':
+        return {
+          ...common,
+          tag: 'ВРЕМЯ НА РАБОТЫ',
+          impact: 'Обычного слота может не хватить, и бригада не успеет выполнить заявку.',
+          action: 'Заложить указанную длительность при назначении визита.'
+        };
+      case 'access_window':
+        return {
+          ...common,
+          tag: 'ДОСТУП / ВРЕМЯ',
+          impact: 'Вне этого времени бригада может не получить доступ, и выезд сорвётся.',
+          action: accessWindowAction(summary)
+        };
+      case 'access_coordination': {
+        const keyLike = /ключ|код|домофон/iu.test(`${summary} ${item.evidence || ''}`);
+        return {
+          ...common,
+          tag: 'ДОСТУП',
+          impact: keyLike
+            ? 'Без ключа, кода или согласованного доступа бригада может не попасть к месту работ.'
+            : 'Без предварительного согласования бригада может не попасть к месту работ.',
+          action: keyLike
+            ? 'До выезда уточнить ключ/код/контакт и зафиксировать способ доступа в заявке.'
+            : 'Заранее согласовать доступ и передать исполнителю контакт/условие.'
+        };
+      }
+      case 'commercial_condition':
+        return {
+          ...common,
+          tag: 'УСЛОВИЯ / СТОИМОСТЬ',
+          impact: 'Это условие может изменить стоимость, акцию или обещания абоненту.',
+          action: 'Проверить коммерческое условие до согласования заявки с абонентом.'
+        };
+      case 'special_instruction':
+        return {
+          ...common,
+          tag: 'ОСОБОЕ ДЕЙСТВИЕ',
+          impact: item.temporalScope === 'future_instruction'
+            ? 'Требование относится к следующему выезду и легко потеряется, если не передать его исполнителю.'
+            : 'Условие меняет обычный порядок выполнения заявки.',
+          action: 'Зафиксировать требование в заявке и передать его исполнителю.'
+        };
+      default:
+        return {
+          ...common,
+          tag: 'ВАЖНО',
+          impact: 'Условие может изменить порядок или результат выполнения заявки.',
+          action: 'Сверить исходную заметку и передать важное условие исполнителю.'
+        };
+    }
   }
 
   function interpretRows(rows, context = {}) {
@@ -78,6 +208,7 @@
     WB.taskSpecialPolicyV3 = Object.freeze({
       ...basePolicy,
       interpretRows,
+      presentItem,
       contextualPolicyVersion: VERSION
     });
   } catch {}
