@@ -7,12 +7,10 @@
   const STORAGE_KEY = 'simnet_call_active_6047_v1';
   const OPERATOR_EXTENSION = '6047';
   const LEASE_TTL_MS = 12_000;
-  const HOST_ID = 'simnet-workbench-call-registration-host';
   const PBX_QUERY_MESSAGE = 'PBX_RECENT_CALLS_QUERY';
 
   let activeState = null;
   let patchedRegistration = null;
-  let observer = null;
   let stopped = false;
   const refreshByTalk = new Map();
 
@@ -124,16 +122,12 @@
           await registration.__wbActiveFocusOriginalOpen?.(activeCase, { focusCallKey: '' });
         } catch {}
         return response;
-      })
-      .finally(() => {
-        // Keep the settled promise for this talk_start: one heavy lookup per
-        // active call is enough. Manual refresh remains available after hangup.
       });
     refreshByTalk.set(key, promise);
     return promise;
   }
 
-  function pendingMarkup(registration) {
+  function pendingMarkup() {
     const started = Number(activeState?.talkStartMs || 0);
     const time = started
       ? new Date(started).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -166,7 +160,7 @@
 
     registration.renderDecision = function(notice = null) {
       if (isActive() && this.__wbActiveCallPending) {
-        this.surface?.(pendingMarkup(this));
+        this.surface?.(pendingMarkup());
         return;
       }
       return originalRenderDecision?.(notice);
@@ -196,6 +190,13 @@
     if (registration && registration.__lazy !== true) patchRegistration(registration);
   }
 
+  // CallRegistration.open emits this synchronously before it mounts or queries
+  // CALL state. Using that lifecycle event avoids another page-wide MutationObserver.
+  function onModuleOpen(event) {
+    if (event?.detail?.module !== 'call') return;
+    findAndPatch();
+  }
+
   function onStorageChanged(changes, areaName) {
     if (areaName !== 'local' || !changes?.[STORAGE_KEY]) return;
     const previous = activeState;
@@ -221,19 +222,7 @@
     }
   }
 
-  observer = new MutationObserver(mutations => {
-    if (stopped) return;
-    for (const mutation of mutations) {
-      const nodes = Array.from(mutation.addedNodes || []);
-      if (nodes.some(node => node?.nodeType === 1 && (
-        node.id === HOST_ID || node.querySelector?.(`#${HOST_ID}`)
-      ))) {
-        queueMicrotask(findAndPatch);
-        break;
-      }
-    }
-  });
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  window.addEventListener('simnet-workbench-module-open', onModuleOpen);
   chrome.storage.onChanged.addListener(onStorageChanged);
   void readState().then(findAndPatch);
 
@@ -243,8 +232,7 @@
     enforce: () => hardEnforce(patchedRegistration),
     destroy() {
       stopped = true;
-      observer?.disconnect();
-      observer = null;
+      window.removeEventListener('simnet-workbench-module-open', onModuleOpen);
       chrome.storage.onChanged.removeListener(onStorageChanged);
     }
   });
