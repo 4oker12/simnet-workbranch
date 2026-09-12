@@ -5,6 +5,8 @@
   if (!WB || window.top !== window.self || WB.callActiveFocusGuard) return;
 
   const STORAGE_KEY = 'simnet_call_active_6047_v1';
+  const DATASET_KEY = 'simnetWbNativePbxState';
+  const PROBE_EVENT_NAME = 'simnet-wb-native-pbx-probe';
   const OPERATOR_EXTENSION = '6047';
   const LEASE_TTL_MS = 12_000;
   const PBX_QUERY_MESSAGE = 'PBX_RECENT_CALLS_QUERY';
@@ -31,6 +33,15 @@
     };
   }
 
+  function acceptNewestState(candidate = null) {
+    const normalized = normalizeState(candidate);
+    if (!normalized) return activeState;
+    if (!activeState || Number(normalized.observedAtMs || 0) >= Number(activeState.observedAtMs || 0)) {
+      activeState = normalized;
+    }
+    return activeState;
+  }
+
   function isActive(state = activeState) {
     if (!state?.active || state.agentExtension !== OPERATOR_EXTENSION) return false;
     const age = nowMs() - Number(state.observedAtMs || 0);
@@ -44,15 +55,25 @@
       || String(call.snapshotStatus || '').toLowerCase() === 'live';
   }
 
+  function syncProbeNativeState() {
+    if (stopped || location.hostname !== 'userside.simnet.kiev.ua') return activeState;
+    try {
+      document.documentElement?.dispatchEvent(new Event(PROBE_EVENT_NAME));
+      const raw = document.documentElement?.dataset?.[DATASET_KEY] || '';
+      if (raw) acceptNewestState(JSON.parse(raw));
+    } catch {}
+    return activeState;
+  }
+
   function readState() {
     return new Promise(resolve => {
       try {
         chrome.storage.local.get([STORAGE_KEY], result => {
-          if (chrome.runtime.lastError) return resolve(null);
-          activeState = normalizeState(result?.[STORAGE_KEY]);
+          if (chrome.runtime.lastError) return resolve(activeState);
+          acceptNewestState(result?.[STORAGE_KEY]);
           resolve(activeState);
         });
-      } catch { resolve(null); }
+      } catch { resolve(activeState); }
     });
   }
 
@@ -114,9 +135,10 @@
 
     const promise = sendCanonicalRefresh('native-active-start')
       .then(async response => {
+        syncProbeNativeState();
         if (stopped || !registration.host || !isActive() || refreshKey(activeState) !== key) return response;
-        // The authoritative refresh has now merged call_list into CALL state.
-        // Re-open from cache only; this does not start another blocking fetch.
+        // The authoritative refresh has now merged the filtered 6047 call_list
+        // into CALL state. Re-open from cache only; no second heavy lookup.
         const activeCase = WB.store?.activeCase?.() || null;
         try {
           await registration.__wbActiveFocusOriginalOpen?.(activeCase, { focusCallKey: '' });
@@ -153,12 +175,14 @@
     registration.__wbActiveFocusOriginalOpen = originalOpen;
 
     registration.applyPbxSnapshot = function(...args) {
+      syncProbeNativeState();
       const result = originalApply(...args);
       hardEnforce(this);
       return result;
     };
 
     registration.renderDecision = function(notice = null) {
+      syncProbeNativeState();
       if (isActive() && this.__wbActiveCallPending) {
         this.surface?.(pendingMarkup());
         return;
@@ -167,11 +191,16 @@
     };
 
     registration.open = async function(caseData = WB.store?.activeCase?.() || null, options = {}) {
+      // Ask native UserSide PBX synchronously before reading any cached CALL.
+      // This is local-only: no network, timer or MutationObserver.
+      syncProbeNativeState();
       await readState();
+      syncProbeNativeState();
       const live = isActive();
       const safeOptions = live ? { ...(options || {}), focusCallKey: '' } : (options || {});
       if (live) void ensureCurrentCallRefresh(this, activeState);
       const result = await originalOpen(caseData, safeOptions);
+      syncProbeNativeState();
       hardEnforce(this);
       if (live && this.__wbActiveCallPending && this.host) this.renderDecision();
       return result;
@@ -179,6 +208,7 @@
 
     registration.__wbActiveFocusPatched = true;
     patchedRegistration = registration;
+    syncProbeNativeState();
     hardEnforce(registration);
     if (isActive()) void ensureCurrentCallRefresh(registration, activeState);
     return registration;
@@ -191,16 +221,19 @@
   }
 
   // CallRegistration.open emits this synchronously before it mounts or queries
-  // CALL state. Using that lifecycle event avoids another page-wide MutationObserver.
+  // CALL state. Probe native lifecycle first so historical focus cannot win a race.
   function onModuleOpen(event) {
     if (event?.detail?.module !== 'call') return;
+    syncProbeNativeState();
     findAndPatch();
+    hardEnforce(patchedRegistration);
   }
 
   function onStorageChanged(changes, areaName) {
     if (areaName !== 'local' || !changes?.[STORAGE_KEY]) return;
-    const previous = activeState;
-    activeState = normalizeState(changes[STORAGE_KEY].newValue);
+    const previous = activeState ? { ...activeState } : null;
+    acceptNewestState(changes[STORAGE_KEY].newValue);
+    syncProbeNativeState();
     const wasActive = isActive(previous);
     const live = isActive(activeState);
     findAndPatch();
@@ -224,12 +257,25 @@
 
   window.addEventListener('simnet-workbench-module-open', onModuleOpen);
   chrome.storage.onChanged.addListener(onStorageChanged);
-  void readState().then(findAndPatch);
+  syncProbeNativeState();
+  void readState().then(() => {
+    syncProbeNativeState();
+    findAndPatch();
+  });
 
   WB.callActiveFocusGuard = Object.freeze({
-    isActive: () => isActive(),
-    state: () => activeState ? { ...activeState } : null,
-    enforce: () => hardEnforce(patchedRegistration),
+    isActive: () => {
+      syncProbeNativeState();
+      return isActive();
+    },
+    state: () => {
+      syncProbeNativeState();
+      return activeState ? { ...activeState } : null;
+    },
+    enforce: () => {
+      syncProbeNativeState();
+      return hardEnforce(patchedRegistration);
+    },
     destroy() {
       stopped = true;
       window.removeEventListener('simnet-workbench-module-open', onModuleOpen);
