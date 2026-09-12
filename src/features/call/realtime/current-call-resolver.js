@@ -17,6 +17,7 @@
   let stopped = false;
   let inFlightKey = '';
   let lastAttemptAtMs = 0;
+  let lastActiveKey = '';
 
   const now = () => Date.now();
   const digits = value => String(value == null ? '' : value).replace(/\D+/g, '');
@@ -30,6 +31,11 @@
       talkStartMs: Math.max(0, Number(value.talkStartMs || 0)),
       observedAtMs
     };
+  }
+
+  function activeKey(active = null) {
+    if (!active) return '';
+    return String(active.talkStartMs || Math.floor(active.observedAtMs / 10_000));
   }
 
   function isOngoing(call = null) {
@@ -46,9 +52,6 @@
     const startedAtMs = Number(call.startedAtMs || 0);
     if (!startedAtMs) return false;
     if (active.talkStartMs && Math.abs(startedAtMs - active.talkStartMs) > START_TOLERANCE_MS) return false;
-    // Native PBX is authoritative for lifecycle. When its talk_start matches the
-    // UserSide row, accept the row even if query projection has not yet marked it
-    // ongoing; this prevents minute-precision call_list timestamps from dropping it.
     return isOngoing(call) || Boolean(active.talkStartMs);
   }
 
@@ -78,7 +81,20 @@
     return chrome.storage.local.set({ [LIVE_STATE_KEY]: state }).then(() => state);
   }
 
-  function requestCurrent() {
+  function clearLiveState() {
+    return chrome.storage.local.set({
+      [LIVE_STATE_KEY]: {
+        schema: 'simnet-wb-call-list-live-v1',
+        active: false,
+        agentExtension: OPERATOR_EXTENSION,
+        observedAtMs: now(),
+        source: 'background-current-call-resolver',
+        call: null
+      }
+    });
+  }
+
+  function requestCurrent(reason = 'active-call-resolve') {
     return new Promise(resolve => {
       try {
         chrome.runtime.sendMessage({
@@ -87,7 +103,7 @@
             fresh: true,
             forceRefresh: true,
             backgroundRefresh: true,
-            backgroundRefreshReason: 'active-call-resolve'
+            backgroundRefreshReason: reason
           }
         }, response => {
           const error = chrome.runtime.lastError;
@@ -114,7 +130,7 @@
     inFlightKey = key;
     lastAttemptAtMs = now();
     try {
-      const data = await requestCurrent();
+      const data = await requestCurrent('active-call-resolve');
       if (stopped) return false;
       const call = candidateFromResponse(data, active);
       if (!call) {
@@ -154,8 +170,9 @@
   }
 
   async function resolveActive(active) {
-    const key = String(active.talkStartMs || Math.floor(active.observedAtMs / 10_000));
+    const key = activeKey(active);
     if (!key || inFlightKey) return;
+    lastActiveKey = key;
     if (now() - lastAttemptAtMs < RETRY_AFTER_MISS_MS) return;
 
     let storage = {};
@@ -178,12 +195,52 @@
     await attempt(active, key);
   }
 
+  async function refreshAfterHangup(key) {
+    if (stopped || !key || inFlightKey) return;
+    const endKey = `end:${key}`;
+    let storage = {};
+    try { storage = await chrome.storage.local.get([LOCK_KEY]); } catch {}
+    const lock = storage?.[LOCK_KEY];
+    if (lock?.key === endKey && Number(lock.expiresAtMs || 0) > now()) return;
+
+    try {
+      await chrome.storage.local.set({
+        [LOCK_KEY]: { key: endKey, status: 'finalizing', owner: location.href, expiresAtMs: now() + LOCK_TTL_MS }
+      });
+    } catch {}
+
+    inFlightKey = endKey;
+    try {
+      await clearLiveState();
+      const data = await requestCurrent('active-call-ended');
+      try {
+        await chrome.storage.local.set({
+          [LOCK_KEY]: {
+            key: endKey,
+            status: data ? 'finalized' : 'finalize-miss',
+            owner: location.href,
+            expiresAtMs: now() + 60_000
+          }
+        });
+      } catch {}
+      WB.log?.info?.('CALL', 'После завершения звонка обновлён канонический call_list', {
+        activeKey: key,
+        success: Boolean(data),
+        focusCallKey: String(data?.focusCall?.callKey || '')
+      });
+    } finally {
+      inFlightKey = '';
+      lastAttemptAtMs = 0;
+    }
+  }
+
   async function inspect() {
     if (stopped) return;
     let result = {};
     try { result = await chrome.storage.local.get([NATIVE_STATE_KEY]); } catch {}
     const active = activeNative(result?.[NATIVE_STATE_KEY]);
     if (!active) return;
+    lastActiveKey = activeKey(active);
     void resolveActive(active);
   }
 
@@ -191,13 +248,16 @@
     if (stopped || area !== 'local' || !changes?.[NATIVE_STATE_KEY]) return;
     const active = activeNative(changes[NATIVE_STATE_KEY].newValue);
     if (!active) {
-      inFlightKey = '';
+      const endedKey = lastActiveKey;
+      lastActiveKey = '';
       lastAttemptAtMs = 0;
+      if (endedKey) void refreshAfterHangup(endedKey);
+      else void clearLiveState().catch(() => {});
       return;
     }
+    lastActiveKey = activeKey(active);
     // Native widget refreshes this state while the conversation is alive. Each
-    // heartbeat can therefore retry a missed call_list projection without any
-    // permanent polling timer of our own.
+    // heartbeat can retry a miss without a permanent polling timer.
     void resolveActive(active);
   }
 
