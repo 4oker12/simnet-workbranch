@@ -130,7 +130,7 @@ test('12. ordinary street leaves existing save path untouched', () => {
   assert.equal(decision.issues.length, 0);
 });
 
-test('13. loader/parser failure is fail-open and never becomes false SOVKI', async () => {
+test('13. loader/parser failure is fail-open and never becomes false restricted territory', async () => {
   const cache = rules.createStreetContextCache(async () => { throw new Error('HTTP 500'); });
   const context = await cache.get(S1, { streetName: 'Street A' });
   const decision = rules.evaluateCrewRule(context, []);
@@ -138,6 +138,45 @@ test('13. loader/parser failure is fail-open and never becomes false SOVKI', asy
   assert.equal(context.territory, '');
   assert.equal(decision.failOpen, true);
   assert.equal(decision.issues.length, 0);
+});
+
+test('14. owner /owner/157 triggers ZHULIANY', () => {
+  const result = rules.classifyTerritory([owner('157', 'Жуляны')]);
+  assert.equal(result.territory, 'ZHULIANY');
+  assert.equal(result.territoryLabel, 'Жуляны');
+  assert.equal(result.requiredCrew?.uuid, required.uuid);
+});
+
+test('15. owner name Жуляны is a fallback for ZHULIANY', () => {
+  assert.equal(rules.classifyTerritory([owner('', 'Жуляны')]).territory, 'ZHULIANY');
+});
+
+test('16. several owners trigger ZHULIANY when owner 157 is present', () => {
+  const result = rules.classifyTerritory([
+    owner('35', 'STARGROUP'),
+    owner('157', 'Жуляны'),
+    owner('999', 'Other')
+  ]);
+  assert.equal(result.territory, 'ZHULIANY');
+});
+
+test('17. ZHULIANY with required VL crew allows save', () => {
+  const decision = rules.evaluateCrewRule({
+    status: 'ready', territory: 'ZHULIANY', owners: [owner('157', 'Жуляны')], requiredCrew: required
+  }, [{ uuid: required.uuid, name: required.name }]);
+  assert.equal(decision.applies, true);
+  assert.equal(decision.matched, true);
+  assert.equal(decision.issues.length, 0);
+});
+
+test('18. ZHULIANY with another crew is blocked exactly like SOVKI', () => {
+  const decision = rules.evaluateCrewRule({
+    status: 'ready', territory: 'ZHULIANY', owners: [owner('157', 'Жуляны')], requiredCrew: required
+  }, [{ uuid: '55555555-5555-4555-8555-555555555555', name: 'Бр. 2.4 Московчук' }]);
+  assert.equal(decision.applies, true);
+  assert.equal(decision.matched, false);
+  assert.equal(decision.issues[0]?.ownerLabel, 'Жуляны');
+  assert.match(decision.issues[0]?.message || '', /работает только Бр\. 2\.1 ВЛ/);
 });
 
 test('owner parser uses exact property row and every /owner/ link, taking id from href', () => {
@@ -148,12 +187,13 @@ test('owner parser uses exact property row and every /owner/ link, taking id fro
       anchors: [
         { href: '/owner/35', name: 'STARGROUP' },
         { href: '/owner/148', name: 'Масив Совки' },
-        { href: '/owner/171', name: 'Массив Совки' }
+        { href: '/owner/171', name: 'Массив Совки' },
+        { href: '/owner/157', name: 'Жуляны' }
       ]
     }
   ]);
   assert.deepEqual(rules.parseOwnersDocument(doc).map(item => [item.id, item.name]), [
-    ['35', 'STARGROUP'], ['148', 'Масив Совки'], ['171', 'Массив Совки']
+    ['35', 'STARGROUP'], ['148', 'Масив Совки'], ['171', 'Массив Совки'], ['157', 'Жуляны']
   ]);
   assert.match(coreSource, /\.erp-object-props__row/);
   assert.match(coreSource, /\.erp-object-props__label-main/);
@@ -170,17 +210,17 @@ test('street resolver uses the real UserSide [Street] item, not the selected hou
   assert.equal(result.streetName, 'вул. Володимира Брожка');
 });
 
-test('runtime uses proven UserSide routes, no keyup polling, and blocks through submit capture', () => {
+test('runtime uses proven UserSide building-card resolver, no keyup polling, and blocks through submit capture', () => {
   assert.match(contextSource, /\/task\/load_building_work_description/);
   assert.match(contextSource, /\/building\/\$\{encodeURIComponent\(uuid\)\}\/building_level/);
   assert.match(contextSource, /\/building\/\$\{encodeURIComponent\(building\.id\)\}/);
-  assert.match(contextSource, /\/building\/\$\{encodeURIComponent\(building\.id\)\}\/edit/);
+  assert.match(contextSource, /address_unit_dialog_add_edit/);
+  assert.doesNotMatch(contextSource, /\/building\/\$\{encodeURIComponent\(building\.id\)\}\/edit/);
   assert.match(uiSource, /document\.addEventListener\('submit',onSubmit,true\)/);
   assert.match(contextSource, /document\.addEventListener\('change',onChange,true\)/);
   assert.doesNotMatch(contextSource + uiSource, /keyup/);
   assert.doesNotMatch(contextSource + uiSource, /setInterval/);
 });
-
 
 test('manifest loads street rules and save guard before the existing task form assistant', () => {
   const scripts = manifest.content_scripts?.[0]?.js || [];
@@ -194,10 +234,18 @@ test('manifest loads street rules and save guard before the existing task form a
   assert.ok(assistant > guard);
 });
 
-test('runtime source compiles and pins the proven Sovki crew identity', () => {
+test('runtime source compiles and pins the proven VL crew identity', () => {
   assert.doesNotThrow(() => new Function(contextSource));
   assert.doesNotThrow(() => new Function(uiSource));
   assert.equal(required.id, '13');
   assert.equal(required.uuid, 'c2e9fc30-f22d-4317-a039-30ea3deac875');
   assert.equal(required.name, 'Бр. 2.1 ВЛ');
+});
+
+test('street crew UI uses the UserSide blue/magenta palette and dedicated address rule card', () => {
+  assert.match(uiSource, /#1871a5/i);
+  assert.match(uiSource, /#af013c/i);
+  assert.match(uiSource, /wb-street-rule-card/);
+  assert.match(uiSource, /Особое условие адреса/);
+  assert.match(uiSource, /На этом адресе работает только/);
 });
