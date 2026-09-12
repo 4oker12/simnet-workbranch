@@ -93,6 +93,16 @@
     return nativeActive() || Boolean(currentLiveCall());
   }
 
+  function liveCustomerSignature(call = {}) {
+    const candidates = Array.isArray(call?.customerCandidates) ? call.customerCandidates : [];
+    return candidates.map(item => [
+      digits(item?.customerId),
+      String(item?.login || '').trim().toLowerCase(),
+      digits(item?.contract || item?.login),
+      String(item?.fio || item?.fullName || '').trim().toLowerCase()
+    ].join('/')).join(',');
+  }
+
   function liveIdentitySignature(state = liveListState) {
     const call = state?.call || {};
     return [
@@ -104,6 +114,7 @@
       call.login || '',
       call.contract || '',
       call.fullName || call.fio || '',
+      liveCustomerSignature(call),
       call.status || ''
     ].join(':');
   }
@@ -152,19 +163,29 @@
     };
   }
 
-  function liveCandidate(registration, call) {
-    const customerId = digits(call?.customerId);
-    const contract = digits(call?.contract || call?.login);
-    const login = String(call?.login || '').trim();
-    const fullName = String(call?.fullName || call?.fio || '').trim();
+  function identityFromRaw(raw = {}) {
+    const customerId = digits(raw?.customerId);
+    const contract = digits(raw?.contract || raw?.login);
+    const login = String(raw?.login || '').trim();
+    const fullName = String(raw?.fullName || raw?.fio || '').trim();
     if (!customerId && !contract && !login && !fullName) return null;
+    return { customerId, contract, login, fullName };
+  }
 
-    const current = caseIdentity(registration);
-    const isCurrentCase = Boolean(
-      (customerId && current.customerId && customerId === current.customerId)
-      || (contract && current.contract && contract === current.contract)
-      || (login && current.login && login.toLowerCase() === current.login)
+  function identityMatchesCase(identity = null, current = {}) {
+    if (!identity) return false;
+    return Boolean(
+      (identity.customerId && current.customerId && identity.customerId === current.customerId)
+      || (identity.contract && current.contract && identity.contract === current.contract)
+      || (identity.login && current.login && identity.login.toLowerCase() === current.login)
     );
+  }
+
+  function candidateFromIdentity(registration, call, identity = null) {
+    if (!identity) return null;
+    const current = caseIdentity(registration);
+    const isCurrentCase = identityMatchesCase(identity, current);
+    const { customerId, contract, login, fullName } = identity;
     return {
       customerId,
       contract,
@@ -188,6 +209,41 @@
     };
   }
 
+  function resolveLiveIdentity(registration, call) {
+    const rawCandidates = Array.isArray(call?.customerCandidates) ? call.customerCandidates : [];
+    const identities = rawCandidates.map(identityFromRaw).filter(Boolean);
+
+    if (identities.length > 1) {
+      const current = caseIdentity(registration);
+      const matching = identities.filter(identity => identityMatchesCase(identity, current));
+      const labels = identities.map(identity => identity.login || (identity.contract ? `abon${identity.contract}` : identity.fullName || identity.customerId)).filter(Boolean);
+      if (matching.length === 1) {
+        return {
+          candidate: candidateFromIdentity(registration, call, matching[0]),
+          ambiguous: true,
+          count: identities.length,
+          labels,
+          resolvedByCurrentCase: true
+        };
+      }
+      return { candidate: null, ambiguous: true, count: identities.length, labels, resolvedByCurrentCase: false };
+    }
+
+    const direct = identities[0] || identityFromRaw(call);
+    return {
+      candidate: candidateFromIdentity(registration, call, direct),
+      ambiguous: false,
+      count: direct ? 1 : 0,
+      labels: direct ? [direct.login || (direct.contract ? `abon${direct.contract}` : direct.fullName || direct.customerId)].filter(Boolean) : [],
+      resolvedByCurrentCase: false
+    };
+  }
+
+  function candidateIdentityKey(candidate = null) {
+    if (!candidate) return '';
+    return [digits(candidate.customerId), digits(candidate.contract || candidate.login), String(candidate.login || '').toLowerCase()].join(':');
+  }
+
   function sameLiveCall(left = null, right = null) {
     if (!left || !right) return false;
     if (left.callKey && right.callKey && String(left.callKey) === String(right.callKey)) return true;
@@ -209,6 +265,16 @@
     }
   }
 
+  function liveFreshNote(resolution) {
+    if (resolution?.ambiguous) {
+      const suffix = resolution.labels?.length ? `: ${resolution.labels.join(' / ')}` : '';
+      if (resolution.resolvedByCurrentCase) return `LIVE UserSide · номер связан с ${resolution.count} абонентами${suffix} · совпала текущая карточка`;
+      return `LIVE UserSide · номер связан с ${resolution.count} абонентами${suffix} · нужен выбор абонента`;
+    }
+    if (resolution?.candidate) return 'LIVE UserSide · абонент определён по call_list';
+    return 'LIVE UserSide · абонент в call_list не определён';
+  }
+
   function hardEnforce(registration) {
     if (!registration || !isActive()) {
       if (registration) registration.__wbActiveCallPending = false;
@@ -220,6 +286,7 @@
     if (liveCall) {
       const previous = registration.focusCall;
       const same = sameLiveCall(previous, liveCall);
+      const previousCandidateKey = candidateIdentityKey(Array.isArray(registration.focusCandidates) ? registration.focusCandidates[0] : null);
       registration.focusCall = {
         ...(same ? previous : {}),
         ...liveCall,
@@ -231,20 +298,18 @@
       };
       mergeLiveIntoCallList(registration, registration.focusCall);
 
-      const candidate = liveCandidate(registration, liveCall);
-      if (candidate) {
-        registration.focusCandidates = [candidate];
-        registration.currentCaseCandidate = candidate.isCurrentCase ? candidate : null;
-      } else if (!same) {
-        registration.focusCandidates = [];
-        registration.currentCaseCandidate = null;
-      }
-      if (!same) {
+      const resolution = resolveLiveIdentity(registration, liveCall);
+      const candidate = resolution.candidate;
+      const nextCandidateKey = candidateIdentityKey(candidate);
+      registration.focusCandidates = candidate ? [candidate] : [];
+      registration.currentCaseCandidate = candidate?.isCurrentCase ? candidate : null;
+
+      if (!same || previousCandidateKey !== nextCandidateKey) {
         registration.focusSnapshot = null;
         registration.pbxBinding = null;
         registration.model = null;
       }
-      registration.pbxFreshNote = 'LIVE из открытого UserSide call_list · без повторной загрузки всей таблицы';
+      registration.pbxFreshNote = liveFreshNote(resolution);
       registration.__wbActiveCallPending = false;
       return true;
     }
