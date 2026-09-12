@@ -2,7 +2,10 @@
 
 const RECENT_CALLS_QUERY = 'PBX_RECENT_CALLS_QUERY';
 const RECENT_CALLS_OBSERVED = 'PBX_RECENT_CALLS_OBSERVED';
-const CANONICAL_REFRESH_COOLDOWN_MS = 5000;
+const CANONICAL_REFRESH_COOLDOWN_MS = 60000;
+const BLOCKING_REFRESH_REASONS = new Set([
+  'wait-pbx-recovery'
+]);
 
 function hasCompletedRealtimeCall(payload = {}) {
   const calls = Array.isArray(payload?.calls) ? payload.calls : [];
@@ -11,6 +14,10 @@ function hasCompletedRealtimeCall(payload = {}) {
     const lifecycle = String(call?.status || call?.type || call?.state || '').trim().toLowerCase();
     return durationSeconds > 0 || /^(?:completed|ended|finished|hangup|hungup|done)$/.test(lifecycle);
   });
+}
+
+function needsFallbackRefresh(result = {}) {
+  return !(result?.focusCall && typeof result.focusCall === 'object');
 }
 
 /** CALL-only router. The root service worker owns Chrome transport; this router
@@ -57,13 +64,29 @@ export function createCallMessageRouter({ module, handlers = {} }) {
       }
 
       if (key === RECENT_CALLS_QUERY && (payload?.fresh === true || payload?.forceRefresh === true)) {
-        scheduleCanonicalRefresh(payload, sender, 'ui-request');
-        return route({
+        const refreshReason = String(payload?.reason || '').trim();
+        const mustAwaitAuthoritative = payload?.backgroundRefresh === true
+          || BLOCKING_REFRESH_REASONS.has(refreshReason);
+
+        // Internal recovery explicitly depends on the authoritative call_list
+        // being merged before it continues. Keep that contract blocking.
+        if (mustAwaitAuthoritative) return route(payload, sender);
+
+        // Operator UI is cache-first: never make opening the CALL modal wait on
+        // the slow call_list endpoint. If local state is empty, start at most
+        // one throttled fallback refresh in the background. A PBX completion
+        // event also schedules the authoritative refresh independently.
+        return Promise.resolve(route({
           ...payload,
           fresh: false,
           forceRefresh: false,
           refreshMode: 'cache-first'
-        }, sender);
+        }, sender)).then(result => {
+          if (needsFallbackRefresh(result)) {
+            scheduleCanonicalRefresh(payload, sender, 'ui-cache-miss');
+          }
+          return result;
+        });
       }
 
       if (key === RECENT_CALLS_OBSERVED) {
