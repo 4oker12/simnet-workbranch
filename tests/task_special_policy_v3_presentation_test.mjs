@@ -16,9 +16,13 @@ function present(item, context = {}) {
   return api.presentItem(item, context);
 }
 
+function interpret(text, context = {}) {
+  return api.interpretRows([{ key: 'note', text }], context);
+}
+
 test('presentation API is available globally after contextual policy layer', () => {
   assert.equal(typeof api.presentItem, 'function');
-  assert.equal(api.contextualPolicyVersion, 2);
+  assert.equal(api.contextualPolicyVersion, 3);
 });
 
 test('access window explains why timing can break the visit and gives a concrete action', () => {
@@ -68,6 +72,35 @@ test('technology restriction explains execution risk instead of merely repeating
   assert.equal(view.tag, 'ТЕХНОЛОГИЯ');
   assert.match(view.impact, /Неверная технология/);
   assert.match(view.action, /Сверить технологию заявки/);
+});
+
+test('routine positive technology fact is not shown as a pre-save warning', () => {
+  const items = interpret('GPON доступен. Кабельное ТВ не подключаем.');
+  assert.equal(items.some(item => item.summary === 'GPON — да'), false);
+});
+
+test('unsupported access classification is removed when source note has no access meaning', () => {
+  const original = sandbox.SIMNET_WB.taskSpecialPolicyV3;
+  const baseInterpret = original.interpretRows;
+  assert.equal(typeof baseInterpret, 'function');
+  const items = interpret('Подключение 600 грн, кабель 20 грн/м, аудиотрубка 500 грн.');
+  assert.equal(items.some(item => item.type === 'access_coordination' || item.type === 'access_window'), false);
+});
+
+test('real access condition survives evidence filter', () => {
+  const items = interpret('Ключи в ЖЭК, выдача до 17:00.');
+  assert.equal(items.some(item => item.type === 'access_window' || item.type === 'access_coordination'), true);
+});
+
+test('commercial condition is marked as secondary presentation', () => {
+  const view = present({
+    type: 'commercial_condition',
+    severity: 'warning',
+    summary: 'Депозит — 300 грн'
+  });
+  assert.equal(view.tag, 'ДОПОЛНИТЕЛЬНО');
+  assert.equal(view.secondary, true);
+  assert.equal(view.action, '');
 });
 
 test('unknown special condition still gets safe generic impact and action', () => {
