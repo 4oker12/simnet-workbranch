@@ -66,6 +66,7 @@
         "src/ui/task-current-contract-guard.js",
         "src/ui/task-current-staff-transition.js",
         "src/ui/task-current-live-recovery.js",
+        "src/ui/task-l1-assignment-picker.js",
         "src/ui/task-live-crm-context.js",
         "src/ui/task-field-visit-universal-crew.js",
         "src/ui/task-special-save-policy-v3.js",
