@@ -14,10 +14,27 @@
     '680df433-810d-4a6e-a5f3-98748f891e6d', // owner/148 · Масив Совки
     'ba1f4e16-7d00-46c5-a535-13f22723d677'  // owner/171 · Массив Совки
   ]);
+  const ZHULIANY_OWNER_IDS = Object.freeze(['157']);
   const REQUIRED_CREW = Object.freeze({
     id: '13',
     uuid: 'c2e9fc30-f22d-4317-a039-30ea3deac875',
     name: 'Бр. 2.1 ВЛ'
+  });
+  const TERRITORIES = Object.freeze({
+    SOVKI: Object.freeze({
+      code: 'SOVKI',
+      label: 'Совки',
+      ownerIds: SOVKI_OWNER_IDS,
+      ownerUuids: SOVKI_OWNER_UUIDS,
+      nameTokens: Object.freeze(['совки'])
+    }),
+    ZHULIANY: Object.freeze({
+      code: 'ZHULIANY',
+      label: 'Жуляны',
+      ownerIds: ZHULIANY_OWNER_IDS,
+      ownerUuids: Object.freeze([]),
+      nameTokens: Object.freeze(['жуляны'])
+    })
   });
 
   const compact = (value, max = 1000) => {
@@ -62,7 +79,6 @@
     if (!doc?.querySelectorAll) return [];
     const owners = [];
 
-    // Read-only building card: one canonical property row named exactly "Собственник".
     for (const row of doc.querySelectorAll('.erp-object-props__row')) {
       const label = compact(row.querySelector?.('.erp-object-props__label-main')?.textContent || '', 120);
       if (normalize(label) !== 'собственник') continue;
@@ -77,7 +93,6 @@
     }
     if (owners.length) return dedupeOwners(owners);
 
-    // Edit-card fallback. Current UserSide exposes owner_uuid1/2/3 selectors here.
     for (const row of doc.querySelectorAll('.erp-object-props__row')) {
       const label = compact(row.querySelector?.('.erp-object-props__label-main')?.textContent || '', 120);
       if (!/^собственник(?:\s+\d+)?$/iu.test(label)) continue;
@@ -104,8 +119,6 @@
     const explicit = normalized.find(item => /\[Street\]/iu.test(item.label));
     if (explicit) return { streetUuid: explicit.uuid, streetName: cleanStreetName(explicit.label), source: 'street-marker' };
 
-    // UserSide address cascade ends with the house/building unit; the selected parent immediately
-    // before it is the street when an explicit [Street] marker is absent.
     if (normalized.length >= 2) {
       const last = normalized.at(-1);
       const previous = normalized.at(-2);
@@ -118,21 +131,44 @@
     return { streetUuid: '', streetName: '', source: 'unresolved' };
   }
 
+  function territoryMeta(code = '') {
+    return TERRITORIES[String(code || '').trim().toUpperCase()] || null;
+  }
+
+  function ownerMatchesTerritory(owner, territory) {
+    const meta = typeof territory === 'string' ? territoryMeta(territory) : territory;
+    if (!meta) return false;
+    const normalizedOwner = normalizeOwner(owner);
+    if (meta.ownerIds.includes(normalizedOwner.id)) return true;
+    if (normalizedOwner.uuid && meta.ownerUuids.includes(normalizedOwner.uuid)) return true;
+    const name = normalize(normalizedOwner.name);
+    return meta.nameTokens.some(token => name.includes(token));
+  }
+
+  function findTerritoryOwner(owners = [], territory = '') {
+    const meta = territoryMeta(territory);
+    if (!meta) return null;
+    return dedupeOwners(owners).find(owner => ownerMatchesTerritory(owner, meta)) || null;
+  }
+
   function classifyTerritory(owners = []) {
     const normalizedOwners = dedupeOwners(owners);
-    const ownerIds = new Set(normalizedOwners.map(owner => owner.id).filter(Boolean));
-    const ownerUuids = new Set(normalizedOwners.map(owner => owner.uuid).filter(Boolean));
-    const byId = SOVKI_OWNER_IDS.some(id => ownerIds.has(id));
-    const byUuid = SOVKI_OWNER_UUIDS.some(uuid => ownerUuids.has(uuid));
-    const byName = normalizedOwners.some(owner => normalize(owner.name).includes('совки'));
-    if (byId || byUuid || byName) {
+    for (const meta of Object.values(TERRITORIES)) {
+      const matchedOwner = normalizedOwners.find(owner => ownerMatchesTerritory(owner, meta));
+      if (!matchedOwner) continue;
+      const matchedBy = meta.ownerIds.includes(matchedOwner.id)
+        ? 'owner-id'
+        : matchedOwner.uuid && meta.ownerUuids.includes(matchedOwner.uuid)
+          ? 'owner-uuid'
+          : 'owner-name';
       return {
-        territory: 'SOVKI',
-        matchedBy: byId ? 'owner-id' : byUuid ? 'owner-uuid' : 'owner-name',
+        territory: meta.code,
+        territoryLabel: meta.label,
+        matchedBy,
         requiredCrew: REQUIRED_CREW
       };
     }
-    return { territory: '', matchedBy: '', requiredCrew: null };
+    return { territory: '', territoryLabel: '', matchedBy: '', requiredCrew: null };
   }
 
   function crewMatchesRequired(crewFacts = [], requiredCrew = REQUIRED_CREW) {
@@ -156,19 +192,23 @@
     if (context.status === 'error') {
       return { applies: false, failOpen: true, matched: false, issues };
     }
-    if (context.status !== 'ready' || context.territory !== 'SOVKI') {
+    const meta = territoryMeta(context.territory);
+    if (context.status !== 'ready' || !meta) {
       return { applies: false, failOpen: false, matched: false, issues };
     }
 
     const matched = crewMatchesRequired(crewFacts, context.requiredCrew || REQUIRED_CREW);
     if (!matched) {
-      const ownerLabel = context.owners?.find(owner => normalize(owner.name).includes('совки'))?.name
-        || context.owners?.find(owner => SOVKI_OWNER_IDS.includes(String(owner.id || '')))?.name
-        || 'Массив Совки';
+      const matchedOwner = findTerritoryOwner(context.owners, meta.code);
+      const ownerLabel = matchedOwner?.name || meta.label;
       issues.push({
         level: 'error',
         code: 'street-owner-crew-mismatch',
-        message: `Для этого адреса требуется бригада ${REQUIRED_CREW.name}. Собственник улицы: ${ownerLabel}.`
+        territory: meta.code,
+        territoryLabel: meta.label,
+        ownerLabel,
+        requiredCrew: REQUIRED_CREW,
+        message: `На этом адресе работает только ${REQUIRED_CREW.name}. Собственник улицы: ${ownerLabel}.`
       });
     }
     return { applies: true, failOpen: false, matched, issues };
@@ -237,6 +277,8 @@
     uuidRe: UUID_RE,
     sovkiOwnerIds: SOVKI_OWNER_IDS,
     sovkiOwnerUuids: SOVKI_OWNER_UUIDS,
+    zhulyanyOwnerIds: ZHULIANY_OWNER_IDS,
+    territories: TERRITORIES,
     requiredCrew: REQUIRED_CREW,
     compact,
     normalize,
@@ -244,6 +286,9 @@
     dedupeOwners,
     parseOwnersDocument,
     resolveStreetSelection,
+    territoryMeta,
+    ownerMatchesTerritory,
+    findTerritoryOwner,
     classifyTerritory,
     crewMatchesRequired,
     evaluateCrewRule,
