@@ -1,12 +1,11 @@
 'use strict';
 
 const compact = (value, max = 240) => {
-  const text = String(value == null ? '' : value)
-    .replace(/\u00a0/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const text = String(value == null ? '' : value).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
   return text.length > max ? `${text.slice(0, max)}…` : text;
 };
+
+const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 
 function decodeEntities(value = '') {
   return String(value)
@@ -17,20 +16,12 @@ function decodeEntities(value = '') {
     .replace(/&#0*39;|&apos;/gi, "'")
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => {
-      try { return String.fromCodePoint(parseInt(hex, 16)); } catch { return ''; }
-    })
-    .replace(/&#(\d+);/g, (_, dec) => {
-      try { return String.fromCodePoint(parseInt(dec, 10)); } catch { return ''; }
-    });
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => { try { return String.fromCodePoint(parseInt(hex, 16)); } catch { return ''; } })
+    .replace(/&#(\d+);/g, (_, dec) => { try { return String.fromCodePoint(parseInt(dec, 10)); } catch { return ''; } });
 }
 
 function textFromHtml(value = '') {
-  return compact(decodeEntities(
-    String(value)
-      .replace(/<br\s*\/?\s*>/gi, ' ')
-      .replace(/<[^>]*>/g, ' ')
-  ));
+  return compact(decodeEntities(String(value).replace(/<br\s*\/?\s*>/gi, ' ').replace(/<[^>]*>/g, ' ')));
 }
 
 function escapeRegExp(value = '') {
@@ -38,11 +29,16 @@ function escapeRegExp(value = '') {
 }
 
 function cellHtml(rowHtml, suffix) {
-  const re = new RegExp(
-    `<td\\b[^>]*id=["'][^"']*${escapeRegExp(suffix)}["'][^>]*>([\\s\\S]*?)<\\/td>`,
-    'i'
-  );
+  const re = new RegExp(`<td\\b[^>]*id=["'][^"']*${escapeRegExp(suffix)}["'][^>]*>([\\s\\S]*?)<\\/td>`, 'i');
   return String(rowHtml || '').match(re)?.[1] || '';
+}
+
+function tdCells(rowHtml = '') {
+  const out = [];
+  const re = /<td\b[^>]*>([\s\S]*?)<\/td>/gi;
+  let match;
+  while ((match = re.exec(String(rowHtml || '')))) out.push(match[1] || '');
+  return out;
 }
 
 function parseDurationSeconds(value = '') {
@@ -90,19 +86,83 @@ function customerCandidates(customerHtml = '') {
     const customerId = String(match[1] || '');
     const raw = textFromHtml(match[2] || '');
     const login = raw.match(/\babon\d+\b/i)?.[0] || '';
-    const fio = login
-      ? compact(raw.replace(new RegExp(`\\s*[-–—]?\\s*${escapeRegExp(login)}\\s*$`, 'i'), ''), 120)
-      : raw;
+    const fio = login ? compact(raw.replace(new RegExp(`\\s*[-–—]?\\s*${escapeRegExp(login)}\\s*$`, 'i'), ''), 120) : raw;
     out.push({ customerId, login, fio, raw });
   }
   return out;
 }
 
-/**
- * Parse server-rendered UserSide /message/call_list HTML in an MV3 service worker.
- * DOMParser is unavailable there, so this parser intentionally targets only the
- * stable table row/cell shapes confirmed in UserSide 3.20.24.
- */
+function callIdFromHtml(rowHtml = '') {
+  const html = String(rowHtml || '');
+  const uuid = html.match(new RegExp(`call_comment_add\\?uuid=(${UUID_PATTERN})`, 'i'))?.[1]
+    || html.match(new RegExp(`callCommentAdd(${UUID_PATTERN})Id`, 'i'))?.[1]
+    || html.match(new RegExp(`loadRecordFile\\(\\s*(?:&quot;|["'])(${UUID_PATTERN})`, 'i'))?.[1]
+    || html.match(new RegExp(`audioRecordId(${UUID_PATTERN})`, 'i'))?.[1];
+  if (uuid) return uuid.toLowerCase();
+  return html.match(/\/message\/(\d+)\/call_comment_add/i)?.[1]
+    || html.match(/callCommentAdd(\d+)Id/i)?.[1]
+    || html.match(/loadRecordFile\(\s*(\d+)\s*,/i)?.[1]
+    || html.match(/audioRecordId(\d+)/i)?.[1]
+    || '';
+}
+
+function commonCall({ rowHtml, direction, dateAdd, duration, phone, agentExtension, operHtml, customerHtml }) {
+  const durationSeconds = parseDurationSeconds(duration);
+  const recordId = String(rowHtml || '').match(/getrec\.php\?id=([0-9]{9,12}\.[0-9]{1,12})/i)?.[1] || '';
+  const usersideCallId = callIdFromHtml(rowHtml);
+  const dateParts = parseDateAdd(dateAdd);
+  const oper = textFromHtml(operHtml);
+  const employeeId = String(operHtml || '').match(/\/employee\/(\d+)/i)?.[1] || '';
+  const customers = customerCandidates(customerHtml);
+  const primary = customers.length === 1 ? customers[0] : null;
+  return {
+    source: 'userside:call_list', recordId, usersideCallId,
+    callerId: normalizePhone(phone), callerMasked: normalizePhone(phone),
+    date: dateParts.date, time: dateParts.time, startedAtMs: dateParts.startedAtMs, timeSemantics: 'start',
+    duration, durationSeconds, agentExtension,
+    agent: [agentExtension, oper].filter(Boolean).join(' '), oper, employeeId,
+    customerId: primary?.customerId || '', fio: primary?.fio || '', login: primary?.login || '', contract: primary?.login || '',
+    customerCandidates: customers, direction: compact(direction, 20), observedAt: new Date().toISOString()
+  };
+}
+
+function parseErpRow(rowHtml, operatorExtension) {
+  const cells = tdCells(rowHtml);
+  if (cells.length < 9) return null;
+  const left = normalizeExtension(textFromHtml(cells[4]));
+  const right = normalizeExtension(textFromHtml(cells[6]));
+  const target = String(operatorExtension);
+  if (left !== target && right !== target) return null;
+  const phone = left === target ? textFromHtml(cells[6]) : textFromHtml(cells[4]);
+  return commonCall({
+    rowHtml,
+    direction: textFromHtml(cells[1]),
+    dateAdd: textFromHtml(cells[2]),
+    duration: textFromHtml(cells[8]),
+    phone,
+    agentExtension: target,
+    operHtml: cells[7],
+    customerHtml: cells[5]
+  });
+}
+
+function parseLegacyRow(rowHtml, operatorExtension) {
+  const answerPhoneRaw = textFromHtml(cellHtml(rowHtml, '_ANSWERPHONE_Id'));
+  const agentExtension = normalizeExtension(answerPhoneRaw);
+  if (!agentExtension || agentExtension !== String(operatorExtension)) return null;
+  return commonCall({
+    rowHtml,
+    direction: textFromHtml(cellHtml(rowHtml, '_direction_Id')),
+    dateAdd: textFromHtml(cellHtml(rowHtml, '_DATEADD_Id')),
+    duration: textFromHtml(cellHtml(rowHtml, '_callIntervalInt_Id')),
+    phone: textFromHtml(cellHtml(rowHtml, '_PHONE_Id')),
+    agentExtension,
+    operHtml: cellHtml(rowHtml, '_OPER_Id'),
+    customerHtml: cellHtml(rowHtml, '_CUSTOMER_Id')
+  });
+}
+
+/** Supports legacy UserSide 3.20.x rows and current UserSide 3.21.53 erp-table rows. */
 export function parseUsersideCallListHtml(html, {
   operatorExtension = '6047',
   completedOnly = true,
@@ -111,72 +171,24 @@ export function parseUsersideCallListHtml(html, {
 } = {}) {
   const source = String(html || '');
   const rows = [];
-  const rowRe = /<tr\b[^>]*class=["'][^"']*\btable_item\b[^"']*["'][^>]*>([\s\S]*?)<\/tr>/gi;
+  const maxRows = Math.max(1, Number(limit) || 80);
+  const rowRe = /<tr\b([^>]*)>([\s\S]*?)<\/tr>/gi;
   let rowMatch;
-  while ((rowMatch = rowRe.exec(source)) && rows.length < Math.max(1, Number(limit) || 80)) {
-    const rowHtml = rowMatch[1] || '';
-    const answerPhoneRaw = textFromHtml(cellHtml(rowHtml, '_ANSWERPHONE_Id'));
-    const agentExtension = normalizeExtension(answerPhoneRaw);
-    if (!agentExtension || agentExtension !== String(operatorExtension)) continue;
-
-    const duration = textFromHtml(cellHtml(rowHtml, '_callIntervalInt_Id'));
-    const durationSeconds = parseDurationSeconds(duration);
-    if (completedOnly && durationSeconds <= 0) continue;
-
-    const recordId = rowHtml.match(/getrec\.php\?id=([0-9]{9,12}\.[0-9]{1,12})/i)?.[1] || '';
-    const usersideCallId = rowHtml.match(/\/message\/(\d+)\/call_comment_add/i)?.[1]
-      || rowHtml.match(/callCommentAdd(\d+)Id/i)?.[1]
-      || rowHtml.match(/loadRecordFile\(\s*(\d+)\s*,/i)?.[1]
-      || rowHtml.match(/audioRecordId(\d+)/i)?.[1]
-      || '';
-    // Active rows may not have a recording/comment link yet, so their canonical
-    // UserSide call id can legitimately be missing until hangup. Keep such rows
-    // only when explicitly requested by the caller; completed-only parsing still
-    // requires the canonical id.
-    if (!usersideCallId && !allowIdless) continue;
-
-    const dateAdd = textFromHtml(cellHtml(rowHtml, '_DATEADD_Id'));
-    const dateParts = parseDateAdd(dateAdd);
-    const phone = normalizePhone(textFromHtml(cellHtml(rowHtml, '_PHONE_Id')));
-    const operHtml = cellHtml(rowHtml, '_OPER_Id');
-    const oper = textFromHtml(operHtml);
-    const employeeId = operHtml.match(/\/employee\/(\d+)/i)?.[1] || '';
-    const customers = customerCandidates(cellHtml(rowHtml, '_CUSTOMER_Id'));
-    const primary = customers.length === 1 ? customers[0] : null;
-
-    rows.push({
-      source: 'userside:call_list',
-      recordId,
-      usersideCallId,
-      callerId: phone,
-      callerMasked: phone,
-      date: dateParts.date,
-      time: dateParts.time,
-      startedAtMs: dateParts.startedAtMs,
-      timeSemantics: 'start',
-      duration,
-      durationSeconds,
-      agentExtension,
-      agent: [agentExtension, oper].filter(Boolean).join(' '),
-      oper,
-      employeeId,
-      customerId: primary?.customerId || '',
-      fio: primary?.fio || '',
-      login: primary?.login || '',
-      contract: primary?.login || '',
-      customerCandidates: customers,
-      direction: textFromHtml(cellHtml(rowHtml, '_direction_Id')),
-      observedAt: new Date().toISOString()
-    });
+  while ((rowMatch = rowRe.exec(source)) && rows.length < maxRows) {
+    const attrs = rowMatch[1] || '';
+    const rowHtml = rowMatch[2] || '';
+    const className = attrs.match(/class=["']([^"']*)["']/i)?.[1] || '';
+    let call = null;
+    if (/\berp-table__row\b/.test(className)) call = parseErpRow(rowHtml, operatorExtension);
+    else if (/\btable_item\b/.test(className)) call = parseLegacyRow(rowHtml, operatorExtension);
+    if (!call) continue;
+    if (completedOnly && call.durationSeconds <= 0) continue;
+    if (!call.usersideCallId && !allowIdless) continue;
+    rows.push(call);
   }
   return rows;
 }
 
 export const __test = Object.freeze({
-  textFromHtml,
-  parseDurationSeconds,
-  normalizeExtension,
-  normalizePhone,
-  parseDateAdd,
-  customerCandidates
+  textFromHtml, tdCells, parseDurationSeconds, normalizeExtension, normalizePhone, parseDateAdd, customerCandidates, callIdFromHtml, parseErpRow
 });
