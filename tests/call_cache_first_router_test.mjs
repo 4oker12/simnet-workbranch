@@ -18,7 +18,10 @@ function moduleStub() {
     handlers: {
       PBX_RECENT_CALLS_QUERY(payload) {
         queryCalls.push({ ...payload });
-        return Promise.resolve({ source: payload.forceRefresh ? 'network' : 'cache', focusCall: { callKey: 'cached-call' } });
+        return Promise.resolve({
+          source: payload.forceRefresh ? 'network' : 'cache',
+          focusCall: { callKey: payload.forceRefresh ? 'fresh-call' : 'cached-call' }
+        });
       }
     }
   });
@@ -29,51 +32,12 @@ function moduleStub() {
     forceRefresh: true
   });
 
-  assert.equal(result.source, 'cache', 'opening CALL must resolve from local CALL state');
-  assert.equal(result.focusCall.callKey, 'cached-call');
-  await new Promise(setImmediate);
-
-  assert.equal(queryCalls.filter(call => call.forceRefresh).length, 0, 'a cache hit must not start expensive call_list refresh');
-  assert.equal(queryCalls.filter(call => call.refreshMode === 'cache-first').length, 1, 'one immediate cache read is performed');
-}
-
-{
-  let releaseNetwork;
-  const queryCalls = [];
-  const router = createCallMessageRouter({
-    module: moduleStub(),
-    handlers: {
-      PBX_RECENT_CALLS_QUERY(payload) {
-        queryCalls.push({ ...payload });
-        if (payload.forceRefresh) {
-          return new Promise(resolve => { releaseNetwork = resolve; });
-        }
-        return Promise.resolve({ source: 'cache', focusCall: null });
-      }
-    }
-  });
-
-  const first = await router.handle('PBX_RECENT_CALLS_QUERY', {
-    caseId: 'case-empty',
-    fresh: true,
-    forceRefresh: true
-  });
-  assert.equal(first.source, 'cache');
-  assert.equal(first.focusCall, null);
-  await new Promise(setImmediate);
-  assert.equal(queryCalls.filter(call => call.forceRefresh).length, 1, 'cache miss schedules one detached authoritative refresh');
-
-  const second = await router.handle('PBX_RECENT_CALLS_QUERY', {
-    caseId: 'case-empty',
-    fresh: true,
-    forceRefresh: true
-  });
-  assert.equal(second.source, 'cache');
-  await new Promise(setImmediate);
-  assert.equal(queryCalls.filter(call => call.forceRefresh).length, 1, 'repeated clicks must not duplicate an in-flight call_list refresh');
-
-  releaseNetwork({ source: 'network' });
-  await new Promise(setImmediate);
+  assert.equal(result.source, 'network', 'opening CALL must await authoritative call_list refresh');
+  assert.equal(result.focusCall.callKey, 'fresh-call');
+  assert.equal(queryCalls.length, 1);
+  assert.equal(queryCalls[0].fresh, true);
+  assert.equal(queryCalls[0].forceRefresh, true);
+  assert.equal(queryCalls[0].refreshMode, undefined);
 }
 
 {
@@ -88,16 +52,45 @@ function moduleStub() {
     }
   });
 
-  const result = await router.handle('PBX_RECENT_CALLS_QUERY', {
+  await router.handle('PBX_RECENT_CALLS_QUERY', {
+    caseId: 'case-repeat',
     fresh: true,
-    forceRefresh: true,
-    reason: 'wait-pbx-recovery'
+    forceRefresh: true
+  });
+  await router.handle('PBX_RECENT_CALLS_QUERY', {
+    caseId: 'case-repeat',
+    fresh: true,
+    forceRefresh: true
   });
 
-  assert.equal(result.source, 'network', 'WAIT_PBX recovery must await authoritative call_list');
+  assert.equal(
+    queryCalls.filter(call => call.forceRefresh).length,
+    2,
+    'each explicit registration open must issue its own authoritative call_list refresh'
+  );
+}
+
+{
+  const queryCalls = [];
+  const router = createCallMessageRouter({
+    module: moduleStub(),
+    handlers: {
+      PBX_RECENT_CALLS_QUERY(payload) {
+        queryCalls.push({ ...payload });
+        return Promise.resolve({ source: payload.forceRefresh ? 'network' : 'cache' });
+      }
+    }
+  });
+
+  const result = await router.handle('PBX_RECENT_CALLS_QUERY', {
+    caseId: 'case-cache',
+    fresh: false,
+    forceRefresh: false
+  });
+
+  assert.equal(result.source, 'cache', 'non-fresh internal reads may still use local CALL state');
   assert.equal(queryCalls.length, 1);
-  assert.equal(queryCalls[0].forceRefresh, true);
-  assert.equal(queryCalls[0].refreshMode, undefined);
+  assert.equal(queryCalls[0].forceRefresh, false);
 }
 
 {
@@ -148,4 +141,4 @@ function moduleStub() {
   assert.equal(refreshCalls.length, 0, 'ringing hints alone must not start the expensive call_list refresh');
 }
 
-console.log('call_cache_first_router_test: PASS');
+console.log('call_authoritative_refresh_router_test: PASS');
