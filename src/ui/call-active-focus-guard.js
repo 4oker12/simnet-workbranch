@@ -4,24 +4,26 @@
   const WB = globalThis.SIMNET_WB;
   if (!WB || window.top !== window.self || WB.callActiveFocusGuard) return;
 
-  const STORAGE_KEY = 'simnet_call_active_6047_v1';
+  const NATIVE_STORAGE_KEY = 'simnet_call_active_6047_v1';
   const LIVE_LIST_STORAGE_KEY = 'simnet_call_live_call_list_6047_v1';
   const DATASET_KEY = 'simnetWbNativePbxState';
   const PROBE_EVENT_NAME = 'simnet-wb-native-pbx-probe';
   const OPERATOR_EXTENSION = '6047';
-  const LEASE_TTL_MS = 12_000;
+  const NATIVE_TTL_MS = 12_000;
+  const LIVE_FALLBACK_TTL_MS = 90_000;
+  const START_MATCH_TOLERANCE_MS = 90_000;
   const PBX_QUERY_MESSAGE = 'PBX_RECENT_CALLS_QUERY';
 
   let activeState = null;
   let liveListState = null;
   let patchedRegistration = null;
   let stopped = false;
-  const refreshByTalk = new Map();
+  let endFallbackKey = '';
 
   const nowMs = () => Date.now();
   const digits = value => String(value == null ? '' : value).replace(/\D+/g, '');
 
-  function normalizeState(value = null) {
+  function normalizeNativeState(value = null) {
     if (!value || typeof value !== 'object') return null;
     if (value.schema !== 'simnet-wb-native-pbx-state-v1') return null;
     if (String(value.agentExtension || '') !== OPERATOR_EXTENSION) return null;
@@ -50,30 +52,57 @@
     };
   }
 
-  function acceptNewestState(candidate = null) {
-    const normalized = normalizeState(candidate);
+  function acceptNewestNative(candidate = null) {
+    const normalized = normalizeNativeState(candidate);
     if (normalized && (!activeState || normalized.observedAtMs >= Number(activeState.observedAtMs || 0))) activeState = normalized;
     return activeState;
   }
 
-  function acceptNewestLiveListState(candidate = null) {
+  function acceptNewestLive(candidate = null) {
     const normalized = normalizeLiveListState(candidate);
     if (normalized && (!liveListState || normalized.observedAtMs >= Number(liveListState.observedAtMs || 0))) liveListState = normalized;
     return liveListState;
   }
 
-  function freshActive(state) {
-    if (!state?.active || state.agentExtension !== OPERATOR_EXTENSION) return false;
-    const age = nowMs() - Number(state.observedAtMs || 0);
-    return age >= 0 && age <= LEASE_TTL_MS;
+  function nativeActive() {
+    if (!activeState?.active || activeState.agentExtension !== OPERATOR_EXTENSION) return false;
+    const age = nowMs() - Number(activeState.observedAtMs || 0);
+    return age >= 0 && age <= NATIVE_TTL_MS;
   }
 
-  function isActive() {
-    return freshActive(liveListState) || freshActive(activeState);
+  function liveStateRecent() {
+    const age = nowMs() - Number(liveListState?.observedAtMs || 0);
+    return age >= 0 && age <= LIVE_FALLBACK_TTL_MS;
+  }
+
+  function callMatchesNative(call = null) {
+    if (!call || !nativeActive()) return false;
+    const start = Number(call.startedAtMs || 0);
+    const talkStart = Number(activeState?.talkStartMs || 0);
+    return Boolean(start && (!talkStart || Math.abs(start - talkStart) <= START_MATCH_TOLERANCE_MS));
   }
 
   function currentLiveCall() {
-    return freshActive(liveListState) && liveListState?.call ? { ...liveListState.call } : null;
+    const call = liveListState?.call;
+    if (!liveListState?.active || !call) return null;
+    if (callMatchesNative(call) || liveStateRecent()) return { ...call };
+    return null;
+  }
+
+  function isActive() {
+    return nativeActive() || Boolean(currentLiveCall());
+  }
+
+  function liveIdentitySignature(state = liveListState) {
+    const call = state?.call || {};
+    return [
+      state?.active ? 1 : 0,
+      call.startedAtMs || 0,
+      call.usersideCallId || '',
+      call.callerId || '',
+      call.customerId || '',
+      call.status || ''
+    ].join(':');
   }
 
   function syncProbeNativeState() {
@@ -81,14 +110,14 @@
     try {
       document.documentElement?.dispatchEvent(new Event(PROBE_EVENT_NAME));
       const raw = document.documentElement?.dataset?.[DATASET_KEY] || '';
-      if (raw) acceptNewestState(JSON.parse(raw));
+      if (raw) acceptNewestNative(JSON.parse(raw));
     } catch {}
   }
 
   function syncProbeLiveList() {
     try {
       const state = WB.callListLiveBridge?.probe?.();
-      if (state) acceptNewestLiveListState(state);
+      if (state) acceptNewestLive(state);
     } catch {}
   }
 
@@ -100,10 +129,10 @@
   function readState() {
     return new Promise(resolve => {
       try {
-        chrome.storage.local.get([STORAGE_KEY, LIVE_LIST_STORAGE_KEY], result => {
+        chrome.storage.local.get([NATIVE_STORAGE_KEY, LIVE_LIST_STORAGE_KEY], result => {
           if (!chrome.runtime.lastError) {
-            acceptNewestState(result?.[STORAGE_KEY]);
-            acceptNewestLiveListState(result?.[LIVE_LIST_STORAGE_KEY]);
+            acceptNewestNative(result?.[NATIVE_STORAGE_KEY]);
+            acceptNewestLive(result?.[LIVE_LIST_STORAGE_KEY]);
           }
           resolve();
         });
@@ -135,8 +164,8 @@
       customerId,
       contract,
       login,
-      fullName: String(call?.fullName || '').trim(),
-      label: String(call?.fullName || login || (contract ? `abon${contract}` : `Customer ${customerId}`)),
+      fullName: String(call?.fullName || call?.fio || '').trim(),
+      label: String(call?.fullName || call?.fio || login || (contract ? `abon${contract}` : `Customer ${customerId}`)),
       confidence: 100,
       rawScore: 250,
       score: 250,
@@ -161,6 +190,19 @@
     return Boolean(a && b && Math.abs(a - b) <= 2000);
   }
 
+  function mergeLiveIntoCallList(registration, liveCall) {
+    if (!registration || !liveCall?.callKey) return;
+    const rows = Array.isArray(registration.pbxCalls) ? registration.pbxCalls : [];
+    const index = rows.findIndex(call => String(call.callKey || '') === String(liveCall.callKey));
+    if (index >= 0) {
+      const next = rows.slice();
+      next[index] = { ...next[index], ...liveCall, ongoing: true, status: 'ongoing', snapshotStatus: 'live' };
+      registration.pbxCalls = next;
+    } else {
+      registration.pbxCalls = [{ ...liveCall, ongoing: true, status: 'ongoing', snapshotStatus: 'live' }, ...rows];
+    }
+  }
+
   function hardEnforce(registration) {
     if (!registration || !isActive()) {
       if (registration) registration.__wbActiveCallPending = false;
@@ -181,6 +223,7 @@
         snapshotKind: 'live',
         registrationReady: Boolean(liveCall.callKey)
       };
+      mergeLiveIntoCallList(registration, registration.focusCall);
 
       const candidate = liveCandidate(registration, liveCall);
       if (candidate) {
@@ -190,15 +233,18 @@
         registration.focusCandidates = [];
         registration.currentCaseCandidate = null;
       }
-      registration.focusSnapshot = same ? registration.focusSnapshot : null;
-      registration.pbxBinding = same ? registration.pbxBinding : null;
-      registration.model = same ? registration.model : null;
-      registration.__wbActiveCallPending = !liveCall.callKey;
+      if (!same) {
+        registration.focusSnapshot = null;
+        registration.pbxBinding = null;
+        registration.model = null;
+      }
+      registration.pbxFreshNote = 'LIVE из открытого UserSide call_list · без повторной загрузки всей таблицы';
+      registration.__wbActiveCallPending = false;
       return true;
     }
 
-    // Native PBX confirms an active 6047 conversation, but call_list has not
-    // exposed its row yet. Never substitute the previous completed call.
+    // PBX only tells us that 6047 is talking. It must never make an older call
+    // the focus while the identity row from call_list has not arrived yet.
     registration.focusCall = null;
     registration.focusSnapshot = null;
     registration.focusCandidates = [];
@@ -209,7 +255,7 @@
     return true;
   }
 
-  function sendCanonicalRefresh(reason = 'native-active-focus') {
+  function sendCanonicalRefresh(reason = 'native-active-ended-fallback') {
     return new Promise(resolve => {
       try {
         chrome.runtime.sendMessage({
@@ -231,44 +277,14 @@
     });
   }
 
-  function refreshKey() {
-    const live = currentLiveCall();
-    return String(Number(live?.startedAtMs || activeState?.talkStartMs || 0) || `active-${Math.floor(nowMs() / 10_000)}`);
-  }
-
-  function ensureCurrentCallRefresh(registration) {
-    if (!registration || !isActive()) return Promise.resolve(null);
-    const key = refreshKey();
-    if (refreshByTalk.has(key)) return refreshByTalk.get(key);
-
-    const promise = sendCanonicalRefresh('native-active-start').then(async response => {
-      syncProbes();
-      if (stopped || !registration.host || !isActive() || refreshKey() !== key) return response;
-      const activeCase = WB.store?.activeCase?.() || null;
-      try {
-        await registration.__wbActiveFocusOriginalOpen?.(activeCase, { focusCallKey: '' });
-      } catch {}
-      syncProbes();
-      hardEnforce(registration);
-      if (registration.host) registration.renderDecision?.();
-      return response;
-    });
-    refreshByTalk.set(key, promise);
-    return promise;
-  }
-
   function pendingMarkup() {
-    const call = currentLiveCall();
-    const started = Number(call?.startedAtMs || activeState?.talkStartMs || 0);
+    const started = Number(activeState?.talkStartMs || 0);
     const time = started ? new Date(started).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
-    const phone = String(call?.callerMasked || call?.callerId || '').trim();
-    const person = String(call?.fullName || call?.login || '').trim();
-    const meta = [phone, person].filter(Boolean).join(' · ');
     return `<div class="decision">
-      <div class="status warn">LIVE 6047${time ? ` · с ${time}` : ''}${meta ? ` · ${meta}` : ''}</div>
+      <div class="status warn">LIVE 6047${time ? ` · с ${time}` : ''}</div>
       <section class="pbx-card focus-card">
         <div class="pbx-head"><span>Текущий звонок <span class="call-live-chip">LIVE</span></span></div>
-        <div class="pbx-empty">Текущий разговор уже определён. Жду только канонический UserSide callId; предыдущий звонок не используется.</div>
+        <div class="pbx-empty">Жду живую строку 6047 из call_list. Предыдущий звонок не используется и полный список повторно не запрашивается.</div>
       </section>
       <div class="actions"><button class="action" type="button" data-action="cancel">Закрыть</button></div>
     </div>`;
@@ -281,7 +297,6 @@
     const originalApply = registration.applyPbxSnapshot.bind(registration);
     const originalOpen = registration.open.bind(registration);
     const originalRenderDecision = registration.renderDecision?.bind(registration);
-    registration.__wbActiveFocusOriginalOpen = originalOpen;
 
     registration.applyPbxSnapshot = function(...args) {
       syncProbes();
@@ -306,7 +321,6 @@
       syncProbes();
       const live = isActive();
       const safeOptions = live ? { ...(options || {}), focusCallKey: '' } : (options || {});
-      if (live) void ensureCurrentCallRefresh(this);
       const result = await originalOpen(caseData, safeOptions);
       syncProbes();
       hardEnforce(this);
@@ -318,7 +332,6 @@
     patchedRegistration = registration;
     syncProbes();
     hardEnforce(registration);
-    if (isActive()) void ensureCurrentCallRefresh(registration);
     return registration;
   }
 
@@ -337,22 +350,36 @@
 
   function onStorageChanged(changes, areaName) {
     if (areaName !== 'local') return;
-    const relevant = changes?.[STORAGE_KEY] || changes?.[LIVE_LIST_STORAGE_KEY];
-    if (!relevant) return;
+    if (!changes?.[NATIVE_STORAGE_KEY] && !changes?.[LIVE_LIST_STORAGE_KEY]) return;
+
     const wasActive = isActive();
-    if (changes?.[STORAGE_KEY]) acceptNewestState(changes[STORAGE_KEY].newValue);
-    if (changes?.[LIVE_LIST_STORAGE_KEY]) acceptNewestLiveListState(changes[LIVE_LIST_STORAGE_KEY].newValue);
+    const previousLive = liveListState ? { ...liveListState, call: liveListState.call ? { ...liveListState.call } : null } : null;
+    const previousIdentity = liveIdentitySignature();
+
+    if (changes?.[NATIVE_STORAGE_KEY]) acceptNewestNative(changes[NATIVE_STORAGE_KEY].newValue);
+    if (changes?.[LIVE_LIST_STORAGE_KEY]) acceptNewestLive(changes[LIVE_LIST_STORAGE_KEY].newValue);
     syncProbes();
+
     const live = isActive();
+    const identityChanged = previousIdentity !== liveIdentitySignature();
+    const activityChanged = wasActive !== live;
     findAndPatch();
 
     const registration = patchedRegistration;
-    if (registration?.host && live) {
+    if (registration?.host && live && (activityChanged || identityChanged)) {
       hardEnforce(registration);
       registration.renderDecision?.();
-      void ensureCurrentCallRefresh(registration);
     }
-    if (registration?.host && wasActive && !live) void sendCanonicalRefresh('native-active-ended');
+
+    if (wasActive && !live) {
+      const endedStart = Number(previousLive?.call?.startedAtMs || activeState?.talkStartMs || 0);
+      const fallbackKey = String(endedStart || activeState?.lastCallEndMs || '');
+      const hadDomIdentity = previousLive?.source === 'userside-call-list-dom' && Boolean(previousLive?.call?.startedAtMs);
+      if (!hadDomIdentity && fallbackKey && fallbackKey !== endFallbackKey) {
+        endFallbackKey = fallbackKey;
+        void sendCanonicalRefresh('native-active-ended-fallback');
+      }
+    }
   }
 
   window.addEventListener('simnet-workbench-module-open', onModuleOpen);
