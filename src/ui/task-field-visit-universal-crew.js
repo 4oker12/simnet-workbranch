@@ -111,7 +111,10 @@
     if (state) return state;
     state = {
       refreshKey: '',
+      loadedKey: '',
       refreshPromise: null,
+      scheduleQueued: false,
+      scheduleReason: '',
       currentCrew: null,
       availableCrews: [],
       selectedUuid: '',
@@ -142,8 +145,13 @@
   }
 
   function setSynthetic(form, uuid, label) {
+    const existing = form.querySelector(`[${SYNTHETIC_ATTR}]`);
+    if (UUID_RE.test(uuid) && existing instanceof HTMLInputElement
+      && existing.checked && String(existing.value || '').trim() === uuid) return false;
+    if (!UUID_RE.test(uuid) && !existing) return false;
+
     removeSynthetic(form);
-    if (!UUID_RE.test(uuid)) return;
+    if (!UUID_RE.test(uuid)) return true;
     const holder = document.createElement('label');
     holder.hidden = true;
     holder.textContent = label || uuid;
@@ -156,6 +164,7 @@
     holder.prepend(input);
     form.appendChild(holder);
     input.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
   }
 
   function oldCrewPickerVisible(form) {
@@ -311,9 +320,9 @@
     return { taskUuid, rows: dialogStaffRows(dialogForm), form: dialogForm, doc };
   }
 
-  async function loadAvailableCrews(form) {
-    const debug = await WB.taskCurrentLiveRecovery?.debug?.(form);
-    const buildingUuid = String(debug?.resolvedBuildingUuid || debug?.directBuildingUuid || '').trim();
+  async function loadAvailableCrews(form, debug = null) {
+    const context = debug || await WB.taskCurrentLiveRecovery?.debug?.(form);
+    const buildingUuid = String(context?.resolvedBuildingUuid || context?.directBuildingUuid || '').trim();
     const typeUuid = taskTypeUuid(form);
     const date = compact(form.querySelector('#datedo_id, input[name="datedo"], input[name="date"]')?.value || '', 32);
     const time = compact(form.querySelector('#timedo_id, select[name="timedo"], input[name="timedo"], input[name="time"]')?.value || '', 8);
@@ -322,7 +331,7 @@
     const url = new URL('/task/reload_auto_staff', location.origin);
     url.searchParams.set('task_type_uuid', typeUuid);
     url.searchParams.set('building_uuid', buildingUuid);
-    if (debug?.customerUuid && UUID_RE.test(debug.customerUuid)) url.searchParams.set('customer_uuid', debug.customerUuid);
+    if (context?.customerUuid && UUID_RE.test(context.customerUuid)) url.searchParams.set('customer_uuid', context.customerUuid);
     url.searchParams.set('date', date);
     url.searchParams.set('time', time);
 
@@ -350,6 +359,12 @@
     const debug = await WB.taskCurrentLiveRecovery?.debug?.(form).catch?.(() => null) || null;
     const key = [taskTypeUuid(form), debug?.resolvedBuildingUuid || debug?.directBuildingUuid || '', debug?.addressUnitUuid || '', compact(form.querySelector('#datedo_id')?.value || ''), compact(form.querySelector('#timedo_id')?.value || '')].join('|');
     if (state.refreshPromise && state.refreshKey === key) return state.refreshPromise;
+    if (reason !== 'manual-refresh' && state.loadedKey === key) {
+      render(form, state.availableCrews, state.availableCrews.length
+        ? `Доступно бригад: ${state.availableCrews.length}. Текущую можно оставить или заменить.`
+        : (state.currentCrew ? 'Текущая бригада определена. Список доступных сейчас не получен.' : 'UserSide не вернул доступных бригад.'));
+      return state.availableCrews;
+    }
     state.refreshKey = key;
 
     render(form, state.availableCrews, 'Загружаю доступные бригады…');
@@ -365,8 +380,9 @@
           }
         }
 
-        const crews = await loadAvailableCrews(form);
+        const crews = await loadAvailableCrews(form, debug);
         state.availableCrews = crews;
+        state.loadedKey = key;
         if (!state.selectedUuid) {
           const preferred = crews.find(item => item.checked) || null;
           if (preferred) {
@@ -464,7 +480,14 @@
   }
 
   function schedule(form, reason) {
-    queueMicrotask(() => { void refresh(form, reason); });
+    const state = getState(form);
+    state.scheduleReason = reason;
+    if (state.scheduleQueued) return;
+    state.scheduleQueued = true;
+    queueMicrotask(() => {
+      state.scheduleQueued = false;
+      void refresh(form, state.scheduleReason);
+    });
   }
 
   function scan(reason = 'scan') {
@@ -480,6 +503,7 @@
     if (target?.matches?.('select[name="task_type_uuid"], #buildingUuidtask_address, input[name="building_uuidtask_address"], select[name="address_unit_selectortask_address[]"], select[name="customer_uuid"], #datedo_id, #timedo_id, #timedo_id2')) {
       const state = getState(form);
       state.refreshKey = '';
+      state.loadedKey = '';
       state.availableCrews = [];
       if (!isEditForm()) {
         state.currentCrew = null;
@@ -502,6 +526,7 @@
 
   WB.taskFieldVisitUniversalCrew = Object.freeze({
     refresh() { scan('manual-refresh'); },
+    sync() { scan('context-sync'); },
     async debug(form = null) {
       const target = isTaskForm(form) ? form : Array.from(document.querySelectorAll('form')).find(isTaskForm) || null;
       if (!target) return null;
