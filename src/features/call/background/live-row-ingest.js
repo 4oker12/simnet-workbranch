@@ -9,6 +9,7 @@ const USERSIDE_HOST = 'userside.simnet.kiev.ua';
 const CALL_LIST_PATH = '/message/call_list';
 const OPERATOR_EXTENSION = '6047';
 const MAX_CALL_AGE_MS = 12 * 60 * 60 * 1000;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const callModule = createCallModule({
   nowMs: () => Date.now(),
@@ -17,6 +18,12 @@ const callModule = createCallModule({
 
 const clean = (value, max = 180) => String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, max);
 const digits = (value, max = 24) => String(value == null ? '' : value).replace(/\D+/g, '').slice(0, max);
+
+function normalizeCallId(value = '') {
+  const raw = clean(value, 80);
+  if (UUID_RE.test(raw)) return raw.toLowerCase();
+  return /^\d{5,24}$/.test(raw) ? raw : '';
+}
 
 function senderIsCallList(sender = {}) {
   for (const raw of [sender?.url, sender?.tab?.url]) {
@@ -28,8 +35,24 @@ function senderIsCallList(sender = {}) {
   return false;
 }
 
+function sanitizeCustomerCandidates(raw = []) {
+  const out = [];
+  const seen = new Set();
+  for (const item of Array.isArray(raw) ? raw : []) {
+    const customerId = digits(item?.customerId, 14);
+    const login = clean(item?.login, 48);
+    const fio = clean(item?.fio || item?.fullName, 140);
+    const contract = clean(item?.contract || login, 48);
+    const key = customerId || login.toLowerCase() || fio.toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ customerId, login, fio, contract });
+  }
+  return out.slice(0, 12);
+}
+
 function sanitizeCall(raw = {}) {
-  const usersideCallId = digits(raw.usersideCallId || raw.callId, 24);
+  const usersideCallId = normalizeCallId(raw.usersideCallId || raw.callId);
   const startedAtMs = Math.max(0, Number(raw.startedAtMs || 0));
   const age = Date.now() - startedAtMs;
   const agentExtension = digits(raw.agentExtension, 6);
@@ -42,9 +65,11 @@ function sanitizeCall(raw = {}) {
   const customerId = digits(raw.customerId, 14);
   const login = clean(raw.login, 48);
   const fio = clean(raw.fio || raw.fullName, 140);
-  const customerCandidates = customerId
-    ? [{ customerId, login, fio }]
-    : [];
+  const contract = clean(raw.contract || login, 48);
+  let customerCandidates = sanitizeCustomerCandidates(raw.customerCandidates);
+  if (!customerCandidates.length && (customerId || login || fio)) {
+    customerCandidates = [{ customerId, login, fio, contract }];
+  }
 
   return {
     source: 'userside:call_list:live-dom',
@@ -64,7 +89,7 @@ function sanitizeCall(raw = {}) {
     customerId,
     customerCandidates,
     login,
-    contract: clean(raw.contract || login, 48),
+    contract,
     fio,
     status: ongoing ? 'ongoing' : 'completed',
     ongoing,
@@ -95,7 +120,8 @@ async function ingest(raw = {}, sender = {}) {
       status: call.status,
       usersideCallId: call.usersideCallId,
       callKey: call.callKey,
-      customerId: call.customerId
+      customerId: call.customerId,
+      customerCandidateCount: call.customerCandidates.length
     };
   });
 }
@@ -109,4 +135,4 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-export const LiveRowIngestInternals = Object.freeze({ sanitizeCall, senderIsCallList });
+export const LiveRowIngestInternals = Object.freeze({ sanitizeCall, senderIsCallList, normalizeCallId, sanitizeCustomerCandidates });
