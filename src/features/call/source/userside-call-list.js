@@ -4,7 +4,10 @@ import { parseUsersideCallListHtml } from '../userside-call-list-bridge.js';
 
 export const USERSIDE_CALL_LIST_PATH = '/message/call_list';
 
-const LIVE_CLOCK_TOLERANCE_MS = 15_000;
+// UserSide renders DATEADD only to the minute on call_list. The real call can
+// start anywhere inside that minute, so start + displayed duration may lag now
+// by up to ~59s even while the row is genuinely live.
+const LIVE_CLOCK_TOLERANCE_MS = 75_000;
 const LIVE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 export function looksLikeRunningUsersideCall(row = {}, observedAtMs = Date.now()) {
@@ -16,8 +19,8 @@ export function looksLikeRunningUsersideCall(row = {}, observedAtMs = Date.now()
   if (age > LIVE_MAX_AGE_MS) return false;
 
   // While a UserSide call is in progress its duration cell already counts up.
-  // Therefore "duration > 0" does NOT mean completed. A running row satisfies:
-  // start + displayed duration ~= now. Completed rows quickly stop satisfying it.
+  // DATEADD has minute precision, therefore the apparent end may be behind the
+  // wall clock by almost one minute. Completed rows quickly stop satisfying it.
   const displayedEndMs = startedAtMs + durationSeconds * 1000;
   return Math.abs(now - displayedEndMs) <= LIVE_CLOCK_TOLERANCE_MS;
 }
