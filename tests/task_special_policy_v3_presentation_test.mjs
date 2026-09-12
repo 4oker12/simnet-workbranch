@@ -24,8 +24,8 @@ function interpret(text, context = {}) {
 
 test('presentation API is available globally after contextual policy layer', () => {
   assert.equal(typeof api.presentItem, 'function');
-  assert.equal(api.contextualPolicyVersion, 3);
-  assert.equal(api.safetyNetVersion, 2);
+  assert.equal(api.contextualPolicyVersion, 4);
+  assert.equal(api.safetyNetVersion, 3);
 });
 
 test('access window explains why timing can break the visit and gives a concrete action', () => {
@@ -88,6 +88,26 @@ test('commercial-only note does not become access warning', () => {
   assert.equal(items.some(item => item.type === 'commercial_condition'), true);
 });
 
+test('cable work without connection is a price condition, not a technical block', () => {
+  const items = interpret('PON1 бокс 1/8 в подвале, PON2 додаткові. Завод кабеля без подключения — 100 грн + кабель 20 грн/м. Подключение — 600 грн. Аудиотрубка — 500 грн без монтажа, монтаж трубки от 200 грн.');
+  assert.equal(items.some(item => item.type === 'connection_block'), false);
+  const commercial = items.find(item => item.type === 'commercial_condition');
+  assert.ok(commercial);
+  assert.match(commercial.summary, /Подключение — 600 грн/);
+  assert.match(commercial.summary, /Завод кабеля — 100 грн \+ 20 грн\/м/);
+  assert.match(commercial.summary, /Аудиотрубка — 500 грн/);
+});
+
+test('plain PON box inventory is ignored as routine infrastructure information', () => {
+  const items = interpret('PON1 бокс 1/8 в подвале, PON2 додаткові 1,2 парадне на 2,7 поверхах.');
+  assert.equal(items.some(item => item.type === 'infrastructure_capacity'), false);
+});
+
+test('full PON boxes become an infrastructure risk', () => {
+  const items = interpret('PON1 и PON2 боксы забиты, свободных портов нет.');
+  assert.equal(items.some(item => item.type === 'infrastructure_capacity' && /PON-боксы/.test(item.summary)), true);
+});
+
 test('real access condition survives evidence filter', () => {
   const items = interpret('ЖЭК до 17:00. Ключи находятся в ЖЭК.');
   assert.equal(items.some(item => item.type === 'access_window' || item.type === 'access_coordination'), true);
@@ -99,7 +119,7 @@ test('commercial condition is marked as secondary presentation', () => {
     severity: 'warning',
     summary: 'Депозит — 300 грн'
   });
-  assert.equal(view.tag, 'ДОПОЛНИТЕЛЬНО');
+  assert.equal(view.tag, 'СТОИМОСТЬ');
   assert.equal(view.secondary, true);
   assert.equal(view.action, '');
 });
