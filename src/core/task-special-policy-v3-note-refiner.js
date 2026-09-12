@@ -6,7 +6,7 @@
   WB.__taskSpecialPolicyV3NoteRefinerLoaded = true;
 
   const basePolicy = WB.taskSpecialPolicyV3;
-  const VERSION = 2;
+  const VERSION = 3;
 
   const compact = (value, max = 6000) => {
     const text = String(value == null ? '' : value).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
@@ -26,6 +26,7 @@
   const ACCESS_WORD_RE = /(?:ключ|доступ|пропуск|диспетчер|консьерж|охран|охорон|жек|жэк|жед|осбб|тамбур|двер|ворот|код|соглас|узгод|поперед|предупред|звон|дзвон)/iu;
   const IMPERATIVE_RE = /(?:обязательн|обов.?язков|необхідно|необходимо|потрібно|треба|нужно|надо|поперед|предупред|запрещ|заборон)/iu;
   const UNCERTAIN_RE = /(?:\?|возможно|может\s+быть|скорее\s+всего|невідом|неизвест)/iu;
+  const POSITIVE_TECH_SUMMARY_RE = /^(?:gpon|epon|pon|ethernet)\s*[—-]\s*(?:да|доступ|доступен|можно)$/iu;
 
   function sameEvidence(item, raw) {
     const a = fold(item?.evidence || '');
@@ -38,6 +39,23 @@
     if (!text || PON_RISK_RE.test(text)) return false;
     if (PON_INVENTORY_RE.test(text)) return true;
     return /(?:полностью\s+)?можно[^.!?]{0,45}(?:по\s+)?(?:gpon|epon|pon|пону)|(?:gpon|epon|pon)[^.!?]{0,35}(?:доступен|можно|можна)/iu.test(text);
+  }
+
+  function exclusiveTechnology(raw) {
+    const text = fold(raw);
+    if (!text) return '';
+
+    const match = text.match(/(?:подключ\w*|пидключ\w*|включ\w*)?[^.!?]{0,60}(?:только|лише|тилки)\s+(?:по\s+)?(?:технологи\w*\s+)?(gpon|epon|pon|ethernet)/iu)
+      || text.match(/(?:только|лише|тилки)\s+(?:по\s+)?(?:технологи\w*\s+)?(gpon|epon|pon|ethernet)/iu)
+      || text.match(/(?:gpon|epon|pon|ethernet)[^.!?]{0,30}(?:только|лише|тилки)/iu);
+    if (!match) return '';
+
+    const token = String(match[1] || (match[0].match(/\b(gpon|epon|pon|ethernet)\b/iu)?.[1]) || '').toLowerCase();
+    if (token === 'gpon') return 'GPON';
+    if (token === 'epon') return 'EPON';
+    if (token === 'pon') return 'PON';
+    if (token === 'ethernet') return 'Ethernet';
+    return '';
   }
 
   function phone(raw) {
@@ -126,6 +144,33 @@
     };
   }
 
+  function makeTechnologyRestriction(row, technology) {
+    return {
+      type: 'technology_restriction',
+      severity: 'warning',
+      summary: `Подключение только по ${technology}`,
+      evidence: compact(row?.text, 6000),
+      scope: { level: 'technology', wholeBuilding: true, entrances: [], technologies: [technology] },
+      certainty: 'explicit',
+      conditional: false,
+      temporalScope: 'current_or_unspecified',
+      needsReview: false,
+      reviewReasons: [],
+      decisionMode: 'acknowledge_if_scope_matches',
+      priority: 4.5,
+      sourceKeys: [String(row?.key || '')].filter(Boolean)
+    };
+  }
+
+  function isNeutralPositive(item) {
+    if (String(item?.type || '') !== 'technology_restriction') return false;
+    const summary = compact(item?.summary, 240);
+    if (POSITIVE_TECH_SUMMARY_RE.test(summary)) return true;
+    return (item?.severity === 'info' || item?.decisionMode === 'info')
+      && /^(?:gpon|epon|pon|ethernet)\b/iu.test(summary)
+      && !/(?:только|лише|тільки|не\s+подключ|не\s+підключ|нет|нема|невозмож|неможлив)/iu.test(summary);
+  }
+
   function refineGeneric(item) {
     const summary = compact(item?.summary, 240);
     if (!GENERIC_RE.test(summary)) return item;
@@ -172,28 +217,39 @@
 
     for (const row of normalizedRows) {
       const raw = compact(row?.text, 6000);
-      const specific = accessSummary(raw);
+      const exclusive = exclusiveTechnology(raw);
+      if (exclusive) {
+        items = items.filter(item => {
+          if (!sameEvidence(item, raw)) return true;
+          if (String(item?.type || '') !== 'technology_restriction') return true;
+          return !isNeutralPositive(item) && !/^Подключение\s*[—-]?\s*только\s+по\s+/iu.test(String(item?.summary || ''));
+        });
+        added.push(makeTechnologyRestriction(row, exclusive));
+      }
 
+      const specific = accessSummary(raw);
       if (specific) {
         items = items.filter(item => {
           if (!sameEvidence(item, raw)) return true;
           return !['access_coordination', 'manual_review'].includes(String(item?.type || ''));
         });
         added.push(makeAccessItem(row, specific));
-        continue;
       }
 
-      if (isRoutinePon(raw)) {
+      if (!specific && isRoutinePon(raw)) {
         items = items.filter(item => {
           if (!sameEvidence(item, raw)) return true;
           if (!['access_coordination', 'manual_review', 'technology_restriction'].includes(String(item?.type || ''))) return true;
           const summary = compact(item?.summary, 240);
-          return !GENERIC_RE.test(summary) && !/^(?:gpon|epon|pon)\s*[—-]\s*(?:да|доступ|можно)/iu.test(summary);
+          return !GENERIC_RE.test(summary) && !POSITIVE_TECH_SUMMARY_RE.test(summary);
         });
       }
     }
 
-    return dedupe([...items.map(refineGeneric).filter(Boolean), ...added]);
+    return dedupe([
+      ...items.map(refineGeneric).filter(Boolean).filter(item => !isNeutralPositive(item)),
+      ...added
+    ]);
   }
 
   try {
