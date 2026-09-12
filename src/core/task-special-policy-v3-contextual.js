@@ -6,7 +6,7 @@
   WB.__taskSpecialPolicyV3ContextualLoaded = true;
 
   const basePolicy = WB.taskSpecialPolicyV3;
-  const VERSION = 4;
+  const VERSION = 5;
 
   const compact = (value, max = 6000) => {
     const text = String(value == null ? '' : value).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
@@ -113,7 +113,7 @@
       case 'access_window':
         return { ...common, tag: 'ДОСТУП / ВРЕМЯ', impact: 'Вне этого времени бригада может не получить доступ, и выезд сорвётся.', action: accessWindowAction(summary) };
       case 'access_coordination': {
-        const keyLike = /ключ|код|домофон/iu.test(`${summary} ${item.evidence || ''}`);
+        const keyLike = /ключ|код/iu.test(`${summary} ${item.evidence || ''}`);
         return {
           ...common,
           tag: 'ДОСТУП',
@@ -140,7 +140,12 @@
   function hasAccessEvidence(item = {}) {
     const evidence = fold(item.evidence);
     if (!evidence) return false;
-    if (/(?:доступ|ключ|код|домофон|жек|жед|жео|осбб|председател|управдом|тамбур|двер|ворот|консьерж|охрана)/u.test(evidence)) return true;
+
+    // The word "домофон" by itself describes a service. It is access evidence
+    // only when the note explicitly connects it with a key/code/door/access.
+    if (/(?:доступ|ключ|код|жек|жед|жео|осбб|председател|управдом|тамбур|двер|ворот|консьерж|охрана)/u.test(evidence)) return true;
+    if (/(?:домофон).{0,35}(?:ключ|код|доступ|двер|откр)|(?:ключ|код|доступ|двер|откр).{0,35}(?:домофон)/u.test(evidence)) return true;
+
     return /(?:набирать|звонить|дзвонити|поперед|предупред).{0,40}(?:за день|заранее|заздалегид)/u.test(evidence)
       || /(?:за день|заранее|заздалегид).{0,40}(?:набирать|звонить|дзвонити|поперед|предупред)/u.test(evidence);
   }
