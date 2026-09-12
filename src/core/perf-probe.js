@@ -55,9 +55,9 @@
     return out;
   }
 
-  function persist(metric, sample, force = false) {
+  function persist(metric, sample, force = false, persistSlow = true) {
     if (!WB.log || destroyed) return;
-    const shouldPersist = force || ALWAYS_PERSIST.has(metric) || sample.slow;
+    const shouldPersist = force || ALWAYS_PERSIST.has(metric) || (persistSlow && sample.slow);
     if (!shouldPersist) return;
     const method = sample.slow ? WB.log.warn : WB.log.info;
     if (typeof method !== 'function') return;
@@ -86,7 +86,7 @@
     };
     samples.unshift(sample);
     if (samples.length > MAX_SAMPLES) samples.length = MAX_SAMPLES;
-    persist(name, sample, Boolean(options.persist));
+    persist(name, sample, Boolean(options.persist), options.persistSlow !== false);
     return sample;
   }
 
@@ -201,13 +201,17 @@
     };
   }
 
-  function finishIfPending(metric, entry, status = 'ok', extra = {}) {
+  function finishIfPending(metric, entry, status = 'ok', extra = {}, options = {}) {
+    const forcePersist = options.persist ?? (ALWAYS_PERSIST.has(metric) || status === 'error' || status === 'fallback' || status === 'blocked');
     return end(metric, {
       ...eventMeta(entry),
       status,
       event: compact(eventName(entry), 120),
       ...extra
-    }, { persist: ALWAYS_PERSIST.has(metric) || status !== 'ok' });
+    }, {
+      persist: forcePersist,
+      persistSlow: options.persistSlow !== false
+    });
   }
 
   function onWorkbenchLog(event) {
@@ -286,7 +290,13 @@
       || name === 'address_context_resolve_discarded'
       || name === 'address_context_waiting_for_building'
     ) {
-      finishIfPending('task.address_resolve', entry, name === 'address_context_resolve_result' ? 'ok' : 'cancelled');
+      finishIfPending(
+        'task.address_resolve',
+        entry,
+        name === 'address_context_resolve_result' ? 'ok' : 'cancelled',
+        {},
+        { persist: false }
+      );
     }
   }
 
@@ -306,7 +316,8 @@
             page: compact(location.pathname, 180)
           }, {
             thresholdMs: LONG_TASK_CAPTURE_MS,
-            persist: shouldPersist
+            persist: shouldPersist,
+            persistSlow: false
           });
         }
       });
@@ -353,5 +364,5 @@
   record('runtime.probe_ready', bootAgeMs, {
     version: compact(WB.version || '', 40),
     page: compact(location.pathname, 180)
-  }, { thresholdMs: 1000, persist: false });
+  }, { thresholdMs: 1000, persist: false, persistSlow: false });
 })();
