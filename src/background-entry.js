@@ -4,6 +4,7 @@ import './features/call/transcription/submission-debug.js';
 import './features/call/transcription/transcriber-fetch-diagnostics.js';
 import './features/call/background/call-list-fetch-optimizer.js';
 import './background.js';
+import './features/call/background/live-row-ingest.js';
 import './features/call/transcription/background.js';
 import './features/call/transcription/call-identity-repair.js';
 import './features/call/transcription/call-processing.js';
