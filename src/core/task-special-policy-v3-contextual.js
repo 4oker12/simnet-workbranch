@@ -6,7 +6,7 @@
   WB.__taskSpecialPolicyV3ContextualLoaded = true;
 
   const basePolicy = WB.taskSpecialPolicyV3;
-  const VERSION = 2;
+  const VERSION = 3;
 
   const compact = (value, max = 6000) => {
     const text = String(value == null ? '' : value).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
@@ -50,16 +50,16 @@
       return { level: 'blocker', label: 'МОЖЕТ СОРВАТЬ ЗАЯВКУ' };
     }
     if (item.severity === 'info' || item.decisionMode === 'info') {
-      return { level: 'info', label: 'УЧЕСТЬ' };
+      return { level: 'info', label: 'СПРАВОЧНО' };
     }
     return { level: 'warning', label: 'ВАЖНО ДО СОХРАНЕНИЯ' };
   }
 
   function accessWindowAction(summary) {
     const until = String(summary || '').match(/до\s*(\d{1,2}:\d{2})/u);
-    if (until) return `Поставить визит до ${until[1]} и передать ограничение исполнителю.`;
-    if (/выходн/iu.test(summary || '')) return 'Не ставить выезд на закрытое время; заранее проверить, когда выдадут доступ.';
-    return 'Назначить визит в допустимое время и передать это ограничение исполнителю.';
+    if (until) return `Выезд — до ${until[1]}.`;
+    if (/выходн/iu.test(summary || '')) return 'Не ставить выезд на закрытое время; заранее проверить доступ.';
+    return 'Учесть допустимое время выезда.';
   }
 
   function presentItem(item = {}, context = {}) {
@@ -71,137 +71,117 @@
 
     switch (type) {
       case 'connection_block':
-        return {
-          ...common,
-          tag: 'ПОДКЛЮЧЕНИЕ',
-          impact: 'Заявка может быть технически невыполнима и уйти в работу ошибочно.',
-          action: 'Не обещать подключение. Уточнить техническую возможность или эскалировать до оформления.'
-        };
+        return { ...common, tag: 'ПОДКЛЮЧЕНИЕ', impact: 'Заявка может быть технически невыполнима и уйти в работу ошибочно.', action: 'Не обещать подключение. Уточнить техническую возможность или эскалировать до оформления.' };
       case 'infrastructure_capacity':
-        return {
-          ...common,
-          tag: 'РЕСУРС',
-          impact: 'Бригаде может не хватить порта, волокна или другого ресурса для выполнения работ.',
-          action: 'Проверить свободный ресурс или согласовать расширение до назначения заявки.'
-        };
+        return { ...common, tag: 'РЕСУРС', impact: 'Бригаде может не хватить порта, волокна или другого ресурса для выполнения работ.', action: 'Проверить свободный ресурс или согласовать расширение до назначения заявки.' };
       case 'entrance_scope':
-        return {
-          ...common,
-          tag: 'ПОДЪЕЗД / СЕКЦИЯ',
-          impact: 'Ограничение действует не на весь дом: неверный подъезд может сделать выезд бесполезным.',
-          action: 'Сверить подъезд/секцию заявки. Если выбран запрещённый — не отправлять заявку как обычную.'
-        };
+        return { ...common, tag: 'ПОДЪЕЗД / СЕКЦИЯ', impact: 'Ограничение действует не на весь дом: неверный подъезд может сделать выезд бесполезным.', action: 'Сверить подъезд/секцию заявки. Если выбран запрещённый — не отправлять заявку как обычную.' };
       case 'manual_review':
-        return {
-          ...common,
-          tag: 'ПРОВЕРИТЬ',
-          impact: 'Формулировка неоднозначна — Workbench не может безопасно решить за оператора.',
-          action: 'Прочитать исходную заметку и уточнить условие до сохранения заявки.'
-        };
+        return { ...common, tag: 'ПРОВЕРИТЬ', impact: 'Формулировка неоднозначна — Workbench не может безопасно решить за оператора.', action: 'Прочитать исходную заметку и уточнить условие до сохранения заявки.' };
       case 'speed_limit':
-        return {
-          ...common,
-          tag: 'СКОРОСТЬ',
-          impact: 'Абоненту нельзя обещать скорость выше ограничения по этому адресу.',
-          action: 'Сверить тариф и ожидания абонента; зафиксировать ограничение в заявке.'
-        };
+        return { ...common, tag: 'СКОРОСТЬ', impact: 'Абоненту нельзя обещать скорость выше ограничения по этому адресу.', action: 'Сверить тариф и ожидания абонента; зафиксировать ограничение в заявке.' };
       case 'technology_restriction':
-        return {
-          ...common,
-          tag: 'ТЕХНОЛОГИЯ',
-          impact: 'Неверная технология может сделать заявку невыполнимой или потребовать переоформления.',
-          action: 'Сверить технологию заявки с разрешённой для этого адреса.'
-        };
+        return { ...common, tag: 'ТЕХНОЛОГИЯ', impact: 'Неверная технология может сделать заявку невыполнимой или потребовать переоформления.', action: 'Сверить технологию заявки с разрешённой для этого адреса.' };
       case 'service_restriction':
-        return {
-          ...common,
-          tag: 'УСЛУГА',
-          impact: `${taskType ? `Для «${taskType}» это может быть критично: ` : ''}услуга может быть недоступна по адресу.`,
-          action: 'Не обещать недоступную услугу; сверить допустимый вариант до сохранения.'
-        };
+        return { ...common, tag: 'УСЛУГА', impact: `${taskType ? `Для «${taskType}» это может быть критично: ` : ''}услуга может быть недоступна по адресу.`, action: 'Не обещать недоступную услугу; сверить допустимый вариант до сохранения.' };
       case 'visit_duration':
-        return {
-          ...common,
-          tag: 'ВРЕМЯ НА РАБОТЫ',
-          impact: 'Обычного слота может не хватить, и бригада не успеет выполнить заявку.',
-          action: 'Заложить указанную длительность при назначении визита.'
-        };
+        return { ...common, tag: 'ВРЕМЯ НА РАБОТЫ', impact: 'Обычного слота может не хватить, и бригада не успеет выполнить заявку.', action: 'Заложить указанную длительность при назначении визита.' };
       case 'access_window':
-        return {
-          ...common,
-          tag: 'ДОСТУП / ВРЕМЯ',
-          impact: 'Вне этого времени бригада может не получить доступ, и выезд сорвётся.',
-          action: accessWindowAction(summary)
-        };
+        return { ...common, tag: 'ДОСТУП / ВРЕМЯ', impact: 'Вне этого времени бригада может не получить доступ, и выезд сорвётся.', action: accessWindowAction(summary) };
       case 'access_coordination': {
         const keyLike = /ключ|код|домофон/iu.test(`${summary} ${item.evidence || ''}`);
         return {
           ...common,
           tag: 'ДОСТУП',
-          impact: keyLike
-            ? 'Без ключа, кода или согласованного доступа бригада может не попасть к месту работ.'
-            : 'Без предварительного согласования бригада может не попасть к месту работ.',
-          action: keyLike
-            ? 'До выезда уточнить ключ/код/контакт и зафиксировать способ доступа в заявке.'
-            : 'Заранее согласовать доступ и передать исполнителю контакт/условие.'
+          impact: keyLike ? 'Без ключа, кода или согласованного доступа бригада может не попасть к месту работ.' : 'Без предварительного согласования бригада может не попасть к месту работ.',
+          action: keyLike ? 'Уточнить ключ/код/контакт и передать способ доступа бригаде.' : 'Заранее согласовать доступ и передать условие исполнителю.'
         };
       }
       case 'commercial_condition':
-        return {
-          ...common,
-          tag: 'УСЛОВИЯ / СТОИМОСТЬ',
-          impact: 'Это условие может изменить стоимость, акцию или обещания абоненту.',
-          action: 'Проверить коммерческое условие до согласования заявки с абонентом.'
-        };
+        return { ...common, tag: 'ДОПОЛНИТЕЛЬНО', impact: '', action: '', secondary: true };
       case 'special_instruction':
-        return {
-          ...common,
-          tag: 'ОСОБОЕ ДЕЙСТВИЕ',
-          impact: item.temporalScope === 'future_instruction'
-            ? 'Требование относится к следующему выезду и легко потеряется, если не передать его исполнителю.'
-            : 'Условие меняет обычный порядок выполнения заявки.',
-          action: 'Зафиксировать требование в заявке и передать его исполнителю.'
-        };
+        return { ...common, tag: 'ОСОБОЕ ДЕЙСТВИЕ', impact: item.temporalScope === 'future_instruction' ? 'Требование относится к следующему выезду и легко потеряется, если не передать его исполнителю.' : 'Условие меняет обычный порядок выполнения заявки.', action: 'Зафиксировать требование в заявке и передать его исполнителю.' };
       default:
-        return {
-          ...common,
-          tag: 'ВАЖНО',
-          impact: 'Условие может изменить порядок или результат выполнения заявки.',
-          action: 'Сверить исходную заметку и передать важное условие исполнителю.'
-        };
+        return { ...common, tag: 'ВАЖНО', impact: 'Условие может изменить порядок или результат выполнения заявки.', action: 'Сверить исходную заметку и передать важное условие исполнителю.' };
     }
+  }
+
+  function isRoutinePositive(item = {}) {
+    if (item.severity !== 'info' && item.decisionMode !== 'info') return false;
+    const summary = fold(item.summary);
+    if (item.type === 'technology_restriction' && /\b(?:gpon|epon|pon|ethernet)\b.*\b(?:да|доступ|можно)\b/u.test(summary)) return true;
+    return false;
+  }
+
+  function hasAccessEvidence(item = {}) {
+    const evidence = fold(item.evidence);
+    if (!evidence) return false;
+    if (/(?:доступ|ключ|код|домофон|жек|жед|жео|осбб|председател|управдом|тамбур|двер|ворот|консьерж|охрана)/u.test(evidence)) return true;
+    return /(?:набирать|звонить|дзвонити|поперед|предупред).{0,40}(?:за день|заранее|заздалегид)/u.test(evidence)
+      || /(?:за день|заранее|заздалегид).{0,40}(?:набирать|звонить|дзвонити|поперед|предупред)/u.test(evidence);
+  }
+
+  function isSupportedByEvidence(item = {}) {
+    if (item.type === 'access_coordination') return hasAccessEvidence(item);
+    if (item.type === 'access_window') {
+      const evidence = fold(item.evidence);
+      return hasAccessEvidence(item) && /(?:\b\d{1,2}[:.]\d{2}\b|до\s*\d{1,2}|выходн|будн|час)/u.test(evidence);
+    }
+    return true;
+  }
+
+  function dedupe(items) {
+    const out = [];
+    const seen = new Set();
+    for (const item of items) {
+      const summary = fold(item?.summary);
+      const evidence = fold(item?.evidence);
+      const scope = Array.isArray(item?.scope?.entrances) ? item.scope.entrances.join(',') : '';
+      const key = `${item?.type || ''}|${summary}|${evidence}|${scope}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(item);
+    }
+    return out;
+  }
+
+  function refineItems(items) {
+    return dedupe((Array.isArray(items) ? items : [])
+      .filter(item => !isRoutinePositive(item))
+      .filter(isSupportedByEvidence));
   }
 
   function interpretRows(rows, context = {}) {
     let items = basePolicy.interpretRows(rows, context);
     const exclusive = exclusiveTechnology(rows);
-    if (!exclusive) return items;
 
-    const samePositive = new RegExp(`^${exclusive.technology.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*—\\s*(?:да|доступ)`, 'iu');
-    items = items.filter(item => !(item?.type === 'technology_restriction'
-      && item?.severity === 'info'
-      && samePositive.test(String(item?.summary || ''))));
+    if (exclusive) {
+      const samePositive = new RegExp(`^${exclusive.technology.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*—\\s*(?:да|доступ)`, 'iu');
+      items = items.filter(item => !(item?.type === 'technology_restriction'
+        && item?.severity === 'info'
+        && samePositive.test(String(item?.summary || ''))));
 
-    const summary = `Подключение — только ${exclusive.technology}`;
-    if (!items.some(item => fold(item?.summary) === fold(summary))) {
-      items.push({
-        type: 'technology_restriction',
-        severity: 'warning',
-        summary,
-        evidence: exclusive.evidence,
-        scope: { level: 'technology', wholeBuilding: true, entrances: [], technologies: [exclusive.technology] },
-        certainty: 'explicit',
-        conditional: false,
-        temporalScope: 'current_or_unspecified',
-        needsReview: false,
-        reviewReasons: [],
-        decisionMode: 'acknowledge_if_scope_matches',
-        priority: 4.5,
-        sourceKeys: [exclusive.sourceKey].filter(Boolean)
-      });
+      const summary = `Подключение — только ${exclusive.technology}`;
+      if (!items.some(item => fold(item?.summary) === fold(summary))) {
+        items.push({
+          type: 'technology_restriction',
+          severity: 'warning',
+          summary,
+          evidence: exclusive.evidence,
+          scope: { level: 'technology', wholeBuilding: true, entrances: [], technologies: [exclusive.technology] },
+          certainty: 'explicit',
+          conditional: false,
+          temporalScope: 'current_or_unspecified',
+          needsReview: false,
+          reviewReasons: [],
+          decisionMode: 'acknowledge_if_scope_matches',
+          priority: 4.5,
+          sourceKeys: [exclusive.sourceKey].filter(Boolean)
+        });
+      }
     }
 
-    return items.sort((a, b) => Number(a?.priority ?? 50) - Number(b?.priority ?? 50));
+    return refineItems(items).sort((a, b) => Number(a?.priority ?? 50) - Number(b?.priority ?? 50));
   }
 
   try {
