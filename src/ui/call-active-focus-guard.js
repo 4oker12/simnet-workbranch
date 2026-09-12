@@ -101,6 +101,9 @@
       call.usersideCallId || '',
       call.callerId || '',
       call.customerId || '',
+      call.login || '',
+      call.contract || '',
+      call.fullName || call.fio || '',
       call.status || ''
     ].join(':');
   }
@@ -151,9 +154,11 @@
 
   function liveCandidate(registration, call) {
     const customerId = digits(call?.customerId);
-    if (!customerId) return null;
     const contract = digits(call?.contract || call?.login);
     const login = String(call?.login || '').trim();
+    const fullName = String(call?.fullName || call?.fio || '').trim();
+    if (!customerId && !contract && !login && !fullName) return null;
+
     const current = caseIdentity(registration);
     const isCurrentCase = Boolean(
       (customerId && current.customerId && customerId === current.customerId)
@@ -164,8 +169,8 @@
       customerId,
       contract,
       login,
-      fullName: String(call?.fullName || call?.fio || '').trim(),
-      label: String(call?.fullName || call?.fio || login || (contract ? `abon${contract}` : `Customer ${customerId}`)),
+      fullName,
+      label: String(fullName || login || (contract ? `abon${contract}` : (customerId ? `Customer ${customerId}` : 'Абонент из call_list'))),
       confidence: 100,
       rawScore: 250,
       score: 250,
@@ -177,7 +182,8 @@
         source: 'userside',
         ts: Number(call?.startedAtMs || nowMs()),
         customerId,
-        contract
+        contract,
+        login
       }]
     };
   }
@@ -243,8 +249,6 @@
       return true;
     }
 
-    // PBX only tells us that 6047 is talking. It must never make an older call
-    // the focus while the identity row from call_list has not arrived yet.
     registration.focusCall = null;
     registration.focusSnapshot = null;
     registration.focusCandidates = [];
