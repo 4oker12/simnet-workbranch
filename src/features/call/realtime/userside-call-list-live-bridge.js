@@ -14,6 +14,7 @@
   let observer = null;
   let scheduled = false;
   let lastSignature = '';
+  let lastState = null;
 
   const text = node => String(node?.textContent || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
   const digits = value => String(value == null ? '' : value).replace(/\D+/g, '');
@@ -106,11 +107,10 @@
     return best;
   }
 
-  function publish() {
-    scheduled = false;
+  function buildState() {
     const now = Date.now();
     const call = findLiveCall();
-    const state = {
+    return {
       schema: 'simnet-wb-call-list-live-v1',
       active: Boolean(call),
       agentExtension: OPERATOR_EXTENSION,
@@ -118,17 +118,24 @@
       source: 'userside-call-list-dom',
       call: call || null
     };
-    const bucket = Math.floor(now / WRITE_BUCKET_MS);
-    const signature = [state.active ? 1 : 0, call?.startedAtMs || 0, call?.usersideCallId || '', bucket].join(':');
-    if (signature === lastSignature) return;
+  }
+
+  function publish(force = false) {
+    scheduled = false;
+    const state = buildState();
+    lastState = state;
+    const bucket = Math.floor(state.observedAtMs / WRITE_BUCKET_MS);
+    const signature = [state.active ? 1 : 0, state.call?.startedAtMs || 0, state.call?.usersideCallId || '', bucket].join(':');
+    if (!force && signature === lastSignature) return state;
     lastSignature = signature;
     try { chrome.storage.local.set({ [STORAGE_KEY]: state }); } catch {}
+    return state;
   }
 
   function schedulePublish() {
     if (scheduled) return;
     scheduled = true;
-    queueMicrotask(publish);
+    queueMicrotask(() => publish(false));
   }
 
   observer = new MutationObserver(schedulePublish);
@@ -140,7 +147,12 @@
 
   window.addEventListener('pageshow', schedulePublish);
   document.addEventListener('visibilitychange', schedulePublish);
-  schedulePublish();
+  lastState = publish(true);
+
+  WB.callListLiveBridge = Object.freeze({
+    probe() { return publish(true); },
+    state() { return lastState ? { ...lastState, call: lastState.call ? { ...lastState.call } : null } : null; }
+  });
 
   window.addEventListener('pagehide', () => {
     observer?.disconnect();
