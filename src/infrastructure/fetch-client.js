@@ -12,19 +12,25 @@ export function createFetchClient({ allowedHosts = [], timeoutMs = 15000, fetchF
     }
   }
 
-  function headersForTextResponse(rawUrl, provided = {}) {
-    const headers = new Headers(provided || {});
+  function isUsersideCallFormUrl(rawUrl) {
     try {
       const url = new URL(rawUrl);
-      // New UserSide renders /message/tab as an AJAX fragment. Without the
-      // native XHR marker the route can return the surrounding page instead of
-      // the call-registration form, which makes the CALL parser report that
-      // the native form is missing.
-      if (url.hostname === 'userside.simnet.kiev.ua' && url.pathname === '/message/tab') {
-        if (!headers.has('x-requested-with')) headers.set('x-requested-with', 'XMLHttpRequest');
-        if (!headers.has('accept')) headers.set('accept', 'text/html, */*; q=0.01');
-      }
-    } catch {}
+      return url.hostname === 'userside.simnet.kiev.ua' && url.pathname === '/message/tab';
+    } catch {
+      return false;
+    }
+  }
+
+  function headersForTextResponse(rawUrl, provided = {}) {
+    const headers = new Headers(provided || {});
+    // New UserSide renders /message/tab as an AJAX fragment. Without the
+    // native XHR marker the route can return the surrounding page instead of
+    // the call-registration form, which makes the CALL parser report that
+    // the native form is missing.
+    if (isUsersideCallFormUrl(rawUrl)) {
+      if (!headers.has('x-requested-with')) headers.set('x-requested-with', 'XMLHttpRequest');
+      if (!headers.has('accept')) headers.set('accept', 'text/html, */*; q=0.01');
+    }
     return headers;
   }
 
@@ -75,6 +81,17 @@ export function createFetchClient({ allowedHosts = [], timeoutMs = 15000, fetchF
         signal: controller.signal
       });
       const data = await response.text();
+      if (isUsersideCallFormUrl(url)) {
+        console.log('[SIMNET WB][CALL_FORM_FETCH]', {
+          status: response.status,
+          finalUrl: response.url || String(url || ''),
+          redirected: Boolean(response.redirected),
+          bytes: new TextEncoder().encode(data).byteLength,
+          hasSaveCall: /\/message\/save_call/i.test(data),
+          hasStandardComment: /name=["']standart_comment["']/i.test(data),
+          hasCustomerId: /name=["']customer_id["']/i.test(data)
+        });
+      }
       return {
         ok: response.ok,
         status: response.status,
