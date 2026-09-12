@@ -16,13 +16,23 @@ const maskedPhone = value => {
   return phone.length >= 7 ? `${phone.slice(0, 3)}***${phone.slice(-2)}` : (phone ? '***' : '');
 };
 const recordIdOf = value => String(value || '').match(/(?:^pbx:)?(\d{9,12}\.\d{1,12})$/)?.[1] || '';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const NUMERIC_CALL_ID_RE = /^\d{1,24}$/;
+
+function usersideCallIdOf(value = '') {
+  let raw = String(value == null ? '' : value).trim();
+  if (raw.startsWith('call:')) raw = raw.slice(5);
+  if (NUMERIC_CALL_ID_RE.test(raw)) return raw;
+  if (UUID_RE.test(raw)) return raw.toLowerCase();
+  return '';
+}
 
 export function canonicalCallKey(raw = {}) {
   if (typeof raw === 'string') {
-    const match = raw.match(/^call:(\d{1,24})$/);
-    return match ? `call:${match[1]}` : '';
+    const id = usersideCallIdOf(raw);
+    return id ? `call:${id}` : '';
   }
-  const usersideCallId = digits(raw.usersideCallId || raw.callId, 24);
+  const usersideCallId = usersideCallIdOf(raw.usersideCallId || raw.callId || raw.callKey);
   return usersideCallId ? `call:${usersideCallId}` : '';
 }
 
@@ -33,8 +43,8 @@ export function legacyPbxKey(raw = {}) {
 }
 
 export function normalizeCanonicalCall(raw = {}, observedAt = new Date().toISOString()) {
-  const callKey = canonicalCallKey(raw);
-  const usersideCallId = digits(raw.usersideCallId || raw.callId, 24);
+  const usersideCallId = usersideCallIdOf(raw.usersideCallId || raw.callId || raw.callKey);
+  const callKey = usersideCallId ? `call:${usersideCallId}` : '';
   const startedAtMs = Math.max(0, Number(raw.startedAtMs || 0));
   const durationSeconds = Math.max(0, Math.min(86_400, Number(raw.durationSeconds || 0)));
   if (!callKey || !usersideCallId || !startedAtMs) return null;
@@ -157,6 +167,20 @@ export function upsertCanonicalCall(store = createCallStore(), raw = {}, observe
   store.calls ||= {};
 
   let previous = store.calls[call.callKey] || null;
+
+  // 3.21.x UserSide switched call ids from numeric values to UUIDs. Versions
+  // before this fix stripped UUID letters/hyphens and could leave a bogus
+  // numeric call:<digits> entry in storage. Merge that entry into the proper
+  // UUID key once the authoritative call_list is observed again.
+  if (UUID_RE.test(call.usersideCallId)) {
+    const legacyDigitsId = digits(call.usersideCallId, 24);
+    const legacyDigitsKey = legacyDigitsId ? `call:${legacyDigitsId}` : '';
+    if (legacyDigitsKey && legacyDigitsKey !== call.callKey && store.calls[legacyDigitsKey]) {
+      previous = mergeCanonical(store.calls[legacyDigitsKey], previous || {});
+      delete store.calls[legacyDigitsKey];
+    }
+  }
+
   const provisional = call.pbxRecordId ? findPbxEntry(store, call.pbxRecordId) : null;
   if (provisional && provisional.key !== call.callKey) {
     previous = mergeCanonical(provisional.call, previous || {});
