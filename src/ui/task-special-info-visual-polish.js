@@ -59,9 +59,10 @@
       #${MODAL_ID} .wb-sp-review>summary{cursor:pointer!important;font-size:10px!important;font-weight:600!important;color:#71838d!important}
       #${MODAL_ID} .wb-sp-evidence{margin-top:5px!important;padding:6px 8px!important;border:0!important;border-radius:4px!important;background:#f7f9fa!important;color:#566a75!important;font-size:11px!important;line-height:1.38!important}
       #${MODAL_ID} .wb-sp-review[data-wb-duplicate="1"]{display:none!important}
-      #${MODAL_ID} .wb-sp-item[data-wb-secondary="1"]{padding:7px 10px!important;border-left-color:#aab8c0!important;background:#f8fafb!important}
-      #${MODAL_ID} .wb-sp-item[data-wb-secondary="1"] .wb-sp-summary{font-size:12px!important;font-weight:400!important;color:#687983!important}
-      #${MODAL_ID} .wb-sp-item[data-wb-secondary="1"] .wb-sp-summary:before{content:'Дополнительно: ';font-weight:700;color:#596c77}
+      #${MODAL_ID} .wb-sp-item[data-wb-secondary="1"]{padding:8px 10px!important;border-left-color:#7f9faf!important;background:#fbfcfd!important}
+      #${MODAL_ID} .wb-sp-item[data-wb-secondary="1"] .wb-sp-summary{font-size:12px!important;font-weight:400!important;color:#5f717b!important}
+      #${MODAL_ID} .wb-sp-item[data-wb-secondary="1"] .wb-sp-summary:before{content:'Стоимость: ';font-weight:800;color:#344f5d}
+      #${MODAL_ID} .wb-sp-item[data-wb-secondary="1"] .wb-sp-summary strong{font-weight:800!important;color:#2f4b59!important}
       #${MODAL_ID} .wb-sp-item[data-wb-secondary="1"] .wb-sp-action,#${MODAL_ID} .wb-sp-item[data-wb-secondary="1"] .wb-sp-severity{display:none!important}
       #${MODAL_ID} .wb-sp-item[data-wb-secondary="1"] .wb-sp-review>summary{font-size:9px!important}
       #${MODAL_ID} .wb-sp-check{padding:9px 15px!important;color:#253b47!important}
@@ -98,12 +99,33 @@
       .trim();
   }
 
+  function emphasizePrices(node) {
+    if (!(node instanceof HTMLElement)) return;
+    const text = compact(node.textContent, 500);
+    if (!text) return;
+    const re = /(\b(?:от\s+)?\d{1,5}\s*(?:грн|₴)(?:\s*\/\s*м)?\b)/giu;
+    let cursor = 0;
+    let match;
+    node.textContent = '';
+    while ((match = re.exec(text))) {
+      if (match.index > cursor) node.append(document.createTextNode(text.slice(cursor, match.index)));
+      const strong = document.createElement('strong');
+      strong.textContent = match[0];
+      node.append(strong);
+      cursor = match.index + match[0].length;
+    }
+    if (cursor < text.length) node.append(document.createTextNode(text.slice(cursor)));
+  }
+
   function polishItem(node) {
     const tag = compact(node.querySelector('.wb-sp-tag')?.textContent, 80);
     const summaryNode = node.querySelector('.wb-sp-summary');
-    const summary = compact(summaryNode?.textContent, 280);
-    const secondary = tag === 'ДОПОЛНИТЕЛЬНО' || tag === 'УСЛОВИЯ / СТОИМОСТЬ';
-    if (secondary) node.dataset.wbSecondary = '1';
+    const summary = compact(summaryNode?.textContent, 420);
+    const secondary = tag === 'СТОИМОСТЬ' || tag === 'ДОПОЛНИТЕЛЬНО' || tag === 'УСЛОВИЯ / СТОИМОСТЬ';
+    if (secondary) {
+      node.dataset.wbSecondary = '1';
+      emphasizePrices(summaryNode);
+    }
 
     const action = node.querySelector('.wb-sp-action');
     if (action) {
