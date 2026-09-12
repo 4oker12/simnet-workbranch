@@ -23,7 +23,9 @@
     caseScope: 'all',
     source: 'all',
     level: 'all',
-    search: ''
+    search: '',
+    timeFrom: '',
+    timeTo: ''
   };
 
   const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, char => ({
@@ -126,16 +128,31 @@
       .toLocaleLowerCase('ru-RU');
   }
 
-  function filteredRows() {
+  function timeBound(value, end = false) {
+    if (!value) return end ? Infinity : 0;
+    const parsed = new Date(value).getTime();
+    if (!Number.isFinite(parsed)) return end ? Infinity : 0;
+    return end ? parsed + 59999 : parsed;
+  }
+
+  function matchingRows() {
     const activeCaseId = currentCaseId();
     const query = String(filters.search || '').trim().toLocaleLowerCase('ru-RU');
+    const fromMs = timeBound(filters.timeFrom, false);
+    const toMs = timeBound(filters.timeTo, true);
     return rows.filter(row => {
       if (filters.caseScope === 'current' && (!activeCaseId || row.caseId !== activeCaseId)) return false;
       if (filters.source !== 'all' && row.source !== filters.source) return false;
       if (filters.level !== 'all' && row.level !== filters.level) return false;
       if (query && !searchable(row).includes(query)) return false;
+      if (row.timeMs && row.timeMs < fromMs) return false;
+      if (row.timeMs && row.timeMs > toMs) return false;
       return true;
-    }).slice(0, MAX_RENDERED);
+    });
+  }
+
+  function filteredRows() {
+    return matchingRows().slice(0, MAX_RENDERED);
   }
 
   function formatTime(iso) {
@@ -167,9 +184,12 @@
       #${VIEW_ID} .uj-copy{height:26px;padding:0 8px;border:1px solid #d0d5dd;border-radius:7px;background:#fff;color:#475467;font:750 9px/26px Arial,sans-serif;cursor:pointer;white-space:nowrap}
       #${VIEW_ID} .uj-copy:hover{border-color:#a50046;color:#a50046;background:#fff8fb}
       #${VIEW_ID} .uj-controls{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}
-      #${VIEW_ID} .uj-search,#${VIEW_ID} .uj-select{min-width:0;height:30px;border:1px solid #d0d5dd;border-radius:7px;background:#fff;color:#344054;padding:0 8px;font:500 9.5px/1 Arial,sans-serif;outline:none}
-      #${VIEW_ID} .uj-search:focus,#${VIEW_ID} .uj-select:focus{border-color:#a50046;box-shadow:0 0 0 2px rgba(165,0,70,.08)}
+      #${VIEW_ID} .uj-search,#${VIEW_ID} .uj-select,#${VIEW_ID} .uj-time{min-width:0;height:30px;border:1px solid #d0d5dd;border-radius:7px;background:#fff;color:#344054;padding:0 8px;font:500 9.5px/1 Arial,sans-serif;outline:none;box-sizing:border-box}
+      #${VIEW_ID} .uj-search:focus,#${VIEW_ID} .uj-select:focus,#${VIEW_ID} .uj-time:focus{border-color:#a50046;box-shadow:0 0 0 2px rgba(165,0,70,.08)}
       #${VIEW_ID} .uj-filter-row{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+      #${VIEW_ID} .uj-time-row{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+      #${VIEW_ID} .uj-time-box{display:grid;gap:3px;min-width:0}
+      #${VIEW_ID} .uj-time-label{padding-left:2px;color:#98a2b3;font-size:8px;font-weight:700}
       #${VIEW_ID} .uj-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#98a2b3;font-size:8.5px;padding:0 2px}
       #${VIEW_ID} .uj-list{display:grid;gap:5px}
       #${VIEW_ID} .uj-row{padding:7px 8px;border:1px solid #e4e7ec;border-left:3px solid #98a2b3;border-radius:8px;background:#fff;box-shadow:0 1px 2px rgba(16,24,40,.02)}
@@ -215,12 +235,13 @@
     const view = ensureView(root);
     if (!view) return;
 
-    const selected = filteredRows();
+    const matched = matchingRows();
+    const selected = matched.slice(0, MAX_RENDERED);
     const activeId = currentCaseId();
     const activeLabel = activeId ? caseLabel(WB.store?.state?.cases?.[activeId] || {}) : '';
     view.innerHTML = `
       <div class="uj-head">
-        <div><div class="uj-title">Журнал Workbench</div><div class="uj-sub">Системные события и журналы абонентов в одной ленте. Данные не дублируются — это общий просмотр.</div></div>
+        <div><div class="uj-title">Журнал Workbench</div><div class="uj-sub">Системные события и журналы абонентов в одной ленте. Копирование учитывает все выбранные фильтры и временной промежуток.</div></div>
         <button class="uj-copy" data-uj-copy type="button">Копировать</button>
       </div>
       <div class="uj-controls">
@@ -243,7 +264,11 @@
           <option value="info" ${filters.level === 'info' ? 'selected' : ''}>Инфо</option>
         </select>
       </div>
-      <div class="uj-meta"><span>Показано ${selected.length}${filteredRows().length >= MAX_RENDERED ? '+' : ''}</span><span>в ленте ${rows.length}</span></div>
+      <div class="uj-time-row">
+        <label class="uj-time-box"><span class="uj-time-label">С</span><input class="uj-time" data-uj-time-from type="datetime-local" value="${esc(filters.timeFrom)}"></label>
+        <label class="uj-time-box"><span class="uj-time-label">По</span><input class="uj-time" data-uj-time-to type="datetime-local" value="${esc(filters.timeTo)}"></label>
+      </div>
+      <div class="uj-meta"><span>Показано ${selected.length}${matched.length > selected.length ? '+' : ''} · выбрано ${matched.length}</span><span>в ленте ${rows.length}</span></div>
       <div class="uj-list">${selected.length ? selected.map(row => {
         const details = detailsText(row.details);
         return `<div class="uj-row ${esc(row.level)} ${row.source === 'case' ? 'case' : ''}">
@@ -273,8 +298,16 @@
       filters.level = String(event.target.value || 'all');
       render(root);
     });
+    view.querySelector('[data-uj-time-from]')?.addEventListener('change', event => {
+      filters.timeFrom = String(event.target.value || '');
+      render(root);
+    });
+    view.querySelector('[data-uj-time-to]')?.addEventListener('change', event => {
+      filters.timeTo = String(event.target.value || '');
+      render(root);
+    });
     view.querySelector('[data-uj-copy]')?.addEventListener('click', async () => {
-      const current = filteredRows();
+      const current = matchingRows();
       const payload = current.map(row => ({
         at: row.at,
         level: row.level,
