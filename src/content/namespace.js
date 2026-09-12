@@ -2,11 +2,16 @@
   'use strict';
   if (window.top !== window.self) return;
 
+  const RUNTIME_VERSION = (() => {
+    try { return String(chrome.runtime.getManifest().version || 'unknown'); }
+    catch { return 'unknown'; }
+  })();
   const existing = globalThis.SIMNET_WB;
-  if (existing?.version === '1.7.36.127') return;
+  if (existing?.version === RUNTIME_VERSION) return;
 
   const pageInstanceStartedAt = Date.now();
   const LOG_KEY = 'simnet_workbench_debug_log_v1';
+  const LOG_CLEAR_KEY = 'simnet_workbench_debug_log_clear_v1';
   const MAX_LOG_ENTRIES = 400;
   const SENSITIVE_KEY_RE = /(?:csrf|token|password|passwd|secret|cookie|authorization|api[_-]?key)/i;
   let logWriteQueue = Promise.resolve();
@@ -47,15 +52,21 @@
     };
   }
 
+  function afterClear(entries = [], clearedAt = '') {
+    if (!clearedAt) return entries;
+    return entries.filter(entry => String(entry?.at || '') > clearedAt);
+  }
+
   async function appendPersistentLog(entry) {
     if (extensionContextDead) return;
     logWriteQueue = logWriteQueue.then(async () => {
       if (extensionContextDead) return;
       try {
-        const raw = (await chrome.storage.local.get(LOG_KEY))?.[LOG_KEY] || {};
-        const store = logStoreShape(raw);
-        store.entries.unshift(entry);
-        store.entries = store.entries.slice(0, MAX_LOG_ENTRIES);
+        const stored = await chrome.storage.local.get([LOG_KEY, LOG_CLEAR_KEY]);
+        const clearedAt = String(stored?.[LOG_CLEAR_KEY] || '');
+        if (clearedAt && String(entry?.at || '') <= clearedAt) return;
+        const store = logStoreShape(stored?.[LOG_KEY] || {});
+        store.entries = [entry, ...afterClear(store.entries, clearedAt)].slice(0, MAX_LOG_ENTRIES);
         store.updatedAt = entry.at;
         await chrome.storage.local.set({ [LOG_KEY]: store });
       } catch (error) {
@@ -142,11 +153,12 @@
   };
 
   globalThis.SIMNET_WB = {
-    version: '1.7.36.127',
+    version: RUNTIME_VERSION,
     stateKey: 'simnet_workbench_state_v5',
     utils: {},
     log: {
       key: LOG_KEY,
+      clearKey: LOG_CLEAR_KEY,
       info(scope, event, details) { return emitLog('info', scope, event, details); },
       warn(scope, event, details) { return emitLog('warn', scope, event, details); },
       error(scope, event, details) { return emitLog('error', scope, event, details); },
@@ -155,8 +167,10 @@
       async recent(limit = 120) {
         if (extensionContextDead) return [];
         try {
-          const raw = (await chrome.storage.local.get(LOG_KEY))?.[LOG_KEY] || {};
-          return logStoreShape(raw).entries.slice(0, Math.max(1, Math.min(400, Number(limit) || 120)));
+          const stored = await chrome.storage.local.get([LOG_KEY, LOG_CLEAR_KEY]);
+          const clearedAt = String(stored?.[LOG_CLEAR_KEY] || '');
+          return afterClear(logStoreShape(stored?.[LOG_KEY] || {}).entries, clearedAt)
+            .slice(0, Math.max(1, Math.min(MAX_LOG_ENTRIES, Number(limit) || 120)));
         } catch (error) {
           if (isContextInvalidated(error)) {
             markContextInvalidated();
@@ -168,7 +182,11 @@
       async clear() {
         if (extensionContextDead) return false;
         try {
-          await chrome.storage.local.remove(LOG_KEY);
+          const clearedAt = new Date().toISOString();
+          await chrome.storage.local.set({
+            [LOG_CLEAR_KEY]: clearedAt,
+            [LOG_KEY]: { schemaVersion: 1, updatedAt: clearedAt, entries: [] }
+          });
           return true;
         } catch (error) {
           if (isContextInvalidated(error)) {
@@ -185,7 +203,7 @@
 
   queueMicrotask(() => {
     emitLog('info', 'BOOT', 'Workbench page context initialized', {
-      version: '1.7.36.127',
+      version: RUNTIME_VERSION,
       documentId: runtime.documentId
     });
   });
