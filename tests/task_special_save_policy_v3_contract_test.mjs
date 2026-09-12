@@ -41,12 +41,28 @@ test('old noisy live warning is bypassed only after v3 has evaluated the save', 
   assert.match(source, /fallbackToExistingGuard/);
 });
 
-test('modal is compact and exposes raw note only for manual review', () => {
-  assert.match(source, /Особые условия по адресу/);
+test('modal explains operational impact and required operator action', () => {
+  assert.match(source, /Важно перед сохранением/);
+  assert.match(source, /Условия, которые могут повлиять на выполнение заявки/);
+  assert.match(source, /Почему важно:/);
+  assert.match(source, /Что сделать:/);
+  assert.match(source, /policy\.presentItem/);
+  assert.match(source, /wb-sp-impact/);
+  assert.match(source, /wb-sp-action/);
+  assert.match(source, /wb-sp-tag/);
   assert.match(source, /MAX_VISIBLE = 6/);
-  assert.match(source, /wb-sp-summary/);
-  assert.match(source, /font-weight:700;color:#111/);
-  assert.match(source, /item\.needsReview && item\.evidence/);
+});
+
+test('raw CRM note remains available as collapsed evidence for every interpreted item', () => {
+  assert.match(source, /if \(item\.evidence\)/);
   assert.match(source, /Исходная заметка/);
+  assert.match(source, /details\.className = 'wb-sp-review'/);
+  assert.doesNotMatch(source, /item\.needsReview && item\.evidence/);
+});
+
+test('acknowledgement describes the real operator responsibility, not generic reading', () => {
+  assert.match(source, /Проверил условия и учёл их в заявке/);
+  assert.match(source, /Учёл — сохранить/);
+  assert.doesNotMatch(source, /Ознакомлен\. Учту условия при оформлении заявки/);
   assert.doesNotMatch(source, /Абонент предупреждён/);
 });
