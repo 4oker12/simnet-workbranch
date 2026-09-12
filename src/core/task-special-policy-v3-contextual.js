@@ -6,7 +6,7 @@
   WB.__taskSpecialPolicyV3ContextualLoaded = true;
 
   const basePolicy = WB.taskSpecialPolicyV3;
-  const VERSION = 3;
+  const VERSION = 4;
 
   const compact = (value, max = 6000) => {
     const text = String(value == null ? '' : value).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
@@ -38,6 +38,30 @@
               : '';
       if (!technology) continue;
       return { technology, evidence: raw, sourceKey: String(row?.key || '') };
+    }
+    return null;
+  }
+
+  function ponBoxCapacity(rows) {
+    for (const row of Array.isArray(rows) ? rows : []) {
+      const raw = compact(row?.text, 6000);
+      if (!/(?:\bpon\d*\b|пон\d*)[^.!?]{0,30}бокс|бокс[^.!?]{0,30}(?:\bpon\d*\b|пон\d*)/iu.test(raw)) continue;
+      if (!/(?:забит|заполн|переполн|занят|нет\s+(?:свободн\w*|мест|порт)|нема\s+(?:вільн\w*|місц|порт)|все\s+(?:места|порты)\s+занят|всі\s+(?:місця|порти)\s+зайнят)/iu.test(raw)) continue;
+      return {
+        type: 'infrastructure_capacity',
+        severity: 'blocker',
+        summary: 'PON-боксы — нет свободного ресурса',
+        evidence: raw,
+        scope: { level: 'infrastructure', wholeBuilding: true, entrances: [] },
+        certainty: 'explicit',
+        conditional: false,
+        temporalScope: 'current_or_unspecified',
+        needsReview: false,
+        reviewReasons: [],
+        decisionMode: 'hard_block_if_scope_matches',
+        priority: 1.5,
+        sourceKeys: [String(row?.key || '')].filter(Boolean)
+      };
     }
     return null;
   }
@@ -98,7 +122,7 @@
         };
       }
       case 'commercial_condition':
-        return { ...common, tag: 'ДОПОЛНИТЕЛЬНО', impact: '', action: '', secondary: true };
+        return { ...common, tag: 'СТОИМОСТЬ', impact: '', action: '', secondary: true };
       case 'special_instruction':
         return { ...common, tag: 'ОСОБОЕ ДЕЙСТВИЕ', impact: item.temporalScope === 'future_instruction' ? 'Требование относится к следующему выезду и легко потеряется, если не передать его исполнителю.' : 'Условие меняет обычный порядок выполнения заявки.', action: 'Зафиксировать требование в заявке и передать его исполнителю.' };
       default:
@@ -121,7 +145,23 @@
       || /(?:за день|заранее|заздалегид).{0,40}(?:набирать|звонить|дзвонити|поперед|предупред)/u.test(evidence);
   }
 
+  function hasConnectionBlockEvidence(item = {}) {
+    const evidence = fold(item.evidence);
+    if (!evidence) return false;
+
+    // Commercial phrase "завод кабеля без подключения" describes a price,
+    // not absence of technical possibility.
+    const stripped = evidence
+      .replace(/завод\w* кабел\w* без подключ\w*/gu, ' ')
+      .replace(/кабел\w* без подключ\w*/gu, ' ');
+
+    return /(?:нет|нема|видсутн)\s+(?:техническ\w*\s+)?(?:возможност\w*|можливост\w*)[^a-zа-я0-9]{0,8}(?:подключ\w*|пидключ\w*)/u.test(stripped)
+      || /(?:подключ\w*|пидключ\w*)[^a-zа-я0-9]{0,20}(?:невозмож\w*|неможлив\w*)/u.test(stripped)
+      || /(?:не подключаем|не подключать|не пидключаем|не пидключати|подключение невозможно|пидключення неможлив)/u.test(stripped);
+  }
+
   function isSupportedByEvidence(item = {}) {
+    if (item.type === 'connection_block') return hasConnectionBlockEvidence(item);
     if (item.type === 'access_coordination') return hasAccessEvidence(item);
     if (item.type === 'access_window') {
       const evidence = fold(item.evidence);
@@ -154,6 +194,7 @@
   function interpretRows(rows, context = {}) {
     let items = basePolicy.interpretRows(rows, context);
     const exclusive = exclusiveTechnology(rows);
+    const capacity = ponBoxCapacity(rows);
 
     if (exclusive) {
       const samePositive = new RegExp(`^${exclusive.technology.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*—\\s*(?:да|доступ)`, 'iu');
@@ -179,6 +220,10 @@
           sourceKeys: [exclusive.sourceKey].filter(Boolean)
         });
       }
+    }
+
+    if (capacity && !items.some(item => item?.type === 'infrastructure_capacity' && fold(item?.summary) === fold(capacity.summary))) {
+      items.push(capacity);
     }
 
     return refineItems(items).sort((a, b) => Number(a?.priority ?? 50) - Number(b?.priority ?? 50));
