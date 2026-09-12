@@ -6,12 +6,14 @@ import vm from 'node:vm';
 const baseSource = fs.readFileSync(new URL('../src/core/task-special-policy-v3.js', import.meta.url), 'utf8');
 const contextualSource = fs.readFileSync(new URL('../src/core/task-special-policy-v3-contextual.js', import.meta.url), 'utf8');
 const safetyNetSource = fs.readFileSync(new URL('../src/core/task-special-policy-v3-safety-net.js', import.meta.url), 'utf8');
+const noteRefinerSource = fs.readFileSync(new URL('../src/core/task-special-policy-v3-note-refiner.js', import.meta.url), 'utf8');
 const sandbox = { SIMNET_WB: {} };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(baseSource, sandbox, { filename: 'task-special-policy-v3.js' });
 vm.runInContext(contextualSource, sandbox, { filename: 'task-special-policy-v3-contextual.js' });
 vm.runInContext(safetyNetSource, sandbox, { filename: 'task-special-policy-v3-safety-net.js' });
+vm.runInContext(noteRefinerSource, sandbox, { filename: 'task-special-policy-v3-note-refiner.js' });
 const api = sandbox.SIMNET_WB.taskSpecialPolicyV3;
 
 function present(item, context = {}) {
@@ -22,10 +24,11 @@ function interpret(text, context = {}) {
   return api.interpretRows([{ key: 'note', text }], context);
 }
 
-test('presentation API is available globally after contextual policy layer', () => {
+test('presentation API is available globally after final policy layers', () => {
   assert.equal(typeof api.presentItem, 'function');
   assert.equal(api.contextualPolicyVersion, 5);
   assert.equal(api.safetyNetVersion, 3);
+  assert.equal(api.noteRefinerVersion, 3);
 });
 
 test('access window explains why timing can break the visit and gives a concrete action', () => {
@@ -70,7 +73,7 @@ test('technology restriction explains execution risk instead of merely repeating
   const view = present({
     type: 'technology_restriction',
     severity: 'warning',
-    summary: 'Подключение — только GPON'
+    summary: 'Подключение только по GPON'
   });
   assert.equal(view.tag, 'ТЕХНОЛОГИЯ');
   assert.match(view.impact, /Неверная технология/);
@@ -80,6 +83,17 @@ test('technology restriction explains execution risk instead of merely repeating
 test('routine positive technology fact is not shown as a pre-save warning', () => {
   const items = interpret('GPON доступен. Кабельное ТВ не подключаем.');
   assert.equal(items.some(item => item.summary === 'GPON — да'), false);
+});
+
+test('exclusive GPON wording is shown as the restriction itself, not GPON yes', () => {
+  const items = interpret('підключення тільки по технології GPON !');
+  assert.equal(items.some(item => item.summary === 'GPON — да'), false);
+  assert.equal(items.some(item => item.type === 'technology_restriction' && item.summary === 'Подключение только по GPON'), true);
+});
+
+test('neutral positive technology fact alone is suppressed', () => {
+  const items = interpret('Можно подключать по GPON.');
+  assert.equal(items.some(item => /^(?:GPON|PON|EPON)\s*[—-]\s*(?:да|доступ|можно)/u.test(item.summary || '')), false);
 });
 
 test('commercial-only note does not become access warning', () => {
