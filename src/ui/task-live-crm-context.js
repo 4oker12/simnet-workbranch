@@ -11,6 +11,7 @@
   let observer = null;
   let queued = false;
   let lastSignature = '';
+  let lastCrewSignature = '';
 
   const compact = (value, max = 5000) => {
     const text = String(value == null ? '' : value).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
@@ -71,11 +72,21 @@
         reason, buildingUuid, address, noteCount: noteRows.length
       });
 
-      // Crew availability depends on the resolved building UUID. On edit forms
-      // UserSide may populate the address cascade after the crew control's first
-      // pass, so refresh the picker exactly when a new live building context is
-      // published instead of relying on browser-specific DOM/change timing.
-      try { WB.taskFieldVisitUniversalCrew?.refresh?.(); } catch {}
+      // Crew availability depends on address/type/customer, not on note text.
+      // A building-note DOM update must not reload the same crew list again.
+      const crewSignature = JSON.stringify([
+        payload.buildingUuid,
+        payload.addressUnitUuid,
+        payload.taskTypeUuid,
+        payload.customerUuid
+      ]);
+      if (crewSignature !== lastCrewSignature) {
+        lastCrewSignature = crewSignature;
+        try {
+          if (typeof WB.taskFieldVisitUniversalCrew?.sync === 'function') WB.taskFieldVisitUniversalCrew.sync();
+          else WB.taskFieldVisitUniversalCrew?.refresh?.();
+        } catch {}
+      }
     } catch (error) {
       WB.log?.warn?.('CRM', 'Live building context publish failed', { reason, message: compact(error?.message || error, 180) });
     }
