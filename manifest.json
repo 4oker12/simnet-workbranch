@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET Workbench",
-  "version": "1.7.36.131",
+  "version": "1.7.36.132",
   "description": "SIMNET Workbench: facts + visits + direct if/else actions, without continuous page rescanning.",
   "permissions": [
     "storage",
@@ -128,7 +128,7 @@
       ]
     }
   ],
-  "version_name": "1.7.36.131-field-visit-universal-crew",
+  "version_name": "1.7.36.132-staff-policy-journal-range",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }
