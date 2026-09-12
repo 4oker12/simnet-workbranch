@@ -10,13 +10,13 @@
   const OPERATOR_EXTENSION = '6047';
   const QUERY_MESSAGE = 'PBX_RECENT_CALLS_QUERY';
   const ACTIVE_TTL_MS = 15_000;
-  const LOCK_TTL_MS = 12_000;
+  const LOCK_TTL_MS = 25_000;
+  const RETRY_AFTER_MISS_MS = 2_500;
   const START_TOLERANCE_MS = 90_000;
-  const RETRIES_MS = [0, 1800, 4500];
 
   let stopped = false;
-  let retryTimers = [];
-  let resolvingKey = '';
+  let inFlightKey = '';
+  let lastAttemptAtMs = 0;
 
   const now = () => Date.now();
   const digits = value => String(value == null ? '' : value).replace(/\D+/g, '');
@@ -40,13 +40,16 @@
   }
 
   function matchesActive(call = null, active = null) {
-    if (!isOngoing(call) || !active) return false;
+    if (!call || !active) return false;
     const agent = digits(call.agentExtension || call.agent || '');
     if (agent && agent !== OPERATOR_EXTENSION) return false;
     const startedAtMs = Number(call.startedAtMs || 0);
     if (!startedAtMs) return false;
     if (active.talkStartMs && Math.abs(startedAtMs - active.talkStartMs) > START_TOLERANCE_MS) return false;
-    return true;
+    // Native PBX is authoritative for lifecycle. When its talk_start matches the
+    // UserSide row, accept the row even if query projection has not yet marked it
+    // ongoing; this prevents minute-precision call_list timestamps from dropping it.
+    return isOngoing(call) || Boolean(active.talkStartMs);
   }
 
   function callIdentity(call = {}) {
@@ -63,7 +66,7 @@
     };
   }
 
-  function publish(call, active) {
+  function publish(call) {
     const state = {
       schema: 'simnet-wb-call-list-live-v1',
       active: true,
@@ -97,56 +100,82 @@
     });
   }
 
+  function candidateFromResponse(data, active) {
+    const candidates = [
+      data?.focusCall,
+      data?.refresh?.focusPreview,
+      ...(Array.isArray(data?.calls) ? data.calls : [])
+    ].filter(Boolean);
+    return candidates.find(item => matchesActive(item, active)) || null;
+  }
+
   async function attempt(active, key) {
-    if (stopped || resolvingKey !== key) return false;
-    const data = await requestCurrent();
-    if (stopped || resolvingKey !== key) return false;
-    const call = data?.focusCall && matchesActive(data.focusCall, active)
-      ? data.focusCall
-      : (Array.isArray(data?.calls) ? data.calls.find(item => matchesActive(item, active)) : null);
-    if (!call) return false;
-    await publish(call, active);
+    if (stopped || inFlightKey) return false;
+    inFlightKey = key;
+    lastAttemptAtMs = now();
     try {
-      await chrome.storage.local.set({
-        [LOCK_KEY]: { key, status: 'resolved', owner: location.href, expiresAtMs: now() + 60_000 }
+      const data = await requestCurrent();
+      if (stopped) return false;
+      const call = candidateFromResponse(data, active);
+      if (!call) {
+        try {
+          await chrome.storage.local.set({
+            [LOCK_KEY]: {
+              key,
+              status: 'miss',
+              owner: location.href,
+              expiresAtMs: now() + RETRY_AFTER_MISS_MS
+            }
+          });
+        } catch {}
+        WB.log?.warn?.('CALL', 'Активный звонок 6047 пока не найден в call_list', {
+          talkStartMs: active.talkStartMs,
+          retryAfterMs: RETRY_AFTER_MISS_MS
+        });
+        return false;
+      }
+
+      await publish(call);
+      try {
+        await chrome.storage.local.set({
+          [LOCK_KEY]: { key, status: 'resolved', owner: location.href, expiresAtMs: now() + 60_000 }
+        });
+      } catch {}
+      WB.log?.info?.('CALL', 'Активный звонок 6047 сопоставлен с UserSide', {
+        callKey: String(call.callKey || ''),
+        usersideCallId: String(call.usersideCallId || ''),
+        customerId: String(call.customerId || ''),
+        startedAtMs: Number(call.startedAtMs || 0)
       });
-    } catch {}
-    return true;
+      return true;
+    } finally {
+      inFlightKey = '';
+    }
   }
 
   async function resolveActive(active) {
     const key = String(active.talkStartMs || Math.floor(active.observedAtMs / 10_000));
-    if (!key || resolvingKey === key) return;
+    if (!key || inFlightKey) return;
+    if (now() - lastAttemptAtMs < RETRY_AFTER_MISS_MS) return;
 
     let storage = {};
     try { storage = await chrome.storage.local.get([LIVE_STATE_KEY, LOCK_KEY]); } catch {}
+
     const existing = storage?.[LIVE_STATE_KEY];
     if (existing?.active === true && Number(existing?.call?.startedAtMs || 0)) {
       const start = Number(existing.call.startedAtMs || 0);
       if (!active.talkStartMs || Math.abs(start - active.talkStartMs) <= START_TOLERANCE_MS) return;
     }
+
     const lock = storage?.[LOCK_KEY];
     if (lock?.key === key && Number(lock.expiresAtMs || 0) > now()) return;
 
-    resolvingKey = key;
     try {
       await chrome.storage.local.set({
         [LOCK_KEY]: { key, status: 'resolving', owner: location.href, expiresAtMs: now() + LOCK_TTL_MS }
       });
     } catch {}
-
-    retryTimers.forEach(clearTimeout);
-    retryTimers = [];
-    for (const delay of RETRIES_MS) {
-      retryTimers.push(setTimeout(async () => {
-        if (stopped || resolvingKey !== key) return;
-        const ok = await attempt(active, key);
-        if (ok) {
-          retryTimers.forEach(clearTimeout);
-          retryTimers = [];
-        }
-      }, delay));
-    }
+    await attempt(active, key);
   }
 
   async function inspect() {
@@ -162,11 +191,13 @@
     if (stopped || area !== 'local' || !changes?.[NATIVE_STATE_KEY]) return;
     const active = activeNative(changes[NATIVE_STATE_KEY].newValue);
     if (!active) {
-      resolvingKey = '';
-      retryTimers.forEach(clearTimeout);
-      retryTimers = [];
+      inFlightKey = '';
+      lastAttemptAtMs = 0;
       return;
     }
+    // Native widget refreshes this state while the conversation is alive. Each
+    // heartbeat can therefore retry a missed call_list projection without any
+    // permanent polling timer of our own.
     void resolveActive(active);
   }
 
@@ -177,8 +208,7 @@
     resolve: inspect,
     destroy() {
       stopped = true;
-      retryTimers.forEach(clearTimeout);
-      retryTimers = [];
+      inFlightKey = '';
       chrome.storage.onChanged.removeListener(onChanged);
     }
   });
