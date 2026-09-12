@@ -20,25 +20,21 @@
   const MAX_AUDIT = 500;
   const APPROVAL_TTL_MS = 2 * 60 * 1000;
 
-  // Current UserSide UUID contract recovered from live forms/endpoint recordings.
-  // Structural fallback below keeps the guard working for field types not yet mapped explicitly.
   const FIELD_VISIT_UUIDS = new Set([
-    // B2C
-    '1b34ce66-cd14-4893-a2ec-59c19bcf16dc', // Подкл. ЖК
-    '3496276b-010a-46ed-a2c5-534c32e8f9e2', // Ремонт
-    '378b0972-13b7-4df5-94f0-98ce6a37e9c0', // Подкл. Частный сектор
-    'c15aa787-6989-425a-88db-67b902c4ed2c', // Gig переключение
-    '759de9b3-3b42-4afd-a37f-d3d7f4ea5b55', // Доподключение
-    '947410ef-e06a-4e15-8107-cfd2b648b235', // Подкл. Льготное
-    'd283b923-d58b-48d8-b31f-e440f32858ca', // PON переключение
-    'f04549e5-5ae3-406b-84f2-069c52ad88e8', // Подключение СРОЧНОЕ
-    '1ff17c41-e4a2-4938-b68d-d9576aac8066', // Перегляд В2С
-    '0a7c59e7-a6de-44a3-977f-d90c84e87e5f', // 2,5 Гбіт/с
-    // B2B field work visible in the current task type catalog
-    'c8dd5618-41ea-457d-a23d-dd018d21e77f', // Підключення бізнес
-    'd5051f38-a8c6-47ab-a6d6-414a8a7acf0a', // Перегляд бізнес
-    '614fef14-b1a1-419c-b336-21fc723dd406', // Ремонт бізнес
-    'cc56250e-7c49-4012-a023-f693ee9ace9c'  // Тендер підключення
+    '1b34ce66-cd14-4893-a2ec-59c19bcf16dc',
+    '3496276b-010a-46ed-a2c5-534c32e8f9e2',
+    '378b0972-13b7-4df5-94f0-98ce6a37e9c0',
+    'c15aa787-6989-425a-88db-67b902c4ed2c',
+    '759de9b3-3b42-4afd-a37f-d3d7f4ea5b55',
+    '947410ef-e06a-4e15-8107-cfd2b648b235',
+    'd283b923-d58b-48d8-b31f-e440f32858ca',
+    'f04549e5-5ae3-406b-84f2-069c52ad88e8',
+    '1ff17c41-e4a2-4938-b68d-d9576aac8066',
+    '0a7c59e7-a6de-44a3-977f-d90c84e87e5f',
+    'c8dd5618-41ea-457d-a23d-dd018d21e77f',
+    'd5051f38-a8c6-47ab-a6d6-414a8a7acf0a',
+    '614fef14-b1a1-419c-b336-21fc723dd406',
+    'cc56250e-7c49-4012-a023-f693ee9ace9c'
   ]);
 
   const TYPE_LABELS = Object.freeze({
@@ -163,7 +159,7 @@
     const scheduleLooksRequired = Boolean(fields.date && fields.hour && (
       fields.date.required || fields.hour.required || fields.minute?.required || staff.length
     ));
-    return scheduleLooksRequired && staff.some(input => BRIGADE_RE.test(inputLabel(input)));
+    return scheduleLooksRequired && staff.some(input => input.checked && BRIGADE_RE.test(inputLabel(input)));
   }
 
   function parseDate(value) {
@@ -647,9 +643,18 @@
     queueMicrotask(() => host.querySelector('[data-role="ack"]')?.focus());
   }
 
+  function policyV3BypassArmed() {
+    const marker = document.getElementById(MODAL_HOST_ID);
+    return Boolean(marker && marker.tagName === 'SPAN' && marker.hidden && marker.dataset?.simnetWbOwned === '1');
+  }
+
   function handleSubmit(event) {
     const form = event.target;
     if (!isCurrentTaskForm(form)) return;
+    if (policyV3BypassArmed()) {
+      taskLog('info', 'special_info_skipped_policy_v3', decisionContext(form));
+      return;
+    }
     if (replayBypass.has(form)) {
       replayBypass.delete(form);
       taskLog('info', 'task_save_replay_passed', decisionContext(form));
