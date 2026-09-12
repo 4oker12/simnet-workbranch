@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET Workbench",
-  "version": "1.7.36.135",
+  "version": "1.7.36.136",
   "description": "SIMNET Workbench: facts + visits + direct if/else actions, without continuous page rescanning.",
   "permissions": ["storage","scripting","unlimitedStorage","tabs"],
   "host_permissions": ["https://userside.simnet.kiev.ua/*","https://admin.simnet.kiev.ua/*","https://admin.looknet.kiev.ua/*","https://pbx.simnet.kiev.ua/*","http://127.0.0.1/*","http://localhost/*","https://api.groq.com/*"],
@@ -16,6 +16,7 @@
       "src/core/task-special-indexed-notes.js",
       "src/core/task-special-operational-notes.js",
       "src/core/task-special-policy-v3-contextual.js",
+      "src/core/task-special-policy-v3-safety-net.js",
       "src/core/task-street-owner-rules.js",
       "src/core/click-debug.js",
       "src/core/junction-debug.js",
@@ -46,8 +47,10 @@
       "src/ui/task-street-owner-crew-guard.js",
       "src/ui/task-form-assistant.js",
       "src/ui/task-current-contract-guard.js",
+      "src/ui/task-field-visit-final-save-gate.js",
       "src/ui/task-current-staff-transition.js",
       "src/ui/task-current-live-recovery.js",
+      "src/ui/task-special-info-debug-augment.js",
       "src/ui/task-l1-assignment-picker.js",
       "src/ui/task-live-crm-context.js",
       "src/ui/task-field-visit-universal-crew.js",
@@ -79,6 +82,6 @@
   "options_ui":{"page":"src/ui/settings.html","open_in_tab":true},
   "icons":{"16":"assets/icon16.png","32":"assets/icon32.png","48":"assets/icon48.png","128":"assets/icon128.png"},
   "web_accessible_resources":[{"resources":["src/parsers/userside/tmc.js"],"matches":["https://userside.simnet.kiev.ua/*","https://admin.simnet.kiev.ua/*","https://admin.looknet.kiev.ua/*"]}],
-  "version_name":"1.7.36.135-vl-owner-rules-userside-warning-ui",
+  "version_name":"1.7.36.136-special-info-safety-net-field-gate",
   "content_security_policy":{"extension_pages":"script-src 'self'; object-src 'self'"}
 }
