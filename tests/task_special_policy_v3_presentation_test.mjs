@@ -5,11 +5,13 @@ import vm from 'node:vm';
 
 const baseSource = fs.readFileSync(new URL('../src/core/task-special-policy-v3.js', import.meta.url), 'utf8');
 const contextualSource = fs.readFileSync(new URL('../src/core/task-special-policy-v3-contextual.js', import.meta.url), 'utf8');
+const safetyNetSource = fs.readFileSync(new URL('../src/core/task-special-policy-v3-safety-net.js', import.meta.url), 'utf8');
 const sandbox = { SIMNET_WB: {} };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(baseSource, sandbox, { filename: 'task-special-policy-v3.js' });
 vm.runInContext(contextualSource, sandbox, { filename: 'task-special-policy-v3-contextual.js' });
+vm.runInContext(safetyNetSource, sandbox, { filename: 'task-special-policy-v3-safety-net.js' });
 const api = sandbox.SIMNET_WB.taskSpecialPolicyV3;
 
 function present(item, context = {}) {
@@ -23,6 +25,7 @@ function interpret(text, context = {}) {
 test('presentation API is available globally after contextual policy layer', () => {
   assert.equal(typeof api.presentItem, 'function');
   assert.equal(api.contextualPolicyVersion, 3);
+  assert.equal(api.safetyNetVersion, 2);
 });
 
 test('access window explains why timing can break the visit and gives a concrete action', () => {
@@ -79,16 +82,14 @@ test('routine positive technology fact is not shown as a pre-save warning', () =
   assert.equal(items.some(item => item.summary === 'GPON — да'), false);
 });
 
-test('unsupported access classification is removed when source note has no access meaning', () => {
-  const original = sandbox.SIMNET_WB.taskSpecialPolicyV3;
-  const baseInterpret = original.interpretRows;
-  assert.equal(typeof baseInterpret, 'function');
-  const items = interpret('Подключение 600 грн, кабель 20 грн/м, аудиотрубка 500 грн.');
+test('commercial-only note does not become access warning', () => {
+  const items = interpret('Подключение 600 грн, кабель 20 грн/м, аудиотрубка 500 грн, видеодомофон 800 грн.');
   assert.equal(items.some(item => item.type === 'access_coordination' || item.type === 'access_window'), false);
+  assert.equal(items.some(item => item.type === 'commercial_condition'), true);
 });
 
 test('real access condition survives evidence filter', () => {
-  const items = interpret('Ключи в ЖЭК, выдача до 17:00.');
+  const items = interpret('ЖЭК до 17:00. Ключи находятся в ЖЭК.');
   assert.equal(items.some(item => item.type === 'access_window' || item.type === 'access_coordination'), true);
 });
 
