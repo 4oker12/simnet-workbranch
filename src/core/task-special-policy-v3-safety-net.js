@@ -77,9 +77,8 @@
 
   function interpretRows(rows, context = {}) {
     const normalizedRows = Array.isArray(rows) ? rows.filter(row => compact(row?.text, 8)) : [];
-    const baseItems = Array.isArray(basePolicy.interpretRows(normalizedRows, context))
-      ? basePolicy.interpretRows(normalizedRows, context)
-      : [];
+    const interpreted = basePolicy.interpretRows(normalizedRows, context);
+    const baseItems = Array.isArray(interpreted) ? interpreted : [];
     const extra = [];
     for (const row of normalizedRows) {
       if (rowCovered(row, baseItems)) continue;
