@@ -62,10 +62,19 @@
 
   function callIdFromRow(row) {
     const html = String(row?.innerHTML || '');
+    const attrs = [
+      row?.getAttribute?.('data-call-id'),
+      row?.getAttribute?.('data-message-id'),
+      row?.dataset?.callId,
+      row?.dataset?.messageId
+    ];
+    const attrId = attrs.map(value => digits(value)).find(value => /^\d{5,24}$/.test(value));
+    if (attrId) return attrId;
     return html.match(/\/message\/(\d+)\/call_comment_add/i)?.[1]
       || html.match(/callCommentAdd(\d+)Id/i)?.[1]
       || html.match(/loadRecordFile\(\s*(\d+)\s*,/i)?.[1]
       || html.match(/audioRecordId(\d+)/i)?.[1]
+      || html.match(/name=["'](?:call_id|message_id)["'][^>]*value=["'](\d+)["']/i)?.[1]
       || '';
   }
 
@@ -80,25 +89,64 @@
     return raw.length >= 6 && raw.length <= 15 ? raw : '';
   }
 
-  function subscriberFromRow(row) {
-    const cell = row?.querySelector?.('[id$="_CUSTOMER_Id"]');
-    if (!cell) return { customerId: '', fullName: '', fio: '', login: '', contract: '' };
-    const links = Array.from(cell.querySelectorAll('a[href*="/customer/"]'));
-    if (links.length !== 1) return { customerId: '', fullName: '', fio: '', login: '', contract: '' };
-    const link = links[0];
-    const customerId = String(link.getAttribute('href') || '').match(/\/customer\/(\d+)/i)?.[1] || '';
-    const raw = text(link);
-    const login = raw.match(/\babon\d+\b/i)?.[0] || '';
+  function parseSubscriberLabel(raw = '') {
+    const value = String(raw || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+    const login = value.match(/\babon\d+\b/i)?.[0] || '';
     const fullName = login
-      ? raw.replace(new RegExp(`\\s*[-–—]?\\s*${login.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'i'), '').trim()
-      : raw;
+      ? value.replace(new RegExp(`\\s*[-–—]?\\s*${login.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'i'), '').trim()
+      : value;
     return {
-      customerId,
       fullName,
       fio: fullName,
       login,
       contract: login.replace(/^abon/i, '')
     };
+  }
+
+  function customerIdFromHref(href = '') {
+    const raw = String(href || '');
+    return raw.match(/\/customer\/(\d{1,14})(?:[/?#]|$)/i)?.[1]
+      || raw.match(/[?&](?:customer_id|customerId)=(\d{1,14})(?:&|$)/i)?.[1]
+      || '';
+  }
+
+  function subscriberFromRow(row) {
+    const empty = { customerId: '', fullName: '', fio: '', login: '', contract: '', customerCandidates: [] };
+    if (!row) return empty;
+
+    let cell = row.querySelector?.('[id$="_CUSTOMER_Id"]') || null;
+    if (!cell) {
+      cell = Array.from(row.querySelectorAll?.('td') || []).find(candidate => (
+        candidate.querySelector?.('a[href*="/customer/"]')
+        || /\babon\d+\b/i.test(text(candidate))
+      )) || null;
+    }
+    if (!cell) return empty;
+
+    const candidates = [];
+    const seen = new Set();
+    for (const link of Array.from(cell.querySelectorAll?.('a[href*="/customer/"]') || [])) {
+      const customerId = customerIdFromHref(link.getAttribute('href') || link.href || '');
+      const label = parseSubscriberLabel(text(link));
+      const key = customerId || label.login.toLowerCase() || text(link).toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      candidates.push({ customerId, ...label });
+    }
+
+    if (!candidates.length) {
+      const label = parseSubscriberLabel(text(cell));
+      if (!label.login && !label.fullName) return empty;
+      return { customerId: '', ...label, customerCandidates: [] };
+    }
+
+    const ids = new Set(candidates.map(item => item.customerId).filter(Boolean));
+    const logins = new Set(candidates.map(item => item.login.toLowerCase()).filter(Boolean));
+    const unambiguous = candidates.length === 1 || ids.size === 1 || (ids.size <= 1 && logins.size === 1);
+    if (!unambiguous) return { ...empty, customerCandidates: candidates };
+
+    const primary = candidates.find(item => item.customerId) || candidates[0];
+    return { ...primary, customerCandidates: candidates };
   }
 
   function rowData(row) {
@@ -182,6 +230,8 @@
       call?.startedAtMs || 0,
       call?.callerId || '',
       call?.customerId || '',
+      call?.login || '',
+      call?.fio || '',
       status === 'completed' ? Number(call?.durationSeconds || 0) : 0,
       call?.recordId || ''
     ].join(':');
@@ -246,6 +296,8 @@
       state.call?.usersideCallId || '',
       state.call?.callerId || '',
       state.call?.customerId || '',
+      state.call?.login || '',
+      state.call?.fio || '',
       state.call?.status || ''
     ].join(':');
   }
@@ -274,7 +326,7 @@
     tableObserver?.disconnect();
     tableBody = nextBody;
     tableObserver = new MutationObserver(schedulePublish);
-    tableObserver.observe(tableBody, { subtree: true, childList: true, characterData: true });
+    tableObserver.observe(tableBody, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['href', 'data-call-id', 'data-message-id'] });
     discoveryObserver?.disconnect();
     discoveryObserver = null;
     schedulePublish();
