@@ -4,6 +4,7 @@
   if (window.top !== window.self || location.hostname !== 'userside.simnet.kiev.ua') return;
 
   const EVENT_NAME = 'simnet-wb-native-pbx-state';
+  const PROBE_EVENT_NAME = 'simnet-wb-native-pbx-probe';
   const DATASET_KEY = 'simnetWbNativePbxState';
   const SESSION_PREFIX = 'opw.session.crm.';
   const BUS_PREFIX = 'opw.bus.crm.';
@@ -133,7 +134,8 @@
   }
 
   function connect() {
-    if (destroyed || channel) return true;
+    if (destroyed) return false;
+    if (channel && session) return true;
     const found = findSession();
     if (!found) return false;
     session = found.value;
@@ -145,10 +147,37 @@
       channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel(busName) : null;
       if (channel) channel.onmessage = event => handleBusMessage(event.data || {});
     } catch { channel = null; }
+    window.removeEventListener('storage', onStorage);
     window.addEventListener('storage', onStorage);
     if (session?.last_payload) handlePayload(session.last_payload);
     postHello();
     return true;
+  }
+
+  function refreshSessionSnapshot() {
+    const found = findSession();
+    if (found?.value) {
+      session = found.value;
+      if (!scope) scope = found.key.slice(SESSION_PREFIX.length);
+      if (session.last_payload) {
+        handlePayload(session.last_payload);
+        return true;
+      }
+    }
+    if (session?.last_payload) {
+      handlePayload(session.last_payload);
+      return true;
+    }
+    return false;
+  }
+
+  function onProbe() {
+    if (destroyed) return;
+    // Probe is synchronous and local-only. It exists specifically so opening
+    // CALL can ask the native UserSide PBX widget for its latest 6047 lifecycle
+    // state before any historical/cached call is allowed into focus.
+    connect();
+    refreshSessionSnapshot();
   }
 
   function discover() {
@@ -163,11 +192,13 @@
     destroyed = true;
     clearTimeout(discoveryTimer);
     discoveryTimer = 0;
+    document.documentElement?.removeEventListener(PROBE_EVENT_NAME, onProbe);
     window.removeEventListener('storage', onStorage);
     try { channel?.close?.(); } catch {}
     channel = null;
   }
 
+  document.documentElement?.addEventListener(PROBE_EVENT_NAME, onProbe);
   window.addEventListener('pagehide', destroy, { once: true });
   discover();
 })();
