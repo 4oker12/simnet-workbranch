@@ -12,6 +12,22 @@ export function createFetchClient({ allowedHosts = [], timeoutMs = 15000, fetchF
     }
   }
 
+  function headersForTextResponse(rawUrl, provided = {}) {
+    const headers = new Headers(provided || {});
+    try {
+      const url = new URL(rawUrl);
+      // New UserSide renders /message/tab as an AJAX fragment. Without the
+      // native XHR marker the route can return the surrounding page instead of
+      // the call-registration form, which makes the CALL parser report that
+      // the native form is missing.
+      if (url.hostname === 'userside.simnet.kiev.ua' && url.pathname === '/message/tab') {
+        if (!headers.has('x-requested-with')) headers.set('x-requested-with', 'XMLHttpRequest');
+        if (!headers.has('accept')) headers.set('accept', 'text/html, */*; q=0.01');
+      }
+    } catch {}
+    return headers;
+  }
+
   async function request({ url, method = 'GET', headers = {}, body = null } = {}) {
     if (!isUrlAllowed(url)) throw new Error(`Blocked URL: ${String(url || '')}`);
     const controller = new AbortController();
@@ -50,8 +66,13 @@ export function createFetchClient({ allowedHosts = [], timeoutMs = 15000, fetchF
     const startedAt = nowMs();
     try {
       const response = await fetchFn(url, {
-        method: options.method || 'GET', headers: options.headers || {}, body: options.body || null,
-        credentials: 'include', cache: 'no-store', redirect: 'follow', signal: controller.signal
+        method: options.method || 'GET',
+        headers: headersForTextResponse(url, options.headers || {}),
+        body: options.body || null,
+        credentials: 'include',
+        cache: 'no-store',
+        redirect: 'follow',
+        signal: controller.signal
       });
       const data = await response.text();
       return {
