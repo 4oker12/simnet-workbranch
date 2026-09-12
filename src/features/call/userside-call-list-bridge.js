@@ -106,7 +106,8 @@ function customerCandidates(customerHtml = '') {
 export function parseUsersideCallListHtml(html, {
   operatorExtension = '6047',
   completedOnly = true,
-  limit = 80
+  limit = 80,
+  allowIdless = false
 } = {}) {
   const source = String(html || '');
   const rows = [];
@@ -128,10 +129,12 @@ export function parseUsersideCallListHtml(html, {
       || rowHtml.match(/loadRecordFile\(\s*(\d+)\s*,/i)?.[1]
       || rowHtml.match(/audioRecordId(\d+)/i)?.[1]
       || '';
-    // The PBX play link itself also carries the canonical UserSide call id.
-    // This matters when UserSide renders an existing AI/comment block without
-    // the usual call_comment_add anchor in the row.
-    if (!usersideCallId) continue;
+    // Active rows may not have a recording/comment link yet, so their canonical
+    // UserSide call id can legitimately be missing until hangup. Keep such rows
+    // only when explicitly requested by the caller; completed-only parsing still
+    // requires the canonical id.
+    if (!usersideCallId && !allowIdless) continue;
+
     const dateAdd = textFromHtml(cellHtml(rowHtml, '_DATEADD_Id'));
     const dateParts = parseDateAdd(dateAdd);
     const phone = normalizePhone(textFromHtml(cellHtml(rowHtml, '_PHONE_Id')));
@@ -146,6 +149,7 @@ export function parseUsersideCallListHtml(html, {
       recordId,
       usersideCallId,
       callerId: phone,
+      callerMasked: phone,
       date: dateParts.date,
       time: dateParts.time,
       startedAtMs: dateParts.startedAtMs,
