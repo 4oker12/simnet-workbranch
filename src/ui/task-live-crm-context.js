@@ -70,6 +70,12 @@
       WB.log?.info?.('CRM', 'Live building context published', {
         reason, buildingUuid, address, noteCount: noteRows.length
       });
+
+      // Crew availability depends on the resolved building UUID. On edit forms
+      // UserSide may populate the address cascade after the crew control's first
+      // pass, so refresh the picker exactly when a new live building context is
+      // published instead of relying on browser-specific DOM/change timing.
+      try { WB.taskFieldVisitUniversalCrew?.refresh?.(); } catch {}
     } catch (error) {
       WB.log?.warn?.('CRM', 'Live building context publish failed', { reason, message: compact(error?.message || error, 180) });
     }
