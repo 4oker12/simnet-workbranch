@@ -106,14 +106,16 @@ assert.match(callConfig, /CALL_WINDOW_GRACE_MS\s*=\s*15_000/);
 assert.match(callNormalizer, /SEARCH_RESOLVED/);
 assert.match(callNormalizer, /SUBSCRIBER_VISIT/);
 assert.match(callSource, /USERSIDE_CALL_LIST_PATH\s*=\s*'\/message\/call_list'/);
-assert.match(callSource, /callKey:\s*`call:\$\{String\(latest\.usersideCallId\)/);
+assert.match(callSource, /const usersideCallId = UUID_RE\.test\(rawCallId\)/);
+assert.match(callSource, /callKey:\s*usersideCallId \? `call:\$\{usersideCallId\}`/);
 assert.doesNotMatch(manifest, /pbx\.vnet/);
 
-// CALL refresh starts before the native form request and is not gated by Customer ID resolution.
+// CALL refresh and the native form start together; neither blocks starting the other.
 const openStart = ui.indexOf('async open(caseData');
-const refreshAt = ui.indexOf('const pbx = await extensionRequest(PBX_QUERY_MESSAGE', openStart);
-const formAt = ui.indexOf('await this.loadNativeModelForCurrentCase', openStart);
-assert.ok(refreshAt > openStart && formAt > refreshAt, 'call_list refresh must start before native form resolution');
+const refreshAt = ui.indexOf('const callListPromise = extensionRequest(PBX_QUERY_MESSAGE', openStart);
+const formAt = ui.indexOf('const nativeFormPromise = hasCase', openStart);
+const joinAt = ui.indexOf('await Promise.allSettled([', openStart);
+assert.ok(refreshAt > openStart && formAt > refreshAt && joinAt > formAt, 'call_list and native form must be started before awaiting their results');
 assert.doesNotMatch(ui, /operatorOverride:\s*needsSoft/);
 assert.match(ui, /window\.confirm\(/);
 assert.match(ui, /hasExplicitOverride/);
@@ -122,7 +124,7 @@ assert.match(ui, /exact\.has\('customer'\).*return 100/s);
 
 assert.match(loader, /function injectFeature\(feature, force = false, timeoutMs = 6000\)/);
 assert.match(loader, /Call feature injection timed out/);
-assert.match(loader, /forceNextLoad = true/);
+assert.match(loader, /forceNextLoad = !markLoadedIfPresent\(\)/);
 
 assert.match(bootstrap, /form\.id === 'top_search'/);
 assert.match(bootstrap, /source: 'billing', kind: 'submit'/);

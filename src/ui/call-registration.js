@@ -45,12 +45,47 @@
     return /^\d{1,12}$/.test(text) ? text : '';
   }
 
-  function usersideFormUrl(customerId) {
+  function customerUuidOf(raw) {
+    const text = String(valueOf(raw) ?? '').trim();
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)
+      ? text.toLowerCase()
+      : '';
+  }
+
+  function currentCustomerUuid() {
+    if (location.hostname !== 'userside.simnet.kiev.ua') return '';
+    const candidates = [];
+    candidates.push(location.pathname.match(/^\/customer\/([^/]+)(?:\/|$)/i)?.[1] || '');
+    const selector = [
+      '[name="customer_uuid"]',
+      'a#linkTabSupportId',
+      'a#linkNav4Id',
+      'a[href*="/message/tab?"][href*="customer_uuid="]',
+      'a[href^="/customer/"][href*="tab=support"]'
+    ].join(',');
+    for (const node of document.querySelectorAll?.(selector) || []) {
+      candidates.push(String(node.value || node.getAttribute?.('value') || ''));
+      try {
+        const url = new URL(String(node.href || node.getAttribute?.('href') || ''), location.origin);
+        candidates.push(url.searchParams.get('customer_uuid') || '');
+        candidates.push(url.pathname.match(/^\/customer\/([^/]+)(?:\/|$)/i)?.[1] || '');
+      } catch {}
+    }
+    for (const candidate of candidates) {
+      const uuid = customerUuidOf(candidate);
+      if (uuid) return uuid;
+    }
+    return '';
+  }
+
+  function usersideFormUrl(customerId, customerUuid = '') {
     const id = customerIdOf(customerId);
-    if (!id) return '';
+    const uuid = customerUuidOf(customerUuid);
+    if (!id && !uuid) return '';
     const url = new URL(FORM_PATH, USERSIDE_ORIGIN);
     url.searchParams.set('section', 'call');
-    url.searchParams.set('customer_id', id);
+    if (uuid) url.searchParams.set('customer_uuid', uuid);
+    else url.searchParams.set('customer_id', id);
     return url.href;
   }
 
@@ -68,7 +103,7 @@
     }
   }
 
-  function parseNativeCallForm(html, expectedCustomerId = '') {
+  function parseNativeCallForm(html, expectedCustomerId = '', expectedCustomerUuid = '') {
     if (typeof DOMParser === 'undefined') {
       throw new Error('DOMParser недоступен');
     }
@@ -98,25 +133,39 @@
     })).filter(field => field.name);
 
     const hiddenValue = name => hiddenFields.find(field => field.name === name)?.value || '';
-    const customerId = customerIdOf(hiddenValue('customer_id'));
+    const nativeCustomerId = customerIdOf(hiddenValue('customer_id'));
+    const customerUuid = customerUuidOf(hiddenValue('customer_uuid'));
     const expected = customerIdOf(expectedCustomerId);
+    const expectedUuid = customerUuidOf(expectedCustomerUuid);
     const csrf = hiddenValue('_csrf');
 
-    if (!customerId || !csrf) {
-      throw new Error('В штатной форме UserSide отсутствует customer_id или _csrf');
+    if ((!nativeCustomerId && !customerUuid) || !csrf) {
+      throw new Error('В штатной форме UserSide отсутствует идентификатор абонента или _csrf');
     }
-    if (expected && customerId !== expected) {
-      throw new Error(`Форма относится к другому абоненту: ${customerId}`);
+    if (expected && nativeCustomerId && nativeCustomerId !== expected) {
+      throw new Error(`Форма относится к другому абоненту: ${nativeCustomerId}`);
     }
-    if (!hiddenFields.some(field => field.name === 'additional_fields[]' && field.value === '13')) {
-      throw new Error('UserSide не вернул обязательное поле телефона dopf_13');
+    if (expectedUuid && customerUuid && customerUuid !== expectedUuid) {
+      throw new Error(`Форма относится к другому абоненту: ${customerUuid}`);
     }
 
     const standard = form.querySelector?.('select[name="standart_comment"]');
     const comment = form.querySelector?.('textarea[name="comment"]');
-    const phone = form.querySelector?.('input[name="dopf_13"]');
+    const additionalFieldValues = hiddenFields
+      .filter(field => field.name === 'additional_fields[]')
+      .map(field => field.value);
+    const phoneInputs = Array.from(form.querySelectorAll?.('input[name^="dopf_"]') || []);
+    const phone = phoneInputs.find(input => input.required || input.hasAttribute?.('required'))
+      || phoneInputs.find(input => additionalFieldValues.includes(String(input.name || '').slice('dopf_'.length)))
+      || (phoneInputs.length === 1 ? phoneInputs[0] : null);
     if (!standard || !comment || !phone) {
       throw new Error('Состав штатной формы UserSide изменился');
+    }
+    const phoneFieldName = String(phone.getAttribute?.('name') || phone.name || '');
+    const phoneAdditionalField = phoneFieldName.slice('dopf_'.length);
+    if (!/^dopf_(?:\d+|[0-9a-f-]{36})$/i.test(phoneFieldName)
+        || !additionalFieldValues.includes(phoneAdditionalField)) {
+      throw new Error('UserSide не вернул служебную связь поля телефона');
     }
 
     const options = Array.from(
@@ -140,9 +189,14 @@
     return {
       action: actionUrlOf(form),
       method: 'POST',
-      customerId,
+      customerId: nativeCustomerId || expected,
+      customerUuid,
+      customerFieldName: customerUuid ? 'customer_uuid' : 'customer_id',
+      customerRef: customerUuid || nativeCustomerId,
       csrf,
       hiddenFields,
+      phoneFieldName,
+      phoneAdditionalField,
       options,
       defaults: {
         standardComment: nativeSelected,
@@ -155,7 +209,7 @@
   }
 
   function serializeNativeCallForm(model, values = {}) {
-    if (!model?.customerId || !model?.csrf || !Array.isArray(model.hiddenFields)) {
+    if (!model?.customerRef || !model?.customerFieldName || !model?.phoneFieldName || !model?.csrf || !Array.isArray(model.hiddenFields)) {
       throw new Error('Штатная форма ещё не загружена');
     }
 
@@ -175,9 +229,10 @@
 
     const replaced = new Set([
       'customer_id',
+      'customer_uuid',
       'standart_comment',
       'comment',
-      'dopf_13'
+      model.phoneFieldName
     ]);
     const fields = model.hiddenFields
       .filter(field => field?.name && !replaced.has(String(field.name)))
@@ -187,10 +242,10 @@
       }));
 
     fields.push(
-      { name: 'customer_id', value: model.customerId },
+      { name: model.customerFieldName, value: model.customerRef },
       { name: 'standart_comment', value: selected },
       { name: 'comment', value: comment },
-      { name: 'dopf_13', value: phone }
+      { name: model.phoneFieldName, value: phone }
     );
 
     return fields;
@@ -224,8 +279,10 @@
     return compact(match?.[0] || '');
   }
 
-  function classifySubmissionResult(result = {}, customerId = '') {
-    const id = customerIdOf(customerId);
+  function classifySubmissionResult(result = {}, customer = '') {
+    const customerId = customer && typeof customer === 'object' ? customer.customerId : customer;
+    const customerUuid = customer && typeof customer === 'object' ? customer.customerUuid : '';
+    const refs = [customerIdOf(customerId), customerUuidOf(customerUuid)].filter(Boolean);
     const html = String(result.data || '');
     const documentNode = responseDocument(html);
     const hasNativeForm = Boolean(
@@ -259,20 +316,21 @@
     const redirectedToCustomer = Boolean(
       result.redirected
       && finalUrl?.origin === USERSIDE_ORIGIN
-      && id
-      && (
-        finalUrl.pathname === `/customer/${id}`
-        || finalUrl.searchParams.get('customer_id') === id
-        || finalUrl.searchParams.get('id') === id
-      )
+      && refs.some(ref => (
+        finalUrl.pathname === `/customer/${ref}`
+        || finalUrl.searchParams.get('customer_id') === ref
+        || finalUrl.searchParams.get('customer_uuid') === ref
+        || finalUrl.searchParams.get('id') === ref
+      ))
     );
-    const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const scriptedCustomerRedirect = Boolean(
-      id
-      && new RegExp(
-        `(?:location(?:\\.href)?|location\\.replace\\s*\\()\\s*(?:=\\s*)?["'][^"']*\\/customer\\/${escapedId}(?:[^"']*)["']`,
-        'i'
-      ).test(html)
+      refs.some(ref => {
+        const escapedRef = ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(
+          `(?:location(?:\\.href)?|location\\.replace\\s*\\()\\s*(?:=\\s*)?["'][^"']*\\/customer\\/${escapedRef}(?:[^"']*)["']`,
+          'i'
+        ).test(html);
+      })
     );
     const successMessage = responseMessage(documentNode, html, {
       allowBodyMatch: html.length > 0 && html.length < 20000
@@ -1192,20 +1250,23 @@
       }
       const result = await extensionRequest(FORM_MESSAGE, {
         caseId: this.caseSnapshot.caseId,
-        customerId: this.caseSnapshot.customerId
+        customerId: this.caseSnapshot.customerId,
+        customerUuid: this.caseSnapshot.customerUuid
       });
       if (generation !== this.generation || !this.host) throw new Error('cancelled');
       if (!result?.ok) throw new Error(result?.message || `UserSide вернул HTTP ${Number(result?.status || 0) || 'ошибку'}`);
       const resolvedCustomerId = customerIdOf(result.customerId || this.caseSnapshot.customerId);
       if (!resolvedCustomerId) throw new Error('UserSide Customer ID не найден');
+      const resolvedCustomerUuid = customerUuidOf(result.customerUuid || this.caseSnapshot.customerUuid);
       this.caseSnapshot.customerId = resolvedCustomerId;
+      this.caseSnapshot.customerUuid = resolvedCustomerUuid;
       WB.store.rememberCustomerId?.(
         this.caseSnapshot.caseId,
         resolvedCustomerId,
         `userside:${result.resolver || 'case'}:call-registration`
       );
       if (!this.caseMatchesSnapshot()) throw new Error('Активный абонент изменился во время загрузки формы');
-      this.model = parseNativeCallForm(result.data, resolvedCustomerId);
+      this.model = parseNativeCallForm(result.data, resolvedCustomerId, resolvedCustomerUuid);
       try {
         const active = WB.store.activeCase?.() || caseData;
         if (active && WB.caseView?.diagnosticSummary) {
@@ -1225,12 +1286,16 @@
       const generation = ++this.generation;
       const hasCase = Boolean(caseData?.id);
       const customerId = hasCase ? customerIdOf(caseData?.identity?.customerId) : '';
+      const customerUuid = hasCase
+        ? (customerUuidOf(caseData?.identity?.customerUuid) || currentCustomerUuid())
+        : '';
       const login = hasCase ? String(valueOf(caseData.identity?.login) || '').trim() : '';
       const contract = hasCase ? String(valueOf(caseData.identity?.contract) || '').trim() : '';
       const fullName = hasCase ? String(valueOf(caseData.profile?.fullName) || valueOf(caseData.identity?.fullName) || '').trim() : '';
       this.caseSnapshot = {
         caseId: hasCase ? String(caseData.id || '') : '',
         customerId,
+        customerUuid,
         login,
         contract,
         fullName,
@@ -1241,14 +1306,26 @@
       this.renderLoading();
 
       try {
-        const pbx = await extensionRequest(PBX_QUERY_MESSAGE, {
+        // Both authoritative inputs begin on the same click. The shell is
+        // already visible, while UserSide call_list and the native form load
+        // independently; the slower request no longer delays starting the other.
+        const callListPromise = extensionRequest(PBX_QUERY_MESSAGE, {
           caseId: this.caseSnapshot.caseId,
           customerId: this.caseSnapshot.customerId,
           fresh: true,
           forceRefresh: true,
           focusCallKey: this.historyFocusCallKey
         });
+        const nativeFormPromise = hasCase
+          ? this.loadNativeModelForCurrentCase(caseData, generation)
+          : Promise.resolve('');
+        const [callListResult, nativeFormResult] = await Promise.allSettled([
+          callListPromise,
+          nativeFormPromise
+        ]);
         if (generation !== this.generation || !this.host) return { ok: false, reason: 'cancelled' };
+        if (callListResult.status === 'rejected') throw callListResult.reason;
+        const pbx = callListResult.value;
         this.applyPbxSnapshot(pbx, this.caseSnapshot.customerId);
         if (!this.focusCall) {
           this.renderDecision();
@@ -1263,7 +1340,8 @@
           return { ok: true, mode: target ? 'route-required' : 'task-choice' };
         }
 
-        const resolvedCustomerId = await this.loadNativeModelForCurrentCase(caseData, generation);
+        if (nativeFormResult.status === 'rejected') throw nativeFormResult.reason;
+        const resolvedCustomerId = nativeFormResult.value;
         // Resolve customerId may enrich the Case. Re-score from the same CALL
         // repository without a second HTTP refresh, preserving requested focus.
         try {
@@ -1505,10 +1583,15 @@
         const response = await extensionRequest(SUBMIT_MESSAGE, {
           caseId: this.caseSnapshot.caseId,
           customerId: this.caseSnapshot.customerId,
+          customerUuid: this.caseSnapshot.customerUuid,
           pbxCallKey: values.pbxCallKey,
+          phoneFieldName: this.model.phoneFieldName,
           fields
         });
-        const result = classifySubmissionResult(response, this.caseSnapshot.customerId);
+        const result = classifySubmissionResult(response, {
+          customerId: this.caseSnapshot.customerId,
+          customerUuid: this.caseSnapshot.customerUuid
+        });
         if (result.status === 'unknown') {
         } else if (result.status === 'error') {
         }
@@ -1782,6 +1865,8 @@
 
   globalThis.__SIMNET_WB_CALL_TEST_API__ = Object.freeze({
     customerIdOf,
+    customerUuidOf,
+    currentCustomerUuid,
     usersideFormUrl,
     parseNativeCallForm,
     serializeNativeCallForm,

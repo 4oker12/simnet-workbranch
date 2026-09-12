@@ -89,7 +89,9 @@ export function createFetchClient({ allowedHosts = [], timeoutMs = 15000, fetchF
           bytes: new TextEncoder().encode(data).byteLength,
           hasSaveCall: /\/message\/save_call/i.test(data),
           hasStandardComment: /name=["']standart_comment["']/i.test(data),
-          hasCustomerId: /name=["']customer_id["']/i.test(data)
+          hasCustomerId: /name=["']customer_id["']/i.test(data),
+          hasCustomerUuid: /name=["']customer_uuid["']/i.test(data),
+          hasPhoneField: /name=["']dopf_(?:\d+|[0-9a-f-]{36})["']/i.test(data)
         });
       }
       return {

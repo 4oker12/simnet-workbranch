@@ -7,10 +7,16 @@ const factValue = fact => (
 );
 const rawFactValue = fact => String(factValue(fact) ?? '');
 const comparable = value => String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function callCustomerId(raw) {
   const value = String(raw ?? '').trim();
   return /^\d{1,12}$/.test(value) ? value : '';
+}
+
+export function callCustomerUuid(raw) {
+  const value = String(raw ?? '').trim();
+  return UUID_RE.test(value) ? value.toLowerCase() : '';
 }
 
 export function customerIdFromCallUrl(rawUrl, usersideOrigin = 'https://userside.simnet.kiev.ua') {
@@ -21,6 +27,29 @@ export function customerIdFromCallUrl(rawUrl, usersideOrigin = 'https://userside
   } catch {
     return '';
   }
+}
+
+export function customerUuidFromCallPage(rawHtml, rawUrl = '', usersideOrigin = 'https://userside.simnet.kiev.ua') {
+  const candidates = [];
+  try {
+    const url = new URL(String(rawUrl || ''), usersideOrigin);
+    candidates.push(url.searchParams.get('customer_uuid') || '');
+    candidates.push(url.pathname.match(/^\/customer\/([^/]+)(?:\/|$)/i)?.[1] || '');
+  } catch {}
+
+  const html = String(rawHtml || '').replace(/&amp;/gi, '&');
+  const patterns = [
+    /\bname\s*=\s*["']customer_uuid["'][^>]*\bvalue\s*=\s*["']([^"']+)["']/i,
+    /\bvalue\s*=\s*["']([^"']+)["'][^>]*\bname\s*=\s*["']customer_uuid["']/i,
+    /[?&]customer_uuid=([0-9a-f-]{36})/i,
+    /\/customer\/([0-9a-f-]{36})(?:\/|[?"'])/i
+  ];
+  for (const pattern of patterns) candidates.push(html.match(pattern)?.[1] || '');
+  for (const candidate of candidates) {
+    const uuid = callCustomerUuid(candidate);
+    if (uuid) return uuid;
+  }
+  return '';
 }
 
 export function unwrapCallSearchHtml(raw) {
@@ -72,7 +101,8 @@ export function exactCustomerIdFromSearch(raw, caseData = {}) {
 
 export function callRegistrationParams(payload = {}) {
   const customerId = callCustomerId(payload.customerId);
-  if (!customerId) throw new Error('Некорректный customerId');
+  const customerUuid = callCustomerUuid(payload.customerUuid);
+  if (!customerId && !customerUuid) throw new Error('Некорректный идентификатор абонента');
   if (!Array.isArray(payload.fields) || !payload.fields.length || payload.fields.length > 32) {
     throw new Error('Некорректный набор полей формы');
   }
@@ -82,7 +112,7 @@ export function callRegistrationParams(payload = {}) {
   for (const field of payload.fields) {
     const name = String(field?.name || '');
     const value = String(field?.value ?? '');
-    if (!/^[a-z_][a-z0-9_]*(?:\[\])?$/i.test(name) || name.length > 64) {
+    if (!/^[a-z_][a-z0-9_-]*(?:\[\])?$/i.test(name) || name.length > 80) {
       throw new Error('UserSide вернул неизвестное имя поля');
     }
     totalLength += name.length + value.length;
@@ -91,14 +121,28 @@ export function callRegistrationParams(payload = {}) {
   }
 
   params.delete('customer_id');
-  params.set('customer_id', customerId);
+  params.delete('customer_uuid');
+  if (customerUuid) params.set('customer_uuid', customerUuid);
+  else params.set('customer_id', customerId);
   const csrf = String(params.get('_csrf') || '');
-  const phone = String(params.get('dopf_13') || '').trim();
+  const additionalFields = params.getAll('additional_fields[]').map(String);
+  const requestedPhoneField = String(payload.phoneFieldName || '');
+  const phoneCandidates = Array.from(params.keys()).filter(name => /^dopf_(?:\d+|[0-9a-f-]{36})$/i.test(name));
+  const phoneFieldName = phoneCandidates.includes(requestedPhoneField)
+    ? requestedPhoneField
+    : phoneCandidates.find(name => additionalFields.includes(name.slice('dopf_'.length)))
+      || (phoneCandidates.length === 1 ? phoneCandidates[0] : '');
+  const phone = String(phoneFieldName ? params.get(phoneFieldName) || '' : '').trim();
   const standardComment = String(params.get('standart_comment') || '');
+  const comment = String(params.get('comment') || '').trim();
   if (!csrf || csrf.length > 512) throw new Error('В форме отсутствует актуальный _csrf');
   if (!phone || phone.length > 35) throw new Error('Укажите корректный телефон');
-  if (!/^\d+$/.test(standardComment)) throw new Error('Некорректный типовой комментарий');
-  if (!params.getAll('additional_fields[]').includes('13')) {
+  if (standardComment && !/^\d+$/.test(standardComment) && !callCustomerUuid(standardComment)) {
+    throw new Error('Некорректный типовой комментарий');
+  }
+  if (!standardComment && !comment) throw new Error('Укажите типовой или собственный комментарий');
+  const phoneAdditionalField = phoneFieldName.slice('dopf_'.length);
+  if (!phoneFieldName || !additionalFields.includes(phoneAdditionalField)) {
     throw new Error('В форме отсутствует служебное поле телефона');
   }
   return params;

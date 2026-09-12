@@ -3,37 +3,39 @@
 const USERSIDE_ORIGIN = 'https://userside.simnet.kiev.ua';
 const CALL_LIST_PATH = '/message/call_list';
 
+export function kyivCalendarDate(value = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Kyiv',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  }).formatToParts(value);
+  const byType = Object.fromEntries(parts
+    .filter(part => part.type !== 'literal')
+    .map(part => [part.type, part.value]));
+  return `${byType.day}.${byType.month}.${byType.year}`;
+}
+
 /**
- * Keep CALL authoritative refresh on the native UserSide URL.
- *
- * We previously injected an employee_ipphone_number filter here. That filter was
- * inferred, not confirmed by UserSide, and could make the server return a page
- * without the active 6047 row. The parser already filters rows to extension 6047
- * locally, so correctness must win here.
- *
- * Page 1 is sufficient for the current/most recent call and avoids walking old
- * history. Existing query parameters are preserved.
+ * Build the proven native UserSide filter used by the operator UI: only today's
+ * calls in Europe/Kyiv and only the current internal extension. This keeps the
+ * authoritative refresh, but avoids downloading/parsing the unfiltered history.
  */
-export function optimizedCallListUrl(rawUrl) {
+export function optimizedCallListUrl(rawUrl, {
+  operatorExtension = '6047',
+  now = new Date()
+} = {}) {
   let url;
   try { url = new URL(String(rawUrl || '')); } catch { return String(rawUrl || ''); }
   if (url.origin !== USERSIDE_ORIGIN || url.pathname !== CALL_LIST_PATH) return url.href;
-  if (!url.searchParams.has('page')) url.searchParams.set('page', '1');
+  const extension = String(operatorExtension || '').replace(/\D+/g, '').slice(0, 6);
+  const date = kyivCalendarDate(now);
+  url.searchParams.set('period0_date1', date);
+  url.searchParams.set('period0_date2', date);
+  url.searchParams.set('filter_selector0', 'period');
+  url.searchParams.set('filter_selector1', 'employee_ipphone_number');
+  if (extension) url.searchParams.set('employee_ipphone_number1_value', extension);
+  else url.searchParams.delete('employee_ipphone_number1_value');
+  url.searchParams.delete('page');
   return url.href;
-}
-
-const nativeFetch = globalThis.fetch?.bind(globalThis);
-if (nativeFetch && !globalThis.__SIMNET_WB_CALL_LIST_FETCH_OPTIMIZED__) {
-  globalThis.__SIMNET_WB_CALL_LIST_FETCH_OPTIMIZED__ = true;
-  globalThis.fetch = function simnetCallListFirstPageFetch(input, init) {
-    try {
-      const originalUrl = input instanceof Request ? input.url : String(input || '');
-      const nextUrl = optimizedCallListUrl(originalUrl);
-      if (!nextUrl || nextUrl === originalUrl) return nativeFetch(input, init);
-      if (input instanceof Request) return nativeFetch(new Request(nextUrl, input), init);
-      return nativeFetch(nextUrl, init);
-    } catch {
-      return nativeFetch(input, init);
-    }
-  };
 }

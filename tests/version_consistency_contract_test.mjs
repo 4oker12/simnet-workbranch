@@ -7,7 +7,7 @@ const background = fs.readFileSync(new URL('../src/background.js', import.meta.u
 const version = manifest.version;
 
 assert.ok(version);
-assert.match(namespace, new RegExp(`version:\\s*['\"]${version.replaceAll('.', '\\.')}`));
-assert.match(namespace, new RegExp(`existing\\?\\.version === ['\"]${version.replaceAll('.', '\\.')}`));
+assert.match(namespace, /chrome\.runtime\.getManifest\(\)\.version/);
+assert.match(namespace, /existing\?\.version === RUNTIME_VERSION/);
 assert.match(background, new RegExp(`const VERSION = ['\"]${version.replaceAll('.', '\\.')}`));
 console.log('version_consistency_contract_test: PASS', version);

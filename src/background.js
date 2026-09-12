@@ -49,7 +49,14 @@ import { createStateRepository } from './infrastructure/state-repository.js';
 import { createFeatureLoader } from './infrastructure/feature-loader.js';
 import { createFetchClient } from './infrastructure/fetch-client.js';
 import { callIpv4, pbxRecordId, pbxCallKey, normalizedPhone, maskedPhone, normalizedContract, pbxCallIdentitySignature, pbxCallMatch } from './features/call/pbx-match.js';
-import { callCustomerId, customerIdFromCallUrl, exactCustomerIdFromSearch, callRegistrationParams } from './features/call/registration-rules.js';
+import {
+  callCustomerId,
+  callCustomerUuid,
+  customerIdFromCallUrl,
+  customerUuidFromCallPage,
+  exactCustomerIdFromSearch,
+  callRegistrationParams
+} from './features/call/registration-rules.js';
 import {
   appendVisit,
   pruneTimeline,
@@ -64,9 +71,10 @@ import { AI_CONFIG } from './config/ai-config.js';
 import { buildAiContext } from './ai/context-builder.js';
 import { aiDialogSessionKey, normalizeDialogMemory, normalizeAiSession, aiRecentHistory, mergeDialogMemory, deriveOperatorDialogMemory } from './ai/dialog-session.js';
 import { queryCrmIndex, crmSearchPrompt, crmSearchIsPrimary, CRM_SEARCH_INDEX_REVISION } from './ai/crm-search-index.js';
+import { optimizedCallListUrl } from './features/call/background/call-list-fetch-optimizer.js';
 
 
-const VERSION = '1.7.36.108';
+const VERSION = '1.7.36.155';
 const POLL_STALE_TIMEOUT_MS = 30000;
 const POLL_LATE_RESPONSE_MAX_AGE_MS = 180000;
 const RECOVERABLE_POLL_TIMEOUT_REASONS = new Set([
@@ -3870,7 +3878,10 @@ async function refreshCallsFromUsersideCallList() {
   const startedAt = nowMs();
   try {
     const response = await fetchCallRegistrationResponse(
-      new URL(CALL_LIST_PATH, USERSIDE_ORIGIN).href
+      optimizedCallListUrl(new URL(CALL_LIST_PATH, USERSIDE_ORIGIN).href, {
+        operatorExtension: PBX_OPERATOR_EXTENSION,
+        now: new Date(nowMs())
+      })
     );
     if (!response?.ok) {
       return {
@@ -5146,19 +5157,58 @@ async function loadCallRegistrationForm(payload = {}, sender = {}) {
   if (!callState.config.enabled || !callModule.status().enabled) {
     throw new Error('CALL module is disabled');
   }
+  const directCustomerUuid = callCustomerUuid(payload.customerUuid);
+  const { caseId, caseData } = callCaseFromState(state, payload, sender);
+  const knownCustomerUuid = callCustomerUuid(rawFactValue(caseData.identity?.customerUuid));
+  if (directCustomerUuid && knownCustomerUuid && directCustomerUuid !== knownCustomerUuid) {
+    throw new Error('Запрошенный Customer UUID не относится к текущему кейсу');
+  }
+
   const resolved = await resolveCallCustomer(payload, sender);
   const customerId = resolved.customerId;
+  let customerUuid = directCustomerUuid || knownCustomerUuid;
+  const telemetry = [...resolved.telemetry];
+
+  if (!customerUuid) {
+    const customerPage = await fetchCallRegistrationResponse(
+      `${USERSIDE_ORIGIN}/customer/${encodeURIComponent(customerId)}`
+    );
+    telemetry.push({
+      label: 'call-resolve-customer-uuid',
+      durationMs: Number(customerPage.durationMs || 0),
+      bytes: Number(customerPage.responseBytes || 0),
+      ok: Boolean(customerPage.ok)
+    });
+    if (customerPage.ok) {
+      customerUuid = customerUuidFromCallPage(customerPage.data, customerPage.url);
+    }
+    if (customerUuid) {
+      await enqueue(nextState => {
+        const current = nextState.cases?.[caseId];
+        if (!current) throw new Error('Активный кейс изменился во время поиска UserSide UUID');
+        const existing = callCustomerUuid(rawFactValue(current.identity?.customerUuid));
+        if (existing && existing !== customerUuid) {
+          throw new Error('Найденный UserSide Customer UUID конфликтует с текущим кейсом');
+        }
+        current.identity ||= {};
+        current.identity.customerUuid = makeFact(customerUuid, 'userside:customer-card:call-registration', 0.99);
+        current.updatedAt = nowIso();
+      });
+    }
+  }
 
   const url = new URL(CALL_FORM_PATH, USERSIDE_ORIGIN);
   url.searchParams.set('section', 'call');
-  url.searchParams.set('customer_id', customerId);
+  if (customerUuid) url.searchParams.set('customer_uuid', customerUuid);
+  else url.searchParams.set('customer_id', customerId);
   const response = await fetchCallRegistrationResponse(url.href);
   return {
     ...response,
     customerId,
+    customerUuid,
     resolver: resolved.resolver,
     telemetry: [
-      ...resolved.telemetry,
+      ...telemetry,
       {
         label: 'call-form',
         durationMs: Number(response.durationMs || 0),

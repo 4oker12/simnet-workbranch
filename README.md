@@ -1,3 +1,11 @@
+## 1.7.36.155 — UserSide UUID call registration
+
+- CALL loads the current native UserSide registration form with `customer_uuid`, while preserving numeric `customer_id` compatibility for older responses.
+- Native UUID values for the standard comment and additional phone field are read from the fresh form; CSRF and form field UUIDs are never hardcoded.
+- Opening `Рег. звонок` starts the native form request and authoritative `call_list` refresh in parallel, while the dialog shell appears immediately.
+- Direct `call_list` refresh is server-filtered to the current `Europe/Kyiv` calendar date and operator extension `6047`, avoiding an unfiltered call-history download.
+- UserSide UUID call keys are preserved for both completed calls and the current/live preview.
+
 ## 1.7.36.108 — CALL live routing + safe maintenance
 
 - CALL registration can be opened while the call is still ongoing: the form uses the current LIVE candidate/confidence and locks the target only after the operator chooses to continue. Completed calls continue to use immutable frozen snapshots.

@@ -3,6 +3,7 @@
 import { parseUsersideCallListHtml } from '../userside-call-list-bridge.js';
 
 export const USERSIDE_CALL_LIST_PATH = '/message/call_list';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // UserSide renders DATEADD only to the minute on call_list. The real call can
 // start anywhere inside that minute, so start + displayed duration may lag now
@@ -46,7 +47,10 @@ export function latestUnresolvedPreview(rows = [], observedAtMs = Date.now()) {
   if (!latest?.startedAtMs) return null;
   const age = Number(observedAtMs) - Number(latest.startedAtMs);
   if (age < 0 || age > 90 * 60 * 1000) return null;
-  const usersideCallId = String(latest.usersideCallId || '').replace(/\D+/g, '');
+  const rawCallId = String(latest.usersideCallId || '').trim();
+  const usersideCallId = UUID_RE.test(rawCallId)
+    ? rawCallId.toLowerCase()
+    : rawCallId.replace(/\D+/g, '');
   return {
     ...latest,
     usersideCallId,
