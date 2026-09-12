@@ -24,7 +24,7 @@ function interpret(text, context = {}) {
 
 test('presentation API is available globally after contextual policy layer', () => {
   assert.equal(typeof api.presentItem, 'function');
-  assert.equal(api.contextualPolicyVersion, 4);
+  assert.equal(api.contextualPolicyVersion, 5);
   assert.equal(api.safetyNetVersion, 3);
 });
 
@@ -111,6 +111,17 @@ test('full PON boxes become an infrastructure risk', () => {
 test('real access condition survives evidence filter', () => {
   const items = interpret('ЖЭК до 17:00. Ключи находятся в ЖЭК.');
   assert.equal(items.some(item => item.type === 'access_window' || item.type === 'access_coordination'), true);
+});
+
+test('domophone service-only note is not treated as access or keys', () => {
+  const items = interpret('По этой очереди домофоны не подключаем.');
+  assert.equal(items.some(item => item.type === 'access_coordination' || item.type === 'access_window'), false);
+});
+
+test('domophone restriction is a service fact when domophone task is being created', () => {
+  const items = interpret('По этой очереди домофоны не подключаем.', { taskTypeLabel: 'Домофон' });
+  assert.equal(items.some(item => item.type === 'access_coordination' || item.type === 'access_window'), false);
+  assert.equal(items.some(item => item.type === 'service_restriction'), true);
 });
 
 test('commercial condition is marked as secondary presentation', () => {
