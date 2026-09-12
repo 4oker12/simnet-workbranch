@@ -14,6 +14,7 @@
   const START_MATCH_TOLERANCE_MS = 90_000;
   const FRESH_BLANK_ROW_MS = 90_000;
   const LIVE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+  const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 
   let tableObserver = null;
   let discoveryObserver = null;
@@ -33,11 +34,7 @@
     if (String(value.agentExtension || '') !== OPERATOR_EXTENSION) return null;
     const observedAtMs = Math.max(0, Number(value.observedAtMs || 0));
     if (!observedAtMs || Date.now() - observedAtMs > 15_000) return null;
-    return {
-      active: value.active === true,
-      talkStartMs: Math.max(0, Number(value.talkStartMs || 0)),
-      observedAtMs
-    };
+    return { active: value.active === true, talkStartMs: Math.max(0, Number(value.talkStartMs || 0)), observedAtMs };
   }
 
   function parseDurationSeconds(value = '') {
@@ -60,16 +57,24 @@
     return Number.isFinite(ms) ? ms : 0;
   }
 
+  function normalizeCallId(value = '') {
+    const raw = String(value || '').trim();
+    if (new RegExp(`^${UUID_PATTERN}$`, 'i').test(raw)) return raw.toLowerCase();
+    return /^\d{5,24}$/.test(raw) ? raw : '';
+  }
+
   function callIdFromRow(row) {
     const html = String(row?.innerHTML || '');
-    const attrs = [
-      row?.getAttribute?.('data-call-id'),
-      row?.getAttribute?.('data-message-id'),
-      row?.dataset?.callId,
-      row?.dataset?.messageId
-    ];
-    const attrId = attrs.map(value => digits(value)).find(value => /^\d{5,24}$/.test(value));
+    const attrs = [row?.getAttribute?.('data-call-id'), row?.getAttribute?.('data-message-id'), row?.dataset?.callId, row?.dataset?.messageId];
+    const attrId = attrs.map(normalizeCallId).find(Boolean);
     if (attrId) return attrId;
+
+    const uuid = html.match(new RegExp(`call_comment_add\\?uuid=(${UUID_PATTERN})`, 'i'))?.[1]
+      || html.match(new RegExp(`callCommentAdd(${UUID_PATTERN})Id`, 'i'))?.[1]
+      || html.match(new RegExp(`loadRecordFile\\(\\s*["'](${UUID_PATTERN})["']`, 'i'))?.[1]
+      || html.match(new RegExp(`audioRecordId(${UUID_PATTERN})`, 'i'))?.[1];
+    if (uuid) return uuid.toLowerCase();
+
     return html.match(/\/message\/(\d+)\/call_comment_add/i)?.[1]
       || html.match(/callCommentAdd(\d+)Id/i)?.[1]
       || html.match(/loadRecordFile\(\s*(\d+)\s*,/i)?.[1]
@@ -95,12 +100,7 @@
     const fullName = login
       ? value.replace(new RegExp(`\\s*[-–—]?\\s*${login.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'i'), '').trim()
       : value;
-    return {
-      fullName,
-      fio: fullName,
-      login,
-      contract: login.replace(/^abon/i, '')
-    };
+    return { fullName, fio: fullName, login, contract: login.replace(/^abon/i, '') };
   }
 
   function customerIdFromHref(href = '') {
@@ -110,16 +110,12 @@
       || '';
   }
 
-  function subscriberFromRow(row) {
+  function subscriberFromRow(row, explicitCell = null) {
     const empty = { customerId: '', fullName: '', fio: '', login: '', contract: '', customerCandidates: [] };
     if (!row) return empty;
-
-    let cell = row.querySelector?.('[id$="_CUSTOMER_Id"]') || null;
+    let cell = explicitCell || row.querySelector?.('[id$="_CUSTOMER_Id"]') || null;
     if (!cell) {
-      cell = Array.from(row.querySelectorAll?.('td') || []).find(candidate => (
-        candidate.querySelector?.('a[href*="/customer/"]')
-        || /\babon\d+\b/i.test(text(candidate))
-      )) || null;
+      cell = Array.from(row.querySelectorAll?.('td') || []).find(candidate => candidate.querySelector?.('a[href*="/customer/"]') || /\babon\d+\b/i.test(text(candidate))) || null;
     }
     if (!cell) return empty;
 
@@ -139,57 +135,86 @@
       if (!label.login && !label.fullName) return empty;
       return { customerId: '', ...label, customerCandidates: [] };
     }
+    if (candidates.length !== 1) return { ...empty, customerCandidates: candidates };
+    return { ...candidates[0], customerCandidates: candidates };
+  }
 
-    const ids = new Set(candidates.map(item => item.customerId).filter(Boolean));
-    const logins = new Set(candidates.map(item => item.login.toLowerCase()).filter(Boolean));
-    const unambiguous = candidates.length === 1 || ids.size === 1 || (ids.size <= 1 && logins.size === 1);
-    if (!unambiguous) return { ...empty, customerCandidates: candidates };
-
-    const primary = candidates.find(item => item.customerId) || candidates[0];
-    return { ...primary, customerCandidates: candidates };
+  function erpRowParts(row) {
+    if (!row?.classList?.contains('erp-table__row')) return null;
+    const cells = Array.from(row.children || []).filter(node => node?.tagName === 'TD');
+    if (cells.length < 9) return null;
+    const leftNumber = digits(text(cells[4]));
+    const rightNumber = digits(text(cells[6]));
+    let agentExtension = '';
+    let phone = '';
+    if (leftNumber === OPERATOR_EXTENSION) {
+      agentExtension = OPERATOR_EXTENSION;
+      phone = normalizePhone(text(cells[6]));
+    } else if (rightNumber === OPERATOR_EXTENSION) {
+      agentExtension = OPERATOR_EXTENSION;
+      phone = normalizePhone(text(cells[4]));
+    }
+    return { cells, direction: text(cells[1]).toUpperCase(), dateCell: cells[2], customerCell: cells[5], operCell: cells[7], durationCell: cells[8], agentExtension, phone };
   }
 
   function rowData(row) {
     if (!row) return null;
-    const answerCell = row.querySelector?.('[id$="_ANSWERPHONE_Id"]');
-    const agentExtension = digits(text(answerCell));
-    if (agentExtension !== OPERATOR_EXTENSION) return null;
+    const erp = erpRowParts(row);
+    let agentExtension = '';
+    let dateText = '';
+    let duration = '';
+    let phone = '';
+    let direction = '';
+    let subscriber = null;
+    let oper = '';
+    let employeeId = '';
 
-    const dateText = text(row.querySelector('[id$="_DATEADD_Id"]'));
+    if (erp) {
+      agentExtension = erp.agentExtension;
+      dateText = text(erp.dateCell);
+      duration = text(erp.durationCell);
+      phone = erp.phone;
+      direction = erp.direction;
+      subscriber = subscriberFromRow(row, erp.customerCell);
+      oper = text(erp.operCell);
+      employeeId = String(erp.operCell?.querySelector?.('a[href*="/employee/"]')?.getAttribute?.('href') || '').match(/\/employee\/(\d+)/i)?.[1] || '';
+    } else {
+      const answerCell = row.querySelector?.('[id$="_ANSWERPHONE_Id"]');
+      agentExtension = digits(text(answerCell));
+      dateText = text(row.querySelector('[id$="_DATEADD_Id"]'));
+      duration = text(row.querySelector('[id$="_callIntervalInt_Id"]'));
+      phone = normalizePhone(text(row.querySelector('[id$="_PHONE_Id"]')));
+      direction = text(row.querySelector('[id$="_direction_Id"]'));
+      subscriber = subscriberFromRow(row);
+      const operCell = row.querySelector('[id$="_OPER_Id"]');
+      oper = text(operCell);
+      employeeId = String(operCell?.querySelector?.('a[href*="/employee/"]')?.getAttribute?.('href') || '').match(/\/employee\/(\d+)/i)?.[1] || '';
+    }
+
+    if (agentExtension !== OPERATOR_EXTENSION) return null;
     const startedAtMs = parseStartedAt(dateText);
     if (!startedAtMs) return null;
     const age = Date.now() - startedAtMs;
     if (age < -120_000 || age > LIVE_MAX_AGE_MS) return null;
-
     const dateMatch = dateText.match(/^(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})/);
-    const duration = text(row.querySelector('[id$="_callIntervalInt_Id"]'));
-    const phone = normalizePhone(text(row.querySelector('[id$="_PHONE_Id"]')));
     const usersideCallId = callIdFromRow(row);
 
     return {
-      source: 'userside:call_list:live-dom',
-      usersideCallId,
-      callKey: usersideCallId ? `call:${usersideCallId}` : '',
-      recordId: recordIdFromRow(row),
-      callerId: phone,
-      callerMasked: phone,
-      date: dateMatch ? `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}` : '',
-      time: dateMatch ? `${dateMatch[4]}:${dateMatch[5]}` : '',
-      startedAtMs,
-      duration,
-      durationSeconds: parseDurationSeconds(duration),
-      agentExtension: OPERATOR_EXTENSION,
-      direction: text(row.querySelector('[id$="_direction_Id"]')),
-      ...subscriberFromRow(row)
+      source: 'userside:call_list:live-dom', usersideCallId, callKey: usersideCallId ? `call:${usersideCallId}` : '',
+      recordId: recordIdFromRow(row), callerId: phone, callerMasked: phone,
+      date: dateMatch ? `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}` : '', time: dateMatch ? `${dateMatch[4]}:${dateMatch[5]}` : '',
+      startedAtMs, duration, durationSeconds: parseDurationSeconds(duration), agentExtension: OPERATOR_EXTENSION,
+      agent: [OPERATOR_EXTENSION, oper].filter(Boolean).join(' '), oper, employeeId, direction,
+      ...(subscriber || subscriberFromRow(row))
     };
   }
 
   function findTableBody() {
-    const answerCell = document.querySelector('[id$="_ANSWERPHONE_Id"]');
-    const bodyFromCell = answerCell?.closest?.('tbody');
+    const erpBody = document.querySelector('tr.erp-table__row')?.closest?.('tbody');
+    if (erpBody) return erpBody;
+    const bodyFromCell = document.querySelector('[id$="_ANSWERPHONE_Id"]')?.closest?.('tbody');
     if (bodyFromCell) return bodyFromCell;
-    const row = document.querySelector('tr.table_item');
-    return row?.closest?.('tbody') || null;
+    return document.querySelector('tr.table_item')?.closest?.('tbody') || null;
   }
 
   function latestOwnRow() {
@@ -199,9 +224,8 @@
     const limit = Math.min(rows.length, MAX_ROWS_TO_SCAN);
     for (let index = 0; index < limit; index += 1) {
       const row = rows[index];
-      if (!row?.classList?.contains('table_item')) continue;
-      const answer = digits(text(row.querySelector?.('[id$="_ANSWERPHONE_Id"]')));
-      if (answer === OPERATOR_EXTENSION) return row;
+      if (!row?.classList?.contains('erp-table__row') && !row?.classList?.contains('table_item')) continue;
+      if (rowData(row)) return row;
     }
     return null;
   }
@@ -216,25 +240,16 @@
     if (!call?.startedAtMs) return false;
     const now = Date.now();
     if (nativeMatches(call)) return true;
-    if (call.durationSeconds > 0) {
-      const displayedEndMs = Number(call.startedAtMs) + Number(call.durationSeconds) * 1000;
-      return Math.abs(now - displayedEndMs) <= LIVE_CLOCK_TOLERANCE_MS;
-    }
+    if (call.durationSeconds > 0) return Math.abs(now - (Number(call.startedAtMs) + Number(call.durationSeconds) * 1000)) <= LIVE_CLOCK_TOLERANCE_MS;
     return now - Number(call.startedAtMs) <= FRESH_BLANK_ROW_MS;
   }
 
+  function candidatesSignature(call) {
+    return (Array.isArray(call?.customerCandidates) ? call.customerCandidates : []).map(item => [item?.customerId || '', item?.login || '', item?.fio || item?.fullName || ''].join('/')).join(',');
+  }
+
   function observationSignature(call, status) {
-    return [
-      status,
-      call?.usersideCallId || '',
-      call?.startedAtMs || 0,
-      call?.callerId || '',
-      call?.customerId || '',
-      call?.login || '',
-      call?.fio || '',
-      status === 'completed' ? Number(call?.durationSeconds || 0) : 0,
-      call?.recordId || ''
-    ].join(':');
+    return [status, call?.usersideCallId || '', call?.startedAtMs || 0, call?.callerId || '', call?.customerId || '', call?.login || '', call?.fio || '', candidatesSignature(call), status === 'completed' ? Number(call?.durationSeconds || 0) : 0, call?.recordId || ''].join(':');
   }
 
   function sendObservation(call, status) {
@@ -242,34 +257,18 @@
     const signature = observationSignature(call, status);
     if (signature === lastObservationSignature) return;
     lastObservationSignature = signature;
-    const payload = {
-      call: {
-        ...call,
-        status,
-        ongoing: status === 'ongoing',
-        bindable: Boolean(call.usersideCallId)
-      }
-    };
     try {
-      chrome.runtime.sendMessage({ type: MESSAGE_TYPE, payload }, () => void chrome.runtime.lastError);
+      chrome.runtime.sendMessage({ type: MESSAGE_TYPE, payload: { call: { ...call, status, ongoing: status === 'ongoing', bindable: Boolean(call.usersideCallId) } } }, () => void chrome.runtime.lastError);
     } catch {}
   }
 
   function buildState() {
     const raw = rowData(latestOwnRow());
     const live = raw && rowLooksLive(raw) ? raw : null;
-
     if (live) {
       lastLiveStartMs = Number(live.startedAtMs || 0);
       sendObservation(live, 'ongoing');
-      return {
-        schema: 'simnet-wb-call-list-live-v1',
-        active: true,
-        agentExtension: OPERATOR_EXTENSION,
-        observedAtMs: Date.now(),
-        source: 'userside-call-list-dom',
-        call: { ...live, status: 'ongoing', ongoing: true, snapshotStatus: 'live' }
-      };
+      return { schema: 'simnet-wb-call-list-live-v1', active: true, agentExtension: OPERATOR_EXTENSION, observedAtMs: Date.now(), source: 'userside-call-list-dom', call: { ...live, status: 'ongoing', ongoing: true, snapshotStatus: 'live' } };
     }
 
     let completedCall = null;
@@ -278,28 +277,11 @@
       sendObservation(completedCall, 'completed');
       lastLiveStartMs = 0;
     }
-
-    return {
-      schema: 'simnet-wb-call-list-live-v1',
-      active: false,
-      agentExtension: OPERATOR_EXTENSION,
-      observedAtMs: Date.now(),
-      source: 'userside-call-list-dom',
-      call: completedCall
-    };
+    return { schema: 'simnet-wb-call-list-live-v1', active: false, agentExtension: OPERATOR_EXTENSION, observedAtMs: Date.now(), source: 'userside-call-list-dom', call: completedCall };
   }
 
   function stateSignature(state) {
-    return [
-      state.active ? 1 : 0,
-      state.call?.startedAtMs || 0,
-      state.call?.usersideCallId || '',
-      state.call?.callerId || '',
-      state.call?.customerId || '',
-      state.call?.login || '',
-      state.call?.fio || '',
-      state.call?.status || ''
-    ].join(':');
+    return [state.active ? 1 : 0, state.call?.startedAtMs || 0, state.call?.usersideCallId || '', state.call?.callerId || '', state.call?.customerId || '', state.call?.login || '', state.call?.fio || '', candidatesSignature(state.call), state.call?.status || ''].join(':');
   }
 
   function publish(force = false) {
@@ -335,9 +317,7 @@
 
   function startDiscovery() {
     if (attachTableObserver() || discoveryObserver) return;
-    discoveryObserver = new MutationObserver(() => {
-      if (attachTableObserver()) return;
-    });
+    discoveryObserver = new MutationObserver(() => { attachTableObserver(); });
     discoveryObserver.observe(document.documentElement, { subtree: true, childList: true });
   }
 
