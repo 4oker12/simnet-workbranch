@@ -7,7 +7,10 @@
 
   const STORAGE_KEY = 'simnet_call_live_call_list_6047_v1';
   const OPERATOR_EXTENSION = '6047';
-  const LIVE_TOLERANCE_MS = 20_000;
+  // call_list shows DATEADD only to the minute, so a genuinely live row can be
+  // almost one minute behind the wall clock when start + displayed duration is
+  // reconstructed. Twenty seconds was too strict and dropped real active calls.
+  const LIVE_TOLERANCE_MS = 75_000;
   const LIVE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
   const WRITE_BUCKET_MS = 4_000;
 
