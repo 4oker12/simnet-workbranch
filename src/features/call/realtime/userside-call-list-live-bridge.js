@@ -54,6 +54,26 @@
     return raw.length >= 6 && raw.length <= 15 ? raw : '';
   }
 
+  function subscriberFromRow(row) {
+    const cell = row?.querySelector?.('[id$="_CUSTOMER_Id"]');
+    if (!cell) return { customerId: '', fullName: '', login: '', contract: '' };
+    const links = Array.from(cell.querySelectorAll('a[href*="/customer/"]'));
+    if (links.length !== 1) return { customerId: '', fullName: '', login: '', contract: '' };
+    const link = links[0];
+    const customerId = String(link.getAttribute('href') || '').match(/\/customer\/(\d+)/i)?.[1] || '';
+    const raw = text(link);
+    const login = raw.match(/\babon\d+\b/i)?.[0] || '';
+    const fullName = login
+      ? raw.replace(new RegExp(`\\s*[-–—]?\\s*${login.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'i'), '').trim()
+      : raw;
+    return {
+      customerId,
+      fullName,
+      login,
+      contract: login.replace(/^abon/i, '')
+    };
+  }
+
   function rowCall(row, now = Date.now()) {
     const answerCell = row?.querySelector?.('[id$="_ANSWERPHONE_Id"]');
     if (!answerCell) return null;
@@ -71,6 +91,7 @@
     const usersideCallId = callIdFromRow(row);
     const phone = normalizePhone(text(row.querySelector('[id$="_PHONE_Id"]')));
     const direction = text(row.querySelector('[id$="_direction_Id"]'));
+    const subscriber = subscriberFromRow(row);
     const dateNodeText = text(row.querySelector('[id$="_DATEADD_Id"]'));
     const dateMatch = dateNodeText.match(/^(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})/);
     const date = dateMatch ? `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}` : '';
@@ -89,6 +110,7 @@
       durationSeconds,
       agentExtension: OPERATOR_EXTENSION,
       direction,
+      ...subscriber,
       status: 'ongoing',
       ongoing: true,
       bindable: Boolean(usersideCallId),
@@ -125,7 +147,13 @@
     const state = buildState();
     lastState = state;
     const bucket = Math.floor(state.observedAtMs / WRITE_BUCKET_MS);
-    const signature = [state.active ? 1 : 0, state.call?.startedAtMs || 0, state.call?.usersideCallId || '', bucket].join(':');
+    const signature = [
+      state.active ? 1 : 0,
+      state.call?.startedAtMs || 0,
+      state.call?.usersideCallId || '',
+      state.call?.customerId || '',
+      bucket
+    ].join(':');
     if (!force && signature === lastSignature) return state;
     lastSignature = signature;
     try { chrome.storage.local.set({ [STORAGE_KEY]: state }); } catch {}
