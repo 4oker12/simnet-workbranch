@@ -52,9 +52,7 @@
       #${MODAL_ID} .wb-sp-summary{display:block!important;font-size:15px!important;line-height:1.28!important;font-weight:750!important;color:#102c3b!important}
       #${MODAL_ID} .wb-sp-severity{display:none!important}
       #${MODAL_ID} .wb-sp-item[data-severity="blocker"] .wb-sp-severity,#${MODAL_ID} .wb-sp-item[data-severity="review"] .wb-sp-severity{display:block!important;margin-top:4px!important;color:#a50046!important;font-size:9px!important}
-      #${MODAL_ID} .wb-sp-impact{display:none!important}
-      #${MODAL_ID} .wb-sp-action{margin-top:6px!important;padding:0!important;background:transparent!important;border:0!important;color:#263f4d!important;font-size:12px!important;line-height:1.35!important}
-      #${MODAL_ID} .wb-sp-action strong{color:#102c3b!important}
+      #${MODAL_ID} .wb-sp-impact,#${MODAL_ID} .wb-sp-action{display:none!important}
       #${MODAL_ID} .wb-sp-review{margin-top:6px!important;color:#667984!important}
       #${MODAL_ID} .wb-sp-review>summary{cursor:pointer!important;font-size:10px!important;font-weight:600!important;color:#71838d!important}
       #${MODAL_ID} .wb-sp-evidence{margin-top:5px!important;padding:6px 8px!important;border:0!important;border-radius:4px!important;background:#f7f9fa!important;color:#566a75!important;font-size:11px!important;line-height:1.38!important}
@@ -63,7 +61,7 @@
       #${MODAL_ID} .wb-sp-item[data-wb-secondary="1"] .wb-sp-summary{font-size:12px!important;font-weight:400!important;color:#5f717b!important}
       #${MODAL_ID} .wb-sp-item[data-wb-secondary="1"] .wb-sp-summary:before{content:'Стоимость: ';font-weight:800;color:#344f5d}
       #${MODAL_ID} .wb-sp-item[data-wb-secondary="1"] .wb-sp-summary strong{font-weight:800!important;color:#2f4b59!important}
-      #${MODAL_ID} .wb-sp-item[data-wb-secondary="1"] .wb-sp-action,#${MODAL_ID} .wb-sp-item[data-wb-secondary="1"] .wb-sp-severity{display:none!important}
+      #${MODAL_ID} .wb-sp-item[data-wb-secondary="1"] .wb-sp-severity{display:none!important}
       #${MODAL_ID} .wb-sp-item[data-wb-secondary="1"] .wb-sp-review>summary{font-size:9px!important}
       #${MODAL_ID} .wb-sp-check{padding:9px 15px!important;color:#253b47!important}
       #${MODAL_ID} .wb-sp-check label{font-weight:600!important;font-size:11px!important}
@@ -73,24 +71,6 @@
       #${MODAL_ID} .wb-sp-confirm:not([disabled]):hover{background:#155f8a!important}
     `;
     (document.head || document.documentElement).appendChild(style);
-  }
-
-  function conciseAction(tag, summary, current) {
-    const source = `${summary} ${current}`;
-    const until = source.match(/до\s*(\d{1,2}:\d{2})/iu);
-    if (tag === 'ДОСТУП / ВРЕМЯ' && until) return `Выезд — до ${until[1]}.`;
-    if (tag === 'ДОСТУП / ВРЕМЯ') return 'Учесть допустимое время выезда.';
-    if (tag === 'ДОСТУП') return 'Передать бригаде подтверждённые данные доступа.';
-    if (tag === 'ТЕХНОЛОГИЯ') return 'Сверить технологию заявки.';
-    if (tag === 'СКОРОСТЬ') return 'Сверить тариф и обещанную скорость.';
-    if (tag === 'ПОДКЛЮЧЕНИЕ') return 'Не обещать подключение до проверки возможности.';
-    if (tag === 'РЕСУРС') return 'Проверить доступный ресурс до назначения.';
-    if (tag === 'ПОДЪЕЗД / СЕКЦИЯ') return 'Сверить подъезд / секцию заявки.';
-    if (tag === 'ВРЕМЯ НА РАБОТЫ') return 'Учесть длительность при назначении.';
-    if (tag === 'УСЛУГА') return 'Сверить доступность услуги.';
-    if (tag === 'ОСОБОЕ ДЕЙСТВИЕ') return 'Передать требование исполнителю.';
-    if (tag === 'ПРОВЕРИТЬ') return 'Проверить исходную заметку до сохранения.';
-    return compact(current, 180) || 'Учесть условие при оформлении заявки.';
   }
 
   function cleanEvidence(value) {
@@ -127,18 +107,8 @@
       emphasizePrices(summaryNode);
     }
 
-    const action = node.querySelector('.wb-sp-action');
-    if (action) {
-      if (secondary) {
-        action.remove();
-      } else {
-        const current = compact(action.textContent.replace(/^Что сделать:\s*/iu, ''), 240);
-        action.textContent = '';
-        const label = document.createElement('strong');
-        label.textContent = 'Действие: ';
-        action.append(label, document.createTextNode(conciseAction(tag, summary, current)));
-      }
-    }
+    node.querySelector('.wb-sp-action')?.remove();
+    node.querySelector('.wb-sp-impact')?.remove();
 
     const details = node.querySelector('.wb-sp-review');
     const evidenceNode = node.querySelector('.wb-sp-evidence');
