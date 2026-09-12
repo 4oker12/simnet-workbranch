@@ -6,7 +6,7 @@
   WB.__taskSpecialPolicyV3SafetyNetLoaded = true;
 
   const basePolicy = WB.taskSpecialPolicyV3;
-  const VERSION = 1;
+  const VERSION = 2;
 
   const compact = (value, max = 6000) => {
     const text = String(value == null ? '' : value).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
@@ -20,16 +20,47 @@
     .replace(/[^a-zа-я0-9/+]+/giu, ' ')
     .trim();
 
-  const ACCESS_SIGNAL_RE = /(?:ключ|ключі|доступ|пропуск|диспетчер|консьерж|консерж|охран|охорон|жек|жэк|жед|керуюч|управляющ|осбб|подвал|підвал|чердак|горищ|крыша|дах|тамбур|щитк|тех\.?этаж|техповерх|домофон|код\s+(?:двер|замк)|замок)/iu;
+  const ACCESS_SIGNAL_RE = /(?:ключ|ключі|доступ|пропуск|диспетчер|консьерж|консерж|охран|охорон|жек|жэк|жед|керуюч|управляющ|осбб|подвал|підвал|чердак|горищ|крыша|дах|тамбур|щитк|тех\.?этаж|техповерх|код\s+(?:двер|замк)|замок)/iu;
+  const DOMOPHONE_ACCESS_RE = /(?:домофон[^.!?]{0,35}(?:ключ|код|доступ|двер|откры|відкр)|(?:ключ|код|доступ|двер|откры|відкр)[^.!?]{0,35}домофон)/iu;
   const MANDATORY_SIGNAL_RE = /(?:обязательн\w*|обов.?язков\w*|треба|потрібно|необходимо|необхідно|нужно|надо|запрещ\w*|заборон\w*|не\s+трогат\w*|не\s+чіпат\w*|только|лише|тільки)/iu;
   const TIME_SIGNAL_RE = /(?:до|после|після|с|з)\s*\d{1,2}(?:[:.\-]\d{2})?/iu;
+  const COMMERCIAL_SIGNAL_RE = /(?:\b\d{2,5}\s*(?:грн|₴)\b|стоимост|вартіст|цена|ціна|оплат|депозит|залог|застав|тариф|акци|кабель[^.!?]{0,20}(?:грн|₴|\/м)|аудиотрубк|аудіотрубк|видеодомофон|відеодомофон)/iu;
+  const HARD_RISK_RE = /(?:не\s+подключ|не\s+підключ|нет\s+(?:возможност|можливост)|нема\s+(?:можливост|возможност)|запрещ|заборон|нет\s+свободн|нема\s+вільн|все\s+порт.*занят|всі\s+порт.*зайнят)/iu;
+
+  function hasAccessMeaning(raw) {
+    return ACCESS_SIGNAL_RE.test(raw) || DOMOPHONE_ACCESS_RE.test(raw);
+  }
+
+  function commercialItem(row) {
+    const raw = compact(row?.text, 6000);
+    if (!raw || !COMMERCIAL_SIGNAL_RE.test(raw) || HARD_RISK_RE.test(raw)) return null;
+    return {
+      type: 'commercial_condition',
+      severity: 'info',
+      summary: compact(raw, 220),
+      evidence: raw,
+      scope: { level: 'commercial', wholeBuilding: true, entrances: [] },
+      certainty: 'explicit',
+      conditional: false,
+      temporalScope: 'current_or_unspecified',
+      needsReview: false,
+      reviewReasons: [],
+      decisionMode: 'info',
+      priority: 10.2,
+      sourceKeys: [String(row?.key || '')].filter(Boolean)
+    };
+  }
 
   function fallbackItem(row) {
     const raw = compact(row?.text, 6000);
     if (!raw) return null;
-    const access = ACCESS_SIGNAL_RE.test(raw);
+    const access = hasAccessMeaning(raw);
     const mandatory = MANDATORY_SIGNAL_RE.test(raw);
+    const commercial = COMMERCIAL_SIGNAL_RE.test(raw);
     if (!access && !mandatory) return null;
+
+    // Price/service notes are supplementary information, not an access incident.
+    if (commercial && !access && !HARD_RISK_RE.test(raw)) return commercialItem(row);
 
     let summary = 'Есть важное условие — проверь исходную заметку';
     if (/ключ|ключі/iu.test(raw)) summary = 'Доступ — есть важная информация по ключам';
@@ -63,6 +94,17 @@
     });
   }
 
+  function rowHasCommercial(row, items) {
+    const key = String(row?.key || '');
+    const raw = fold(row?.text || '');
+    return items.some(item => {
+      if (item?.type !== 'commercial_condition') return false;
+      if (key && Array.isArray(item?.sourceKeys) && item.sourceKeys.includes(key)) return true;
+      const evidence = fold(item?.evidence || '');
+      return Boolean(raw && evidence && (evidence === raw || evidence.includes(raw) || raw.includes(evidence)));
+    });
+  }
+
   function dedupe(items) {
     const out = [];
     const seen = new Set();
@@ -80,8 +122,12 @@
     const interpreted = basePolicy.interpretRows(normalizedRows, context);
     const baseItems = Array.isArray(interpreted) ? interpreted : [];
     const extra = [];
+
     for (const row of normalizedRows) {
-      if (rowCovered(row, baseItems)) continue;
+      const commercial = commercialItem(row);
+      if (commercial && !rowHasCommercial(row, [...baseItems, ...extra])) extra.push(commercial);
+
+      if (rowCovered(row, [...baseItems, ...extra])) continue;
       const item = fallbackItem(row);
       if (item) extra.push(item);
     }
