@@ -8,6 +8,7 @@
 
   const FORM_ACTION_RE = /^\/task\/save\/?$/i;
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const BRIGADE_RE = /(?:^|\s)бр\.\s*/iu;
   const L1_DIVISION_UUID = '76fce89d-3304-4d26-a4cf-86dd78a9d89e';
   const L1_DIVISION_LABEL = 'Техподдержка L1';
   const HOST_ATTR = 'data-simnet-wb-l1-assignment-picker';
@@ -84,11 +85,6 @@
     ).trim();
   }
 
-  function taskTypeLabel(form) {
-    const select = form.querySelector('select[name="task_type_uuid"]');
-    return compact(select?.selectedOptions?.[0]?.textContent || '', 140);
-  }
-
   function inputLabel(input) {
     return compact(
       input?.closest?.('.div_space2,label,.item,.erp-object-props__value')?.textContent
@@ -96,6 +92,15 @@
       || '',
       180
     );
+  }
+
+  function formStaffInputs(form) {
+    return Array.from(form.querySelectorAll([
+      'input[name="division_task_staffuuids[]"]',
+      'input[name="division_auto_task_staffuuids[]"]',
+      'input[name^="division_task_staffuuids"]',
+      'input[name^="division_auto_task_staffuuids"]'
+    ].join(','))).filter(input => input instanceof HTMLInputElement);
   }
 
   function getState(form) {
@@ -106,6 +111,8 @@
       sourceTypeUuid,
       sourceWasFieldVisit: FIELD_VISIT_UUIDS.has(sourceTypeUuid),
       currentAssignment: null,
+      currentCrew: null,
+      removeCurrentCrew: FIELD_VISIT_UUIDS.has(sourceTypeUuid),
       selectedUuid: '',
       selectedLabel: '',
       available: [],
@@ -133,6 +140,8 @@
       [${HOST_ATTR}]{box-sizing:border-box;max-width:640px;margin:8px 0;padding:8px 10px;border:1px solid #cbd6df;border-radius:3px;background:#f7f9fb;color:#40505e;font:12px/1.35 Arial,sans-serif}
       [${HOST_ATTR}] .wb-l1a-title{font-weight:700;color:#3f607a;margin-bottom:5px}
       [${HOST_ATTR}] .wb-l1a-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+      [${HOST_ATTR}] .wb-l1a-current{margin:0 0 6px;padding:5px 7px;border:1px solid #d7e0e6;border-radius:3px;background:#fff;color:#52626e}
+      [${HOST_ATTR}] .wb-l1a-remove{display:flex;align-items:center;gap:6px;margin:7px 0 0;font-size:11px;color:#4f5f6a;cursor:pointer}
       [${HOST_ATTR}] select{min-width:300px;max-width:100%;height:27px;border:1px solid #aebdca;border-radius:3px;background:#fff;color:#40505e;padding:2px 24px 2px 6px;font:12px Arial,sans-serif}
       [${HOST_ATTR}] .wb-l1a-hint{margin-top:5px;color:#687783;font-size:11px}
     `;
@@ -159,6 +168,15 @@
     form.appendChild(holder);
   }
 
+  function previewCrewRemoval(form, state) {
+    if (!state.currentCrew?.uuid) return;
+    for (const input of formStaffInputs(form)) {
+      const uuid = String(input.value || '').trim();
+      if (uuid !== state.currentCrew.uuid || !BRIGADE_RE.test(inputLabel(input))) continue;
+      input.checked = !state.removeCurrentCrew;
+    }
+  }
+
   function anchor(form) {
     const actions = form.querySelector('.erp_form_actions, .div_center');
     if (actions?.parentNode) return { parent: actions.parentNode, before: actions };
@@ -172,7 +190,7 @@
     host = document.createElement('div');
     host.setAttribute(HOST_ATTR, '1');
     host.dataset.simnetWbOwned = '1';
-    host.innerHTML = '<div class="wb-l1a-title">Исполнитель / отдел</div><div class="wb-l1a-row"><select data-wb-l1a-select="1"><option value="">— выбрать исполнителя —</option></select></div><div class="wb-l1a-hint">Загружаю доступные варианты…</div>';
+    host.innerHTML = '<div class="wb-l1a-title">Исполнитель / отдел</div><div class="wb-l1a-current" data-wb-l1a-current="1" hidden></div><div class="wb-l1a-row"><select data-wb-l1a-select="1"><option value="">— выбрать исполнителя —</option></select></div><label class="wb-l1a-remove" data-wb-l1a-remove-wrap="1" hidden><input type="checkbox" data-wb-l1a-remove-crew="1"> <span>Снять текущую выездную бригаду при сохранении</span></label><div class="wb-l1a-hint">Загружаю доступные варианты…</div>';
     const place = anchor(form);
     place.parent.insertBefore(host, place.before);
     host.querySelector('select')?.addEventListener('change', event => {
@@ -181,8 +199,18 @@
       state.selectedUuid = String(select.value || '').trim();
       state.selectedLabel = compact(select.selectedOptions?.[0]?.textContent || '', 180);
       setSynthetic(form, state.selectedUuid, state.selectedLabel);
+      previewCrewRemoval(form, state);
       log('info', 'l1_assignment_selected', {
         taskId: numericTaskId(), taskTypeUuid: taskTypeUuid(form), assignmentUuid: state.selectedUuid, assignmentLabel: state.selectedLabel
+      });
+    });
+    host.querySelector('[data-wb-l1a-remove-crew="1"]')?.addEventListener('change', event => {
+      const state = getState(form);
+      state.removeCurrentCrew = Boolean(event.currentTarget.checked);
+      previewCrewRemoval(form, state);
+      log('info', 'l1_assignment_crew_detach_changed', {
+        taskId: numericTaskId(), removeCrew: state.removeCurrentCrew,
+        crewUuid: state.currentCrew?.uuid || '', crewLabel: state.currentCrew?.label || ''
       });
     });
     return host;
@@ -196,6 +224,7 @@
       removeSynthetic(form);
       state.selectedUuid = '';
       state.selectedLabel = '';
+      state.removeCurrentCrew = false;
       return;
     }
 
@@ -227,6 +256,21 @@
       select.appendChild(option);
     }
     setSynthetic(form, state.selectedUuid, state.selectedLabel);
+
+    const current = host.querySelector('[data-wb-l1a-current="1"]');
+    const removeWrap = host.querySelector('[data-wb-l1a-remove-wrap="1"]');
+    const remove = host.querySelector('[data-wb-l1a-remove-crew="1"]');
+    if (state.currentCrew) {
+      current.hidden = false;
+      current.textContent = `Текущая выездная бригада: ${state.currentCrew.label || state.currentCrew.uuid}`;
+      removeWrap.hidden = false;
+      remove.checked = Boolean(state.removeCurrentCrew);
+      previewCrewRemoval(form, state);
+    } else {
+      current.hidden = true;
+      removeWrap.hidden = true;
+    }
+
     host.querySelector('.wb-l1a-hint').textContent = hint || `Доступно вариантов: ${merged.length}. Для L1 по умолчанию выбрана «${L1_DIVISION_LABEL}».`;
   }
 
@@ -337,6 +381,7 @@
       try {
         const native = await loadNativeStaff(form);
         state.currentAssignment = native.rows.find(row => row.checked) || null;
+        state.currentCrew = native.rows.find(row => row.checked && BRIGADE_RE.test(row.label)) || null;
         const auto = await loadAutoAssignments(form);
         const merged = [];
         const seen = new Set();
@@ -346,9 +391,13 @@
           merged.push(item);
         }
         state.available = merged;
-        render(form, merged, `Можно выбрать отдел или бригаду. Для L1 по умолчанию — «${L1_DIVISION_LABEL}».`);
+        render(form, merged, state.currentCrew
+          ? `Можно выбрать отдел или бригаду. «${state.currentCrew.label}» можно снять отдельной галочкой.`
+          : `Можно выбрать отдел или бригаду. Для L1 по умолчанию — «${L1_DIVISION_LABEL}».`);
         log('info', 'l1_assignment_ready', {
-          reason, taskId: numericTaskId(), currentAssignment: state.currentAssignment?.label || '', available: merged.length + (seen.has(L1_DIVISION_UUID) ? 0 : 1)
+          reason, taskId: numericTaskId(), currentAssignment: state.currentAssignment?.label || '',
+          currentCrew: state.currentCrew?.label || '', removeCurrentCrew: state.removeCurrentCrew,
+          available: merged.length + (seen.has(L1_DIVISION_UUID) ? 0 : 1)
         });
       } catch (error) {
         render(form, state.available, `Доступна «${L1_DIVISION_LABEL}». Остальные варианты сейчас не загрузились.`);
@@ -360,12 +409,19 @@
     return state.refreshPromise;
   }
 
-  async function applySelected(form, assignment) {
+  async function applySelected(form, assignment, removeCurrentCrew) {
     const native = await loadNativeStaff(form);
     if (!native.form || !UUID_RE.test(native.taskUuid)) throw new Error('Не удалось открыть форму исполнителей');
     const namespace = native.form.querySelector('input[name="division_task_staffuuids[]"], input[name="division_auto_task_staffuuids[]"]')
       ? 'division_task_staffuuids[]'
       : 'division_task_staffids[]';
+
+    const assignmentIsCrew = BRIGADE_RE.test(assignment.label || '');
+    const preserved = native.rows
+      .filter(row => row.checked && row.uuid !== assignment.uuid)
+      .filter(row => !(BRIGADE_RE.test(row.label) && (removeCurrentCrew || assignmentIsCrew)))
+      .map(row => row.uuid);
+    const finalUuids = [...new Set([...preserved, assignment.uuid])];
 
     native.form.querySelectorAll([
       'input[name="division_task_staffuuids[]"]',
@@ -383,18 +439,21 @@
     }
     uuidInput.value = native.taskUuid;
 
-    const input = native.doc.createElement('input');
-    input.type = 'hidden';
-    input.name = namespace;
-    input.value = assignment.uuid;
-    native.form.appendChild(input);
+    for (const uuid of finalUuids) {
+      const input = native.doc.createElement('input');
+      input.type = 'hidden';
+      input.name = namespace;
+      input.value = uuid;
+      native.form.appendChild(input);
+    }
 
     const response = await fetch('/task/staff_save', {
       method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: new FormData(native.form)
     });
     if (!response.ok) throw new Error(`Не удалось сохранить исполнителя (HTTP ${response.status})`);
     log('info', 'l1_assignment_native_saved', {
-      taskUuid: native.taskUuid, assignmentUuid: assignment.uuid, assignmentLabel: assignment.label
+      taskUuid: native.taskUuid, assignmentUuid: assignment.uuid, assignmentLabel: assignment.label,
+      removedCurrentCrew: Boolean(removeCurrentCrew), preservedCount: preserved.length, finalUuids
     });
   }
 
@@ -408,18 +467,21 @@
       ? { uuid: state.selectedUuid, label: state.selectedLabel || state.selectedUuid }
       : null;
     if (!assignment) return;
-    if (state.currentAssignment?.uuid === assignment.uuid) return;
+    const crewNeedsRemoval = Boolean(state.removeCurrentCrew && state.currentCrew && state.currentCrew.uuid !== assignment.uuid);
+    if (state.currentAssignment?.uuid === assignment.uuid && !crewNeedsRemoval) return;
 
     event.preventDefault();
     event.stopPropagation();
     form.setAttribute(BUSY_ATTR, '1');
     try {
-      await applySelected(form, assignment);
+      await applySelected(form, assignment, state.removeCurrentCrew);
       state.currentAssignment = assignment;
+      state.currentCrew = BRIGADE_RE.test(assignment.label || '') ? assignment : null;
       HTMLFormElement.prototype.submit.call(form);
     } catch (error) {
       log('error', 'l1_assignment_apply_failed', {
-        message: compact(error?.message || error, 200), assignmentUuid: assignment.uuid, assignmentLabel: assignment.label
+        message: compact(error?.message || error, 200), assignmentUuid: assignment.uuid, assignmentLabel: assignment.label,
+        removeCurrentCrew: state.removeCurrentCrew
       });
       const host = ensureHost(form);
       host.querySelector('.wb-l1a-hint').textContent = `Исполнитель не применён: ${compact(error?.message || error, 160)}`;
@@ -450,6 +512,7 @@
     state.available = [];
     state.selectedUuid = L1_TYPE_UUIDS.has(taskTypeUuid(form)) ? L1_DIVISION_UUID : '';
     state.selectedLabel = L1_TYPE_UUIDS.has(taskTypeUuid(form)) ? L1_DIVISION_LABEL : '';
+    state.removeCurrentCrew = L1_TYPE_UUIDS.has(taskTypeUuid(form)) && state.sourceWasFieldVisit;
     schedule(form, 'task-type-change');
   }
 
