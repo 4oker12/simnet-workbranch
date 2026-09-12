@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET Workbench",
-  "version": "1.7.36.144",
+  "version": "1.7.36.145",
   "description": "SIMNET Workbench: facts + visits + direct if/else actions, without continuous page rescanning.",
   "permissions": ["storage","scripting","unlimitedStorage","tabs"],
   "host_permissions": ["https://userside.simnet.kiev.ua/*","https://admin.simnet.kiev.ua/*","https://admin.looknet.kiev.ua/*","https://pbx.simnet.kiev.ua/*","http://127.0.0.1/*","http://localhost/*","https://api.groq.com/*"],
@@ -92,6 +92,6 @@
   "options_ui":{"page":"src/ui/settings.html","open_in_tab":true},
   "icons":{"16":"assets/icon16.png","32":"assets/icon32.png","48":"assets/icon48.png","128":"assets/icon128.png"},
   "web_accessible_resources":[{"resources":["src/parsers/userside/tmc.js"],"matches":["https://userside.simnet.kiev.ua/*","https://admin.simnet.kiev.ua/*","https://admin.looknet.kiev.ua/*"]}],
-  "version_name":"1.7.36.144-active-call-priority",
+  "version_name":"1.7.36.145-active-call-hard-focus",
   "content_security_policy":{"extension_pages":"script-src 'self'; object-src 'self'"}
 }
