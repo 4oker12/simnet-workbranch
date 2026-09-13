@@ -1,3 +1,8 @@
+## 1.7.36.157 — Native UserSide call-list filter
+
+- CALL now refreshes the current operator call through the exact filter query emitted by the current UserSide form: period in slot `0`, employee phone in slot `2`, and the native `employee_ipphone_number0_value` companion field.
+- Both dates are generated automatically from the current `Europe/Kyiv` calendar day; operator extension `6047` remains configurable in the URL builder.
+
 ## 1.7.36.156 — Passive performance session snapshot
 
 - The extension popup can start a passive 30-minute performance session and finish it at any earlier moment with `Снять срез сейчас`.

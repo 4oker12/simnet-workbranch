@@ -30,12 +30,17 @@ export function optimizedCallListUrl(rawUrl, {
   if (url.origin !== USERSIDE_ORIGIN || url.pathname !== CALL_LIST_PATH) return url.href;
   const extension = String(operatorExtension || '').replace(/\D+/g, '').slice(0, 6);
   const date = kyivCalendarDate(now);
+
+  // Rebuild the query exactly as the current native UserSide form emits it.
+  // The duplicated extension values and the non-contiguous filter index are
+  // intentional: UserSide expects the period in slot 0 and the phone filter in
+  // slot 2, while also submitting employee_ipphone_number0_value.
+  url.search = '';
+  if (extension) url.searchParams.set('employee_ipphone_number0_value', extension);
+  url.searchParams.set('filter_selector0', 'period');
   url.searchParams.set('period0_date1', date);
   url.searchParams.set('period0_date2', date);
-  url.searchParams.set('filter_selector0', 'period');
-  url.searchParams.set('filter_selector1', 'employee_ipphone_number');
-  if (extension) url.searchParams.set('employee_ipphone_number1_value', extension);
-  else url.searchParams.delete('employee_ipphone_number1_value');
-  url.searchParams.delete('page');
+  url.searchParams.set('filter_selector2', 'employee_ipphone_number');
+  if (extension) url.searchParams.set('employee_ipphone_number2_value', extension);
   return url.href;
 }
