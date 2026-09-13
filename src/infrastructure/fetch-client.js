@@ -80,7 +80,9 @@ export function createFetchClient({ allowedHosts = [], timeoutMs = 15000, fetchF
         redirect: 'follow',
         signal: controller.signal
       });
+      const headersAt = nowMs();
       const data = await response.text();
+      const bodyAt = nowMs();
       if (isUsersideCallFormUrl(url)) {
         console.log('[SIMNET WB][CALL_FORM_FETCH]', {
           status: response.status,
@@ -103,6 +105,8 @@ export function createFetchClient({ allowedHosts = [], timeoutMs = 15000, fetchF
         redirected: Boolean(response.redirected),
         data,
         durationMs: Math.max(0, nowMs() - startedAt),
+        headersMs: Math.max(0, headersAt - startedAt),
+        bodyMs: Math.max(0, bodyAt - headersAt),
         responseBytes: new TextEncoder().encode(data).byteLength,
         message: response.ok ? '' : `UserSide вернул HTTP ${response.status}${response.statusText ? `: ${response.statusText}` : ''}`
       };

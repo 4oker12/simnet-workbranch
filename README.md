@@ -1,3 +1,11 @@
+## 1.7.36.161 — Runtime performance
+
+- Batch diagnostic log writes with a bounded 80-entry pending buffer and one writer per page. Routine logs remain exportable without flooding the console with object references.
+- Share simultaneous identical call-list refreshes; routed registration may reuse a successful result for 15 seconds only when date, extension and phone activity match. Independent clicks still refresh.
+- Show the resolved call target without waiting for a foreign customer's form. Native forms and CSRF are never cached by this change.
+- Export actual HTTP headers/body timing separately from call-list parse/merge time, the 12 largest retained JS-memory samples, and slow browser interactions including input delay. Exclude known telephony streams from ordinary resource latency.
+- These changes reduce avoidable work; they do not establish the cause of the observed memory peak or fix server/VPN response latency.
+
 ## 1.7.36.160 — Continuous performance snapshots + CALL trust tiers
 
 - Performance collection now runs continuously in the background without a 30-minute timer or a manual start/stop cycle. `Снять слепок и скачать` exports the accumulated period while collection immediately continues.

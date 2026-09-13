@@ -16,6 +16,9 @@
   const SENSITIVE_KEY_RE = /(?:csrf|token|password|passwd|secret|cookie|authorization|api[_-]?key)/i;
   let logWriteQueue = Promise.resolve();
   let extensionContextDead = false;
+  let pendingLogs = [];
+  let logFlushTimer = null;
+  let logFlushBusy = false;
 
   function isContextInvalidated(error) {
     return /Extension context invalidated|context invalidated/i.test(String(error?.message || error || ''));
@@ -59,15 +62,29 @@
 
   async function appendPersistentLog(entry) {
     if (extensionContextDead) return;
+    pendingLogs.push(entry);
+    if (pendingLogs.length > 80) pendingLogs.shift();
+    if (!logFlushTimer) logFlushTimer = setTimeout(flushPersistentLogs, 1000);
+  }
+
+  function flushPersistentLogs() {
+    clearTimeout(logFlushTimer);
+    logFlushTimer = null;
+    if (logFlushBusy) return;
+    const batch = pendingLogs;
+    pendingLogs = [];
+    if (!batch.length || extensionContextDead) return;
+    logFlushBusy = true;
     logWriteQueue = logWriteQueue.then(async () => {
       if (extensionContextDead) return;
       try {
         const stored = await chrome.storage.local.get([LOG_KEY, LOG_CLEAR_KEY]);
         const clearedAt = String(stored?.[LOG_CLEAR_KEY] || '');
-        if (clearedAt && String(entry?.at || '') <= clearedAt) return;
+        const fresh = afterClear(batch, clearedAt);
+        if (!fresh.length) return;
         const store = logStoreShape(stored?.[LOG_KEY] || {});
-        store.entries = [entry, ...afterClear(store.entries, clearedAt)].slice(0, MAX_LOG_ENTRIES);
-        store.updatedAt = entry.at;
+        store.entries = [...fresh.reverse(), ...afterClear(store.entries, clearedAt)].slice(0, MAX_LOG_ENTRIES);
+        store.updatedAt = fresh[0].at;
         await chrome.storage.local.set({ [LOG_KEY]: store });
       } catch (error) {
         if (isContextInvalidated(error)) {
@@ -76,9 +93,16 @@
         }
         console.warn('[SIMNET WB][LOG] persistent write failed', error);
       }
+    }).finally(() => {
+      logFlushBusy = false;
+      if (pendingLogs.length && !extensionContextDead && !logFlushTimer) {
+        logFlushTimer = setTimeout(flushPersistentLogs, 1000);
+      }
     });
     return logWriteQueue;
   }
+
+  window.addEventListener('pagehide', flushPersistentLogs);
 
   function emitLog(level, scope, event, details = null) {
     const normalizedLevel = ['info', 'warn', 'error'].includes(String(level)) ? String(level) : 'info';
@@ -87,8 +111,8 @@
     const safeDetails = sanitize(details);
     const prefix = `[SIMNET WB][${normalizedScope}] ${normalizedEvent}`;
     const consoleFn = normalizedLevel === 'error' ? console.error : normalizedLevel === 'warn' ? console.warn : console.info;
-    if (safeDetails && typeof safeDetails === 'object' && Object.keys(safeDetails).length) consoleFn(prefix, safeDetails);
-    else consoleFn(prefix);
+    // Keep diagnostics without retaining expandable object graphs in DevTools.
+    if (normalizedLevel !== 'info') consoleFn(prefix, JSON.stringify(safeDetails).slice(0, 4000));
 
     const entry = {
       id: globalThis.crypto?.randomUUID?.() || `log_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`,
@@ -165,6 +189,8 @@
       isContextInvalidated,
       get contextInvalidated() { return extensionContextDead; },
       async recent(limit = 120) {
+        await logWriteQueue;
+        await flushPersistentLogs();
         if (extensionContextDead) return [];
         try {
           const stored = await chrome.storage.local.get([LOG_KEY, LOG_CLEAR_KEY]);

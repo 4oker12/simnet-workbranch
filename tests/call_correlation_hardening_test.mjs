@@ -114,7 +114,7 @@ assert.doesNotMatch(manifest, /pbx\.vnet/);
 const openStart = ui.indexOf('async open(caseData');
 const refreshAt = ui.indexOf("const callListPromise = measureOperation('call.call_list_fetch'", openStart);
 const formAt = ui.indexOf('const nativeFormPromise = hasCase', openStart);
-const joinAt = ui.indexOf('await Promise.allSettled([', openStart);
+const joinAt = ui.indexOf('await callListPromise', openStart);
 assert.ok(refreshAt > openStart && formAt > refreshAt && joinAt > formAt, 'call_list and native form must be started before awaiting their results');
 assert.doesNotMatch(ui, /operatorOverride:\s*needsSoft/);
 assert.match(ui, /window\.confirm\(/);

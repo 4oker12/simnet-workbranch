@@ -21,6 +21,7 @@
   const samples = [];
   const pending = new Map();
   let longTaskObserver = null;
+  let interactionObserver = null;
   let lastLongTaskLogAt = 0;
   let destroyed = false;
   let performanceSession = null;
@@ -406,6 +407,8 @@
     if (Number.isFinite(sessionStartedAt) && absoluteStart + 1000 < sessionStartedAt) return;
     const route = safeRoute(entry.name);
     if (!route) return;
+    // A persistent telephony stream's lifetime is not an HTTP response delay.
+    if (entry.initiatorType === 'eventsource' || /\/op-widget\/api\/stream\.php(?:[?]|$)/.test(entry.name)) return;
 
     const durationMs = roundMs(entry.duration);
     const responseStatus = Number(entry.responseStatus || 0);
@@ -765,6 +768,7 @@
     try { chrome.storage.onChanged.removeListener(onPerformanceStorageChanged); } catch {}
     try { chrome.runtime.onMessage.removeListener(onPerformanceRuntimeMessage); } catch {}
     try { longTaskObserver?.disconnect?.(); } catch {}
+    try { interactionObserver?.disconnect?.(); } catch {}
     longTaskObserver = null;
     stopPerformanceSessionCapture();
     pending.clear();
@@ -789,6 +793,22 @@
   chrome.storage.onChanged.addListener(onPerformanceStorageChanged);
   chrome.runtime.onMessage.addListener(onPerformanceRuntimeMessage);
   installLongTaskObserver();
+  // Browser Event Timing measures input delay and presentation without a
+  // polling loop. Record only slow interactions and never retain DOM targets.
+  try {
+    interactionObserver = new PerformanceObserver(list => {
+      for (const entry of list.getEntries()) {
+        if (!entry.interactionId || entry.duration < 104) continue;
+        record('ui.interaction', entry.duration, {
+          event: entry.name,
+          inputDelayMs: roundMs(entry.processingStart - entry.startTime),
+          handlerMs: roundMs(entry.processingEnd - entry.processingStart),
+          presentationMs: roundMs(Math.max(0, entry.duration - (entry.processingEnd - entry.startTime)))
+        }, { persist: false, persistSlow: false });
+      }
+    });
+    interactionObserver.observe({ type: 'event', buffered: true, durationThreshold: 104 });
+  } catch { interactionObserver = null; }
   void initializePerformanceSessionCapture();
 
   const bootAgeMs = Date.now() - Number(WB.runtime?.pageInstanceStartedAt || Date.now());

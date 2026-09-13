@@ -406,6 +406,7 @@ function routeReport(samples = [], startedAtMs = 0, endedAtMs = 0) {
 
 const OPERATION_LABELS = Object.freeze({
   'ui.click': 'Клик Workbench',
+  'ui.interaction': 'Задержка взаимодействия со страницей',
   'call.registration_open': 'Рег. звонок · до результата',
   'call.module_load': 'Рег. звонок · загрузка модуля',
   'call.call_list_fetch': 'Рег. звонок · call_list',
@@ -633,6 +634,13 @@ export function buildPerformanceReport(session = {}, nowMs = Date.now()) {
     operations: operationReport(samples),
     operationCount: exactOperations.reduce((sum, item) => sum + Math.max(1, Number(item.count || 1)), 0),
     operationTimeline: operationTimeline(samples),
+    memoryPeaks: samples.filter(sample => Number(sample.memory?.usedJsHeapBytes) > 0)
+      .sort((a, b) => b.memory.usedJsHeapBytes - a.memory.usedJsHeapBytes)
+      .slice(0, 12).map(sample => ({
+        at: sample.at, tabId: sample.tabId, documentId: sample.documentId,
+        route: sample.page?.route, usedJsHeapBytes: sample.memory.usedJsHeapBytes,
+        domNodes: sample.domNodes
+      })),
     retention: {
       strategy: Number(session.droppedSampleCount || 0) > 0 ? 'baseline-plus-recent' : 'complete',
       maxSamples: MAX_SAMPLES,

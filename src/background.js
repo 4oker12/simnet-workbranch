@@ -2,6 +2,7 @@ import { MessageType } from './shared/messages.js';
 import { parseUsersideCallListHtml } from './features/call/userside-call-list-bridge.js';
 import { createCallModule, createCallModuleState, ensureCallModuleState } from './features/call/index.js';
 import { parseOwnUsersideCalls, latestUnresolvedPreview } from './features/call/source/userside-call-list.js';
+import { createRefreshGate } from './features/call/background/refresh-gate.js';
 import { getSnapshot } from './features/call/storage/snapshot-repository.js';
 import { getBinding as getCallBinding, appendAssignment as appendCallAssignment } from './features/call/storage/binding-repository.js';
 import { getCall as getCanonicalCall, canonicalCallKey } from './features/call/storage/call-repository.js';
@@ -74,7 +75,7 @@ import { queryCrmIndex, crmSearchPrompt, crmSearchIsPrimary, CRM_SEARCH_INDEX_RE
 import { optimizedCallListUrl } from './features/call/background/call-list-fetch-optimizer.js';
 
 
-const VERSION = '1.7.36.160';
+const VERSION = '1.7.36.161';
 const POLL_STALE_TIMEOUT_MS = 30000;
 const POLL_LATE_RESPONSE_MAX_AGE_MS = 180000;
 const RECOVERABLE_POLL_TIMEOUT_REASONS = new Set([
@@ -3874,7 +3875,14 @@ function observePbxRecentCalls(payload = {}, sender = {}) {
  * using the existing userside host permission/session, parses own completed 6047
  * calls and merges them into the same protected telephony store used by CALL UI.
  */
-async function refreshCallsFromUsersideCallList(activity = {}) {
+const callRefreshGate = createRefreshGate();
+function refreshCallsFromUsersideCallList(activity = {}) {
+  const key = JSON.stringify([optimizedCallListUrl(new URL(CALL_LIST_PATH, USERSIDE_ORIGIN).href),
+    activity.known === true, activity.active === true, Number(activity.talkStartMs || 0)]);
+  return callRefreshGate(key, () => performCallsRefresh(activity), activity.reuse === true);
+}
+
+async function performCallsRefresh(activity = {}) {
   const startedAt = nowMs();
   try {
     const response = await fetchCallRegistrationResponse(
@@ -3892,6 +3900,7 @@ async function refreshCallsFromUsersideCallList(activity = {}) {
       };
     }
 
+    const parseStartedAt = nowMs();
     const parsed = parseOwnUsersideCalls(
       response.data,
       PBX_OPERATOR_EXTENSION,
@@ -3913,6 +3922,8 @@ async function refreshCallsFromUsersideCallList(activity = {}) {
     const focusCallKey = selected?.usersideCallId ? `call:${String(selected.usersideCallId)}` : '';
     const focusKind = focusPreview ? 'active' : latestCompleted ? 'completed' : 'none';
 
+    const parseMs = nowMs() - parseStartedAt;
+    const mergeStartedAt = nowMs();
     const merged = await enqueue(state => {
       return callModule.ingestUsersideCalls(state, normalized, focusPreview);
     });
@@ -3932,6 +3943,11 @@ async function refreshCallsFromUsersideCallList(activity = {}) {
       activityActive: parsed.activityActive === true,
       ...merged,
       durationMs: Math.max(0, nowMs() - startedAt),
+      httpMs: Number(response.durationMs || 0),
+      headersMs: Number(response.headersMs || 0),
+      bodyMs: Number(response.bodyMs || 0),
+      parseMs,
+      mergeMs: nowMs() - mergeStartedAt,
       responseBytes: Number(response.responseBytes || 0)
     };
   } catch (error) {
@@ -4440,6 +4456,7 @@ async function queryPbxRecentCalls(payload = {}, sender = {}) {
   {
     const fresh = payload?.fresh === true || payload?.forceRefresh === true;
     const refresh = fresh ? await refreshCallsFromUsersideCallList({
+      reuse: payload?.reuseRecentRefresh === true,
       known: payload?.activityKnown === true,
       active: payload?.activityActive === true,
       talkStartMs: Number(payload?.talkStartMs || 0)

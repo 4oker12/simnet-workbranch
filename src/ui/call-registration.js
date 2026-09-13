@@ -1412,6 +1412,7 @@
           customerId: this.caseSnapshot.customerId,
           fresh: true,
           forceRefresh: true,
+          reuseRecentRefresh: Boolean(options.routedIntent),
           focusCallKey: this.historyFocusCallKey,
           ...activity
         }), {
@@ -1420,7 +1421,13 @@
         }, response => ({
           source: String(response?.refresh?.source || ''),
           refreshed: response?.refresh?.refreshed === true,
-          networkMs: Number(response?.refresh?.durationMs || 0),
+          networkMs: Number(response?.refresh?.httpMs || 0),
+          refreshTotalMs: Number(response?.refresh?.durationMs || 0),
+          headersMs: Number(response?.refresh?.headersMs || 0),
+          bodyMs: Number(response?.refresh?.bodyMs || 0),
+          parseMs: Number(response?.refresh?.parseMs || 0),
+          mergeMs: Number(response?.refresh?.mergeMs || 0),
+          reused: response?.refresh?.reused === true,
           bytes: Number(response?.refresh?.responseBytes || 0),
           focusKind: String(response?.refresh?.focusKind || (response?.focusCall?.ongoing ? 'active' : response?.focusCall ? 'completed' : 'none')),
           calls: Number(response?.dayCalls?.length || response?.calls?.length || 0)
@@ -1428,13 +1435,14 @@
         const nativeFormPromise = hasCase
           ? this.loadNativeModelForCurrentCase(caseData, generation)
           : Promise.resolve('');
-        const [callListResult, nativeFormResult] = await Promise.allSettled([
-          callListPromise,
-          nativeFormPromise
-        ]);
+        // Observe both immediately, but do not wait for a foreign customer's
+        // form before showing the call and its correct target.
+        const nativeFormSettled = nativeFormPromise.then(
+          value => ({ status: 'fulfilled', value }),
+          reason => ({ status: 'rejected', reason })
+        );
+        const pbx = await callListPromise;
         if (generation !== this.generation || !this.host) return { ok: false, reason: 'cancelled' };
-        if (callListResult.status === 'rejected') throw callListResult.reason;
-        const pbx = callListResult.value;
         const focusStartedAt = perfNow();
         this.applyPbxSnapshot(pbx, this.caseSnapshot.customerId);
         recordOperation('call.focus_select', focusStartedAt, {
@@ -1455,6 +1463,8 @@
           return { ok: true, mode: target ? 'route-required' : 'task-choice' };
         }
 
+        const nativeFormResult = await nativeFormSettled;
+        if (generation !== this.generation || !this.host) return { ok: false, reason: 'cancelled' };
         if (nativeFormResult.status === 'rejected') throw nativeFormResult.reason;
         const resolvedCustomerId = nativeFormResult.value;
         // Resolve customerId may enrich the Case. Re-score from the same CALL
