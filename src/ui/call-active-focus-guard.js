@@ -353,9 +353,9 @@
       <div class="status warn">LIVE 6047${time ? ` · с ${time}` : ''}</div>
       <section class="pbx-card focus-card">
         <div class="pbx-head"><span>Текущий звонок <span class="call-live-chip">LIVE</span></span></div>
-        <div class="pbx-empty">Жду живую строку 6047 из call_list. Предыдущий звонок не используется и полный список повторно не запрашивается.</div>
+        <div class="pbx-empty">Workbench запросил call_list, но UserSide ещё не вернул строку этого звонка. Предыдущего абонента не подставляю.</div>
       </section>
-      <div class="actions"><button class="action" type="button" data-action="cancel">Закрыть</button></div>
+      <div class="actions"><button class="action primary" type="button" data-action="refresh-focus">Обновить call_list</button><button class="action" type="button" data-action="cancel">Закрыть</button></div>
     </div>`;
   }
 

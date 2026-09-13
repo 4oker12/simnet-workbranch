@@ -1,3 +1,8 @@
+## 1.7.36.158 — Restore LIVE call-list resolver
+
+- Connected the existing current-call resolver to the shipped manifest so an active PBX call can be enriched from the filtered UserSide `call_list` instead of remaining forever in the waiting screen.
+- The LIVE waiting state now explains that UserSide has not returned the current row yet and offers a bounded manual `Обновить call_list` action; a previous caller is still never reused.
+
 ## 1.7.36.157 — Native UserSide call-list filter
 
 - CALL now refreshes the current operator call through the exact filter query emitted by the current UserSide form: period in slot `0`, employee phone in slot `2`, and the native `employee_ipphone_number0_value` companion field.
