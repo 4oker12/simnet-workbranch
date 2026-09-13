@@ -1,3 +1,11 @@
+## 1.7.36.156 — Passive performance session snapshot
+
+- The extension popup can start a passive 30-minute performance session and finish it at any earlier moment with `Снять срез сейчас`.
+- Visible Billing/UserSide pages contribute one compact aggregate roughly once per minute and on page entry; collection is disabled outside an active session.
+- The report compares the beginning and end of the session across page load/TTFB, resource requests, Workbench readiness, long JavaScript tasks, event-loop delay, DOM size, JS heap and Workbench storage size.
+- Slow route and Workbench-operation summaries are aggregated without customer identifiers, phone numbers or URL query strings.
+- A completed snapshot remains available in the popup and can be downloaded as JSON for deeper comparison.
+
 ## 1.7.36.155 — UserSide UUID call registration
 
 - CALL loads the current native UserSide registration form with `customer_uuid`, while preserving numeric `customer_id` compatibility for older responses.

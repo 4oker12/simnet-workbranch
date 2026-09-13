@@ -10,6 +10,22 @@
   <header><span class="dot" id="workerDot"></span><div><h1>SIMNET Workbench</h1><small id="version">…</small></div></header>
   <section id="status">Проверка Service Worker…</section>
 
+  <section class="perf-card">
+    <div class="perf-head">
+      <div><b>Замер нагрузки</b><small>начало ↔ конец</small></div>
+      <span id="perfBadge" class="mini-badge">не запущен</span>
+    </div>
+    <div id="perfStatus" class="perf-status">Можно запустить фоновый замер на время обычной работы.</div>
+    <div class="perf-progress"><span id="perfProgress"></span></div>
+    <div id="perfReport" class="perf-report" hidden></div>
+    <div class="perf-actions">
+      <button id="startPerf" type="button">Начать · 30 мин</button>
+      <button id="finishPerf" class="secondary" type="button" hidden>Снять срез сейчас</button>
+      <button id="exportPerf" class="secondary" type="button" hidden>Скачать JSON</button>
+    </div>
+    <p class="perf-note">Остановить можно раньше. Записываются только агрегаты скорости и обезличенные маршруты без query-параметров.</p>
+  </section>
+
   <section class="ai-settings">
     <div class="ai-head"><b>AI · Groq</b><span id="groqKeyBadge" class="mini-badge">…</span></div>
     <div id="groqKeyStatus" class="ai-state">Проверка локальной AI-конфигурации…</div>

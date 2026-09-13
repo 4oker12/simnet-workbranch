@@ -447,6 +447,14 @@
       WB.store.destroy();
       WB.rail.destroy();
     };
+
+    WB.runtime.bootCompletedAt = Date.now();
+    WB.perf?.record?.(
+      'runtime.workbench_ready',
+      WB.runtime.bootCompletedAt - Number(WB.runtime.pageInstanceStartedAt || WB.runtime.bootCompletedAt),
+      { page: location.pathname },
+      { thresholdMs: 1500, persist: false, persistSlow: false }
+    );
   }
 
   boot().catch(error => {

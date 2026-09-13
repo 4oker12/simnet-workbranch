@@ -1,4 +1,5 @@
 import './infrastructure/service-worker-error-log.js';
+import './features/performance/background.js';
 import './ai/runtime-service.js';
 import './features/call/transcription/submission-debug.js';
 import './features/call/transcription/transcriber-fetch-diagnostics.js';

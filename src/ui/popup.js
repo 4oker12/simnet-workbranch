@@ -9,11 +9,27 @@ const workerDot = document.getElementById('workerDot');
 const groqKeyStatusNode = document.getElementById('groqKeyStatus');
 const groqKeyBadgeNode = document.getElementById('groqKeyBadge');
 const openSettingsNode = document.getElementById('openSettings');
+const perfBadgeNode = document.getElementById('perfBadge');
+const perfStatusNode = document.getElementById('perfStatus');
+const perfProgressNode = document.getElementById('perfProgress');
+const perfReportNode = document.getElementById('perfReport');
+const startPerfNode = document.getElementById('startPerf');
+const finishPerfNode = document.getElementById('finishPerf');
+const exportPerfNode = document.getElementById('exportPerf');
 const VERSION = chrome.runtime.getManifest().version;
 const DIAG_KEY = 'simnet_workbench_diagnostics_v1';
 const FALLBACK_KEY = 'simnet_workbench_diagnostics_fallback_v1';
 const STATE_KEY = 'simnet_workbench_state_v5';
 const AI_RUNTIME_CONFIG_KEY = 'simnet_workbench_ai_runtime_v1';
+const PERF_CONTROL_KEY = 'simnet_workbench_performance_control_v1';
+const PERF_SESSION_DURATION_MS = 30 * 60 * 1000;
+const CRM_TAB_URLS = [
+  'https://userside.simnet.kiev.ua/*',
+  'https://admin.simnet.kiev.ua/*',
+  'https://admin.looknet.kiev.ua/*'
+];
+let currentPerformanceSession = null;
+let performanceRefreshTimer = null;
 versionNode.textContent = `v${VERSION}`;
 
 const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -59,6 +75,164 @@ function renderAiStatus(aiRuntime) {
   groqKeyBadgeNode.className = configured ? 'mini-badge ok' : 'mini-badge';
 }
 
+async function runtimeRequest(type, payload = {}) {
+  const response = await Promise.race([
+    chrome.runtime.sendMessage({ type, payload }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${type} timeout`)), 5000))
+  ]);
+  if (!response?.success) throw new Error(response?.error || `${type} failed`);
+  return response.data;
+}
+
+function durationText(ms = 0) {
+  const seconds = Math.max(0, Math.round(Number(ms || 0) / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const tail = seconds % 60;
+  return minutes ? `${minutes} мин ${tail ? `${tail} с` : ''}`.trim() : `${tail} с`;
+}
+
+function metricValue(value, unit) {
+  if (!Number.isFinite(Number(value))) return '—';
+  const number = Number(value);
+  if (unit === 'bytes') return `${(number / (1024 * 1024)).toFixed(number >= 100 * 1024 * 1024 ? 0 : 1)} МБ`;
+  if (unit === 'count') return Math.round(number).toLocaleString('ru-RU');
+  if (unit === 'per_min') return `${number.toFixed(1)}/мин`;
+  if (unit === 'ms' && number >= 1000) return `${(number / 1000).toFixed(2)} с`;
+  return `${Math.round(number)} мс`;
+}
+
+function verdictText(verdict) {
+  if (verdict === 'degraded') return 'Есть заметная деградация';
+  if (verdict === 'watch') return 'Есть один растущий показатель';
+  if (verdict === 'stable') return 'Скорость остаётся стабильной';
+  return 'Пока мало данных для сравнения';
+}
+
+function renderPerformanceReport(report = null) {
+  if (!report) {
+    perfReportNode.hidden = true;
+    perfReportNode.innerHTML = '';
+    return;
+  }
+  const visibleKeys = new Set([
+    'navigation.load',
+    'resource.average',
+    'workbench.ready',
+    'memory.used',
+    'storage.used',
+    'dom.nodes',
+    'runtime.long_tasks'
+  ]);
+  const metrics = (report.metrics || [])
+    .filter(metric => visibleKeys.has(metric.key) && metric.state !== 'unknown')
+    .slice(0, 6);
+  const route = (report.routes || []).find(item => item.currentAvgMs != null) || report.routes?.[0] || null;
+  const pageRoute = (report.pageRoutes || []).find(item => item.currentAvgMs != null) || report.pageRoutes?.[0] || null;
+  const operation = (report.operations || []).find(item => item.currentAvgMs != null) || null;
+  const confidence = report.confidence === 'high' ? 'высокая' : report.confidence === 'medium' ? 'средняя' : 'низкая';
+  perfReportNode.innerHTML = `
+    <div class="perf-verdict ${esc(report.verdict || 'insufficient')}">${esc(verdictText(report.verdict))} · уверенность ${confidence}</div>
+    ${metrics.map(metric => {
+      const delta = metric.deltaPercent != null && Number.isFinite(Number(metric.deltaPercent))
+        ? ` (${metric.deltaPercent > 0 ? '+' : ''}${Math.round(metric.deltaPercent)}%)`
+        : '';
+      return `<div class="perf-metric" data-state="${esc(metric.state)}"><span>${esc(metric.label)}</span><b>${esc(metricValue(metric.baseline, metric.unit))} → ${esc(metricValue(metric.current, metric.unit))}${esc(delta)}</b></div>`;
+    }).join('')}
+    ${pageRoute ? `<div class="perf-route">Страница: <b>${esc(pageRoute.route)}</b> · ${esc(metricValue(pageRoute.currentAvgMs ?? pageRoute.maxMs, 'ms'))}${pageRoute.deltaPercent != null && Number.isFinite(Number(pageRoute.deltaPercent)) ? ` · ${pageRoute.deltaPercent > 0 ? '+' : ''}${Math.round(pageRoute.deltaPercent)}%` : ''}</div>` : ''}
+    ${route ? `<div class="perf-route">Запрос: <b>${esc(route.route)}</b> · ${esc(metricValue(route.currentAvgMs ?? route.maxMs, 'ms'))}${route.deltaPercent != null && Number.isFinite(Number(route.deltaPercent)) ? ` · ${route.deltaPercent > 0 ? '+' : ''}${Math.round(route.deltaPercent)}%` : ''}</div>` : ''}
+    ${operation ? `<div class="perf-route">Операция Workbench: <b>${esc(operation.metric)}</b> · ${esc(metricValue(operation.currentAvgMs, 'ms'))}${operation.deltaPercent != null && Number.isFinite(Number(operation.deltaPercent)) ? ` · ${operation.deltaPercent > 0 ? '+' : ''}${Math.round(operation.deltaPercent)}%` : ''}</div>` : ''}
+  `;
+  perfReportNode.hidden = false;
+}
+
+function renderPerformanceSession(session = null) {
+  currentPerformanceSession = session;
+  const status = session?.status || 'idle';
+  if (status === 'active') {
+    const elapsed = Number(session.elapsedMs || 0);
+    const target = Math.max(1, Number(session.targetDurationMs || PERF_SESSION_DURATION_MS));
+    perfBadgeNode.textContent = 'идёт';
+    perfBadgeNode.className = 'mini-badge running';
+    perfStatusNode.textContent = `Прошло ${durationText(elapsed)} · точек ${Number(session.sampleCount || 0)}. Срез уже можно снять.`;
+    perfProgressNode.style.width = `${Math.max(1, Math.min(100, (elapsed / target) * 100))}%`;
+    startPerfNode.hidden = true;
+    finishPerfNode.hidden = false;
+    exportPerfNode.hidden = true;
+    renderPerformanceReport(null);
+    schedulePerformanceRefresh();
+    return;
+  }
+
+  if (status === 'completed') {
+    const report = session.report || null;
+    const verdict = report?.verdict || 'insufficient';
+    perfBadgeNode.textContent = verdict === 'stable' ? 'стабильно' : verdict === 'degraded' ? 'медленнее' : verdict === 'watch' ? 'проверить' : 'мало данных';
+    perfBadgeNode.className = `mini-badge ${verdict === 'stable' ? 'ok' : verdict === 'degraded' ? 'bad' : verdict === 'watch' ? 'warn' : ''}`.trim();
+    perfStatusNode.textContent = `Срез за ${durationText(report?.durationMs || session.elapsedMs)} · точек ${Number(report?.sampleCount || session.sampleCount || 0)} · страниц ${Number(report?.pageLoadCount || 0)} · запросов ${Number(report?.resourceRequestCount || 0)}.`;
+    perfProgressNode.style.width = '100%';
+    startPerfNode.textContent = 'Новый замер · 30 мин';
+    startPerfNode.hidden = false;
+    finishPerfNode.hidden = true;
+    exportPerfNode.hidden = false;
+    renderPerformanceReport(report);
+    schedulePerformanceRefresh();
+    return;
+  }
+
+  perfBadgeNode.textContent = 'не запущен';
+  perfBadgeNode.className = 'mini-badge';
+  perfStatusNode.textContent = 'Можно запустить фоновый замер на время обычной работы.';
+  perfProgressNode.style.width = '0%';
+  startPerfNode.textContent = 'Начать · 30 мин';
+  startPerfNode.hidden = false;
+  finishPerfNode.hidden = true;
+  exportPerfNode.hidden = true;
+  renderPerformanceReport(null);
+  schedulePerformanceRefresh();
+}
+
+function schedulePerformanceRefresh() {
+  clearTimeout(performanceRefreshTimer);
+  performanceRefreshTimer = null;
+  if (currentPerformanceSession?.status !== 'active') return;
+  performanceRefreshTimer = setTimeout(() => {
+    performanceRefreshTimer = null;
+    void refreshPerformanceSession();
+  }, 5000);
+}
+
+async function refreshPerformanceSession() {
+  try {
+    const session = await runtimeRequest('PERF_SESSION_STATUS');
+    renderPerformanceSession(session);
+    return session;
+  } catch (error) {
+    perfBadgeNode.textContent = 'недоступно';
+    perfBadgeNode.className = 'mini-badge bad';
+    perfStatusNode.textContent = `Не удалось прочитать замер: ${short(error?.message || error, 100)}`;
+    return null;
+  }
+}
+
+async function flushActivePerformanceTabs() {
+  const tabs = await chrome.tabs.query({ active: true, url: CRM_TAB_URLS });
+  await Promise.allSettled(tabs.map(tab => (
+    tab.id == null
+      ? Promise.resolve()
+      : chrome.tabs.sendMessage(tab.id, { type: 'PERF_SESSION_FLUSH' })
+  )));
+}
+
+function downloadJson(value, filename) {
+  const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 async function probeWorker() {
   try {
     const ping = await Promise.race([
@@ -79,7 +253,7 @@ async function probeWorker() {
 }
 
 async function load() {
-  const [direct] = await Promise.all([readDirect(), probeWorker()]);
+  const [direct] = await Promise.all([readDirect(), probeWorker(), refreshPerformanceSession()]);
   renderDiagnostics(direct);
   renderAiStatus(direct.aiRuntime);
   const state = direct.state;
@@ -95,9 +269,51 @@ openSettingsNode?.addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
 });
 
+startPerfNode?.addEventListener('click', async () => {
+  if (currentPerformanceSession?.status === 'completed' && !confirm('Начать новый замер? Предыдущий срез будет заменён. При необходимости сначала скачай его JSON.')) return;
+  startPerfNode.disabled = true;
+  try {
+    const session = await runtimeRequest('PERF_SESSION_START', { durationMs: PERF_SESSION_DURATION_MS });
+    renderPerformanceSession(session);
+  } catch (error) {
+    perfStatusNode.textContent = `Не удалось начать замер: ${short(error?.message || error, 100)}`;
+  } finally {
+    startPerfNode.disabled = false;
+  }
+});
+
+finishPerfNode?.addEventListener('click', async () => {
+  finishPerfNode.disabled = true;
+  finishPerfNode.textContent = 'Снимаю…';
+  try {
+    await flushActivePerformanceTabs();
+    const session = await runtimeRequest('PERF_SESSION_FINISH');
+    renderPerformanceSession(session);
+  } catch (error) {
+    perfStatusNode.textContent = `Не удалось снять срез: ${short(error?.message || error, 100)}`;
+  } finally {
+    finishPerfNode.disabled = false;
+    finishPerfNode.textContent = 'Снять срез сейчас';
+  }
+});
+
+exportPerfNode?.addEventListener('click', async () => {
+  exportPerfNode.disabled = true;
+  try {
+    const session = await runtimeRequest('PERF_SESSION_EXPORT');
+    if (!session?.id) throw new Error('Нет сохранённого среза');
+    downloadJson(session, `simnet-workbench-performance-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+  } catch (error) {
+    perfStatusNode.textContent = `Экспорт не выполнен: ${short(error?.message || error, 100)}`;
+  } finally {
+    exportPerfNode.disabled = false;
+  }
+});
+
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== 'local' || !changes?.[AI_RUNTIME_CONFIG_KEY]) return;
-  renderAiStatus(changes[AI_RUNTIME_CONFIG_KEY].newValue || {});
+  if (areaName !== 'local') return;
+  if (changes?.[AI_RUNTIME_CONFIG_KEY]) renderAiStatus(changes[AI_RUNTIME_CONFIG_KEY].newValue || {});
+  if (changes?.[PERF_CONTROL_KEY]) void refreshPerformanceSession();
 });
 
 exportNode.addEventListener('click', async () => {
@@ -172,3 +388,5 @@ load().catch(error => {
   statusNode.textContent = `Ошибка popup · ${error?.message || error}`;
   statusNode.className = 'bad';
 });
+
+window.addEventListener('pagehide', () => clearTimeout(performanceRefreshTimer), { once: true });
