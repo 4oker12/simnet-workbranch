@@ -344,6 +344,11 @@
 
         const action = event.target.closest('[data-action]')?.dataset.action;
         if (!action) return;
+        WB.perf?.record?.('ui.click', 0, { surface: 'rail', action }, {
+          status: 'ok',
+          persist: false,
+          persistSlow: false
+        });
 
         if (action === 'view-live') {
           this.activeView = this.activeView === 'live' ? null : 'live';

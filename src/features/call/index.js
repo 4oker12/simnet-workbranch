@@ -401,15 +401,19 @@ function candidateForIdentity(snapshot = null, identity = {}) {
   return (snapshot?.candidates || []).find(candidate => overlap(candidate.identity || {}, identity)) || null;
 }
 
-function candidateMatch(candidate = null) {
+function candidateMatch(candidate = null, call = {}) {
   const confidence = Number(candidate?.confidence || 0);
   const conflict = candidate?.hardConflict === true;
-  const level = conflict ? 'conflict' : confidence >= 80 ? 'strong' : confidence >= 55 ? 'supporting' : confidence > 0 ? 'weak' : 'none';
+  const ambiguous = !digits(call?.customerId, 14)
+    && Array.isArray(call?.customerCandidates)
+    && call.customerCandidates.filter(item => digits(item?.customerId, 14)).length > 1;
+  const level = conflict ? 'conflict' : ambiguous ? 'supporting' : confidence >= 80 ? 'strong' : confidence >= 55 ? 'supporting' : confidence > 0 ? 'weak' : 'none';
   return {
     level,
-    correlationLevel: level === 'supporting' ? 'secondary' : level,
+    correlationLevel: ambiguous ? 'ambiguous' : level === 'supporting' ? 'secondary' : level,
     correlationScore: Number(candidate?.rawScore || 0),
     confidence,
+    ambiguous,
     correlationReasons: candidate?.reasons || [],
     matchedBy: candidate?.authoritative ? ['customer'] : [],
     conflicts: conflict ? ['customer'] : [],
@@ -418,7 +422,61 @@ function candidateMatch(candidate = null) {
   };
 }
 
-function decorateCandidate(candidate = {}, currentIdentity = {}) {
+export function callLinkTier(call = {}, candidate = null) {
+  const confidence = Math.max(0, Math.min(100, Math.round(Number(candidate?.confidence || 0))));
+  const candidateCustomerId = digits(candidate?.identity?.customerId || candidate?.customerId, 14);
+  const directCustomerId = digits(call?.customerId, 14);
+  const customerCandidateCount = Array.isArray(call?.customerCandidates)
+    ? call.customerCandidates.filter(item => digits(item?.customerId, 14)).length
+    : 0;
+  const hardConflict = candidate?.hardConflict === true;
+
+  if (hardConflict) {
+    return {
+      kind: 'conflict', label: 'Конфликт', shortLabel: 'Конфликт',
+      detail: 'Прямая связь call_list противоречит выбранному абоненту', diagnosticScore: confidence
+    };
+  }
+  // UserSide supplies call.customerId only when the row contains exactly one
+  // CUSTOMER. This is the sole UI tier allowed to look like a percentage.
+  if (directCustomerId && candidate?.authoritative === true && candidateCustomerId === directCustomerId) {
+    return {
+      kind: 'direct', label: '100%', shortLabel: '100%',
+      detail: 'Один CUSTOMER напрямую указан в UserSide call_list', diagnosticScore: 100
+    };
+  }
+  if (!directCustomerId && customerCandidateCount > 1) {
+    return {
+      kind: 'ambiguous', label: 'Неоднозначно', shortLabel: 'Неоднозначно',
+      detail: `UserSide call_list указал несколько абонентов: ${customerCandidateCount}`,
+      diagnosticScore: confidence
+    };
+  }
+  if (confidence >= 80) {
+    return {
+      kind: 'strong', label: 'Сильные признаки', shortLabel: 'Сильные',
+      detail: 'Косвенные признаки Workbench согласуются, но прямой связи call_list нет', diagnosticScore: confidence
+    };
+  }
+  if (confidence >= 55) {
+    return {
+      kind: 'supporting', label: 'Есть признаки', shortLabel: 'Признаки',
+      detail: 'Есть несколько косвенных признаков Workbench', diagnosticScore: confidence
+    };
+  }
+  if (confidence > 0) {
+    return {
+      kind: 'weak', label: 'Слабые признаки', shortLabel: 'Слабо',
+      detail: 'Косвенных признаков недостаточно для уверенной связи', diagnosticScore: confidence
+    };
+  }
+  return {
+    kind: 'none', label: 'Нет связи', shortLabel: 'Нет связи',
+    detail: 'Абонент для звонка не определён', diagnosticScore: 0
+  };
+}
+
+function decorateCandidate(candidate = {}, currentIdentity = {}, call = {}) {
   const identity = normalizeCallIdentity(candidate.identity || {});
   return {
     ...cloneJson(candidate),
@@ -426,7 +484,8 @@ function decorateCandidate(candidate = {}, currentIdentity = {}) {
     subscriberId: identity.contract || identity.customerId || identity.billingId,
     score: Number(candidate.rawScore || 0),
     isCurrentCase: overlap(identity, currentIdentity),
-    label: identity.fullName || identity.login || (identity.contract ? `abon${identity.contract}` : identity.customerId || identity.billingId)
+    label: identity.fullName || identity.login || (identity.contract ? `abon${identity.contract}` : identity.customerId || identity.billingId),
+    linkTier: callLinkTier(call, candidate)
   };
 }
 
@@ -457,24 +516,31 @@ function query(state, payload = {}, options = {}) {
       frozenCandidateCount: frozenSnapshot?.candidates?.length || 0,
       candidateCount: snapshot?.candidates?.length || 0,
       topConfidence: Number(snapshot?.candidates?.[0]?.confidence || 0),
-      topCandidate: snapshot?.candidates?.[0] ? decorateCandidate(snapshot.candidates[0], currentIdentity) : null,
-      match: candidateMatch(candidate),
+      topCandidate: snapshot?.candidates?.[0] ? decorateCandidate(snapshot.candidates[0], currentIdentity, call) : null,
+      match: candidateMatch(candidate, call),
       binding: binding ? { ...cloneJson(binding), registrationState: registrationState(binding) } : null,
       outcome: callState.outcomes.byCall?.[call.callKey] ? cloneJson(callState.outcomes.byCall[call.callKey]) : null
     };
   });
+  const authoritativeRefresh = payload?.refresh?.refreshed === true;
+  const authoritativeKey = canonicalCallKey(payload?.refresh?.focusCallKey || '');
   const requestedKey = canonicalCallKey(payload.focusCallKey || '');
-  let focusCall = requestedKey ? calls.find(call => call.callKey === requestedKey) || null : calls[0] || null;
+  // A fresh filtered call_list response owns focus for this click. It selects
+  // the active 6047 row when the native phone says LIVE, otherwise the newest
+  // completed row. Cached history or an old requested key cannot override it.
+  let focusCall = authoritativeRefresh
+    ? (authoritativeKey ? calls.find(call => call.callKey === authoritativeKey) || null : null)
+    : (requestedKey ? calls.find(call => call.callKey === requestedKey) || null : calls[0] || null);
   const previewAlreadyStored = Boolean(callState.preview?.callKey && calls.some(call => call.callKey === callState.preview.callKey));
   const preview = !previewAlreadyStored && callState.preview && Number(callState.preview.startedAtMs || 0) > Number(focusCall?.startedAtMs || 0)
-    ? { ...cloneJson(callState.preview), snapshotStatus: 'live', snapshotKind: 'live', registrationReady: true, binding: null, bindable: false, match: candidateMatch(null) }
+    ? { ...cloneJson(callState.preview), snapshotStatus: 'live', snapshotKind: 'live', registrationReady: true, binding: null, bindable: false, match: candidateMatch(null, callState.preview) }
     : null;
-  if (!requestedKey && preview) focusCall = preview;
+  if ((authoritativeRefresh || !requestedKey) && preview) focusCall = preview;
   const focusFrozenSnapshot = focusCall?.callKey ? getSnapshot(callState.snapshots, focusCall.callKey) : null;
   const focusSnapshot = focusCall?.callKey
     ? (focusFrozenSnapshot || liveSnapshotForCall(focusCall, callState.evidence, atMs))
     : null;
-  const focusCandidates = (focusSnapshot?.candidates || []).map(candidate => decorateCandidate(candidate, currentIdentity));
+  const focusCandidates = (focusSnapshot?.candidates || []).map(candidate => decorateCandidate(candidate, currentIdentity, focusCall));
   const currentCaseCandidate = focusCandidates.find(candidate => candidate.isCurrentCase) || null;
 
   const today = localDateKey(atMs);
@@ -496,7 +562,9 @@ function query(state, payload = {}, options = {}) {
     frozenCandidateCount: call.frozenCandidateCount,
     candidateCount: call.candidateCount || 0,
     topConfidence: call.topConfidence,
+    topLinkTier: call.topCandidate?.linkTier || callLinkTier(call, null),
     topCandidateLabel: call.topCandidate?.label || call.topCandidate?.fullName || call.topCandidate?.login || '',
+    customerCandidateCount: Array.isArray(call.customerCandidates) ? call.customerCandidates.length : 0,
     direction: call.direction || '',
     caseId: call.binding?.identity?.caseId || '',
     caseLabel: call.binding?.caseLabel || '',
@@ -508,7 +576,9 @@ function query(state, payload = {}, options = {}) {
       callKey: '', usersideCallId: preview.usersideCallId || '', date: preview.date || today, time: preview.time || '',
       startedAtMs: preview.startedAtMs, duration: '', durationSeconds: 0, callerMasked: preview.callerMasked || '',
       agentExtension: preview.agentExtension || '', registrationStatus: 'ongoing', registrationSource: 'unknown',
-      snapshotStatus: 'none', frozenCandidateCount: 0, topConfidence: 0, caseId: '', caseLabel: '', customerId: ''
+      snapshotStatus: 'none', frozenCandidateCount: 0, topConfidence: 0,
+      topLinkTier: callLinkTier(preview, null), customerCandidateCount: 0,
+      caseId: '', caseLabel: '', customerId: ''
     });
   }
 
@@ -564,6 +634,12 @@ function bind(state, payload = {}, sender = {}, options = {}) {
   const override = payload.operatorOverride === true && payload.overrideAcknowledged === true;
   if (!candidate && !override) throw new Error('Выбранный абонент отсутствует в frozen snapshot');
   if (candidate?.hardConflict && !override) throw new Error('Hard identity conflict требует явного подтверждения');
+  if (!digits(call.customerId, 14)
+      && Array.isArray(call.customerCandidates)
+      && call.customerCandidates.filter(item => digits(item?.customerId, 14)).length > 1
+      && !override) {
+    throw new Error('UserSide call_list указал несколько абонентов; требуется явное подтверждение оператора');
+  }
   if (candidate && Number(candidate.confidence || 0) < 80 && !override) {
     throw new Error('Кандидат недостаточно подтверждён; требуется явное подтверждение оператора');
   }
@@ -599,7 +675,7 @@ function bind(state, payload = {}, sender = {}, options = {}) {
     at: nowIso
   });
   callState.updatedAt = nowIso;
-  return { accepted: true, alreadyBound: result.existing, binding: cloneJson(result.binding), call: cloneJson(call), candidate: candidate ? cloneJson(candidate) : null, match: candidateMatch(candidate) };
+  return { accepted: true, alreadyBound: result.existing, binding: cloneJson(result.binding), call: cloneJson(call), candidate: candidate ? cloneJson(candidate) : null, match: candidateMatch(candidate, call) };
 }
 
 export function createCallModule(dependencies = {}) {

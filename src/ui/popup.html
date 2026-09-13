@@ -12,18 +12,15 @@
 
   <section class="perf-card">
     <div class="perf-head">
-      <div><b>Замер нагрузки</b><small>начало ↔ конец</small></div>
-      <span id="perfBadge" class="mini-badge">не запущен</span>
+      <div><b>Фоновая производительность</b><small>страницы · запросы · действия Workbench</small></div>
+      <span id="perfBadge" class="mini-badge">запуск</span>
     </div>
-    <div id="perfStatus" class="perf-status">Можно запустить фоновый замер на время обычной работы.</div>
-    <div class="perf-progress"><span id="perfProgress"></span></div>
+    <div id="perfStatus" class="perf-status">Фоновый сбор запускается автоматически.</div>
     <div id="perfReport" class="perf-report" hidden></div>
     <div class="perf-actions">
-      <button id="startPerf" type="button">Начать · 30 мин</button>
-      <button id="finishPerf" class="secondary" type="button" hidden>Снять срез сейчас</button>
-      <button id="exportPerf" class="secondary" type="button" hidden>Скачать JSON</button>
+      <button id="exportPerf" type="button">Снять слепок и скачать</button>
     </div>
-    <p class="perf-note">Остановить можно раньше. Записываются только агрегаты скорости и обезличенные маршруты без query-параметров.</p>
+    <p class="perf-note">Работает постоянно. Слепок не останавливает сбор. В JSON входят загрузки страниц, запросы и точная хронология действий с длительностью в мс; идентификаторы абонентов и query-параметры не сохраняются.</p>
   </section>
 
   <section class="ai-settings">

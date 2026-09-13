@@ -4,7 +4,9 @@ import {
   PERFORMANCE_CONTROL_STORAGE_KEY,
   createPerformanceSession,
   appendPerformanceSample,
-  finalizePerformanceSession,
+  createPerformanceSnapshot,
+  ensureContinuousPerformanceSession,
+  isContinuousPerformanceSession,
   performanceSessionControl,
   performanceSessionOverview
 } from './session-model.js';
@@ -30,20 +32,25 @@ async function saveSession(session, updateControl = false) {
   return session;
 }
 
-function deadlinePassed(session, nowMs = Date.now()) {
-  return session?.status === 'active' && nowMs >= new Date(session.plannedEndAt).getTime();
+function continuousSession(current = null, nowMs = Date.now()) {
+  if (isContinuousPerformanceSession(current)) return { session: current, changed: false };
+  return {
+    session: ensureContinuousPerformanceSession(current, {
+      nowMs,
+      version: chrome.runtime.getManifest().version
+    }),
+    changed: true
+  };
 }
 
 async function sessionStart(payload = {}) {
   return serialized(async () => {
     const nowMs = Date.now();
     const current = await readSession();
-    if (current?.status === 'active') return performanceSessionOverview(current, nowMs);
-    const session = createPerformanceSession({
-      nowMs,
-      durationMs: payload.durationMs,
-      version: chrome.runtime.getManifest().version
-    });
+    if (isContinuousPerformanceSession(current) && payload.reset !== true) {
+      return performanceSessionOverview(current, nowMs);
+    }
+    const session = createPerformanceSession({ nowMs, version: chrome.runtime.getManifest().version });
     await saveSession(session, true);
     return performanceSessionOverview(session, nowMs);
   });
@@ -52,8 +59,11 @@ async function sessionStart(payload = {}) {
 async function sessionSample(payload = {}, sender = {}) {
   return serialized(async () => {
     const nowMs = Date.now();
-    const current = await readSession();
-    if (!current?.id || current.status !== 'active') {
+    const stored = await readSession();
+    const ensured = continuousSession(stored, nowMs);
+    const current = ensured.session;
+    if (ensured.changed) await saveSession(current, true);
+    if (!current?.id) {
       return { ...performanceSessionOverview(current, nowMs), accepted: false, reason: 'not-active' };
     }
     if (String(payload.sessionId || '') !== String(current.id)) {
@@ -63,8 +73,7 @@ async function sessionSample(payload = {}, sender = {}) {
       ...(payload.sample || {}),
       tabId: sender?.tab?.id
     }, { nowMs });
-    const completed = current.status !== next.status;
-    await saveSession(next, completed);
+    await saveSession(next, false);
     return { ...performanceSessionOverview(next, nowMs), accepted: true };
   });
 }
@@ -72,36 +81,28 @@ async function sessionSample(payload = {}, sender = {}) {
 async function sessionStatus() {
   return serialized(async () => {
     const nowMs = Date.now();
-    let session = await readSession();
-    if (deadlinePassed(session, nowMs)) {
-      session = finalizePerformanceSession(session, { nowMs, reason: 'deadline' });
-      await saveSession(session, true);
-    }
+    const ensured = continuousSession(await readSession(), nowMs);
+    const session = ensured.session;
+    if (ensured.changed) await saveSession(session, true);
     return performanceSessionOverview(session, nowMs);
   });
 }
 
 async function sessionFinish() {
-  return serialized(async () => {
-    const nowMs = Date.now();
-    let session = await readSession();
-    if (session?.status === 'active') {
-      session = finalizePerformanceSession(session, { nowMs, reason: 'operator' });
-      await saveSession(session, true);
-    }
-    return performanceSessionOverview(session, nowMs);
-  });
+  return sessionExport();
 }
 
 async function sessionExport() {
   return serialized(async () => {
     const nowMs = Date.now();
-    let session = await readSession();
-    if (deadlinePassed(session, nowMs)) {
-      session = finalizePerformanceSession(session, { nowMs, reason: 'deadline' });
-      await saveSession(session, true);
-    }
-    return session;
+    const ensured = continuousSession(await readSession(), nowMs);
+    const session = ensured.session;
+    const snapshot = createPerformanceSnapshot(session, { nowMs, reason: 'operator-snapshot' });
+    session.lastSnapshotAt = snapshot.snapshotAt;
+    session.lastSnapshotReport = snapshot.report;
+    session.updatedAt = new Date(nowMs).toISOString();
+    await saveSession(session, ensured.changed);
+    return snapshot;
   });
 }
 
@@ -124,4 +125,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
   );
   return true;
+});
+
+// Loading the MV3 worker is enough to arm the passive recorder. Opening the
+// popup is never required; the control update wakes every supported CRM tab.
+void serialized(async () => {
+  const nowMs = Date.now();
+  const ensured = continuousSession(await readSession(), nowMs);
+  if (ensured.changed) await saveSession(ensured.session, true);
+}).catch(error => {
+  console.error('[SIMNET WB][PERF][AUTO_START]', error);
 });

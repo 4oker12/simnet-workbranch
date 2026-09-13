@@ -20,7 +20,7 @@ test('the passive probe is loaded on every supported CRM page', () => {
   assert.match(probe, /getBytesInUse/);
 });
 
-test('performance sessions use an explicit bounded message contract', () => {
+test('performance sessions use an explicit continuous message contract', () => {
   for (const type of [
     'PERF_SESSION_START',
     'PERF_SESSION_SAMPLE',
@@ -33,16 +33,25 @@ test('performance sessions use an explicit bounded message contract', () => {
   }
   assert.match(background, /serialized/);
   assert.match(background, /session-mismatch/);
+  assert.match(background, /AUTO_START/);
+  assert.doesNotMatch(background, /deadlinePassed/);
 });
 
-test('popup can start, stop early and export the completed snapshot', () => {
-  assert.match(popupHtml, /Начать · 30 мин/);
-  assert.match(popupHtml, /Снять срез сейчас/);
-  assert.match(popupHtml, /Скачать JSON/);
-  assert.match(popupJs, /PERF_SESSION_START/);
-  assert.match(popupJs, /PERF_SESSION_FINISH/);
+test('popup creates an on-demand snapshot while passive collection keeps running', () => {
+  assert.match(popupHtml, /Фоновая производительность/);
+  assert.match(popupHtml, /Снять слепок и скачать/);
+  assert.match(popupHtml, /Слепок не останавливает сбор/);
+  assert.doesNotMatch(popupHtml, /30 мин/);
   assert.match(popupJs, /PERF_SESSION_EXPORT/);
   assert.match(popupJs, /PERF_SESSION_FLUSH/);
+  assert.doesNotMatch(popupJs, /PERF_SESSION_DURATION_MS/);
+  assert.doesNotMatch(probe, /sessionDeadlineTimer/);
+});
+
+test('exact Workbench action timings are retained in the exported timeline', () => {
+  assert.match(probe, /captureSessionOperation/);
+  assert.match(probe, /operations:\s*rotated\.operations/);
+  assert.match(popupHtml, /точная хронология действий/);
 });
 
 test('route collection strips identifiers and does not retain query strings', () => {

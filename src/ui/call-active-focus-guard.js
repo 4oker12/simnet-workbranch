@@ -64,10 +64,14 @@
     return liveListState;
   }
 
-  function nativeActive() {
-    if (!activeState?.active || activeState.agentExtension !== OPERATOR_EXTENSION) return false;
+  function nativeStateRecent() {
+    if (!activeState || activeState.agentExtension !== OPERATOR_EXTENSION) return false;
     const age = nowMs() - Number(activeState.observedAtMs || 0);
     return age >= 0 && age <= NATIVE_TTL_MS;
+  }
+
+  function nativeActive() {
+    return nativeStateRecent() && activeState?.active === true;
   }
 
   function liveStateRecent() {
@@ -85,6 +89,10 @@
   function currentLiveCall() {
     const call = liveListState?.call;
     if (!liveListState?.active || !call) return null;
+    // A fresh native phone state is stronger than the slower call_list DOM
+    // bridge. Once the phone reports idle, a stale LIVE row must not survive
+    // for the fallback TTL and replace the newest completed call.
+    if (nativeStateRecent() && activeState?.active !== true) return null;
     if (callMatchesNative(call) || liveStateRecent()) return { ...call };
     return null;
   }
@@ -100,7 +108,12 @@
   }
 
   function isActive() {
-    return nativeActive() || Boolean(currentLiveCall());
+    if (nativeStateRecent()) return activeState?.active === true;
+    return Boolean(currentLiveCall());
+  }
+
+  function activityKnown() {
+    return nativeStateRecent() || liveStateRecent();
   }
 
   function liveCustomerSignature(call = {}) {
@@ -191,23 +204,37 @@
     );
   }
 
-  function candidateFromIdentity(registration, call, identity = null) {
+  function candidateFromIdentity(registration, call, identity = null, options = {}) {
     if (!identity) return null;
     const current = caseIdentity(registration);
     const isCurrentCase = identityMatchesCase(identity, current);
     const { customerId, contract, login, fullName } = identity;
+    const ambiguous = options.ambiguous === true;
     return {
       customerId,
       contract,
       login,
       fullName,
       label: String(fullName || login || (contract ? `abon${contract}` : (customerId ? `Customer ${customerId}` : 'Абонент из call_list'))),
-      confidence: 100,
-      rawScore: 250,
-      score: 250,
-      authoritative: true,
+      confidence: ambiguous ? 79 : 100,
+      rawScore: ambiguous ? 139 : 250,
+      score: ambiguous ? 139 : 250,
+      authoritative: !ambiguous,
       isCurrentCase,
-      reasons: ['customer-match'],
+      reasons: ambiguous ? ['call-list-ambiguous', 'current-case'] : ['customer-match'],
+      linkTier: ambiguous ? {
+        kind: 'ambiguous',
+        label: 'Неоднозначно',
+        shortLabel: 'Неоднозначно',
+        detail: `UserSide call_list указал несколько абонентов: ${Math.max(2, Number(options.count || 0))}`,
+        diagnosticScore: 79
+      } : {
+        kind: 'direct',
+        label: '100%',
+        shortLabel: '100%',
+        detail: 'Один CUSTOMER напрямую указан в UserSide call_list',
+        diagnosticScore: 100
+      },
       evidence: [{
         type: 'CALL_LIST_LIVE_CUSTOMER',
         source: 'userside',
@@ -229,7 +256,7 @@
       const labels = identities.map(identity => identity.login || (identity.contract ? `abon${identity.contract}` : identity.fullName || identity.customerId)).filter(Boolean);
       if (matching.length === 1) {
         return {
-          candidate: candidateFromIdentity(registration, call, matching[0]),
+          candidate: candidateFromIdentity(registration, call, matching[0], { ambiguous: true, count: identities.length }),
           ambiguous: true,
           count: identities.length,
           labels,
@@ -287,7 +314,27 @@
 
   function hardEnforce(registration) {
     if (!registration || !isActive()) {
-      if (registration) registration.__wbActiveCallPending = false;
+      if (registration) {
+        registration.__wbActiveCallPending = false;
+        // When the native phone explicitly says there is no active call, a
+        // just-finished row may still satisfy the minute-level call_list clock
+        // heuristic for several seconds. Keep the fresh selected row, but show
+        // it as the latest completed call instead of a false LIVE call.
+        if (activityKnown() && registration.focusCall?.ongoing === true && Number(registration.focusCall?.durationSeconds || 0) > 0) {
+          const completed = {
+            ...registration.focusCall,
+            ongoing: false,
+            status: 'completed',
+            bindable: Boolean(registration.focusCall.callKey),
+            snapshotStatus: registration.focusCall.snapshotStatus === 'live' ? 'pending' : registration.focusCall.snapshotStatus,
+            snapshotKind: registration.focusCall.snapshotKind === 'live' ? 'pending' : registration.focusCall.snapshotKind
+          };
+          registration.focusCall = completed;
+          registration.pbxCalls = (registration.pbxCalls || []).map(call => (
+            sameLiveCall(call, completed) ? { ...call, ...completed } : call
+          ));
+        }
+      }
       return false;
     }
 
@@ -475,7 +522,7 @@
 
   WB.callActiveFocusGuard = Object.freeze({
     isActive: () => { syncProbes(); return isActive(); },
-    state: () => ({ active: isActive(), native: activeState ? { ...activeState } : null, liveList: liveListState ? { ...liveListState } : null }),
+    state: () => ({ known: activityKnown(), active: isActive(), native: activeState ? { ...activeState } : null, liveList: liveListState ? { ...liveListState } : null }),
     enforce: () => { syncProbes(); return hardEnforce(patchedRegistration); },
     destroy() {
       stopped = true;

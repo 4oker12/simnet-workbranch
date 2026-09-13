@@ -34,11 +34,14 @@ test('registration header identifies the call, not merely the currently opened s
   assert.doesNotMatch(identityUx, /caseSnapshot\?\.fullName|caseSnapshot\?\.contract/);
 });
 
-test('history exposes canonical CALL to PBX linkage and subtle inferred-source marker', () => {
+test('history exposes canonical CALL to PBX linkage and non-probability evidence tiers', () => {
   assert.match(identityUx, /UserSide CALL #\$\{callId\}/);
   assert.match(identityUx, /PBX recordId \$\{recordId\}/);
   assert.match(identityUx, /digits\(call\.customerId, 14\).*return 'direct'/s);
   assert.match(identityUx, /return 'inferred'/);
-  assert.match(identityUx, /◇ WB/);
+  assert.match(identityUx, /Сильные признаки/);
+  assert.match(identityUx, /косвенные признаки Workbench, не вероятность/);
+  assert.doesNotMatch(identityUx, /WB\$\{confidence[^\n]*%/);
+  assert.match(identityUx, /markerText = markerKind === 'manual' \? 'm' : '◇'/);
   assert.match(identityUx, /PBX ✓/);
 });

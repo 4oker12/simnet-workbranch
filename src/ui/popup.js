@@ -11,10 +11,7 @@ const groqKeyBadgeNode = document.getElementById('groqKeyBadge');
 const openSettingsNode = document.getElementById('openSettings');
 const perfBadgeNode = document.getElementById('perfBadge');
 const perfStatusNode = document.getElementById('perfStatus');
-const perfProgressNode = document.getElementById('perfProgress');
 const perfReportNode = document.getElementById('perfReport');
-const startPerfNode = document.getElementById('startPerf');
-const finishPerfNode = document.getElementById('finishPerf');
 const exportPerfNode = document.getElementById('exportPerf');
 const VERSION = chrome.runtime.getManifest().version;
 const DIAG_KEY = 'simnet_workbench_diagnostics_v1';
@@ -22,7 +19,6 @@ const FALLBACK_KEY = 'simnet_workbench_diagnostics_fallback_v1';
 const STATE_KEY = 'simnet_workbench_state_v5';
 const AI_RUNTIME_CONFIG_KEY = 'simnet_workbench_ai_runtime_v1';
 const PERF_CONTROL_KEY = 'simnet_workbench_performance_control_v1';
-const PERF_SESSION_DURATION_MS = 30 * 60 * 1000;
 const CRM_TAB_URLS = [
   'https://userside.simnet.kiev.ua/*',
   'https://admin.simnet.kiev.ua/*',
@@ -128,7 +124,7 @@ function renderPerformanceReport(report = null) {
     .slice(0, 6);
   const route = (report.routes || []).find(item => item.currentAvgMs != null) || report.routes?.[0] || null;
   const pageRoute = (report.pageRoutes || []).find(item => item.currentAvgMs != null) || report.pageRoutes?.[0] || null;
-  const operation = (report.operations || []).find(item => item.currentAvgMs != null) || null;
+  const operation = (report.operations || [])[0] || null;
   const confidence = report.confidence === 'high' ? 'высокая' : report.confidence === 'medium' ? 'средняя' : 'низкая';
   perfReportNode.innerHTML = `
     <div class="perf-verdict ${esc(report.verdict || 'insufficient')}">${esc(verdictText(report.verdict))} · уверенность ${confidence}</div>
@@ -140,7 +136,7 @@ function renderPerformanceReport(report = null) {
     }).join('')}
     ${pageRoute ? `<div class="perf-route">Страница: <b>${esc(pageRoute.route)}</b> · ${esc(metricValue(pageRoute.currentAvgMs ?? pageRoute.maxMs, 'ms'))}${pageRoute.deltaPercent != null && Number.isFinite(Number(pageRoute.deltaPercent)) ? ` · ${pageRoute.deltaPercent > 0 ? '+' : ''}${Math.round(pageRoute.deltaPercent)}%` : ''}</div>` : ''}
     ${route ? `<div class="perf-route">Запрос: <b>${esc(route.route)}</b> · ${esc(metricValue(route.currentAvgMs ?? route.maxMs, 'ms'))}${route.deltaPercent != null && Number.isFinite(Number(route.deltaPercent)) ? ` · ${route.deltaPercent > 0 ? '+' : ''}${Math.round(route.deltaPercent)}%` : ''}</div>` : ''}
-    ${operation ? `<div class="perf-route">Операция Workbench: <b>${esc(operation.metric)}</b> · ${esc(metricValue(operation.currentAvgMs, 'ms'))}${operation.deltaPercent != null && Number.isFinite(Number(operation.deltaPercent)) ? ` · ${operation.deltaPercent > 0 ? '+' : ''}${Math.round(operation.deltaPercent)}%` : ''}</div>` : ''}
+    ${operation ? `<div class="perf-route">Действие: <b>${esc(operation.label || operation.metric)}</b> · последнее ${esc(metricValue(operation.lastMs ?? operation.currentAvgMs, 'ms'))} · среднее ${esc(metricValue(operation.avgMs ?? operation.currentAvgMs, 'ms'))} · максимум ${esc(metricValue(operation.maxMs, 'ms'))}</div>` : ''}
   `;
   perfReportNode.hidden = false;
 }
@@ -150,43 +146,22 @@ function renderPerformanceSession(session = null) {
   const status = session?.status || 'idle';
   if (status === 'active') {
     const elapsed = Number(session.elapsedMs || 0);
-    const target = Math.max(1, Number(session.targetDurationMs || PERF_SESSION_DURATION_MS));
-    perfBadgeNode.textContent = 'идёт';
+    const retained = Number(session.sampleCount || 0);
+    const total = Math.max(retained, Number(session.totalSampleCount || 0));
+    const dropped = Math.max(0, Number(session.droppedSampleCount || 0));
+    perfBadgeNode.textContent = 'фон';
     perfBadgeNode.className = 'mini-badge running';
-    perfStatusNode.textContent = `Прошло ${durationText(elapsed)} · точек ${Number(session.sampleCount || 0)}. Срез уже можно снять.`;
-    perfProgressNode.style.width = `${Math.max(1, Math.min(100, (elapsed / target) * 100))}%`;
-    startPerfNode.hidden = true;
-    finishPerfNode.hidden = false;
-    exportPerfNode.hidden = true;
-    renderPerformanceReport(null);
-    schedulePerformanceRefresh();
-    return;
-  }
-
-  if (status === 'completed') {
-    const report = session.report || null;
-    const verdict = report?.verdict || 'insufficient';
-    perfBadgeNode.textContent = verdict === 'stable' ? 'стабильно' : verdict === 'degraded' ? 'медленнее' : verdict === 'watch' ? 'проверить' : 'мало данных';
-    perfBadgeNode.className = `mini-badge ${verdict === 'stable' ? 'ok' : verdict === 'degraded' ? 'bad' : verdict === 'watch' ? 'warn' : ''}`.trim();
-    perfStatusNode.textContent = `Срез за ${durationText(report?.durationMs || session.elapsedMs)} · точек ${Number(report?.sampleCount || session.sampleCount || 0)} · страниц ${Number(report?.pageLoadCount || 0)} · запросов ${Number(report?.resourceRequestCount || 0)}.`;
-    perfProgressNode.style.width = '100%';
-    startPerfNode.textContent = 'Новый замер · 30 мин';
-    startPerfNode.hidden = false;
-    finishPerfNode.hidden = true;
+    perfStatusNode.textContent = `Фоновый сбор идёт ${durationText(elapsed)} · точек ${total}${dropped ? ` · в JSON сохранены старт и последние ${retained}` : ''}.`;
     exportPerfNode.hidden = false;
-    renderPerformanceReport(report);
+    renderPerformanceReport(session.lastSnapshotReport || null);
     schedulePerformanceRefresh();
     return;
   }
 
-  perfBadgeNode.textContent = 'не запущен';
+  perfBadgeNode.textContent = 'запуск';
   perfBadgeNode.className = 'mini-badge';
-  perfStatusNode.textContent = 'Можно запустить фоновый замер на время обычной работы.';
-  perfProgressNode.style.width = '0%';
-  startPerfNode.textContent = 'Начать · 30 мин';
-  startPerfNode.hidden = false;
-  finishPerfNode.hidden = true;
-  exportPerfNode.hidden = true;
+  perfStatusNode.textContent = 'Фоновый сбор запускается автоматически.';
+  exportPerfNode.hidden = false;
   renderPerformanceReport(null);
   schedulePerformanceRefresh();
 }
@@ -269,44 +244,20 @@ openSettingsNode?.addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
 });
 
-startPerfNode?.addEventListener('click', async () => {
-  if (currentPerformanceSession?.status === 'completed' && !confirm('Начать новый замер? Предыдущий срез будет заменён. При необходимости сначала скачай его JSON.')) return;
-  startPerfNode.disabled = true;
-  try {
-    const session = await runtimeRequest('PERF_SESSION_START', { durationMs: PERF_SESSION_DURATION_MS });
-    renderPerformanceSession(session);
-  } catch (error) {
-    perfStatusNode.textContent = `Не удалось начать замер: ${short(error?.message || error, 100)}`;
-  } finally {
-    startPerfNode.disabled = false;
-  }
-});
-
-finishPerfNode?.addEventListener('click', async () => {
-  finishPerfNode.disabled = true;
-  finishPerfNode.textContent = 'Снимаю…';
-  try {
-    await flushActivePerformanceTabs();
-    const session = await runtimeRequest('PERF_SESSION_FINISH');
-    renderPerformanceSession(session);
-  } catch (error) {
-    perfStatusNode.textContent = `Не удалось снять срез: ${short(error?.message || error, 100)}`;
-  } finally {
-    finishPerfNode.disabled = false;
-    finishPerfNode.textContent = 'Снять срез сейчас';
-  }
-});
-
 exportPerfNode?.addEventListener('click', async () => {
   exportPerfNode.disabled = true;
+  exportPerfNode.textContent = 'Снимаю…';
   try {
-    const session = await runtimeRequest('PERF_SESSION_EXPORT');
-    if (!session?.id) throw new Error('Нет сохранённого среза');
-    downloadJson(session, `simnet-workbench-performance-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+    await flushActivePerformanceTabs();
+    const snapshot = await runtimeRequest('PERF_SESSION_EXPORT');
+    if (!snapshot?.id || snapshot?.status !== 'snapshot') throw new Error('Фоновый журнал не вернул слепок');
+    downloadJson(snapshot, `simnet-workbench-performance-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+    await refreshPerformanceSession();
   } catch (error) {
     perfStatusNode.textContent = `Экспорт не выполнен: ${short(error?.message || error, 100)}`;
   } finally {
     exportPerfNode.disabled = false;
+    exportPerfNode.textContent = 'Снять слепок и скачать';
   }
 });
 

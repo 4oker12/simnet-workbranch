@@ -26,12 +26,12 @@
   let performanceSession = null;
   let sessionInterval = null;
   let sessionInitialTimer = null;
-  let sessionDeadlineTimer = null;
   let sessionResourceObserver = null;
   let sessionFlushInFlight = null;
   let sessionNavigationSent = false;
   let sessionResources = emptyResourceBucket();
   let sessionMetrics = new Map();
+  let sessionOperations = [];
   let lastStorageBytes = null;
   let lastSessionFlushAt = 0;
 
@@ -105,6 +105,7 @@
     samples.unshift(sample);
     if (samples.length > MAX_SAMPLES) samples.length = MAX_SAMPLES;
     captureSessionMetric(sample);
+    captureSessionOperation(sample);
     persist(name, sample, Boolean(options.persist), options.persistSlow !== false);
     return sample;
   }
@@ -383,6 +384,21 @@
     sessionMetrics.set(metric, current);
   }
 
+  function captureSessionOperation(sample = {}) {
+    if (!activePerformanceSession() || document.hidden || destroyed) return;
+    const metric = compact(sample.metric, 80);
+    if (!metric) return;
+    sessionOperations.push({
+      at: String(sample.at || new Date().toISOString()),
+      metric,
+      durationMs: roundMs(sample.durationMs),
+      status: compact(sample.status || 'ok', 40),
+      slow: Boolean(sample.slow),
+      meta: safeMeta(sample.meta)
+    });
+    if (sessionOperations.length > 80) sessionOperations.splice(0, sessionOperations.length - 80);
+  }
+
   function captureSessionResource(entry = {}) {
     if (!activePerformanceSession() || document.hidden || destroyed) return;
     const absoluteStart = Number(globalThis.performance?.timeOrigin || 0) + Number(entry.startTime || 0);
@@ -481,9 +497,11 @@
   function rotateSessionBuckets(capturedAt = Date.now()) {
     const resources = sessionResources;
     const metrics = sessionMetrics;
+    const operations = sessionOperations;
     sessionResources = emptyResourceBucket(capturedAt);
     sessionMetrics = new Map();
-    return { resources, metrics };
+    sessionOperations = [];
+    return { resources, metrics, operations };
   }
 
   function mergeResourceBucket(source) {
@@ -513,6 +531,11 @@
       current.maxDurationMs = Math.max(current.maxDurationMs, Number(item.maxDurationMs || 0));
       sessionMetrics.set(metric, current);
     }
+  }
+
+  function mergeOperationBucket(source) {
+    if (!Array.isArray(source) || !source.length) return;
+    sessionOperations = [...source, ...sessionOperations].slice(-80);
   }
 
   function serializeResources(bucket, capturedAt) {
@@ -574,7 +597,8 @@
           domNodes: document.getElementsByTagName('*').length,
           storageBytes,
           memory: memorySnapshot(),
-          metrics: Array.from(rotated.metrics.values())
+          metrics: Array.from(rotated.metrics.values()),
+          operations: rotated.operations
         };
         const response = await chrome.runtime.sendMessage({
           type: PERFORMANCE_SAMPLE_MESSAGE,
@@ -589,6 +613,7 @@
           if (navigationIncluded) sessionNavigationSent = false;
           mergeResourceBucket(rotated.resources);
           mergeMetricBucket(rotated.metrics);
+          mergeOperationBucket(rotated.operations);
         }
         if (!WB.log?.isContextInvalidated?.(error)) {
           console.warn('[SIMNET WB][PERF] session sample failed', error?.message || error);
@@ -605,15 +630,14 @@
   function stopPerformanceSessionCapture() {
     clearTimeout(sessionInterval);
     clearTimeout(sessionInitialTimer);
-    clearTimeout(sessionDeadlineTimer);
     sessionInterval = null;
     sessionInitialTimer = null;
-    sessionDeadlineTimer = null;
     try { sessionResourceObserver?.disconnect?.(); } catch {}
     sessionResourceObserver = null;
     performanceSession = null;
     sessionResources = emptyResourceBucket();
     sessionMetrics = new Map();
+    sessionOperations = [];
   }
 
   function schedulePerformanceSessionTick() {
@@ -640,6 +664,7 @@
     const startedAt = new Date(control.startedAt).getTime();
     sessionResources = emptyResourceBucket(Math.max(Number(performance.timeOrigin || Date.now()), startedAt || 0));
     sessionMetrics = new Map();
+    sessionOperations = [];
     if (Number(WB.runtime?.bootCompletedAt || 0) > 0) {
       captureSessionMetric({
         metric: 'runtime.workbench_ready',
@@ -648,16 +673,10 @@
     }
     installSessionResourceObserver();
 
-    const deadlineMs = new Date(control.plannedEndAt).getTime() - Date.now();
     sessionInitialTimer = setTimeout(() => {
-      void flushPerformanceSession(deadlineMs <= 0 ? 'deadline' : 'page-entry', { force: deadlineMs <= 0 });
-    }, deadlineMs <= 0 ? 0 : 1200);
+      void flushPerformanceSession('page-entry');
+    }, 1200);
     schedulePerformanceSessionTick();
-    if (Number.isFinite(deadlineMs)) {
-      sessionDeadlineTimer = setTimeout(() => {
-        void flushPerformanceSession('deadline', { force: true });
-      }, Math.max(0, Math.min(0x7fffffff, deadlineMs + 250)));
-    }
   }
 
   function onPerformanceStorageChanged(changes, areaName) {
@@ -730,6 +749,7 @@
     samples.length = 0;
     pending.clear();
     sessionMetrics.clear();
+    sessionOperations.length = 0;
     return true;
   }
 

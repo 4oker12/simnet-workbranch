@@ -17,7 +17,7 @@ globalThis.chrome = {
     }
   },
   runtime: {
-    getManifest() { return { version: '1.7.36.156' }; },
+    getManifest() { return { version: '1.7.36.160' }; },
     onMessage: { addListener(listener) { listeners.push(listener); } }
   }
 };
@@ -34,7 +34,7 @@ function request(type, payload = {}, sender = {}) {
   });
 }
 
-test('background owns the cross-page session and accepts matching samples only', async () => {
+test('background owns the continuous cross-page session and accepts matching samples only', async () => {
   assert.equal(listeners.length, 1);
   const started = await request('PERF_SESSION_START', { durationMs: 30 * 60_000 });
   assert.equal(started.status, 'active');
@@ -60,10 +60,14 @@ test('background owns the cross-page session and accepts matching samples only',
   assert.equal(storage.simnet_workbench_performance_session_v1.samples[0].tabId, 9);
   assert.doesNotMatch(storage.simnet_workbench_performance_session_v1.samples[0].page.route, /123456|secret/);
 
-  const completed = await request('PERF_SESSION_FINISH');
-  assert.equal(completed.status, 'completed');
-  assert.ok(completed.report);
-  assert.equal(storage.simnet_workbench_performance_control_v1.status, 'completed');
+  const snapshot = await request('PERF_SESSION_FINISH');
+  assert.equal(snapshot.status, 'snapshot');
+  assert.ok(snapshot.report);
+  assert.equal(storage.simnet_workbench_performance_control_v1.status, 'active');
+  assert.equal(storage.simnet_workbench_performance_session_v1.status, 'active');
+  assert.equal(storage.simnet_workbench_performance_session_v1.sessionId, undefined);
+  assert.equal(storage.simnet_workbench_performance_session_v1.id, started.sessionId);
+  assert.ok(storage.simnet_workbench_performance_session_v1.lastSnapshotAt);
 });
 
 test('starting again while a session is active returns the same session', async () => {

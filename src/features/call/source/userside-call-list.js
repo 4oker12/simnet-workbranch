@@ -26,19 +26,38 @@ export function looksLikeRunningUsersideCall(row = {}, observedAtMs = Date.now()
   return Math.abs(now - displayedEndMs) <= LIVE_CLOCK_TOLERANCE_MS;
 }
 
-export function parseOwnUsersideCalls(html, operatorExtension = '6047', limit = 240, observedAtMs = Date.now()) {
+export function parseOwnUsersideCalls(html, operatorExtension = '6047', limit = 240, observedAtMs = Date.now(), activity = {}) {
   const rows = parseUsersideCallListHtml(html, {
     operatorExtension,
     completedOnly: false,
     limit,
     allowIdless: true
   });
-  const ongoing = rows.filter(row => looksLikeRunningUsersideCall(row, observedAtMs));
+  const activityKnown = activity?.known === true;
+  const activityActive = activityKnown && activity?.active === true;
+  const talkStartMs = Math.max(0, Number(activity?.talkStartMs || 0));
+  const liveCandidates = rows.filter(row => looksLikeRunningUsersideCall(row, observedAtMs));
+  const ongoing = activityKnown
+    ? (activityActive
+        ? [...(liveCandidates.length ? liveCandidates : rows)]
+            .sort((a, b) => {
+              if (talkStartMs) {
+                const aDistance = Math.abs(Number(a.startedAtMs || 0) - talkStartMs);
+                const bDistance = Math.abs(Number(b.startedAtMs || 0) - talkStartMs);
+                if (aDistance !== bDistance) return aDistance - bDistance;
+              }
+              return Number(b.startedAtMs || 0) - Number(a.startedAtMs || 0);
+            })
+            .slice(0, 1)
+        : [])
+    : liveCandidates;
   const ongoingSet = new Set(ongoing);
   return {
     completed: rows.filter(row => !ongoingSet.has(row) && Number(row.durationSeconds || 0) > 0 && row.usersideCallId),
-    unresolved: rows.filter(row => ongoingSet.has(row) || Number(row.durationSeconds || 0) <= 0),
-    ongoing
+    unresolved: rows.filter(row => ongoingSet.has(row) || (!activityKnown && Number(row.durationSeconds || 0) <= 0)),
+    ongoing,
+    activityKnown,
+    activityActive
   };
 }
 

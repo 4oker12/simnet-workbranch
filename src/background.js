@@ -74,7 +74,7 @@ import { queryCrmIndex, crmSearchPrompt, crmSearchIsPrimary, CRM_SEARCH_INDEX_RE
 import { optimizedCallListUrl } from './features/call/background/call-list-fetch-optimizer.js';
 
 
-const VERSION = '1.7.36.159';
+const VERSION = '1.7.36.160';
 const POLL_STALE_TIMEOUT_MS = 30000;
 const POLL_LATE_RESPONSE_MAX_AGE_MS = 180000;
 const RECOVERABLE_POLL_TIMEOUT_REASONS = new Set([
@@ -3874,7 +3874,7 @@ function observePbxRecentCalls(payload = {}, sender = {}) {
  * using the existing userside host permission/session, parses own completed 6047
  * calls and merges them into the same protected telephony store used by CALL UI.
  */
-async function refreshCallsFromUsersideCallList() {
+async function refreshCallsFromUsersideCallList(activity = {}) {
   const startedAt = nowMs();
   try {
     const response = await fetchCallRegistrationResponse(
@@ -3892,11 +3892,26 @@ async function refreshCallsFromUsersideCallList() {
       };
     }
 
-    const parsed = parseOwnUsersideCalls(response.data, PBX_OPERATOR_EXTENSION, MAX_PBX_CALLS);
+    const parsed = parseOwnUsersideCalls(
+      response.data,
+      PBX_OPERATOR_EXTENSION,
+      MAX_PBX_CALLS,
+      nowMs(),
+      {
+        known: activity?.known === true,
+        active: activity?.active === true,
+        talkStartMs: Number(activity?.talkStartMs || 0)
+      }
+    );
     const allOwnRows = [...parsed.completed, ...parsed.unresolved];
     const observedAt = nowIso();
     const normalized = parsed.completed;
     const focusPreview = latestUnresolvedPreview(parsed.unresolved, nowMs());
+    const latestCompleted = [...normalized]
+      .sort((a, b) => Number(b.startedAtMs || 0) - Number(a.startedAtMs || 0))[0] || null;
+    const selected = focusPreview || latestCompleted;
+    const focusCallKey = selected?.usersideCallId ? `call:${String(selected.usersideCallId)}` : '';
+    const focusKind = focusPreview ? 'active' : latestCompleted ? 'completed' : 'none';
 
     const merged = await enqueue(state => {
       return callModule.ingestUsersideCalls(state, normalized, focusPreview);
@@ -3911,6 +3926,10 @@ async function refreshCallsFromUsersideCallList() {
       source: 'userside-call-list',
       fetched: normalized.length,
       focusPreview: focusPreview ? clone(focusPreview) : null,
+      focusCallKey,
+      focusKind,
+      activityKnown: parsed.activityKnown === true,
+      activityActive: parsed.activityActive === true,
       ...merged,
       durationMs: Math.max(0, nowMs() - startedAt),
       responseBytes: Number(response.responseBytes || 0)
@@ -4420,7 +4439,11 @@ async function getCallFeatureStatus() {
 async function queryPbxRecentCalls(payload = {}, sender = {}) {
   {
     const fresh = payload?.fresh === true || payload?.forceRefresh === true;
-    const refresh = fresh ? await refreshCallsFromUsersideCallList() : null;
+    const refresh = fresh ? await refreshCallsFromUsersideCallList({
+      known: payload?.activityKnown === true,
+      active: payload?.activityActive === true,
+      talkStartMs: Number(payload?.talkStartMs || 0)
+    }) : null;
     const state = await readState();
     callModule.ensure(state);
     // CALL history/focus is global. A subscriber Case is optional until the

@@ -1,3 +1,10 @@
+## 1.7.36.160 — Continuous performance snapshots + CALL trust tiers
+
+- Performance collection now runs continuously in the background without a 30-minute timer or a manual start/stop cycle. `Снять слепок и скачать` exports the accumulated period while collection immediately continues.
+- Snapshot JSON includes an exact action timeline and millisecond timings for Workbench clicks, CALL registration open/module load, filtered `call_list`, native form fetch/parse/render, focus selection, binding, submission and finalization.
+- Every `Рег. звонок` click performs one fresh filtered `call_list` request. Native active-phone state selects the current 6047 row; when the phone is idle, the newest completed row is focused and stale cached focus cannot override it.
+- “Звонки 6047 сегодня” no longer presents heuristic scores such as `97%` as probabilities. `100%` is reserved exclusively for one unique CUSTOMER directly supplied by UserSide `call_list`; all indirect matches use explicit evidence tiers (`Сильные признаки`, `Есть признаки`, `Слабые признаки`, `Неоднозначно`, `Конфликт`).
+
 ## 1.7.36.159 — Direct filtered current-call focus
 
 - Opening `Рег. звонок` performs one authoritative filtered `call_list` GET for today and extension `6047`, then uses the matching current row from that response directly.

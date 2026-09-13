@@ -112,7 +112,7 @@ assert.doesNotMatch(manifest, /pbx\.vnet/);
 
 // CALL refresh and the native form start together; neither blocks starting the other.
 const openStart = ui.indexOf('async open(caseData');
-const refreshAt = ui.indexOf('const callListPromise = extensionRequest(PBX_QUERY_MESSAGE', openStart);
+const refreshAt = ui.indexOf("const callListPromise = measureOperation('call.call_list_fetch'", openStart);
 const formAt = ui.indexOf('const nativeFormPromise = hasCase', openStart);
 const joinAt = ui.indexOf('await Promise.allSettled([', openStart);
 assert.ok(refreshAt > openStart && formAt > refreshAt && joinAt > formAt, 'call_list and native form must be started before awaiting their results');
@@ -120,7 +120,8 @@ assert.doesNotMatch(ui, /operatorOverride:\s*needsSoft/);
 assert.match(ui, /window\.confirm\(/);
 assert.match(ui, /hasExplicitOverride/);
 assert.match(ui, /overrideConfirmedCallKey/);
-assert.match(ui, /exact\.has\('customer'\).*return 100/s);
+assert.match(callModule, /candidate\?\.authoritative === true[\s\S]*kind: 'direct'[\s\S]*label: '100%'/);
+assert.match(callModule, /customerCandidateCount > 1[\s\S]*kind: 'ambiguous'/);
 
 assert.match(loader, /function injectFeature\(feature, force = false, timeoutMs = 6000\)/);
 assert.match(loader, /Call feature injection timed out/);

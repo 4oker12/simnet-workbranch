@@ -1,11 +1,14 @@
-export const PERFORMANCE_SESSION_SCHEMA = 'simnet-workbench-performance-session-v1';
+export const PERFORMANCE_SESSION_SCHEMA = 'simnet-workbench-performance-session-v2';
+export const PERFORMANCE_SNAPSHOT_SCHEMA = 'simnet-workbench-performance-snapshot-v2';
 export const PERFORMANCE_SESSION_STORAGE_KEY = 'simnet_workbench_performance_session_v1';
 export const PERFORMANCE_CONTROL_STORAGE_KEY = 'simnet_workbench_performance_control_v1';
-export const DEFAULT_PERFORMANCE_SESSION_MS = 30 * 60 * 1000;
 
 const MAX_SAMPLES = 480;
+const BASELINE_SAMPLES = 60;
 const MAX_ROUTES_PER_SAMPLE = 12;
 const MAX_METRICS_PER_SAMPLE = 18;
+const MAX_OPERATIONS_PER_SAMPLE = 40;
+const MAX_OPERATION_TIMELINE = 240;
 const MAX_ROUTE_REPORT = 8;
 const MIB = 1024 * 1024;
 
@@ -39,6 +42,14 @@ function safeRoute(value) {
     .replace(/\d{3,}/g, ':id');
 }
 
+function safeOperationText(value) {
+  return compact(value, 160)
+    .replace(/https?:\/\/[^\s]+/gi, match => safeRoute(match))
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, ':uuid')
+    .replace(/\b(?:abon)?\d{3,}\b/gi, ':id')
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, ':ip');
+}
+
 function sanitizeRouteAggregate(raw = {}) {
   const route = safeRoute(raw.route);
   if (!route) return null;
@@ -64,6 +75,32 @@ function sanitizeMetricAggregate(raw = {}) {
     count,
     totalDurationMs: round(boundedNumber(raw.totalDurationMs, 1e9) || 0),
     maxDurationMs: round(boundedNumber(raw.maxDurationMs, 1e8) || 0)
+  };
+}
+
+function sanitizeOperationMeta(raw = {}) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out = {};
+  for (const [rawKey, value] of Object.entries(raw).slice(0, 24)) {
+    const key = compact(rawKey, 48);
+    if (!key || /(?:customer|case|callkey|uuid|login|contract|phone|address|\bip\b)/i.test(key)) continue;
+    if (value == null || typeof value === 'boolean' || typeof value === 'number') out[key] = value;
+    else if (typeof value === 'string') out[key] = safeOperationText(value);
+  }
+  return out;
+}
+
+function sanitizeOperation(raw = {}, fallbackAt = Date.now()) {
+  const metric = compact(raw.metric, 80);
+  const durationMs = boundedNumber(raw.durationMs, 1e8);
+  if (!metric || durationMs == null) return null;
+  return {
+    at: isoAt(raw.at ?? fallbackAt),
+    metric,
+    durationMs: round(durationMs),
+    status: compact(raw.status || 'ok', 40) || 'ok',
+    slow: Boolean(raw.slow),
+    meta: sanitizeOperationMeta(raw.meta)
   };
 }
 
@@ -130,7 +167,12 @@ export function sanitizePerformanceSample(raw = {}, nowMs = Date.now()) {
       .map(sanitizeMetricAggregate)
       .filter(Boolean)
       .sort((a, b) => b.totalDurationMs - a.totalDurationMs)
-      .slice(0, MAX_METRICS_PER_SAMPLE)
+      .slice(0, MAX_METRICS_PER_SAMPLE),
+    operations: (Array.isArray(raw.operations) ? raw.operations : [])
+      .map(operation => sanitizeOperation(operation, sampleAt))
+      .filter(Boolean)
+      .sort((a, b) => epoch(a.at) - epoch(b.at))
+      .slice(-MAX_OPERATIONS_PER_SAMPLE)
   };
 }
 
@@ -143,26 +185,65 @@ function makeSessionId(nowMs) {
 
 export function createPerformanceSession(options = {}) {
   const nowMs = finite(options.nowMs) ? Number(options.nowMs) : Date.now();
-  const targetDurationMs = Math.max(
-    60 * 1000,
-    Math.min(2 * 60 * 60 * 1000, Number(options.durationMs) || DEFAULT_PERFORMANCE_SESSION_MS)
-  );
   return {
     schema: PERFORMANCE_SESSION_SCHEMA,
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: makeSessionId(nowMs),
     status: 'active',
+    mode: 'continuous',
     version: compact(options.version, 40),
     startedAt: new Date(nowMs).toISOString(),
-    plannedEndAt: new Date(nowMs + targetDurationMs).toISOString(),
+    plannedEndAt: '',
     completedAt: '',
     completionReason: '',
-    targetDurationMs,
+    targetDurationMs: null,
     sampleCount: 0,
+    totalSampleCount: 0,
+    droppedSampleCount: 0,
     samples: [],
     report: null,
+    lastSnapshotAt: '',
+    lastSnapshotReport: null,
     updatedAt: new Date(nowMs).toISOString()
   };
+}
+
+export function isContinuousPerformanceSession(session = null) {
+  return Boolean(
+    session?.id
+    && session.status === 'active'
+    && session.mode === 'continuous'
+    && Number(session.schemaVersion || 0) >= 2
+  );
+}
+
+export function ensureContinuousPerformanceSession(session = null, options = {}) {
+  const nowMs = finite(options.nowMs) ? Number(options.nowMs) : Date.now();
+  if (!session?.id || !['active'].includes(String(session.status || ''))) {
+    return createPerformanceSession({ nowMs, version: options.version });
+  }
+
+  const next = clone(session);
+  next.schema = PERFORMANCE_SESSION_SCHEMA;
+  next.schemaVersion = 2;
+  next.status = 'active';
+  next.mode = 'continuous';
+  next.version = compact(options.version || next.version, 40);
+  next.plannedEndAt = '';
+  next.completedAt = '';
+  next.completionReason = '';
+  next.targetDurationMs = null;
+  next.samples = chronological(Array.isArray(next.samples) ? next.samples : []);
+  next.sampleCount = next.samples.length;
+  next.totalSampleCount = Math.max(Number(next.totalSampleCount || 0), next.sampleCount);
+  next.droppedSampleCount = Math.max(0, Number(next.droppedSampleCount || 0));
+  next.report = null;
+  next.lastSnapshotAt = String(next.lastSnapshotAt || '');
+  next.lastSnapshotReport = next.lastSnapshotReport && typeof next.lastSnapshotReport === 'object'
+    ? next.lastSnapshotReport
+    : null;
+  next.updatedAt = new Date(nowMs).toISOString();
+  return next;
 }
 
 function chronological(samples = []) {
@@ -323,35 +404,127 @@ function routeReport(samples = [], startedAtMs = 0, endedAtMs = 0) {
     .slice(0, MAX_ROUTE_REPORT);
 }
 
-function operationReport(samples = []) {
-  const edges = edgeSets(samples);
-  const names = new Set();
-  for (const sample of [...edges.early, ...edges.late]) {
+const OPERATION_LABELS = Object.freeze({
+  'ui.click': 'Клик Workbench',
+  'call.registration_open': 'Рег. звонок · до результата',
+  'call.module_load': 'Рег. звонок · загрузка модуля',
+  'call.call_list_fetch': 'Рег. звонок · call_list',
+  'call.focus_select': 'Рег. звонок · выбор активного/последнего',
+  'call.form_fetch': 'Рег. звонок · загрузка формы UserSide',
+  'call.form_parse': 'Рег. звонок · разбор формы',
+  'call.form_render': 'Рег. звонок · показ формы',
+  'call.route_open': 'Рег. звонок · переход на абонента',
+  'call.bind': 'Рег. звонок · привязка',
+  'call.submit': 'Рег. звонок · сохранение UserSide',
+  'call.submit_total': 'Рег. звонок · сохранение полностью',
+  'call.finalize': 'Рег. звонок · фиксация результата',
+  'task.save_guard': 'Заявка · проверка перед сохранением',
+  'task.address_resolve': 'Заявка · определение адреса'
+});
+
+function percentile(values = [], p = 95) {
+  const sorted = values.filter(finite).map(Number).sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
+  return sorted[index];
+}
+
+function operationEvents(samples = []) {
+  const events = [];
+  for (const sample of chronological(samples)) {
+    const exact = Array.isArray(sample.operations) ? sample.operations : [];
+    if (exact.length) {
+      for (const operation of exact) {
+        if (!operation?.metric || String(operation.metric).startsWith('runtime.')) continue;
+        events.push({
+          at: operation.at || sample.at,
+          metric: operation.metric,
+          durationMs: Number(operation.durationMs || 0),
+          status: operation.status || 'ok',
+          slow: Boolean(operation.slow),
+          page: sample?.page?.route || '',
+          system: sample?.page?.system || '',
+          meta: operation.meta || {},
+          count: 1,
+          exact: true
+        });
+      }
+      continue;
+    }
+
+    // v1 snapshots only retained interval aggregates. Keep them readable after
+    // the continuous-recorder migration, but mark that the individual click
+    // timestamp was not available in the old format.
     for (const metric of sample?.metrics || []) {
-      if (!['runtime.long_task', 'runtime.workbench_ready', 'runtime.probe_ready'].includes(metric.metric)) names.add(metric.metric);
+      if (!metric?.metric || String(metric.metric).startsWith('runtime.')) continue;
+      const count = Math.max(1, Number(metric.count || 1));
+      events.push({
+        at: sample.at,
+        metric: metric.metric,
+        durationMs: Number(metric.totalDurationMs || 0) / count,
+        status: 'aggregated',
+        slow: false,
+        page: sample?.page?.route || '',
+        system: sample?.page?.system || '',
+        meta: {},
+        count,
+        exact: false
+      });
     }
   }
-  return Array.from(names).map(metric => {
-    const before = metricAggregate(edges.early, metric);
-    const after = metricAggregate(edges.late, metric);
-    const deltaPercent = before.value > 0 && after.value != null
-      ? ((after.value - before.value) / before.value) * 100
+  return events.sort((a, b) => epoch(a.at) - epoch(b.at));
+}
+
+function operationReport(samples = []) {
+  const groups = new Map();
+  for (const event of operationEvents(samples)) {
+    const group = groups.get(event.metric) || { metric: event.metric, events: [] };
+    group.events.push(event);
+    groups.set(event.metric, group);
+  }
+  return Array.from(groups.values()).map(group => {
+    const expanded = [];
+    for (const event of group.events) {
+      const copies = Math.max(1, Math.min(1000, Number(event.count || 1)));
+      for (let index = 0; index < copies; index += 1) expanded.push(event);
+    }
+    const edges = edgeSets(expanded);
+    const values = expanded.map(event => event.durationMs);
+    const baselineAvgMs = average(edges.early, event => event.durationMs);
+    const currentAvgMs = average(edges.late, event => event.durationMs);
+    const deltaPercent = baselineAvgMs > 0 && currentAvgMs != null
+      ? ((currentAvgMs - baselineAvgMs) / baselineAvgMs) * 100
       : null;
     return {
-      metric,
-      baselineCount: before.count,
-      currentCount: after.count,
-      baselineAvgMs: before.value == null ? null : round(before.value),
-      currentAvgMs: after.value == null ? null : round(after.value),
+      metric: group.metric,
+      label: OPERATION_LABELS[group.metric] || group.metric,
+      count: expanded.length,
+      exactCount: expanded.filter(event => event.exact).length,
+      errorCount: expanded.filter(event => !['ok', 'aggregated'].includes(String(event.status || ''))).length,
+      avgMs: round(average(values) || 0),
+      p95Ms: round(percentile(values, 95) || 0),
+      maxMs: round(Math.max(0, ...values)),
+      lastMs: round(values.at(-1) || 0),
+      baselineAvgMs: baselineAvgMs == null ? null : round(baselineAvgMs),
+      currentAvgMs: currentAvgMs == null ? null : round(currentAvgMs),
       deltaPercent: deltaPercent == null ? null : round(deltaPercent)
     };
-  }).filter(item => item.baselineCount || item.currentCount)
-    .sort((a, b) => {
-      const aScore = Math.max(0, Number(a.deltaPercent || 0)) + Number(a.currentAvgMs || 0) / 10;
-      const bScore = Math.max(0, Number(b.deltaPercent || 0)) + Number(b.currentAvgMs || 0) / 10;
-      return bScore - aScore;
-    })
-    .slice(0, 8);
+  }).sort((a, b) => Number(b.maxMs || 0) - Number(a.maxMs || 0));
+}
+
+function operationTimeline(samples = []) {
+  return operationEvents(samples).slice(-MAX_OPERATION_TIMELINE).map(event => ({
+    at: event.at,
+    metric: event.metric,
+    label: OPERATION_LABELS[event.metric] || event.metric,
+    durationMs: round(event.durationMs),
+    status: event.status,
+    slow: event.slow,
+    system: event.system,
+    page: event.page,
+    meta: event.meta,
+    exact: event.exact
+  }));
 }
 
 function navigationRouteReport(samples = [], startedAtMs = 0, endedAtMs = 0) {
@@ -395,6 +568,7 @@ function navigationRouteReport(samples = [], startedAtMs = 0, endedAtMs = 0) {
 
 export function buildPerformanceReport(session = {}, nowMs = Date.now()) {
   const samples = chronological(Array.isArray(session.samples) ? session.samples : []);
+  const exactOperations = operationEvents(samples);
   const parsedStartedAt = new Date(session.startedAt).getTime();
   const parsedCompletedAt = new Date(session.completedAt).getTime();
   const startedAtMs = Number.isFinite(parsedStartedAt) ? parsedStartedAt : nowMs;
@@ -444,7 +618,8 @@ export function buildPerformanceReport(session = {}, nowMs = Date.now()) {
     startedAt: session.startedAt || '',
     completedAt: session.completedAt || new Date(nowMs).toISOString(),
     durationMs,
-    targetDurationMs: Number(session.targetDurationMs || DEFAULT_PERFORMANCE_SESSION_MS),
+    mode: compact(session.mode || 'continuous', 40),
+    targetDurationMs: null,
     completionReason: compact(session.completionReason || '', 40),
     confidence,
     verdict,
@@ -455,22 +630,38 @@ export function buildPerformanceReport(session = {}, nowMs = Date.now()) {
     metrics,
     routes: routeReport(samples, startedAtMs, endedAtMs),
     pageRoutes: navigationRouteReport(samples, startedAtMs, endedAtMs),
-    operations: operationReport(samples)
+    operations: operationReport(samples),
+    operationCount: exactOperations.reduce((sum, item) => sum + Math.max(1, Number(item.count || 1)), 0),
+    operationTimeline: operationTimeline(samples),
+    retention: {
+      strategy: Number(session.droppedSampleCount || 0) > 0 ? 'baseline-plus-recent' : 'complete',
+      maxSamples: MAX_SAMPLES,
+      baselineSamples: Math.min(BASELINE_SAMPLES, samples.length),
+      retainedSamples: samples.length,
+      totalSamples: Math.max(Number(session.totalSampleCount || 0), samples.length),
+      droppedSamples: Math.max(0, Number(session.droppedSampleCount || 0))
+    }
   };
 }
 
-export function finalizePerformanceSession(session = {}, options = {}) {
+export function createPerformanceSnapshot(session = {}, options = {}) {
   const nowMs = finite(options.nowMs) ? Number(options.nowMs) : Date.now();
   const next = clone(session);
   if (!next?.id) return null;
-  if (next.status !== 'completed') {
-    next.status = 'completed';
-    next.completedAt = new Date(Math.max(epoch(next.startedAt), nowMs)).toISOString();
-    next.completionReason = compact(options.reason || 'operator', 40);
-  }
+  next.schema = PERFORMANCE_SNAPSHOT_SCHEMA;
+  next.schemaVersion = 2;
+  next.status = 'snapshot';
+  next.mode = 'continuous-snapshot';
+  next.snapshotAt = new Date(Math.max(epoch(next.startedAt), nowMs)).toISOString();
+  next.completedAt = next.snapshotAt;
+  next.completionReason = compact(options.reason || 'operator-snapshot', 40);
+  next.plannedEndAt = '';
+  next.targetDurationMs = null;
   next.updatedAt = new Date(nowMs).toISOString();
   next.sampleCount = Array.isArray(next.samples) ? next.samples.length : 0;
   next.report = buildPerformanceReport(next, nowMs);
+  delete next.lastSnapshotAt;
+  delete next.lastSnapshotReport;
   return next;
 }
 
@@ -480,16 +671,18 @@ export function appendPerformanceSample(session = {}, rawSample = {}, options = 
   const next = clone(session);
   next.samples = Array.isArray(next.samples) ? next.samples : [];
   const sample = sanitizePerformanceSample(rawSample, nowMs);
-  if (!next.samples.some(item => item.id === sample.id)) next.samples.push(sample);
+  const duplicate = next.samples.some(item => item.id === sample.id);
+  if (!duplicate) {
+    next.samples.push(sample);
+    next.totalSampleCount = Math.max(Number(next.totalSampleCount || 0), next.samples.length - 1) + 1;
+  }
   next.samples = chronological(next.samples);
   while (next.samples.length > MAX_SAMPLES) {
-    next.samples.splice(Math.min(60, next.samples.length - 1), 1);
+    next.samples.splice(Math.min(BASELINE_SAMPLES, next.samples.length - 1), 1);
+    next.droppedSampleCount = Math.max(0, Number(next.droppedSampleCount || 0)) + 1;
   }
   next.sampleCount = next.samples.length;
   next.updatedAt = new Date(nowMs).toISOString();
-  if (nowMs >= epoch(next.plannedEndAt)) {
-    return finalizePerformanceSession(next, { nowMs, reason: 'deadline' });
-  }
   return next;
 }
 
@@ -498,11 +691,9 @@ export function performanceSessionControl(session = {}) {
   return {
     schema: PERFORMANCE_SESSION_SCHEMA,
     sessionId: compact(session.id, 100),
-    status: session.status === 'completed' ? 'completed' : 'active',
+    status: 'active',
+    mode: 'continuous',
     startedAt: session.startedAt || '',
-    plannedEndAt: session.plannedEndAt || '',
-    completedAt: session.completedAt || '',
-    targetDurationMs: Number(session.targetDurationMs || DEFAULT_PERFORMANCE_SESSION_MS),
     updatedAt: session.updatedAt || ''
   };
 }
@@ -515,15 +706,14 @@ export function performanceSessionOverview(session = null, nowMs = Date.now()) {
     exists: true,
     sessionId: session.id,
     status: session.status,
+    mode: session.mode || 'continuous',
     version: session.version || '',
     startedAt: session.startedAt,
-    plannedEndAt: session.plannedEndAt,
-    completedAt: session.completedAt || '',
-    completionReason: session.completionReason || '',
-    targetDurationMs: Number(session.targetDurationMs || DEFAULT_PERFORMANCE_SESSION_MS),
     elapsedMs: Math.max(0, endAtMs - startedAtMs),
-    remainingMs: session.status === 'active' ? Math.max(0, epoch(session.plannedEndAt) - nowMs) : 0,
     sampleCount: Number(session.sampleCount || session.samples?.length || 0),
-    report: session.report || null
+    totalSampleCount: Math.max(Number(session.totalSampleCount || 0), Number(session.sampleCount || session.samples?.length || 0)),
+    droppedSampleCount: Math.max(0, Number(session.droppedSampleCount || 0)),
+    lastSnapshotAt: session.lastSnapshotAt || '',
+    lastSnapshotReport: session.lastSnapshotReport || null
   };
 }

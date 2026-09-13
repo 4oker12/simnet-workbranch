@@ -30,6 +30,9 @@
     if (!call || typeof call !== 'object') return 'unresolved';
     const binding = call.binding && typeof call.binding === 'object' ? call.binding : null;
     if (binding?.operatorOverride) return 'manual';
+    const tierKind = clean(call.topLinkTier?.kind || call.topCandidate?.linkTier?.kind, 24);
+    if (tierKind === 'direct') return 'direct';
+    if (['strong', 'supporting', 'weak', 'ambiguous', 'conflict'].includes(tierKind)) return 'inferred';
     // customerId stored directly on the canonical call comes from UserSide
     // call_list. Merely opening a subscriber card never creates this field.
     if (digits(call.customerId, 14)) return 'direct';
@@ -56,12 +59,12 @@
       .wb-binding-origin{display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;margin-left:5px;border-radius:50%;vertical-align:1px;font:800 8px/1 inherit;cursor:help}
       .wb-binding-origin.inferred{background:#FFF1F6;color:#A50046;border:1px solid #F2B8CF}
       .wb-binding-origin.manual{background:#F2F4F7;color:#667085;border:1px solid #D0D5DD}
-      .wb-call-link{display:grid;gap:1px;min-width:62px;line-height:1.15}
-      .wb-call-link-main{font-size:9px;font-weight:800;color:#667085;white-space:nowrap}
-      .wb-call-link-main.direct{color:#475467}.wb-call-link-main.inferred{color:#A50046}.wb-call-link-main.manual{color:#667085}
+      .wb-call-link{display:grid;gap:2px;min-width:76px;line-height:1.15}
+      .wb-call-link-main{width:max-content;border:1px solid #E4E7EC;border-radius:999px;background:#F2F4F7;padding:2px 5px;font-size:8px;font-weight:900;color:#667085;white-space:nowrap}
+      .wb-call-link-main.direct{border-color:#ABEFC6;background:#ECFDF3;color:#067647}.wb-call-link-main.strong{border-color:#B2DDFF;background:#EFF8FF;color:#175CD3}.wb-call-link-main.supporting,.wb-call-link-main.ambiguous{border-color:#FEDF89;background:#FFFAEB;color:#B54708}.wb-call-link-main.conflict{border-color:#FECDCA;background:#FEF3F2;color:#B42318}.wb-call-link-main.manual{color:#475467}
       .wb-call-link-pbx{font-size:8px;color:#98A2B3;white-space:nowrap}
-      .hist-pop{width:min(450px,calc(100vw - 64px))!important;max-height:340px!important}
-      .hist-table td:nth-child(4){min-width:72px}
+      .hist-pop{width:min(500px,calc(100vw - 64px))!important;max-height:360px!important}
+      .hist-table td:nth-child(4){min-width:86px}
     `;
     shadow.appendChild(style);
   }
@@ -137,23 +140,34 @@
     const callId = digits(call.usersideCallId || String(call.callKey || '').match(/^call:(\d+)$/)?.[1], 24);
     const recordId = clean(call.pbxRecordId || call.recordId, 80);
     const confidence = Math.max(0, Math.min(100, Math.round(Number(call.binding?.candidateConfidence || call.topConfidence || 0))));
-    const main = source === 'direct'
-      ? 'call_list'
-      : source === 'manual'
-        ? 'ручная'
-        : source === 'inferred'
-          ? `◇ WB${confidence ? ` ${confidence}%` : ''}`
-          : '—';
+    const storedTier = call.topLinkTier || call.topCandidate?.linkTier || {};
+    const tierKind = source === 'manual' ? 'manual' : clean(storedTier.kind, 24);
+    const fallbackKind = source === 'direct' ? 'direct'
+      : source === 'inferred' ? (confidence >= 80 ? 'strong' : confidence >= 55 ? 'supporting' : 'weak')
+        : 'none';
+    const kind = tierKind || fallbackKind;
+    const main = ({
+      direct: '100% · call_list',
+      strong: 'Сильные признаки',
+      supporting: 'Есть признаки',
+      weak: 'Слабые признаки',
+      ambiguous: 'Неоднозначно',
+      conflict: 'Конфликт',
+      manual: 'Вручную',
+      none: 'Нет связи'
+    })[kind] || 'Нет связи';
     const pbx = recordId ? 'PBX ✓' : 'PBX —';
     const title = [
       callId ? `UserSide CALL #${callId}` : '',
       recordId ? `PBX recordId ${recordId}` : 'PBX recordId ещё не установлен',
-      source === 'direct' ? 'Абонент определён напрямую UserSide call_list' : '',
-      source === 'inferred' ? 'Абонент определён Workbench по evidence' : '',
+      kind === 'direct' ? '100%: ровно один CUSTOMER напрямую указан в UserSide call_list' : '',
+      ['strong', 'supporting', 'weak'].includes(kind) ? `${main}: косвенные признаки Workbench, не вероятность` : '',
+      kind === 'ambiguous' ? 'UserSide call_list указал несколько абонентов' : '',
+      kind === 'conflict' ? 'Прямая связь и выбранный абонент противоречат друг другу' : '',
       source === 'manual' ? 'Абонент подтверждён оператором вручную' : '',
       source === 'unresolved' ? 'Абонент звонка пока не установлен' : ''
     ].filter(Boolean).join('\n');
-    return { source, main, pbx, title };
+    return { source, kind, main, pbx, title };
   }
 
   function patchHistory(shadow, reg) {
@@ -163,10 +177,10 @@
       if (!call || !tr.cells || tr.cells.length < 4) return;
       const link = linkMarkup(call);
       const cell = tr.cells[3];
-      const signature = `${call.callKey}|${call.pbxRecordId || call.recordId || ''}|${link.source}|${call.topConfidence || ''}|${call.binding?.candidateConfidence || ''}`;
+      const signature = `${call.callKey}|${call.pbxRecordId || call.recordId || ''}|${link.kind}|${call.binding?.candidateConfidence || ''}`;
       if (cell.dataset.wbCallLink === signature) return;
       cell.dataset.wbCallLink = signature;
-      cell.innerHTML = `<span class="wb-call-link" title="${link.title.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}"><span class="wb-call-link-main ${link.source}">${link.main}</span><span class="wb-call-link-pbx">${link.pbx}</span></span>`;
+      cell.innerHTML = `<span class="wb-call-link" title="${link.title.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}"><span class="wb-call-link-main ${link.kind}">${link.main}</span><span class="wb-call-link-pbx">${link.pbx}</span></span>`;
     });
   }
 

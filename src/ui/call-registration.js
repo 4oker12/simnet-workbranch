@@ -40,6 +40,56 @@
     return text.length > max ? `${text.slice(0, max)}…` : text;
   };
 
+  const perfNow = () => globalThis.performance?.now?.() ?? Date.now();
+
+  function recordOperation(metric, startedAt, meta = {}, status = 'ok') {
+    try {
+      WB.perf?.record?.(metric, Math.max(0, perfNow() - Number(startedAt || 0)), {
+        ...meta,
+        status
+      }, {
+        status,
+        persist: false,
+        persistSlow: false
+      });
+    } catch {}
+  }
+
+  async function measureOperation(metric, task, meta = {}, resultMeta = () => ({})) {
+    const startedAt = perfNow();
+    try {
+      const result = await task();
+      recordOperation(metric, startedAt, { ...meta, ...resultMeta(result) }, 'ok');
+      return result;
+    } catch (error) {
+      recordOperation(metric, startedAt, {
+        ...meta,
+        error: compact(error?.message || error, 120)
+      }, 'error');
+      throw error;
+    }
+  }
+
+  function callActivityHint() {
+    try {
+      const state = WB.callActiveFocusGuard?.state?.() || {};
+      const now = Date.now();
+      const nativeAge = now - Number(state?.native?.observedAtMs || 0);
+      const listAge = now - Number(state?.liveList?.observedAtMs || 0);
+      const known = Boolean(
+        (nativeAge >= 0 && nativeAge <= 12_000)
+        || (listAge >= 0 && listAge <= 90_000)
+      );
+      return {
+        activityKnown: known,
+        activityActive: known && state.active === true,
+        talkStartMs: known ? Math.max(0, Number(state?.native?.talkStartMs || state?.liveList?.call?.startedAtMs || 0)) : 0
+      };
+    } catch {
+      return { activityKnown: false, activityActive: false, talkStartMs: 0 };
+    }
+  }
+
   function customerIdOf(raw) {
     const text = String(valueOf(raw) ?? '').trim();
     return /^\d{1,12}$/.test(text) ? text : '';
@@ -422,38 +472,61 @@
     'search-unique-resolved': 'единственный результат autocomplete',
     'post-call-open': 'карточка открыта в течение 15 секунд после звонка',
     'handoff': 'переход между системами по этому абоненту',
+    'call-list-ambiguous': 'call_list указал несколько абонентов',
     'hard-customer-conflict': 'конфликт с CUSTOMER из call_list'
   };
 
-  function scoreToPercent(score) {
-    const s = Math.max(0, Number(score) || 0);
-    if (s <= 0) return 0;
-    // Soft curve: 50≈46%, 90≈68%, 143≈83%, 200≈92%, cap 99.
-    return Math.min(99, Math.round(100 * (1 - Math.exp(-s / 80))));
+  function normalizedLinkTier(raw = {}, fallback = {}) {
+    const kind = String(raw?.kind || '');
+    if (['direct', 'strong', 'supporting', 'weak', 'ambiguous', 'conflict', 'manual', 'none'].includes(kind)) {
+      return {
+        kind,
+        label: compact(raw.label || raw.shortLabel || 'Нет связи', 40),
+        shortLabel: compact(raw.shortLabel || raw.label || 'Нет связи', 24),
+        detail: compact(raw.detail || '', 180),
+        diagnosticScore: Math.max(0, Math.min(100, Math.round(Number(raw.diagnosticScore || 0))))
+      };
+    }
+    const confidence = Math.max(0, Math.min(100, Math.round(Number(fallback.confidence || 0))));
+    if (fallback.hardConflict === true) return { kind: 'conflict', label: 'Конфликт', shortLabel: 'Конфликт', detail: 'Признаки относятся к разным абонентам', diagnosticScore: confidence };
+    if (fallback.authoritative === true) return { kind: 'direct', label: '100%', shortLabel: '100%', detail: 'Один CUSTOMER напрямую указан в UserSide call_list', diagnosticScore: 100 };
+    if (fallback.ambiguous === true) return { kind: 'ambiguous', label: 'Неоднозначно', shortLabel: 'Неоднозначно', detail: 'В call_list указано несколько абонентов', diagnosticScore: confidence };
+    if (confidence >= 80) return { kind: 'strong', label: 'Сильные признаки', shortLabel: 'Сильные', detail: 'Косвенные признаки Workbench без прямой связи call_list', diagnosticScore: confidence };
+    if (confidence >= 55) return { kind: 'supporting', label: 'Есть признаки', shortLabel: 'Признаки', detail: 'Несколько косвенных признаков Workbench', diagnosticScore: confidence };
+    if (confidence > 0) return { kind: 'weak', label: 'Слабые признаки', shortLabel: 'Слабо', detail: 'Недостаточно косвенных признаков', diagnosticScore: confidence };
+    return { kind: 'none', label: 'Нет связи', shortLabel: 'Нет связи', detail: 'Абонент для звонка не определён', diagnosticScore: 0 };
   }
 
-  function matchPercent(call) {
+  function candidateLinkTier(candidate = {}) {
+    return normalizedLinkTier(candidate?.linkTier, {
+      confidence: candidate?.confidence,
+      authoritative: candidate?.authoritative === true && candidate?.hardConflict !== true,
+      hardConflict: candidate?.hardConflict === true
+    });
+  }
+
+  function rowLinkTier(row = {}) {
+    return normalizedLinkTier(row?.topLinkTier, {
+      confidence: row?.topConfidence,
+      ambiguous: Number(row?.customerCandidateCount || 0) > 1
+    });
+  }
+
+  function matchLinkTier(call = {}) {
     const match = call?.match || {};
-    if (match.level === 'conflict') return 0;
-    if (Number.isFinite(Number(match.confidence))) return Math.max(0, Math.min(100, Math.round(Number(match.confidence))));
-    const exact = new Set(Array.isArray(match.matchedBy) ? match.matchedBy : []);
-    if (exact.has('customer') || exact.has('contract')) return 100;
-    if (exact.has('ip')) return 99;
-    return scoreToPercent(Number(match.correlationScore || 0));
+    return normalizedLinkTier({}, {
+      confidence: match.confidence,
+      authoritative: Array.isArray(match.matchedBy) && match.matchedBy.includes('customer'),
+      hardConflict: match.level === 'conflict',
+      ambiguous: match.ambiguous === true
+    });
   }
 
-  const SCORE_FORMULA_HINT = [
-    'Формула совпадения (timeline + признаки):',
-    '• +100 новый абонент сразу после начала звонка',
-    '• +40 открыт во время звонка',
-    '• +45 UserSide + Billing',
-    '• +30 несколько возвратов · +15 активная работа',
-    '• точный UserSide CUSTOMER / договор / IP — строгая привязка',
-    '• +80 совпал договор · +80 совпал IP · +35 телефон',
-    '• +65 SUBMIT поиска → карточка · +110 SUBMIT → INFO точного результата',
-    '• −40 был открыт до звонка · −20 только в конце · −25 случайный возврат',
-    'Процент берётся из frozen snapshot по абсолютной шкале scoringVersion=1.'
-  ].join('\n');
+  function linkTierBadge(tier = {}, title = '') {
+    const safe = normalizedLinkTier(tier);
+    const tooltip = title || safe.detail || safe.label;
+    return `<span class="link-tier ${esc(safe.kind)}" title="${esc(tooltip)}">${esc(safe.shortLabel)}</span>`;
+  }
 
   function reasonText(call) {
     call = call && typeof call === 'object' ? call : {};
@@ -471,9 +544,9 @@
     const searchQuery = compact(call.match?.correlationSearch?.query || '', 80);
     if (searchQuery) parts.push(`поиск: “${searchQuery}”`);
     const score = Number(call.match?.correlationScore || 0);
-    const pct = matchPercent(call);
+    const tier = matchLinkTier(call);
     if (!parts.length && score <= 0) return '';
-    const head = pct > 0 ? `${pct}%` : '';
+    const head = tier.kind !== 'none' ? `Связь: ${tier.label}` : '';
     return [head, ...parts].filter(Boolean).join(' · ');
   }
 
@@ -912,22 +985,27 @@
         .hist-btn:hover,.hist-wrap:focus-within .hist-btn,.hist-wrap:hover .hist-btn{border-color:#98A2B3;background:#F9FAFB}
         .hist-pop{
           display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:5;
-          width:min(360px,calc(100vw - 64px));max-height:220px;overflow:auto;
+          width:min(500px,calc(100vw - 64px));max-height:360px;overflow:auto;
           border:1px solid #E4E7EC;border-radius:12px;background:#fff;
           box-shadow:0 12px 32px rgba(16,24,40,.16);padding:8px
         }
         .hist-wrap:hover .hist-pop,.hist-wrap:focus-within .hist-pop{display:block}
         .hist-title{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}.hist-pop h4{margin:0;font-size:11px;color:#667085;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+        .hist-legend{margin:0 0 7px;padding:6px 7px;border-radius:7px;background:#F9FAFB;color:#667085;font-size:9px;line-height:1.35}.hist-legend b{color:#067647}
         .hist-latest,.hist-focus,.hist-audit{border:1px solid #D0D5DD;border-radius:7px;background:#fff;color:#475467;font:700 9px/1 inherit;cursor:pointer;padding:4px 6px}.hist-focus{padding:3px 5px}.hist-latest:hover,.hist-focus:hover,.hist-audit:hover{background:#F2F4F7}
         .hist-table tr.active td{background:#FFF7FA}.hist-table tr.active td:first-child{box-shadow:inset 2px 0 0 var(--plum)}
         .hist-table{width:100%;border-collapse:collapse;font-size:11px;color:#344054}
-        .hist-table th{text-align:left;color:#98A2B3;font-weight:600;padding:3px 4px;border-bottom:1px solid #F2F4F7}
+        .hist-table th{position:sticky;top:0;z-index:1;text-align:left;color:#98A2B3;background:#fff;font-weight:600;padding:3px 4px;border-bottom:1px solid #F2F4F7}
         .hist-table td{padding:4px;border-bottom:1px solid #F9FAFB;vertical-align:top}
+        .hist-table td:nth-child(4){min-width:82px}.hist-table td:nth-child(5){max-width:160px}
+        .hist-live{display:block;width:max-content;margin-top:2px;border-radius:999px;background:#EFF8FF;color:#175CD3;padding:1px 4px;font-size:7px;font-weight:900}
         .hist-empty{color:#98A2B3;font-size:11px;padding:6px}
         .call-item.taken{opacity:.55;cursor:not-allowed}
         .focus-target{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 11px;border:1px solid #E4E7EC;border-radius:11px;background:#fff}
         .focus-target-main{min-width:0}.focus-target-kicker{color:#98A2B3;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.05em}.focus-target-name{margin-top:2px;color:#1D2939;font-size:13px;font-weight:850;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.focus-target-meta{margin-top:2px;color:#667085;font-size:10px}
-        .focus-target-score{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;color:#067647;font-size:13px;font-weight:900}.focus-target-score.weak{color:#B54708}.focus-target-score.none{color:#98A2B3}
+        .focus-target-score{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;color:#067647;font-size:13px;font-weight:900}.focus-target-score.weak,.focus-target-score.supporting,.focus-target-score.ambiguous{color:#B54708}.focus-target-score.conflict{color:#B42318}.focus-target-score.none{color:#98A2B3}
+        .link-tier{display:inline-flex;align-items:center;width:max-content;border:1px solid #E4E7EC;border-radius:999px;background:#F2F4F7;color:#667085;padding:2px 6px;font-size:8px;font-weight:900;white-space:nowrap}
+        .link-tier.direct{border-color:#ABEFC6;background:#ECFDF3;color:#067647}.link-tier.strong{border-color:#B2DDFF;background:#EFF8FF;color:#175CD3}.link-tier.supporting{border-color:#FEDF89;background:#FFFAEB;color:#B54708}.link-tier.weak{background:#F9FAFB;color:#667085}.link-tier.ambiguous{border-color:#FEDF89;background:#FFFAEB;color:#B54708}.link-tier.conflict{border-color:#FECDCA;background:#FEF3F2;color:#B42318}.link-tier.manual{border-color:#D0D5DD;background:#F2F4F7;color:#475467}.link-tier.pending{border-color:#B2DDFF;background:#EFF8FF;color:#175CD3}
         .focus-outcome{margin-top:6px;padding:6px 8px;border:1px solid #ABEFC6;border-radius:8px;background:#ECFDF3;color:#067647;font-size:10px;font-weight:800}
         .focus-info{display:inline-grid;place-items:center;width:17px;height:17px;border:1px solid #D0D5DD;border-radius:50%;background:#fff;color:#667085;font:800 10px/1 inherit;cursor:help}
         .decision{display:grid;gap:12px;padding:18px 20px 20px}.decision-actions{display:grid;gap:8px}.decision-row{display:flex;gap:8px;flex-wrap:wrap}.decision-title{color:#344054;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}.decision-note{color:#667085;font-size:11px;line-height:1.45}.task-choice{flex:1 1 150px;border:1px solid #D0D5DD;border-radius:10px;padding:9px 11px;background:#fff;color:#344054;font:750 11px/1.2 inherit;cursor:pointer}.task-choice:hover{border-color:#C34C7D;background:#FFF7FA;color:var(--plum)}
@@ -987,8 +1065,8 @@
 
     candidateTooltip(candidate = null) {
       if (!candidate) return 'Абонент не установлен: подтверждённого subscriber evidence пока нет.';
-      const pct = candidatePercent(candidate);
-      const lines = [`Уверенность: ${pct}%`];
+      const tier = candidateLinkTier(candidate);
+      const lines = [`Связь: ${tier.label}`, tier.detail].filter(Boolean);
       const reasons = (Array.isArray(candidate.reasons) ? candidate.reasons : [])
         .map(reason => REASON_LABELS[reason] || reason)
         .filter(Boolean);
@@ -1004,7 +1082,7 @@
         lines.push('Другие кандидаты:');
         for (const item of alternatives) {
           const label = item.fullName || item.label || item.login || item.customerId || item.billingId || 'кандидат';
-          lines.push(`• ${label} — ${candidatePercent(item)}%`);
+          lines.push(`• ${label} — ${candidateLinkTier(item).label}`);
         }
       }
       return lines.join('\n');
@@ -1056,14 +1134,14 @@
             : '<span class="focus-state open">● не зарегистрирован</span>';
 
       const target = this.targetCandidate();
-      const pct = target ? candidatePercent(target) : 0;
+      const targetTier = target ? candidateLinkTier(target) : normalizedLinkTier();
       const targetName = target
         ? (target.fullName || target.label || target.login || (target.contract ? `abon${target.contract}` : `Customer ${target.customerId || target.billingId || ''}`))
         : 'Абонент не установлен';
       const targetMeta = target
         ? [target.contract ? `дог. ${target.contract}` : '', target.login || '', target.customerId ? `US ${target.customerId}` : ''].filter(Boolean).join(' · ')
         : 'Нужен subscriber evidence либо форма потенциального/подключения';
-      const scoreTone = !target ? 'none' : pct < 55 ? 'weak' : '';
+      const scoreTone = !target ? 'none' : targetTier.kind;
       const info = `<span class="focus-info" title="${esc(this.candidateTooltip(target))}">i</span>`;
       const liveChip = ongoing ? '<span class="call-live-chip">LIVE</span>' : (call.snapshotStatus === 'frozen' ? '<span class="call-live-chip">FROZEN</span>' : '');
       const freshNote = this.pbxFreshNote ? `<div class="pbx-fresh">${esc(this.pbxFreshNote)}</div>` : '';
@@ -1080,7 +1158,7 @@
         <input type="hidden" name="pbx_call_key" value="${hiddenKey}">
         <div class="focus-target">
           <div class="focus-target-main"><div class="focus-target-kicker">Фокус</div><div class="focus-target-name">${esc(targetName)}</div><div class="focus-target-meta">${esc(targetMeta)}</div></div>
-          <div class="focus-target-score ${scoreTone}">${target ? `<span>${pct}%</span>` : ''}${info}</div>
+          <div class="focus-target-score ${scoreTone}">${target ? linkTierBadge(targetTier, this.candidateTooltip(target)) : ''}${info}</div>
         </div>
       </section>`;
     }
@@ -1097,11 +1175,10 @@
                 : status === 'review_required' ? 'проверить'
                   : status === 'unregistered' ? 'не зарегистрирован'
                     : 'регистрация неизвестна';
+            const tier = rowLinkTier(row);
             const linkState = row.snapshotStatus === 'pending-window'
-              ? '⏳'
-              : row.snapshotStatus === 'frozen' && Number(row.frozenCandidateCount || 0) > 0
-                ? `🔗 ${Number(row.frozenCandidateCount)} · ${Number(row.topConfidence || 0)}%`
-                : '—';
+              ? '<span class="link-tier pending" title="Ждём завершения окна evidence">Ждём</span>'
+              : linkTierBadge(tier);
             const canFocus = Boolean(row.callKey);
             const rowClass = this.focusCall?.callKey === row.callKey ? ' active' : '';
             const arrow = /out|исх|outgoing/i.test(String(row.direction || '')) ? '→' : '←';
@@ -1110,15 +1187,15 @@
             const statusLabel = outcome
               ? `✓ ${outcome.label || 'Задание создано'}${outcome.taskId ? ` · #${outcome.taskId}` : ''}`
               : focusLabel && status !== 'registered'
-                ? `${icon} ${focusLabel}${Number(row.topConfidence || 0) ? ` · ${Number(row.topConfidence)}%` : ''}`
+                ? `${icon} ${focusLabel}`
                 : `${icon} ${label}`;
-            return `<tr class="${rowClass}"><td>${esc(row.time || '—')}</td><td>${esc(arrow)} ${esc(row.callerMasked || '—')}</td><td>${esc(row.duration || (status === 'ongoing' ? '…' : '—'))}</td><td>${esc(linkState)}</td><td>${esc(statusLabel)}</td><td>${canFocus ? `<button type="button" class="hist-focus" data-action="focus-history-call" data-call-key="${esc(row.callKey)}" title="Открыть звонок">↗</button>` : ''}</td></tr>`;
+            return `<tr class="${rowClass}"><td>${esc(row.time || '—')}${status === 'ongoing' ? '<span class="hist-live">LIVE</span>' : ''}</td><td>${esc(arrow)} ${esc(row.callerMasked || '—')}</td><td>${esc(row.duration || (status === 'ongoing' ? '…' : '—'))}</td><td>${linkState}</td><td>${esc(statusLabel)}</td><td>${canFocus ? `<button type="button" class="hist-focus" data-action="focus-history-call" data-call-key="${esc(row.callKey)}" title="Открыть звонок">↗</button>` : ''}</td></tr>`;
           }).join('')
         : '';
       const table = rows.length
         ? `<table class="hist-table"><thead><tr><th>Время</th><th>Номер</th><th>Длит.</th><th>Связь</th><th>Статус</th><th></th></tr></thead><tbody>${body}</tbody></table>`
         : '<div class="hist-empty">Сегодня звонков 6047 пока нет</div>';
-      return `<div class="hist-wrap"><button type="button" class="hist-btn" title="Все мои звонки сегодня" aria-label="Все звонки сегодня">▤</button><div class="hist-pop" role="tooltip"><div class="hist-title"><h4>Звонки 6047 сегодня</h4><span>${this.historyFocusCallKey ? '<button type="button" class="hist-latest" data-action="focus-latest-call">Последний</button>' : ''} <button type="button" class="hist-audit" data-action="export-call-audit">⋯ Экспорт CALL audit</button></span></div>${table}</div></div>`;
+      return `<div class="hist-wrap"><button type="button" class="hist-btn" title="Все мои звонки сегодня" aria-label="Все звонки сегодня">▤</button><div class="hist-pop" role="tooltip"><div class="hist-title"><h4>Звонки 6047 сегодня</h4><span>${this.historyFocusCallKey ? '<button type="button" class="hist-latest" data-action="focus-latest-call">Последний</button>' : ''} <button type="button" class="hist-audit" data-action="export-call-audit">⋯ Экспорт CALL audit</button></span></div><div class="hist-legend"><b>100%</b> — один CUSTOMER прямо в call_list. Остальное — уровень косвенных признаков, не вероятность.</div>${table}</div></div>`;
     }
 
     taskLaunchUrl(typer = '') {
@@ -1149,15 +1226,17 @@
       let actions = '';
       if (target) {
         const pct = candidatePercent(target);
+        const tier = candidateLinkTier(target);
         const identityPayload = encodeURIComponent(JSON.stringify({
           caseId: target.caseId || '', customerId: target.customerId || '', billingId: target.billingId || '',
           contract: target.contract || '', login: target.login || '', fullName: target.fullName || target.label || ''
         }));
         const tabIds = encodeURIComponent(JSON.stringify((target.evidence || []).map(item => item?.tabId).filter(id => id != null)));
         const label = target.fullName || target.label || target.login || (target.contract ? `abon${target.contract}` : 'абонент');
+        const relation = tier.kind === 'direct' ? '100%' : tier.shortLabel;
         actions = currentTarget
-          ? `<button type="button" class="route-primary" data-action="load-current-form">Продолжить с ${esc(label)} · ${pct}%</button>`
-          : `<button type="button" class="route-primary" data-action="route-target" data-candidate-identity="${esc(identityPayload)}" data-evidence-tabs="${esc(tabIds)}" data-confidence="${pct}">Перейти к ${esc(label)} · ${pct}%</button>`;
+          ? `<button type="button" class="route-primary" data-action="load-current-form">Продолжить с ${esc(label)} · ${esc(relation)}</button>`
+          : `<button type="button" class="route-primary" data-action="route-target" data-candidate-identity="${esc(identityPayload)}" data-evidence-tabs="${esc(tabIds)}" data-confidence="${pct}">Перейти к ${esc(label)} · ${esc(relation)}</button>`;
       } else {
         actions = `<div class="decision-title">Что оформляем?</div>
           <div class="decision-actions">
@@ -1248,10 +1327,18 @@
       if (!this.caseSnapshot?.caseId || !this.caseMatchesSnapshot()) {
         throw new Error('Нужная карточка абонента ещё не открыта');
       }
-      const result = await extensionRequest(FORM_MESSAGE, {
+      const result = await measureOperation('call.form_fetch', () => extensionRequest(FORM_MESSAGE, {
         caseId: this.caseSnapshot.caseId,
         customerId: this.caseSnapshot.customerId,
         customerUuid: this.caseSnapshot.customerUuid
+      }), {}, response => {
+        const form = (response?.telemetry || []).find(item => item?.label === 'call-form');
+        return {
+          httpStatus: Number(response?.status || 0),
+          networkMs: Number(form?.durationMs || response?.durationMs || 0),
+          bytes: Number(form?.bytes || response?.responseBytes || 0),
+          resolver: String(response?.resolver || '')
+        };
       });
       if (generation !== this.generation || !this.host) throw new Error('cancelled');
       if (!result?.ok) throw new Error(result?.message || `UserSide вернул HTTP ${Number(result?.status || 0) || 'ошибку'}`);
@@ -1266,7 +1353,17 @@
         `userside:${result.resolver || 'case'}:call-registration`
       );
       if (!this.caseMatchesSnapshot()) throw new Error('Активный абонент изменился во время загрузки формы');
-      this.model = parseNativeCallForm(result.data, resolvedCustomerId, resolvedCustomerUuid);
+      const parseStartedAt = perfNow();
+      try {
+        this.model = parseNativeCallForm(result.data, resolvedCustomerId, resolvedCustomerUuid);
+        recordOperation('call.form_parse', parseStartedAt, {
+          options: Number(this.model?.options?.length || 0),
+          bytes: String(result.data || '').length
+        });
+      } catch (error) {
+        recordOperation('call.form_parse', parseStartedAt, { error: compact(error?.message || error, 120) }, 'error');
+        throw error;
+      }
       try {
         const active = WB.store.activeCase?.() || caseData;
         if (active && WB.caseView?.diagnosticSummary) {
@@ -1309,13 +1406,25 @@
         // Both authoritative inputs begin on the same click. The shell is
         // already visible, while UserSide call_list and the native form load
         // independently; the slower request no longer delays starting the other.
-        const callListPromise = extensionRequest(PBX_QUERY_MESSAGE, {
+        const activity = callActivityHint();
+        const callListPromise = measureOperation('call.call_list_fetch', () => extensionRequest(PBX_QUERY_MESSAGE, {
           caseId: this.caseSnapshot.caseId,
           customerId: this.caseSnapshot.customerId,
           fresh: true,
           forceRefresh: true,
-          focusCallKey: this.historyFocusCallKey
-        });
+          focusCallKey: this.historyFocusCallKey,
+          ...activity
+        }), {
+          activityKnown: activity.activityKnown,
+          activityActive: activity.activityActive
+        }, response => ({
+          source: String(response?.refresh?.source || ''),
+          refreshed: response?.refresh?.refreshed === true,
+          networkMs: Number(response?.refresh?.durationMs || 0),
+          bytes: Number(response?.refresh?.responseBytes || 0),
+          focusKind: String(response?.refresh?.focusKind || (response?.focusCall?.ongoing ? 'active' : response?.focusCall ? 'completed' : 'none')),
+          calls: Number(response?.dayCalls?.length || response?.calls?.length || 0)
+        }));
         const nativeFormPromise = hasCase
           ? this.loadNativeModelForCurrentCase(caseData, generation)
           : Promise.resolve('');
@@ -1326,7 +1435,13 @@
         if (generation !== this.generation || !this.host) return { ok: false, reason: 'cancelled' };
         if (callListResult.status === 'rejected') throw callListResult.reason;
         const pbx = callListResult.value;
+        const focusStartedAt = perfNow();
         this.applyPbxSnapshot(pbx, this.caseSnapshot.customerId);
+        recordOperation('call.focus_select', focusStartedAt, {
+          focusKind: String(pbx?.refresh?.focusKind || (this.focusCall?.ongoing ? 'active' : this.focusCall ? 'completed' : 'none')),
+          hasFocus: Boolean(this.focusCall),
+          candidates: Number(this.focusCandidates?.length || 0)
+        });
         if (!this.focusCall) {
           this.renderDecision();
           return { ok: true, mode: 'global-no-call' };
@@ -1351,7 +1466,13 @@
             fresh: false,
             focusCallKey: String(this.focusCall?.callKey || this.historyFocusCallKey || '')
           });
+          const rescoreStartedAt = perfNow();
           this.applyPbxSnapshot(rescored, resolvedCustomerId);
+          recordOperation('call.focus_select', rescoreStartedAt, {
+            stage: 'rescore',
+            focusKind: this.focusCall?.ongoing ? 'active' : this.focusCall ? 'completed' : 'none',
+            candidates: Number(this.focusCandidates?.length || 0)
+          });
         } catch {}
         if (generation !== this.generation || !this.host) return { ok: false, reason: 'cancelled' };
         if (!this.targetCandidate()?.isCurrentCase) {
@@ -1359,7 +1480,11 @@
           this.renderDecision({ kind: 'warn', message: 'После обновления evidence лидирует другой абонент. Перехожу в безопасный режим выбора.' });
           return { ok: true, mode: 'route-required' };
         }
+        const renderStartedAt = perfNow();
         this.renderForm();
+        recordOperation('call.form_render', renderStartedAt, {
+          mode: this.focusCall?.ongoing ? 'active' : 'completed'
+        });
         return { ok: true, customerId: resolvedCustomerId, mode: this.focusCall?.ongoing ? 'live-registration' : 'frozen-registration' };
       } catch (error) {
         if (generation === this.generation && this.host) {
@@ -1532,14 +1657,14 @@
           operatorOverride = true;
         }
         try {
-          const result = await extensionRequest(PBX_BIND_MESSAGE, {
+          const result = await measureOperation('call.bind', () => extensionRequest(PBX_BIND_MESSAGE, {
             caseId: this.caseSnapshot.caseId,
             customerId: this.caseSnapshot.customerId,
             callKey: values.pbxCallKey,
             mode: operatorOverride ? 'operator-override' : 'dry-run',
             operatorOverride,
             overrideAcknowledged: operatorOverride
-          });
+          }), { mode: operatorOverride ? 'operator-override' : 'strict' });
           selectedBinding = result?.binding || null;
           this.pbxBinding = selectedBinding;
           if (operatorOverride) this.overrideConfirmedCallKey = values.pbxCallKey;
@@ -1574,20 +1699,25 @@
       }
 
       this.saving = true;
+      const submitTotalStartedAt = perfNow();
       for (const button of this.shadow.querySelectorAll('button')) button.disabled = true;
       const submitButton = this.shadow.querySelector('button[type="submit"]');
       if (submitButton) submitButton.textContent = 'Сохраняю…';
       const generation = this.generation;
 
       try {
-        const response = await extensionRequest(SUBMIT_MESSAGE, {
+        const response = await measureOperation('call.submit', () => extensionRequest(SUBMIT_MESSAGE, {
           caseId: this.caseSnapshot.caseId,
           customerId: this.caseSnapshot.customerId,
           customerUuid: this.caseSnapshot.customerUuid,
           pbxCallKey: values.pbxCallKey,
           phoneFieldName: this.model.phoneFieldName,
           fields
-        });
+        }), {}, result => ({
+          httpStatus: Number(result?.status || 0),
+          networkMs: Number(result?.durationMs || result?.telemetry?.[0]?.durationMs || 0),
+          bytes: Number(result?.responseBytes || result?.telemetry?.[0]?.bytes || 0)
+        }));
         const result = classifySubmissionResult(response, {
           customerId: this.caseSnapshot.customerId,
           customerUuid: this.caseSnapshot.customerUuid
@@ -1600,10 +1730,10 @@
           if (!response?.pbxSubmission?.submissionId) {
             throw new Error('Фоновый модуль не вернул ключ защищённой отправки');
           }
-          finalized = await extensionRequest(PBX_FINALIZE_MESSAGE, {
+          finalized = await measureOperation('call.finalize', () => extensionRequest(PBX_FINALIZE_MESSAGE, {
             ...response.pbxSubmission,
             status: result.status
-          });
+          }), { resultStatus: result.status });
         } catch (finalizeError) {
           if (generation !== this.generation || !this.host) return;
           this.saving = false;
@@ -1611,6 +1741,7 @@
             status: 'unknown',
             message: `UserSide ответил, но защитный статус не подтверждён: ${finalizeError?.message || String(finalizeError)}. Не повторяй отправку — сначала проверь историю звонков.`
           });
+          recordOperation('call.submit_total', submitTotalStartedAt, { resultStatus: 'unknown' }, 'error');
           return;
         }
         if (generation !== this.generation || !this.host) return;
@@ -1620,11 +1751,13 @@
         ));
         this.saving = false;
         if (result.status === 'error') {
+          recordOperation('call.submit_total', submitTotalStartedAt, { resultStatus: 'error' }, 'error');
           this.renderForm(values, { kind: 'error', message: result.message });
           return;
         }
 
         this.renderResult(result);
+        recordOperation('call.submit_total', submitTotalStartedAt, { resultStatus: result.status }, result.status === 'error' ? 'error' : 'ok');
         if (result.status === 'success') {
           const selected = this.model.options.find(option => String(option.value) === String(values.standardComment));
           try {
@@ -1667,6 +1800,7 @@
       } catch (error) {
         if (generation !== this.generation || !this.host) return;
         this.saving = false;
+        recordOperation('call.submit_total', submitTotalStartedAt, { error: compact(error?.message || error, 120) }, 'error');
         this.renderForm(values, { kind: 'error', message: error?.message || String(error) });
       }
     }
@@ -1674,6 +1808,13 @@
     async onClick(event) {
       const actionNode = event.target.closest?.('[data-action]');
       const action = actionNode?.dataset.action || '';
+      if (action) {
+        WB.perf?.record?.('ui.click', 0, { surface: 'call-registration', action }, {
+          status: 'ok',
+          persist: false,
+          persistSlow: false
+        });
+      }
       if (action === 'cancel') {
         this.close();
         return;
@@ -1750,7 +1891,7 @@
         const operatorOverride = hardConflict || confidence < 80;
         if (operatorOverride) {
           const confirmed = window.confirm(
-            `${hardConflict ? 'Есть hard identity conflict.' : `Уверенность кандидата ${confidence}%.`}\n\n`
+            `${hardConflict ? 'Есть hard identity conflict.' : 'Есть только косвенные признаки Workbench — это не прямая связь call_list.'}\n\n`
             + `Привязать frozen snapshot звонка к ${candidateIdentity.fullName || candidateIdentity.login || candidateIdentity.caseId || 'этому абоненту'} под ответственность оператора?`
           );
           if (!confirmed) return;
