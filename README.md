@@ -1,3 +1,9 @@
+## 1.7.36.159 — Direct filtered current-call focus
+
+- Opening `Рег. звонок` performs one authoritative filtered `call_list` GET for today and extension `6047`, then uses the matching current row from that response directly.
+- Removed the manifest-connected background call-list resolver so the same list is not polled repeatedly while a call is active. Manual refresh remains available only when UserSide has not returned the current row yet.
+- The active-call safety guard no longer erases a fresh matching LIVE row merely because no separate `call_list` tab is open; a previous completed call still cannot replace an active one.
+
 ## 1.7.36.158 — Restore LIVE call-list resolver
 
 - Connected the existing current-call resolver to the shipped manifest so an active PBX call can be enriched from the filtered UserSide `call_list` instead of remaining forever in the waiting screen.

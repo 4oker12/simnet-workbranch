@@ -74,7 +74,7 @@ import { queryCrmIndex, crmSearchPrompt, crmSearchIsPrimary, CRM_SEARCH_INDEX_RE
 import { optimizedCallListUrl } from './features/call/background/call-list-fetch-optimizer.js';
 
 
-const VERSION = '1.7.36.158';
+const VERSION = '1.7.36.159';
 const POLL_STALE_TIMEOUT_MS = 30000;
 const POLL_LATE_RESPONSE_MAX_AGE_MS = 180000;
 const RECOVERABLE_POLL_TIMEOUT_REASONS = new Set([

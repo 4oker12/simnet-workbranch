@@ -89,6 +89,16 @@
     return null;
   }
 
+  function directFilteredLiveCall(registration) {
+    const call = registration?.focusCall;
+    if (!call || !nativeActive()) return null;
+    const live = call.ongoing === true
+      || String(call.status || '').toLowerCase() === 'ongoing'
+      || String(call.snapshotStatus || '').toLowerCase() === 'live';
+    if (!live || !callMatchesNative(call)) return null;
+    return { ...call };
+  }
+
   function isActive() {
     return nativeActive() || Boolean(currentLiveCall());
   }
@@ -282,7 +292,11 @@
     }
 
     registration.historyFocusCallKey = '';
-    const liveCall = currentLiveCall();
+    // The authoritative filtered GET made by registration.open() is primary.
+    // Use its current 6047 row directly; an optional live DOM state is only a
+    // fallback. Never discard a fresh matching row merely because no separate
+    // /message/call_list tab is open.
+    const liveCall = directFilteredLiveCall(registration) || currentLiveCall();
     if (liveCall) {
       const previous = registration.focusCall;
       const same = sameLiveCall(previous, liveCall);
