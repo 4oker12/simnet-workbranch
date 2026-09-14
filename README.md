@@ -1,3 +1,7 @@
+## 1.7.36.167 — Click to inspect tab load
+
+- Per-tab details open immediately with the extension popup. Cached values appear first, followed by one bounded flush of all loaded CRM tabs, including background tabs. Discarded tabs are not woken. Snapshot export also flushes loaded background tabs; each response has a three-second wait limit and displayed timestamps expose stale samples.
+
 ## 1.7.36.166 — Tab load visibility
 
 - Extension popup shows total/working/background/discarded tab counts and expandable per-tab metrics with a focus button. Existing five-second popup refresh and minute sample cadence are reused.

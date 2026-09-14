@@ -146,7 +146,7 @@ function renderPerformanceSession(session = null) {
   const load = session?.tabLoad;
   const inventory = load?.inventory;
   if (perfTabsNode && inventory) {
-    const expanded = perfTabsNode.querySelector('details')?.open;
+    const expanded = perfTabsNode.querySelector('details')?.open ?? true;
     const rows = (load.tabs || []).filter(row => row.open).sort((a, b) => Number(b.selected) - Number(a.selected));
     perfTabsNode.innerHTML = `<b>Вкладки: ${inventory.total} всего · ${inventory.working} рабочих</b>
       <div>${inventory.background} фоновых · ${inventory.discarded} выгружено браузером</div>
@@ -218,11 +218,15 @@ async function refreshPerformanceSession() {
 }
 
 async function flushActivePerformanceTabs() {
-  const tabs = await chrome.tabs.query({ active: true, url: CRM_TAB_URLS });
-  await Promise.allSettled(tabs.map(tab => (
+  const tabs = await chrome.tabs.query({ url: CRM_TAB_URLS });
+  await Promise.allSettled(tabs.filter(tab => !tab.discarded).map(tab => (
     tab.id == null
       ? Promise.resolve()
-      : chrome.tabs.sendMessage(tab.id, { type: 'PERF_SESSION_FLUSH' })
+      : new Promise(resolve => {
+        const timeout = setTimeout(resolve, 3000);
+        chrome.tabs.sendMessage(tab.id, { type: 'PERF_SESSION_FLUSH' })
+          .catch(() => null).finally(() => { clearTimeout(timeout); resolve(); });
+      })
   )));
 }
 
@@ -363,7 +367,11 @@ clearWorkbenchNode?.addEventListener('click', async () => {
   }
 });
 
-load().catch(error => {
+load().then(async () => {
+  // Show cached values first; refresh loaded working tabs once per popup opening.
+  await flushActivePerformanceTabs();
+  await refreshPerformanceSession();
+}).catch(error => {
   statusNode.textContent = `Ошибка popup · ${error?.message || error}`;
   statusNode.className = 'bad';
 });

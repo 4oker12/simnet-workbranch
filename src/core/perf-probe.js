@@ -729,7 +729,7 @@
 
   function onPerformanceRuntimeMessage(message, _sender, sendResponse) {
     if (message?.type !== PERFORMANCE_FLUSH_MESSAGE) return false;
-    Promise.resolve(flushPerformanceSession('operator-snapshot', { force: true })).then(
+    Promise.resolve(flushPerformanceSession('operator-snapshot', { force: true, skipDelay: document.hidden })).then(
       data => sendResponse({ success: true, data }),
       error => sendResponse({ success: false, error: error?.message || String(error) })
     );
