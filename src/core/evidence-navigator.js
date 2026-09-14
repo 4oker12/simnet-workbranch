@@ -222,8 +222,8 @@
       : [
           { key: 'technical', label: 'Техданные' },
           { key: 'tmc', label: 'ТМЦ' },
-          { key: 'juniper', label: 'Juniper' },
-          { key: 'poll', label: 'Опрос ONU' }
+          { key: 'poll', label: 'Опрос ONU' },
+          { key: 'juniper', label: 'Juniper' }
         ];
     return steps.map(step => {
       if (doneByKey[step.key]) return doneByKey[step.key];

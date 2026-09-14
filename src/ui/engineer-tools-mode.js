@@ -54,7 +54,7 @@
     button.dataset.engineerKey = String(item?.key || '');
     button.title = `Открыть ${String(item?.label || 'инструмент')} напрямую`;
     button.setAttribute('aria-label', button.title);
-    button.textContent = '→';
+    button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>';
     return button;
   }
 

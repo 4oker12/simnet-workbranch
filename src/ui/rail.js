@@ -146,6 +146,8 @@
       journal: '<path d="M4 7h16M7 4v6M17 4v6M6 11h12v9H6z"/><path d="M9 15h6"/>',
       settings: '<path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="M4 13v-2l2-1 .5-1.3-.7-2.1 1.4-1.4 2.1.7L10.6 5l1-2h2l1 2 1.3.9 2.1-.7 1.4 1.4-.7 2.1.9 1.3 2 1v2l-2 1-.9 1.3.7 2.1-1.4 1.4-2.1-.7-1.3.9-1 2h-2l-1-2-1.3-.9-2.1.7-1.4-1.4.7-2.1L6 14z"/>',
       chevron: '<path d="m14 7-5 5 5 5"/>',
+      forward: '<path d="m9 6 6 6-6 6"/>',
+      billing: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16M9 9v11"/>',
       close: '<path d="m7 7 10 10M17 7 7 17"/>',
       copy: '<rect x="9" y="9" width="10" height="10" rx="2"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"/>',
       download: '<path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M5 19h14"/>',
@@ -452,6 +454,15 @@
           this.activeView = null;
           this.attentionOpen = false;
           this.render();
+        }
+        if (action === 'live-open-billing') {
+          void this.runNavigation(async () => {
+            const result = await this.navigateToBillingForAction(this.activeCase(), 'billing.user');
+            if (!result?.ok) this.toast('Не удалось открыть Billing: ' + (result?.code || result?.reason || 'нет доступной вкладки'));
+            else this.collapseForNavigation();
+            return result;
+          });
+          return;
         }
         if (action === 'copy-contract') {
           this.copy(
@@ -1107,11 +1118,6 @@
         || { items: WB.evidenceNavigator?.trail?.(currentCase) || [], total: 0, done: 0, attention: 0, percent: 0 };
       const items = Array.isArray(summary.items) ? summary.items : [];
       if (!items.length) return '';
-      const total = Number(summary.total) || items.length;
-      const done = Number(summary.done) || items.filter(item => item.level !== 'pending').length;
-      const percent = Number.isFinite(Number(summary.percent))
-        ? Number(summary.percent)
-        : (total ? Math.round((done / total) * 100) : 0);
       const ponDetails = currentCase?.diagnostic?.ponWorkflowDetails || {};
       const tmcPrefillFields = Array.isArray(ponDetails.prefillFields) ? ponDetails.prefillFields : [];
       const tmcConflicts = Array.isArray(ponDetails.conflicts) ? ponDetails.conflicts : [];
@@ -1119,13 +1125,6 @@
       return `
         <div class="section">
           <div class="evidence-history">
-            <div class="evidence-history-head">
-              <span>Прогресс</span>
-              <span>${done}/${total}</span>
-            </div>
-            <div class="progress live-progress" title="${done} из ${total} · ${percent}%">
-              <span style="width:${percent}%"></span>
-            </div>
             ${items.map(item => {
               const pending = item.level === 'pending';
               const pendingBilling = !pending && item.key === 'tmc' && tmcNeedsBilling;
@@ -1150,7 +1149,7 @@
                   <b>${esc(item.label)}</b>
                   <span>${esc(status)}${!pending && item.at ? ` · ${esc(formatTime(item.at))}` : ''}</span>
                 </div>
-                ${!pending && item.replay ? `<button class="evidence-replay" data-action="live-replay" data-evidence-key="${esc(item.key)}" title="Показать это место ещё раз" aria-label="Показать ${esc(item.label)} ещё раз">→</button>` : '<span class="evidence-spacer"></span>'}
+                ${!pending && item.replay ? `<button class="evidence-replay" data-action="live-replay" data-evidence-key="${esc(item.key)}" title="Открыть ${esc(item.label)}" aria-label="Открыть ${esc(item.label)}">${icon('forward')}</button>` : '<span class="evidence-spacer"></span>'}
               </div>`;
             }).join('')}
           </div>
@@ -1732,7 +1731,7 @@
         ${this.pollAttemptCard(currentCase)}
         ${terminalSummary}
         ${this.evidenceHistory(currentCase)}
-        ${(contract || login) ? `<div class="section compact-actions"><div class="actions"><button class="action" data-action="copy-contract">${icon('copy')} Договор</button></div></div>` : ''}
+        ${(contract || login) ? `<div class="section compact-actions"><div class="actions"><button class="action" data-action="live-open-billing" title="Главная карточка текущего абонента в Billing">${icon('billing')} Открыть Billing</button></div></div>` : ''}
       `;
     }
 

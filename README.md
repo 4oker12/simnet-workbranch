@@ -1,3 +1,8 @@
+## 1.7.36.165 — LIVE layout
+
+- Removed the LIVE progress bar and completion counter. PON checkpoints are ordered Technical → TMC → ONU poll → Juniper, retaining actual status/timestamps and independent navigation.
+- Consistent chevrons replace text arrows. “Открыть Billing” replaces the contract-copy footer action and opens the current subscriber's Billing card through existing authenticated navigation.
+
 ## 1.7.36.164 — Selectize OLT selection
 
 - The TMC fill button sits in the right-hand cell of the OLT row.
