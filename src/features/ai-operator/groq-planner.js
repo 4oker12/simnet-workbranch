@@ -1,4 +1,5 @@
 import { AI_CONFIG, readAiRuntimeConfig } from '../../config/ai-config.js';
+import { SUPPORT_CORPUS_GUIDANCE, SUPPORT_CORPUS_GUIDANCE_VERSION } from './support-corpus-guidance.js';
 
 const FALLBACK_MODELS = Object.freeze([
   'qwen/qwen3.6-27b',
@@ -115,9 +116,9 @@ async function requestModel(messages, apiKey, model) {
 }
 
 function styleInstruction(style) {
-  if (style === 'detailed') return 'Допускается подробный ответ, но без воды и повторов.';
-  if (style === 'normal') return 'Ответ средней длины: достаточно объяснения и одного следующего шага.';
-  return 'Ответ максимально компактный: обычно 1–4 коротких предложения, только существенное.';
+  if (style === 'detailed') return 'Развёрнутый ответ разрешён и желателен, когда несколько фактов вместе дают клиенту полезное объяснение. Без воды, повторов и лишнего жаргона.';
+  if (style === 'normal') return 'Ответ средней длины: прямой ответ + полезное объяснение связанных фактов + один следующий шаг, если он нужен.';
+  return 'Ответ обычно компактный, но не обрезай полезное объяснение. Для баланса, тарифа, аварии или диагностики допустимо несколько коротких предложений, если каждое добавляет смысл.';
 }
 
 function correctionExamples(corrections = []) {
@@ -190,6 +191,9 @@ ${labIdentityRules(input)}
 СТИЛЬ ОТВЕТА:
 ${styleInstruction(config.replyStyle)}
 Максимальная длина готового ответа: ${Math.max(180, Math.min(1800, Number(config.maxReplyChars) || 700))} символов.
+
+ПОВЕДЕНЧЕСКАЯ БАЗА: ${SUPPORT_CORPUS_GUIDANCE_VERSION}
+${SUPPORT_CORPUS_GUIDANCE}
 
 ${customInstructions ? `ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ ОПЕРАТОРА:\n${customInstructions}\n` : ''}
 ${corrections ? `ПРИМЕРЫ РАНЕЕ ИСПРАВЛЕННОГО ПОВЕДЕНИЯ:\n${corrections}\n` : ''}
