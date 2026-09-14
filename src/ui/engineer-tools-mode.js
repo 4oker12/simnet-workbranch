@@ -135,7 +135,7 @@
       return rail.openEthernetTarget?.('device') || { ok: false, reason: 'ethernet-navigation-unavailable' };
     }
 
-    const pollAction = String(currentCase?.diagnostic?.pollAction || '');
+    const pollAction = String(currentCase?.diagnostic?.pollNavigationAction || currentCase?.diagnostic?.pollAction || '');
     const target = POLL_TARGETS[pollAction] || '';
     if (!target) {
       rail.toast?.('Технология опроса ещё не определена — открываю техданные');

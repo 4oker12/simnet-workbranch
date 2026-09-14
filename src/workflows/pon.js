@@ -214,18 +214,10 @@ function fieldPresent(field, facts) {
 }
 
 function sameOlt(left, right) {
-  const leftDeviceId = comparable(left?.oltDeviceId);
-  const rightDeviceId = comparable(right?.oltDeviceId);
   const leftIp = comparable(left?.oltIp);
   const rightIp = comparable(right?.oltIp);
-  if (leftDeviceId && rightDeviceId && leftDeviceId === rightDeviceId) return true;
-  if (leftIp && rightIp && leftIp === rightIp) return true;
-  if ((leftDeviceId && rightDeviceId) || (leftIp && rightIp)) return false;
-  const leftName = comparable(left?.oltName);
-  const rightName = comparable(right?.oltName);
-  return Boolean(leftName && rightName && (
-    leftName === rightName || leftName.includes(rightName) || rightName.includes(leftName)
-  ));
+  // Billing and UserSide have independent IDs and display names.
+  return Boolean(leftIp && rightIp && leftIp === rightIp);
 }
 
 export function assessPonTechnical(caseData = {}) {
@@ -242,8 +234,8 @@ export function assessPonTechnical(caseData = {}) {
   if (fieldPresent('olt', billing) && fieldPresent('olt', tmc) && !sameOlt(billing, tmc)) {
     conflicts.push({
       field: 'olt',
-      billing: billing.oltName || billing.oltIp,
-      tmc: tmc.oltName || tmc.oltIp,
+      billing: billing.oltIp || 'IP OLT отсутствует',
+      tmc: tmc.oltIp || 'IP OLT отсутствует',
       blocking: false,
       effectiveSource: 'billing'
     });

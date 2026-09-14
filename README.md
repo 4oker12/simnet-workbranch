@@ -1,3 +1,9 @@
+## 1.7.36.162 — OLT route and selective TMC transfer
+
+- Engineer poll navigation resolves the native technology from existing OLT/TMC evidence even before Billing completeness permits an actual request. Request guards remain active.
+- OLT reconciliation uses exact IP, never display names or IDs from different systems. MAC and Serial ignore formatting differences.
+- Billing Technical has a “Подставить отличия из ТМЦ” button next to Serial. It fills only differing ONU MAC, Serial and OLT fields, selecting OLT by a unique exact IP match. Save using the native Billing button. Subscriber/router MAC is untouched.
+
 ## 1.7.36.161 — Runtime performance
 
 - Batch diagnostic log writes with a bounded 80-entry pending buffer and one writer per page. Routine logs remain exportable without flooding the console with object references.

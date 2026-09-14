@@ -5,7 +5,7 @@ import {
   discoverySnapshot,
   evidenceSnapshot
 } from './discovery.js';
-import { derivePonWorkflow } from './pon.js';
+import { derivePonWorkflow, pollRouteForCase } from './pon.js';
 
 function nowIso() { return new Date().toISOString(); }
 function comparable(value) { return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' '); }
@@ -289,6 +289,8 @@ export function computeDiagnosticDecision(caseData) {
     family,
     subtype,
     pollAction,
+    // Knowing which native page to open does not authorize an OLT request.
+    pollNavigationAction: family.toLowerCase() === 'ethernet' ? '' : pollRouteForCase(caseData).action,
     pollState: ponWorkflow.applicable ? String(ponWorkflow.pollState || 'idle') : '',
     pollStateReason: ponWorkflow.applicable ? String(ponWorkflow.pollStateReason || '') : '',
     isPon,

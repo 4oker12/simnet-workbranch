@@ -63,5 +63,33 @@
 
   WB.parsers ||= {};
   WB.parsers.billing ||= {};
-  WB.parsers.billing.technical = { version: '3.0.0', parseDocument };
+  const normalizeSerial = value => trim(value).replace(/[^0-9a-z]/gi, '').toUpperCase();
+
+  function planTmcPatch(parsed, expected) {
+    const changes = [];
+    const unavailable = [];
+    const serial = normalizeSerial(expected.onuSerial);
+    const mac = normalizeMac(expected.onuMac);
+    const add = (field, value) => {
+      const control = parsed.controls[field];
+      if (!control || control.disabled || control.readOnly) unavailable.push(field);
+      else changes.push({ field, control, value });
+    };
+    if (serial && serial !== normalizeSerial(parsed.values.onuSerial)) {
+      add('onuSerial', /^[A-Z]{4}[0-9A-F]{8}$/.test(serial) ? `${serial.slice(0, 4)}:${serial.slice(4)}` : serial);
+    }
+    if (mac && mac !== normalizeMac(parsed.values.onuMac)) add('onuMac', mac);
+    const ip = trim(expected.oltIp);
+    if (ip && ip !== parsed.values.oltIp) {
+      const matches = [...(parsed.controls.olt?.options || [])].filter(option => (
+        !option.disabled && trim(option.value) && trim(option.value) !== '0'
+        && trim(option.textContent).match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/)?.[0] === ip
+      ));
+      if (matches.length === 1) add('olt', matches[0].value);
+      else unavailable.push('olt');
+    }
+    return { changes, unavailable };
+  }
+
+  WB.parsers.billing.technical = { version: '3.1.0', parseDocument, planTmcPatch };
 })();
