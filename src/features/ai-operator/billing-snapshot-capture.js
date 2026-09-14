@@ -73,6 +73,13 @@
     ].filter(Boolean).join(', ');
   }
 
+  function temporaryPaymentText() {
+    return [...document.querySelectorAll('.modified,td,span,p,div')]
+      .map(node => clean(node.textContent || '', 260))
+      .filter(value => value.length <= 240 && /временн(?:ый|ого)\s+плат[её]ж/i.test(value))
+      .sort((a, b) => a.length - b.length)[0] || '';
+  }
+
   function readPayments() {
     const table = document.querySelector('#my_x_16');
     if (!table) return [];
@@ -105,9 +112,7 @@
   function readMain() {
     const login = loginFromPage();
     const contract = clean(input('contract') || login.replace(/^abon/i, ''), 80);
-    const temporaryText = [...document.querySelectorAll('.modified,div,span,p')]
-      .map(node => clean(node.textContent || '', 260))
-      .find(value => /временн(?:ый|ого)\s+плат[её]ж/i.test(value)) || '';
+    const temporaryText = temporaryPaymentText();
     const auth = readAuthorization();
     return {
       identity: {
@@ -149,11 +154,22 @@
   function readTechnical() {
     const olt = selected('dopfield_29');
     const oltIp = olt.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/)?.[0] || '';
+    const eponOnuMac = clean(input('dopfield_19'), 100);
+    const gponOntSerial = clean(input('dopfield_38'), 120);
+    let technologyHint = '';
+    if (eponOnuMac && gponOntSerial) technologyHint = 'PON (EPON/GPON identifiers both present)';
+    else if (gponOntSerial) technologyHint = 'GPON';
+    else if (eponOnuMac) technologyHint = 'EPON';
+    else if (/\bGPON\b/i.test(olt)) technologyHint = 'GPON';
+    else if (/\bEPON\b/i.test(olt)) technologyHint = 'EPON';
+    else if (/\bOLT\b|HUAWEI|BDCOM|GCOM/i.test(olt)) technologyHint = 'PON';
+
     return {
       technical: {
         subscriberMac: clean(input('dopfield_4'), 100),
-        eponOnuMac: clean(input('dopfield_19'), 100),
-        gponOntSerial: clean(input('dopfield_38'), 120),
+        eponOnuMac,
+        gponOntSerial,
+        technologyHint,
         olt,
         oltIp,
         staticIpConfigured: booleanSelect('dopfield_44'),
