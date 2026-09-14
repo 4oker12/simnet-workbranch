@@ -16,10 +16,13 @@ assert.equal(transcript[0].text, '394895', 'workflow dataCollectionReply must re
 assert.equal(latestCustomerTurn(messages)?.id, 3, 'latest customer semantic turn must be detected independently of tech events');
 
 const background = fs.readFileSync(new URL('../src/features/ai-operator/background.js', import.meta.url), 'utf8');
+const labBackground = fs.readFileSync(new URL('../src/features/ai-operator/lab-background.js', import.meta.url), 'utf8');
+const toolRuntime = fs.readFileSync(new URL('../src/features/ai-operator/tool-runtime.js', import.meta.url), 'utf8');
 const client = fs.readFileSync(new URL('../src/features/ai-operator/helpcrunch-client.js', import.meta.url), 'utf8');
 const planner = fs.readFileSync(new URL('../src/features/ai-operator/groq-planner.js', import.meta.url), 'utf8');
 const settingsHtml = fs.readFileSync(new URL('../src/ui/settings.html', import.meta.url), 'utf8');
 const settingsJs = fs.readFileSync(new URL('../src/ui/settings.js', import.meta.url), 'utf8');
+const labJs = fs.readFileSync(new URL('../src/ui/ai-operator-lab.js', import.meta.url), 'utf8');
 const entry = fs.readFileSync(new URL('../src/background-entry.js', import.meta.url), 'utf8');
 const manifest = JSON.parse(fs.readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
 
@@ -31,12 +34,34 @@ assert.doesNotMatch(client, /method:\s*['"]POST['"]/, 'HelpCrunch client must be
 assert.match(client, /credentials:\s*['"]include['"]/, 'HelpCrunch read must reuse authenticated session safely');
 assert.match(planner, /полностью автономный оператор/i, 'Groq prompt must address subscriber as an autonomous operator');
 assert.match(planner, /action=tool_required/i, 'unknown internal facts must request a read tool rather than hallucinate');
+assert.match(planner, /customer\.confirm/, 'planner must explicitly confirm a located subscriber before account reads');
+assert.match(planner, /confirmedCaseId пуст/i, 'manual lab prompt must enforce identity before account-specific reads');
+assert.match(planner, /номер договора ИЛИ полный адрес/i, 'manual lab must ask for one useful subscriber identifier');
 assert.match(planner, /ПРИМЕРЫ РАНЕЕ ИСПРАВЛЕННОГО ПОВЕДЕНИЯ/, 'saved corrections must be included in the next AI decisions');
 assert.match(planner, /ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ ОПЕРАТОРА/, 'operator custom behavior instructions must be part of the prompt');
+
+assert.match(toolRuntime, /simnet_workbench_state_v5/, 'tool runtime must read the canonical Workbench case store');
+assert.match(toolRuntime, /customer\.lookup/, 'tool runtime must implement subscriber lookup');
+assert.match(toolRuntime, /billing\.balance/, 'tool runtime must expose real stored balance evidence');
+assert.match(toolRuntime, /network\.session/, 'tool runtime must expose session evidence');
+assert.match(toolRuntime, /pon\.signal/, 'tool runtime must expose PON evidence');
+assert.match(toolRuntime, /IDENTITY_REQUIRED/, 'account tools must reject unconfirmed subscribers');
+assert.match(toolRuntime, /DATA_NOT_AVAILABLE/, 'missing read adapters must fail explicitly instead of fabricating data');
+assert.doesNotMatch(toolRuntime, /method:\s*['"]POST['"]/, 'manual operator tools must stay read-only');
+
+assert.match(labBackground, /AI_OPERATOR_LAB_SEND/, 'lab runtime must accept manual subscriber messages');
+assert.match(labBackground, /MAX_TOOL_TURNS\s*=\s*6/, 'agent tool loop must be bounded');
+assert.match(labBackground, /executeOperatorTool/, 'lab must actually execute planned READ tools');
+assert.match(labBackground, /REPEATED_TOOL_CALL/, 'lab must stop repeated tool loops');
 assert.match(settingsHtml, /Автономный оператор · Test Lab/, 'settings must expose the autonomous operator test lab');
+assert.match(settingsHtml, /Ручной диалог · ты = абонент/, 'settings must expose the manual subscriber chat');
+assert.match(settingsHtml, /aiLabTranscript/, 'manual lab transcript must be rendered in settings');
 assert.match(settingsHtml, /aiOperatorCustomInstructions/, 'settings must expose editable behavior instructions');
 assert.match(settingsJs, /Запомнить исправление/, 'settings must expose per-case correction action');
+assert.match(labJs, /AI_OPERATOR_LAB_SEND/, 'manual lab UI must call its runtime');
+assert.match(labJs, /TOOL →/, 'manual lab UI must show tool calls visibly');
 assert.match(entry, /features\/ai-operator\/background\.js/, 'service worker must load autonomous operator runtime');
+assert.match(entry, /features\/ai-operator\/lab-background\.js/, 'service worker must load manual operator lab runtime');
 assert.ok(manifest.permissions.includes('alarms'), 'poll scheduler permission must be present');
 assert.ok(manifest.host_permissions.includes('https://stargroup.helpcrunch.com/*'), 'HelpCrunch host must be explicitly allowlisted');
 const hcScript = manifest.content_scripts.find(item => item.matches?.includes('https://stargroup.helpcrunch.com/*'));
