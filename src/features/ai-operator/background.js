@@ -4,6 +4,7 @@ import { planAutonomousTurn } from './groq-planner.js';
 
 const CONFIG_KEY = 'simnet_ai_operator_runtime_v1';
 const CASES_KEY = 'simnet_ai_operator_cases_v1';
+const FEEDBACK_KEY = 'simnet_ai_operator_feedback_v1';
 const ALARM_NAME = 'simnet-ai-operator-poll';
 const DEFAULT_CONFIG = Object.freeze({
   enabled: false,
@@ -11,7 +12,11 @@ const DEFAULT_CONFIG = Object.freeze({
   inboxIds: [1],
   chatAllowlist: [],
   pollIntervalMinutes: 1,
-  maxChatsPerPoll: 30
+  maxChatsPerPoll: 30,
+  replyStyle: 'compact',
+  maxReplyChars: 700,
+  customInstructions: '',
+  learnFromCorrections: true
 });
 
 const TYPES = Object.freeze({
@@ -19,13 +24,24 @@ const TYPES = Object.freeze({
   SAVE: 'AI_OPERATOR_SAVE',
   POLL_ONCE: 'AI_OPERATOR_POLL_ONCE',
   CASES: 'AI_OPERATOR_CASES',
-  CLEAR_CASES: 'AI_OPERATOR_CLEAR_CASES'
+  CLEAR_CASES: 'AI_OPERATOR_CLEAR_CASES',
+  FEEDBACK_ADD: 'AI_OPERATOR_FEEDBACK_ADD',
+  FEEDBACK_CLEAR: 'AI_OPERATOR_FEEDBACK_CLEAR'
 });
 
 let pollPromise = null;
 
 function oneLine(value, max = 500) {
   const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function block(value, max = 4000) {
+  const text = String(value == null ? '' : value)
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
@@ -43,14 +59,21 @@ function normalizeIdList(value, max = 100) {
 
 function normalizeConfig(raw = {}) {
   const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const inboxIds = normalizeIdList(value.inboxIds, 10);
   return {
     enabled: Boolean(value.enabled),
     // SEND is intentionally impossible in this stage. The captured endpoint set is read-only.
     shadowMode: true,
-    inboxIds: normalizeIdList(value.inboxIds, 10).length ? normalizeIdList(value.inboxIds, 10) : [1],
+    inboxIds: inboxIds.length ? inboxIds : [1],
     chatAllowlist: normalizeIdList(value.chatAllowlist, 100),
     pollIntervalMinutes: Math.max(1, Math.min(60, Number(value.pollIntervalMinutes) || 1)),
     maxChatsPerPoll: Math.max(1, Math.min(100, Number(value.maxChatsPerPoll) || 30)),
+    replyStyle: ['compact', 'normal', 'detailed'].includes(String(value.replyStyle || ''))
+      ? String(value.replyStyle)
+      : 'compact',
+    maxReplyChars: Math.max(180, Math.min(1800, Number(value.maxReplyChars) || 700)),
+    customInstructions: block(value.customInstructions || '', 4000),
+    learnFromCorrections: value.learnFromCorrections !== false,
     updatedAt: String(value.updatedAt || '')
   };
 }
@@ -71,6 +94,35 @@ async function saveConfig(patch = {}) {
 async function readCases() {
   const raw = (await chrome.storage.local.get(CASES_KEY))?.[CASES_KEY] || {};
   return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+}
+
+async function readFeedback() {
+  const raw = (await chrome.storage.local.get(FEEDBACK_KEY))?.[FEEDBACK_KEY] || [];
+  return Array.isArray(raw) ? raw : [];
+}
+
+async function addFeedback(payload = {}) {
+  const chatId = Number(payload.chatId || 0);
+  const customerText = block(payload.customerText || '', 1600);
+  const aiReply = block(payload.aiReply || '', 1800);
+  const correctedReply = block(payload.correctedReply || '', 1800);
+  const note = block(payload.note || '', 1200);
+  if (!chatId) throw new Error('Correction requires chatId');
+  if (!correctedReply && !note) throw new Error('Enter corrected reply or correction note');
+
+  const current = await readFeedback();
+  const item = {
+    id: `fb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    chatId,
+    customerText,
+    aiReply,
+    correctedReply,
+    note,
+    createdAt: new Date().toISOString()
+  };
+  const next = [item, ...current].slice(0, 100);
+  await chrome.storage.local.set({ [FEEDBACK_KEY]: next });
+  return item;
 }
 
 async function writeCase(chatId, patch = {}) {
@@ -134,8 +186,16 @@ async function processChat(chat, config, existingCase = {}) {
     }
   }
   const customer = mergeCustomer(chat, info);
+  const feedback = config.learnFromCorrections ? await readFeedback() : [];
 
-  const decision = await planAutonomousTurn({ chat, customer, transcript, latestCustomer: latest });
+  const decision = await planAutonomousTurn({
+    chat,
+    customer,
+    transcript,
+    latestCustomer: latest,
+    operatorConfig: config,
+    corrections: feedback.slice(0, 12)
+  });
   const saved = await writeCase(chatId, {
     customerId: customer.id,
     provider: String(chat?.provider || ''),
@@ -222,14 +282,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!Object.values(TYPES).includes(type)) return false;
 
   const action = type === TYPES.GET
-    ? readConfig().then(async config => ({ config, cases: await readCases() }))
+    ? Promise.all([readConfig(), readCases(), readFeedback()]).then(([config, cases, feedback]) => ({ config, cases, feedback }))
     : type === TYPES.SAVE
       ? saveConfig(message?.payload || {})
       : type === TYPES.POLL_ONCE
         ? pollAutonomousOperator({ force: true })
         : type === TYPES.CASES
           ? readCases()
-          : chrome.storage.local.remove(CASES_KEY).then(() => ({ cleared: true }));
+          : type === TYPES.CLEAR_CASES
+            ? chrome.storage.local.remove(CASES_KEY).then(() => ({ cleared: true }))
+            : type === TYPES.FEEDBACK_ADD
+              ? addFeedback(message?.payload || {})
+              : chrome.storage.local.remove(FEEDBACK_KEY).then(() => ({ cleared: true }));
 
   void action.then(
     data => sendResponse({ success: true, data }),
