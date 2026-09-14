@@ -20,7 +20,7 @@
       <div class="card-head">
         <div>
           <h2>AI · Groq</h2>
-          <p>Один локальный ключ используется AI-помощником и разбором звонков.</p>
+          <p>Один локальный ключ используется AI-помощником, автономным оператором и разбором звонков.</p>
         </div>
         <span id="keyBadge" class="badge">Не настроен</span>
       </div>
@@ -49,6 +49,66 @@
         <option value="openai/gpt-oss-20b">GPT-OSS 20B</option>
       </select>
       <button id="saveChatModel" class="secondary save-model" type="button">Сохранить модель</button>
+    </section>
+
+    <section class="card operator-card">
+      <div class="card-head">
+        <div>
+          <h2>Автономный оператор · Test Lab</h2>
+          <p>Сам читает разрешённые HelpCrunch-чаты, ведёт Case и строит ответ. Отправка пока физически заблокирована: режим shadow.</p>
+        </div>
+        <span class="badge">SHADOW</span>
+      </div>
+
+      <div class="toggle-row">
+        <label class="toggle-label"><input id="aiOperatorEnabled" type="checkbox"> Включить фоновую обработку</label>
+        <label class="toggle-label"><input id="learnFromCorrections" type="checkbox" checked> Учитывать мои исправления</label>
+      </div>
+
+      <div class="form-grid two">
+        <div>
+          <label class="field-label" for="aiOperatorInboxIds">Inbox ID</label>
+          <input id="aiOperatorInboxIds" class="text-input" type="text" placeholder="1">
+        </div>
+        <div>
+          <label class="field-label" for="aiOperatorChatAllowlist">Разрешённые chat ID</label>
+          <input id="aiOperatorChatAllowlist" class="text-input" type="text" placeholder="1502694, 1502701">
+        </div>
+        <div>
+          <label class="field-label" for="aiOperatorReplyStyle">Стиль ответа</label>
+          <select id="aiOperatorReplyStyle">
+            <option value="compact">Коротко</option>
+            <option value="normal">Нормально</option>
+            <option value="detailed">Подробнее</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label" for="aiOperatorMaxReplyChars">Макс. символов ответа</label>
+          <input id="aiOperatorMaxReplyChars" class="text-input" type="number" min="180" max="1800" step="20" value="700">
+        </div>
+      </div>
+
+      <label class="field-label" for="aiOperatorCustomInstructions">Как именно должен вести себя оператор</label>
+      <textarea id="aiOperatorCustomInstructions" rows="6" placeholder="Например: не начинай каждый ответ с приветствия; если клиент спрашивает про оплату — сначала выясни точную суть; не используй слово «абонент» в ответе клиенту; технические шаги давай по одному."></textarea>
+      <p class="note">Это дополнительный слой поведения. Он не отменяет запрет выдумывать внутренние данные и выполнять WRITE-действия.</p>
+
+      <div class="actions">
+        <button id="saveAiOperator" type="button">Сохранить настройки</button>
+        <button id="pollAiOperator" class="secondary" type="button">Проверить сейчас</button>
+        <button id="refreshAiOperator" class="secondary" type="button">Обновить результаты</button>
+      </div>
+      <div id="aiOperatorStatus" class="status">Автономный оператор ещё не запускался.</div>
+
+      <div class="section-head">
+        <div>
+          <h3>Последние решения AI</h3>
+          <p class="muted">Здесь можно исправить готовый ответ или написать правило, что именно AI понял неправильно.</p>
+        </div>
+        <button id="clearAiCorrections" class="danger compact-button" type="button">Очистить исправления</button>
+      </div>
+      <div id="aiOperatorCases" class="case-list">
+        <div class="empty">Нет обработанных тестовых чатов.</div>
+      </div>
     </section>
 
     <section class="card">
