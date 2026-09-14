@@ -18,6 +18,7 @@ assert.equal(latestCustomerTurn(messages)?.id, 3, 'latest customer semantic turn
 const background = fs.readFileSync(new URL('../src/features/ai-operator/background.js', import.meta.url), 'utf8');
 const labBackground = fs.readFileSync(new URL('../src/features/ai-operator/lab-background.js', import.meta.url), 'utf8');
 const toolRuntime = fs.readFileSync(new URL('../src/features/ai-operator/tool-runtime.js', import.meta.url), 'utf8');
+const billingSnapshot = fs.readFileSync(new URL('../src/features/ai-operator/billing-snapshot-capture.js', import.meta.url), 'utf8');
 const client = fs.readFileSync(new URL('../src/features/ai-operator/helpcrunch-client.js', import.meta.url), 'utf8');
 const planner = fs.readFileSync(new URL('../src/features/ai-operator/groq-planner.js', import.meta.url), 'utf8');
 const settingsHtml = fs.readFileSync(new URL('../src/ui/settings.html', import.meta.url), 'utf8');
@@ -35,19 +36,34 @@ assert.match(client, /credentials:\s*['"]include['"]/, 'HelpCrunch read must reu
 assert.match(planner, /полностью автономный оператор/i, 'Groq prompt must address subscriber as an autonomous operator');
 assert.match(planner, /action=tool_required/i, 'unknown internal facts must request a read tool rather than hallucinate');
 assert.match(planner, /customer\.confirm/, 'planner must explicitly confirm a located subscriber before account reads');
+assert.match(planner, /customer\.snapshot/, 'planner must know the rich subscriber snapshot tool');
 assert.match(planner, /confirmedCaseId пуст/i, 'manual lab prompt must enforce identity before account-specific reads');
 assert.match(planner, /номер договора ИЛИ полный адрес/i, 'manual lab must ask for one useful subscriber identifier');
+assert.match(planner, /balanceWithoutTemporary/, 'planner must understand temporary-payment-aware Billing balances');
 assert.match(planner, /ПРИМЕРЫ РАНЕЕ ИСПРАВЛЕННОГО ПОВЕДЕНИЯ/, 'saved corrections must be included in the next AI decisions');
 assert.match(planner, /ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ ОПЕРАТОРА/, 'operator custom behavior instructions must be part of the prompt');
 
 assert.match(toolRuntime, /simnet_workbench_state_v5/, 'tool runtime must read the canonical Workbench case store');
+assert.match(toolRuntime, /simnet_ai_operator_billing_snapshots_v1/, 'tool runtime must read captured Billing snapshots');
 assert.match(toolRuntime, /customer\.lookup/, 'tool runtime must implement subscriber lookup');
+assert.match(toolRuntime, /customer\.snapshot/, 'tool runtime must expose full confirmed subscriber context');
 assert.match(toolRuntime, /billing\.balance/, 'tool runtime must expose real stored balance evidence');
+assert.match(toolRuntime, /balanceWithoutTemporary/, 'balance tool must expose balance without temporary payment');
+assert.match(toolRuntime, /temporaryPayment/, 'balance tool must expose temporary payment evidence');
+assert.match(toolRuntime, /nextTariff/, 'tariff tool must expose scheduled tariff changes');
+assert.match(toolRuntime, /billing\.payments/, 'tool runtime must expose captured recent payments');
 assert.match(toolRuntime, /network\.session/, 'tool runtime must expose session evidence');
 assert.match(toolRuntime, /pon\.signal/, 'tool runtime must expose PON evidence');
 assert.match(toolRuntime, /IDENTITY_REQUIRED/, 'account tools must reject unconfirmed subscribers');
 assert.match(toolRuntime, /DATA_NOT_AVAILABLE/, 'missing read adapters must fail explicitly instead of fabricating data');
 assert.doesNotMatch(toolRuntime, /method:\s*['"]POST['"]/, 'manual operator tools must stay read-only');
+
+assert.match(billingSnapshot, /dopfield_5/, 'Billing snapshot must read the exact street field from supplied Billing markup');
+assert.match(billingSnapshot, /dopfield_29/, 'Billing snapshot must read the exact OLT field from supplied Billing markup');
+assert.match(billingSnapshot, /next_paket/, 'Billing snapshot must read scheduled tariff changes');
+assert.match(billingSnapshot, /balanceWithoutTemporary/, 'Billing snapshot must capture balance excluding temporary payments');
+assert.match(billingSnapshot, /#my_x_16/, 'Billing snapshot must capture the last payment events already rendered by Billing');
+assert.doesNotMatch(billingSnapshot, /method:\s*['"]POST['"]/, 'Billing snapshot capture must remain read-only');
 
 assert.match(labBackground, /AI_OPERATOR_LAB_SEND/, 'lab runtime must accept manual subscriber messages');
 assert.match(labBackground, /MAX_TOOL_TURNS\s*=\s*6/, 'agent tool loop must be bounded');
@@ -64,6 +80,8 @@ assert.match(entry, /features\/ai-operator\/background\.js/, 'service worker mus
 assert.match(entry, /features\/ai-operator\/lab-background\.js/, 'service worker must load manual operator lab runtime');
 assert.ok(manifest.permissions.includes('alarms'), 'poll scheduler permission must be present');
 assert.ok(manifest.host_permissions.includes('https://stargroup.helpcrunch.com/*'), 'HelpCrunch host must be explicitly allowlisted');
+const crmScript = manifest.content_scripts.find(item => item.matches?.includes('https://admin.simnet.kiev.ua/*'));
+assert.ok(crmScript?.js?.includes('src/features/ai-operator/billing-snapshot-capture.js'), 'Billing rich snapshot reader must be loaded on Billing pages');
 const hcScript = manifest.content_scripts.find(item => item.matches?.includes('https://stargroup.helpcrunch.com/*'));
 assert.ok(hcScript?.js?.includes('src/features/ai-operator/helpcrunch-page-bridge.js'), 'authenticated HelpCrunch page bridge must be installed');
 
