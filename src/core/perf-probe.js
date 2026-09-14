@@ -35,6 +35,15 @@
   let sessionOperations = [];
   let lastStorageBytes = null;
   let lastSessionFlushAt = 0;
+  const emptyActivity = () => ({ visibleMs: 0, hiddenMs: 0, activations: 0, hiddenRequests: 0, hiddenLongTasks: 0 });
+  let sessionActivity = emptyActivity();
+  let activityAt = Date.now();
+  let activityHidden = document.hidden;
+  function accountActivity() {
+    const time = Date.now();
+    sessionActivity[activityHidden ? 'hiddenMs' : 'visibleMs'] += Math.max(0, time - activityAt);
+    activityAt = time;
+  }
 
   const now = () => globalThis.performance?.now?.() ?? Date.now();
   const roundMs = value => Math.round(Math.max(0, Number(value) || 0) * 10) / 10;
@@ -370,7 +379,7 @@
   }
 
   function captureSessionMetric(sample = {}) {
-    if (!activePerformanceSession() || document.hidden || destroyed) return;
+    if (!activePerformanceSession() || destroyed) return;
     const metric = compact(sample.metric, 80);
     if (!metric) return;
     const current = sessionMetrics.get(metric) || {
@@ -401,7 +410,7 @@
   }
 
   function captureSessionResource(entry = {}) {
-    if (!activePerformanceSession() || document.hidden || destroyed) return;
+    if (!activePerformanceSession() || destroyed) return;
     const absoluteStart = Number(globalThis.performance?.timeOrigin || 0) + Number(entry.startTime || 0);
     const sessionStartedAt = new Date(performanceSession.startedAt).getTime();
     if (Number.isFinite(sessionStartedAt) && absoluteStart + 1000 < sessionStartedAt) return;
@@ -415,6 +424,7 @@
     const transferBytes = Math.max(0, Number(entry.transferSize || 0));
     const cached = transferBytes === 0 && Number(entry.decodedBodySize || 0) > 0;
     sessionResources.count += 1;
+    if (document.hidden) sessionActivity.hiddenRequests += 1;
     sessionResources.totalDurationMs += durationMs;
     sessionResources.maxDurationMs = Math.max(sessionResources.maxDurationMs, durationMs);
     if (durationMs >= SESSION_SLOW_RESOURCE_MS) sessionResources.slowCount += 1;
@@ -498,13 +508,16 @@
   }
 
   function rotateSessionBuckets(capturedAt = Date.now()) {
+    accountActivity();
+    const activity = sessionActivity;
+    sessionActivity = emptyActivity();
     const resources = sessionResources;
     const metrics = sessionMetrics;
     const operations = sessionOperations;
     sessionResources = emptyResourceBucket(capturedAt);
     sessionMetrics = new Map();
     sessionOperations = [];
-    return { resources, metrics, operations };
+    return { resources, metrics, operations, activity };
   }
 
   function mergeResourceBucket(source) {
@@ -590,6 +603,7 @@
             visibility: document.visibilityState
           },
           navigation,
+          activity: rotated.activity,
           resources: serializeResources(rotated.resources, capturedAt),
           longTasks: {
             count: Number(longTaskMetric?.count || 0),
@@ -597,7 +611,7 @@
             maxDurationMs: roundMs(longTaskMetric?.maxDurationMs || 0)
           },
           eventLoopDelayMs: delayMs,
-          domNodes: document.getElementsByTagName('*').length,
+          domNodes: document.hidden ? null : document.getElementsByTagName('*').length,
           storageBytes,
           memory: memorySnapshot(),
           metrics: Array.from(rotated.metrics.values()),
@@ -617,6 +631,7 @@
           mergeResourceBucket(rotated.resources);
           mergeMetricBucket(rotated.metrics);
           mergeOperationBucket(rotated.operations);
+          for (const key of Object.keys(sessionActivity)) sessionActivity[key] += rotated.activity[key] || 0;
         }
         if (!WB.log?.isContextInvalidated?.(error)) {
           console.warn('[SIMNET WB][PERF] session sample failed', error?.message || error);
@@ -649,7 +664,7 @@
     if (!activePerformanceSession() || destroyed) return;
     sessionInterval = setTimeout(() => {
       sessionInterval = null;
-      void Promise.resolve(flushPerformanceSession('interval')).finally(() => {
+      void Promise.resolve(flushPerformanceSession('interval', { force: true, skipDelay: document.hidden })).finally(() => {
         schedulePerformanceSessionTick();
       });
     }, SESSION_FLUSH_MS);
@@ -663,6 +678,9 @@
     if (performanceSession?.sessionId === control.sessionId) return;
     stopPerformanceSessionCapture();
     performanceSession = { ...control };
+    sessionActivity = emptyActivity();
+    activityAt = Date.now();
+    activityHidden = document.hidden;
     sessionNavigationSent = false;
     const startedAt = new Date(control.startedAt).getTime();
     sessionResources = emptyResourceBucket(Math.max(Number(performance.timeOrigin || Date.now()), startedAt || 0));
@@ -691,10 +709,19 @@
 
   function onPerformanceVisibilityChange() {
     if (!activePerformanceSession()) return;
+    accountActivity();
+    activityHidden = document.hidden;
     if (document.hidden) {
       void flushPerformanceSession('visibility-hidden', { force: true, skipDelay: true });
       return;
     }
+    sessionActivity.activations += 1;
+    const activatedAt = now();
+    requestAnimationFrame(() => {
+      if (activePerformanceSession() && !document.hidden && !destroyed) {
+        record('tab.activation_frame', now() - activatedAt, {}, { persistSlow: false });
+      }
+    });
     if (Date.now() - lastSessionFlushAt >= 15_000) {
       setTimeout(() => { void flushPerformanceSession('visible'); }, 750);
     }
@@ -729,6 +756,7 @@
         for (const entry of entries) {
           const durationMs = Number(entry?.duration || 0);
           if (durationMs < LONG_TASK_CAPTURE_MS) continue;
+          if (activePerformanceSession() && document.hidden) sessionActivity.hiddenLongTasks += 1;
           const shouldPersist = durationMs >= LONG_TASK_PERSIST_MS && Date.now() - lastLongTaskLogAt >= LONG_TASK_LOG_COOLDOWN_MS;
           if (shouldPersist) lastLongTaskLogAt = Date.now();
           record('runtime.long_task', durationMs, {

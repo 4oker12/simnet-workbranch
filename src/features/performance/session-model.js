@@ -118,6 +118,10 @@ export function sanitizePerformanceSample(raw = {}, nowMs = Date.now()) {
     reason: compact(raw.reason || 'interval', 40),
     documentId: compact(raw.documentId, 120),
     tabId: finite(raw.tabId) ? Number(raw.tabId) : null,
+    activity: raw.activity ? Object.fromEntries(['visibleMs', 'hiddenMs', 'activations', 'hiddenRequests', 'hiddenLongTasks']
+      .map(key => [key, boundedNumber(raw.activity[key], 1e12) || 0])) : null,
+    tabCounts: raw.tabCounts ? Object.fromEntries(['total', 'working', 'background', 'discarded']
+      .map(key => [key, boundedNumber(raw.tabCounts[key], 100000) || 0])) : null,
     page: {
       system: compact(page.system, 32),
       route: safeRoute(page.route),

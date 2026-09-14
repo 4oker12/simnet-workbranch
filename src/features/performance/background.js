@@ -1,4 +1,5 @@
 import { MessageType } from '../../shared/messages.js';
+import { tabInventory, tabLoadReport } from './tab-load.js';
 import {
   PERFORMANCE_SESSION_STORAGE_KEY,
   PERFORMANCE_CONTROL_STORAGE_KEY,
@@ -71,6 +72,7 @@ async function sessionSample(payload = {}, sender = {}) {
     }
     const next = appendPerformanceSample(current, {
       ...(payload.sample || {}),
+      tabCounts: await tabInventory().then(({ total, working, background, discarded }) => ({ total, working, background, discarded })).catch(() => null),
       tabId: sender?.tab?.id
     }, { nowMs });
     await saveSession(next, false);
@@ -84,7 +86,7 @@ async function sessionStatus() {
     const ensured = continuousSession(await readSession(), nowMs);
     const session = ensured.session;
     if (ensured.changed) await saveSession(session, true);
-    return performanceSessionOverview(session, nowMs);
+    return { ...performanceSessionOverview(session, nowMs), tabLoad: tabLoadReport(session.samples, await tabInventory().catch(() => null)) };
   });
 }
 
@@ -98,6 +100,7 @@ async function sessionExport() {
     const ensured = continuousSession(await readSession(), nowMs);
     const session = ensured.session;
     const snapshot = createPerformanceSnapshot(session, { nowMs, reason: 'operator-snapshot' });
+    snapshot.report.tabLoad = tabLoadReport(session.samples, await tabInventory().catch(() => null));
     session.lastSnapshotAt = snapshot.snapshotAt;
     session.lastSnapshotReport = snapshot.report;
     session.updatedAt = new Date(nowMs).toISOString();

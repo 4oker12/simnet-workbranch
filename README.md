@@ -1,3 +1,9 @@
+## 1.7.36.166 — Tab load visibility
+
+- Extension popup shows total/working/background/discarded tab counts and expandable per-tab metrics with a focus button. Existing five-second popup refresh and minute sample cadence are reused.
+- Hidden-tab resource completions and metric aggregates are no longer dropped. Samples include visible/hidden wall time, activations, hidden request/long-task counts and return-to-animation-frame delay; hidden samples skip DOM scanning and event-loop probes.
+- Snapshot `report.tabLoad` includes per-tab aggregates and performance grouped by open tab count. Aggregates cover retained samples, background attribution uses observer-delivery visibility, and background timers can be throttled. JS heap estimates may be shared across tabs and must not be summed or interpreted as CPU/full RAM. Long-task capture threshold remains 120 ms.
+
 ## 1.7.36.165 — LIVE layout
 
 - Removed the LIVE progress bar and completion counter. PON checkpoints are ordered Technical → TMC → ONU poll → Juniper, retaining actual status/timestamps and independent navigation.

@@ -12,6 +12,7 @@ const openSettingsNode = document.getElementById('openSettings');
 const perfBadgeNode = document.getElementById('perfBadge');
 const perfStatusNode = document.getElementById('perfStatus');
 const perfReportNode = document.getElementById('perfReport');
+const perfTabsNode = document.getElementById('perfTabs');
 const exportPerfNode = document.getElementById('exportPerf');
 const VERSION = chrome.runtime.getManifest().version;
 const DIAG_KEY = 'simnet_workbench_diagnostics_v1';
@@ -88,7 +89,7 @@ function durationText(ms = 0) {
 }
 
 function metricValue(value, unit) {
-  if (!Number.isFinite(Number(value))) return '—';
+  if (value == null || !Number.isFinite(Number(value))) return '—';
   const number = Number(value);
   if (unit === 'bytes') return `${(number / (1024 * 1024)).toFixed(number >= 100 * 1024 * 1024 ? 0 : 1)} МБ`;
   if (unit === 'count') return Math.round(number).toLocaleString('ru-RU');
@@ -142,6 +143,24 @@ function renderPerformanceReport(report = null) {
 }
 
 function renderPerformanceSession(session = null) {
+  const load = session?.tabLoad;
+  const inventory = load?.inventory;
+  if (perfTabsNode && inventory) {
+    const expanded = perfTabsNode.querySelector('details')?.open;
+    const rows = (load.tabs || []).filter(row => row.open).sort((a, b) => Number(b.selected) - Number(a.selected));
+    perfTabsNode.innerHTML = `<b>Вкладки: ${inventory.total} всего · ${inventory.working} рабочих</b>
+      <div>${inventory.background} фоновых · ${inventory.discarded} выгружено браузером</div>
+      <details ${expanded ? 'open' : ''}><summary>Нагрузка по рабочим вкладкам (${rows.length})</summary><div class="perf-tab-list">${rows.map(row => `
+        <div class="perf-tab-row"><b>#${row.tabId} · ${esc(row.host)} · ${row.discarded ? 'выгружена' : row.selected ? 'выбрана' : 'фон'}</b>
+        <small>${esc(row.route || 'Нет замеров — обновите вкладку')}</small>
+        <button type="button" data-perf-tab="${row.tabId}">Перейти к вкладке</button>
+        ${row.sampleCount ? `<div>JS: ${esc(metricValue(row.heapBytes, 'bytes'))} · пик ${esc(metricValue(row.peakHeapBytes, 'bytes'))}</div>
+        <div>Запросы: ${row.requests} · в фоне ${row.hiddenRequests}; долгие задачи ≥120 мс: ${row.longTasks} · в фоне ${row.hiddenLongTasks}</div>
+        <div>Видима ${durationText(row.visibleMs)} · фон ${durationText(row.hiddenMs)} · возвратов ${row.activations}</div>
+        <div>После возврата до кадра: макс. ${esc(metricValue(row.activationFrameMaxMs, 'ms'))}</div>
+        <small>Замер: ${esc(new Date(row.at).toLocaleTimeString())}</small>` : ''}</div>`).join('')}</div></details>
+      <small>Итоги по сохранённым замерам; фоновый учёт — с обновления вкладок. JS-память приблизительная, может быть общей для вкладок; это не CPU% и не вся RAM.</small>`;
+  }
   currentPerformanceSession = session;
   const status = session?.status || 'idle';
   if (status === 'active') {
@@ -165,6 +184,15 @@ function renderPerformanceSession(session = null) {
   renderPerformanceReport(null);
   schedulePerformanceRefresh();
 }
+
+perfTabsNode?.addEventListener('click', async event => {
+  const button = event.target.closest('[data-perf-tab]');
+  if (!button) return;
+  try {
+    const tab = await chrome.tabs.update(Number(button.dataset.perfTab), { active: true });
+    if (tab.windowId != null) await chrome.windows.update(tab.windowId, { focused: true });
+  } catch { button.textContent = 'Вкладка уже закрыта'; }
+});
 
 function schedulePerformanceRefresh() {
   clearTimeout(performanceRefreshTimer);
