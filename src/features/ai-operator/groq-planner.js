@@ -10,6 +10,7 @@ const ACTIONS = new Set(['reply', 'ask', 'tool_required', 'escalate', 'ignore'])
 const TOOL_NAMES = new Set([
   'customer.lookup',
   'customer.confirm',
+  'customer.snapshot',
   'billing.balance',
   'billing.tariff',
   'billing.payments',
@@ -143,8 +144,8 @@ function correctionExamples(corrections = []) {
 function labIdentityRules(input = {}) {
   if (!input.labMode) return '';
   return `\nРЕЖИМ MANUAL TEST LAB — пользователь чата играет роль реального абонента.
-ПРОТОКОЛ ИДЕНТИФИКАЦИИ:
-- Пока confirmedCaseId пуст, запрещено вызывать account-specific tools: billing.*, network.*, pon.*, outage.by_customer.
+ПРОТОКОЛ ИДЕНТИФИКАЦИИ И READ-ПРОВЕРОК:
+- Пока confirmedCaseId пуст, запрещено вызывать account-specific tools: customer.snapshot, billing.*, network.*, pon.*, outage.by_customer.
 - Если для обращения нужны данные аккаунта и абонент ещё не определён — спроси ОДНО: номер договора ИЛИ полный адрес подключения. Не требуй оба сразу.
 - Когда абонент сообщает договор/IP/адрес, вызови customer.lookup с конкретным аргументом: {"contract":"..."}, {"ip":"..."} или {"address":"..."}. Не отвечай, будто поиск уже выполнен.
 - customer.lookup с одним найденным кандидатом НЕ подтверждает личность. После результата задай короткий вопрос подтверждения по безопасным признакам кандидата, например договор + адрес: «Нашёл договор … по адресу …, это ваше подключение?».
@@ -153,7 +154,16 @@ function labIdentityRules(input = {}) {
 - Если customer.lookup вернул AMBIGUOUS_IDENTITY — задай один вопрос, который отличит кандидатов.
 - Если tool вернул DATA_NOT_AVAILABLE/NOT_FOUND — честно скажи, что эта проверка сейчас не дала данных; не подменяй результат догадкой.
 - Результат любого tool — единственный источник внутренних фактов. Не меняй числа/статусы и не додумывай пропущенные поля.
-- После идентификации самостоятельно выбирай нужную следующую READ-проверку. Для вопроса о балансе используй billing.balance; о тарифе — billing.tariff; о наличии/состоянии сессии — network.session; о PON/ONU — pon.onu/pon.signal.
+- Если RECENT READ TOOL RESULTS уже содержит факты, достаточные для вопроса клиента, СРАЗУ объясни их клиенту. Не вызывай второй инструмент ради тех же данных.
+- После идентификации самостоятельно выбирай лучший READ-tool:
+  • широкая сводка по договору, адрес + тариф + баланс, сведения о подключении/контактах → customer.snapshot;
+  • баланс/остаток/временный платёж/начисление → billing.balance;
+  • текущий/следующий тариф, цена, срок смены → billing.tariff;
+  • последние платежи → billing.payments;
+  • наличие/состояние интернет-сессии → network.session;
+  • PON/ONU/OLT → pon.onu, оптические показатели → pon.signal.
+- Числа из billing.balance различай по смыслу: accountBalance — исходный баланс Billing; balanceAfterTariff — остаток после текущего расчёта тарифа; balanceWithoutTemporary — остаток без временного платежа; temporaryPayment — временный платёж. Не называй одно другим.
+- Если есть currentTariff + price/totalDue + balanceAfterTariff + balanceWithoutTemporary/temporaryPayment, объясни взаимосвязь обычным человеческим языком, а не просто перечисляй JSON-поля.
 `;
 }
 
@@ -168,6 +178,7 @@ function systemPrompt(input = {}) {
 ЖЁСТКИЕ ПРАВИЛА:
 - Не выдумывай баланс, тариф, платежи, сессию, ONU, аварию или состояние услуги.
 - Если факт можно получить только из внутренней системы — action=tool_required и укажи один лучший tool.
+- После результата tool используй полученные факты для содержательного ответа; не ограничивайся фразой «данные получены».
 - Не проси клиента сообщать то, что уже есть в контексте разговора/профиля.
 - Не задавай анкету. За один ход максимум один наиболее полезный вопрос.
 - Не предлагай изменять данные и не выполняй WRITE-действия.
@@ -182,8 +193,8 @@ ${styleInstruction(config.replyStyle)}
 
 ${customInstructions ? `ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ ОПЕРАТОРА:\n${customInstructions}\n` : ''}
 ${corrections ? `ПРИМЕРЫ РАНЕЕ ИСПРАВЛЕННОГО ПОВЕДЕНИЯ:\n${corrections}\n` : ''}
-На первом этапе доступны только эти READ-tools:
-customer.lookup, customer.confirm, billing.balance, billing.tariff, billing.payments, billing.next_charge, network.session, network.last_session, pon.onu, pon.signal, outage.by_customer.
+Доступные READ-tools:
+customer.lookup, customer.confirm, customer.snapshot, billing.balance, billing.tariff, billing.payments, billing.next_charge, network.session, network.last_session, pon.onu, pon.signal, outage.by_customer.
 
 Верни ТОЛЬКО JSON:
 {
@@ -222,7 +233,7 @@ function conversationPrompt(input = {}) {
         `pendingCandidate: ${jsonBlock(labState.pendingCandidate || null, 1800)}`,
         '',
         'RECENT READ TOOL RESULTS:',
-        toolResults.length ? jsonBlock(toolResults, 6500) : '(none)',
+        toolResults.length ? jsonBlock(toolResults, 9000) : '(none)',
         ''
       ]
     : [];
@@ -241,7 +252,7 @@ function conversationPrompt(input = {}) {
     ...lines,
     '',
     `Latest customer message: ${input.latestCustomer?.text || ''}`
-  ].join('\n'), 18_000);
+  ].join('\n'), 20_000);
 }
 
 export async function planAutonomousTurn(input = {}) {
