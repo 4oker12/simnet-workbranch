@@ -610,8 +610,10 @@
     if (disposed) return;
     try {
       if (state.status === 'recording') await captureLocalEntries();
-      if (state.uiOpen || state.status === 'recording') await refreshRuntimeStatus();
-      scheduleRender();
+      if (state.uiOpen) {
+        await refreshRuntimeStatus();
+        scheduleRender();
+      }
       ensureRailButton();
     } catch {}
     pollTimer = setTimeout(tick, POLL_MS);
@@ -627,7 +629,8 @@
         return;
       }
       state = { ...emptyState(), ...next, entries: Array.isArray(next.entries) ? next.entries.slice(-MAX_ENTRIES) : [] };
-      scheduleRender();
+      if (state.uiOpen) scheduleRender();
+      else ensureRailButton();
     });
   }
 
@@ -636,7 +639,7 @@
     mountHost();
     bindStorage();
     render();
-    await refreshRuntimeStatus(true);
+    if (state.uiOpen) await refreshRuntimeStatus(true);
     tick();
   }
 
