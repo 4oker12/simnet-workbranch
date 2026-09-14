@@ -7,10 +7,14 @@
   const input = document.getElementById('aiLabInput');
   const sendButton = document.getElementById('aiLabSend');
   const resetButton = document.getElementById('aiLabReset');
+  const downloadTxtButton = document.getElementById('aiLabDownloadTxt');
+  const downloadJsonButton = document.getElementById('aiLabDownloadJson');
   const statusNode = document.getElementById('aiLabStatus');
   const quickButtons = Array.from(document.querySelectorAll('[data-ai-lab-prompt]'));
 
   if (!transcriptNode || !eventsNode || !identityNode || !input || !sendButton || !resetButton || !statusNode) return;
+
+  let latestState = null;
 
   function short(value, max = 260) {
     const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
@@ -38,6 +42,18 @@
 
   function json(value) {
     try { return JSON.stringify(value ?? null, null, 2); } catch { return String(value ?? ''); }
+  }
+
+  function localTime(value) {
+    const date = new Date(value || 0);
+    if (!Number.isFinite(date.getTime())) return String(value || '');
+    return date.toLocaleString('ru-RU', { hour12: false });
+  }
+
+  function fileStamp(value = Date.now()) {
+    const date = new Date(value);
+    const pad = number => String(number).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
   }
 
   function identityLabel(state = {}) {
@@ -148,10 +164,11 @@
   }
 
   function render(state = {}) {
-    renderIdentity(state);
-    renderMessages(state.messages || []);
-    renderEvents(state.events || []);
-    const last = state.lastDecision || {};
+    latestState = state && typeof state === 'object' ? state : {};
+    renderIdentity(latestState);
+    renderMessages(latestState.messages || []);
+    renderEvents(latestState.events || []);
+    const last = latestState.lastDecision || {};
     if (last.action) {
       setStatus(
         `Последнее решение: ${last.action}${last.tool ? ` · ${last.tool}` : ''}${last.model ? ` · ${last.model}` : ''}`,
@@ -172,7 +189,74 @@
     sendButton.disabled = Boolean(busy);
     resetButton.disabled = Boolean(busy);
     input.disabled = Boolean(busy);
+    if (downloadTxtButton) downloadTxtButton.disabled = Boolean(busy);
+    if (downloadJsonButton) downloadJsonButton.disabled = Boolean(busy);
     for (const button of quickButtons) button.disabled = Boolean(busy);
+  }
+
+  function downloadFile(filename, content, type) {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.style.display = 'none';
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function txtExport(state = {}) {
+    const identity = identityLabel(state);
+    const lines = [
+      'SIMNET Workbench · Autonomous AI Operator · Test Lab',
+      `Lab: ${state.id || 'unknown'}`,
+      `Created: ${localTime(state.createdAt)}`,
+      `Updated: ${localTime(state.updatedAt)}`,
+      `Identity: ${identity.title}${identity.detail ? ` · ${identity.detail}` : ''}`,
+      '',
+      '=== DIALOG ==='
+    ];
+
+    for (const message of Array.isArray(state.messages) ? state.messages : []) {
+      const role = message?.role === 'agent' ? 'AI' : 'CLIENT';
+      lines.push(`[${localTime(message?.at)}] ${role}: ${String(message?.text || '')}`);
+    }
+
+    lines.push('', '=== DECISIONS / TOOLS ===');
+    for (const event of Array.isArray(state.events) ? state.events : []) {
+      if (event?.type === 'customer_message') continue;
+      lines.push(`[${localTime(event?.at)}] ${eventSummary(event)}`);
+      const payload = eventPayload(event);
+      const payloadText = json(payload);
+      if (payloadText && payloadText !== '{}') lines.push(payloadText);
+    }
+
+    return `${lines.join('\n')}\n`;
+  }
+
+  async function download(format) {
+    try {
+      const state = latestState || await refresh();
+      const stamp = fileStamp();
+      if (format === 'json') {
+        downloadFile(
+          `simnet-ai-operator-lab-${stamp}.json`,
+          `${JSON.stringify(state || {}, null, 2)}\n`,
+          'application/json;charset=utf-8'
+        );
+      } else {
+        downloadFile(
+          `simnet-ai-operator-lab-${stamp}.txt`,
+          txtExport(state || {}),
+          'text/plain;charset=utf-8'
+        );
+      }
+      setStatus(`Лог ${format.toUpperCase()} сохранён.`, 'ok');
+    } catch (error) {
+      setStatus(`Экспорт: ${short(error?.message || error, 500)}`, 'bad');
+    }
   }
 
   async function send() {
@@ -213,6 +297,9 @@
       input.focus();
     }
   });
+
+  downloadTxtButton?.addEventListener('click', () => { void download('txt'); });
+  downloadJsonButton?.addEventListener('click', () => { void download('json'); });
 
   for (const button of quickButtons) {
     button.addEventListener('click', () => {
