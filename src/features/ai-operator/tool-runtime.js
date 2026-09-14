@@ -4,8 +4,10 @@ const WORKBENCH_STATE_KEYS = Object.freeze([
   'simnet_workbench_state_v5',
   'simnet_workbench_state_v4'
 ]);
+const BILLING_SNAPSHOT_KEY = 'simnet_ai_operator_billing_snapshots_v1';
 
 const ACCOUNT_TOOLS = new Set([
+  'customer.snapshot',
   'billing.balance',
   'billing.tariff',
   'billing.payments',
@@ -49,6 +51,13 @@ function firstValue(object, paths = []) {
   return '';
 }
 
+function firstDefined(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && value !== '') return value;
+  }
+  return '';
+}
+
 function normalizeContract(value) {
   const source = String(value == null ? '' : value).trim().toLowerCase().replace(/^abon\s*/i, '');
   return source.replace(/\D/g, '');
@@ -71,16 +80,16 @@ function normalizeIp(value) {
   return parts.every(part => part >= 0 && part <= 255) ? match[0] : '';
 }
 
-function compactObject(input, maxDepth = 4, depth = 0) {
+function compactObject(input, maxDepth = 5, depth = 0) {
   if (depth >= maxDepth) return text(input, 300);
   if (Array.isArray(input)) return input.slice(0, 12).map(item => compactObject(item, maxDepth, depth + 1));
   if (!input || typeof input !== 'object') return input;
-  const result = {};
-  for (const [key, raw] of Object.entries(input).slice(0, 40)) {
+  const output = {};
+  for (const [key, raw] of Object.entries(input).slice(0, 60)) {
     if (/^(?:pp|password|passwd|pass|token|secret|csrf|authorization)$/i.test(key)) continue;
-    result[key] = compactObject(raw, maxDepth, depth + 1);
+    output[key] = compactObject(raw, maxDepth, depth + 1);
   }
-  return result;
+  return output;
 }
 
 async function loadWorkbenchState() {
@@ -94,13 +103,34 @@ async function loadWorkbenchState() {
   return { key: '', state: { cases: {} } };
 }
 
-function caseSummary(caseId, caseData = {}) {
-  const contract = text(firstValue(caseData, ['identity.contract']), 80);
-  const login = text(firstValue(caseData, ['identity.login']), 80);
-  const billingId = text(firstValue(caseData, ['identity.billingId']), 80);
-  const address = text(firstValue(caseData, ['profile.address']), 240);
-  const fullName = text(firstValue(caseData, ['profile.fullName']), 180);
-  const ip = text(firstValue(caseData, ['network.ip']), 80);
+async function loadBillingSnapshots() {
+  const raw = (await chrome.storage.local.get(BILLING_SNAPSHOT_KEY))?.[BILLING_SNAPSHOT_KEY];
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+}
+
+function snapshotForCase(caseId, caseData = {}, snapshots = {}) {
+  const billingId = text(firstValue(caseData, ['identity.billingId']) || caseId, 80);
+  if (billingId && snapshots[billingId]) return snapshots[billingId];
+
+  const contract = normalizeContract(firstValue(caseData, ['identity.contract']));
+  const login = normalizeContract(firstValue(caseData, ['identity.login']));
+  for (const snapshot of Object.values(snapshots)) {
+    if (!snapshot || typeof snapshot !== 'object') continue;
+    const snapshotContract = normalizeContract(snapshot?.identity?.contract);
+    const snapshotLogin = normalizeContract(snapshot?.identity?.login);
+    if (contract && (snapshotContract === contract || snapshotLogin === contract)) return snapshot;
+    if (login && (snapshotContract === login || snapshotLogin === login)) return snapshot;
+  }
+  return null;
+}
+
+function caseSummary(caseId, caseData = {}, snapshot = null) {
+  const contract = text(firstDefined(firstValue(caseData, ['identity.contract']), snapshot?.identity?.contract), 80);
+  const login = text(firstDefined(firstValue(caseData, ['identity.login']), snapshot?.identity?.login), 80);
+  const billingId = text(firstDefined(firstValue(caseData, ['identity.billingId']), snapshot?.identity?.billingId, caseId), 80);
+  const address = text(firstDefined(firstValue(caseData, ['profile.address']), snapshot?.address?.full), 240);
+  const fullName = text(firstDefined(firstValue(caseData, ['profile.fullName']), snapshot?.identity?.fullName), 180);
+  const ip = text(firstDefined(firstValue(caseData, ['network.ip']), snapshot?.network?.ip), 80);
   const connectionFamily = text(firstValue(caseData, ['network.connectionFamily']), 80);
   return {
     caseId: String(caseId || caseData?.id || ''),
@@ -171,7 +201,7 @@ function result(tool, ok, code, data = {}, warnings = [], statePatch = {}) {
 }
 
 async function lookupCustomer(toolArgs = {}) {
-  const { key, state } = await loadWorkbenchState();
+  const [{ key, state }, snapshots] = await Promise.all([loadWorkbenchState(), loadBillingSnapshots()]);
   const entries = Object.entries(state?.cases || {});
   const hasQuery = Boolean(
     normalizeContract(toolArgs.contract)
@@ -188,7 +218,8 @@ async function lookupCustomer(toolArgs = {}) {
 
   const matches = entries
     .map(([caseId, caseData]) => {
-      const summary = caseSummary(caseId, caseData);
+      const snapshot = snapshotForCase(caseId, caseData, snapshots);
+      const summary = caseSummary(caseId, caseData, snapshot);
       return { summary, score: candidateMatchScore(summary, toolArgs) };
     })
     .filter(item => item.score > 0)
@@ -199,9 +230,10 @@ async function lookupCustomer(toolArgs = {}) {
     return result('customer.lookup', false, 'NOT_FOUND', {
       message: 'Совпадений в локальном READ-контексте Workbench не найдено.',
       source: key || 'none',
-      searchedCases: entries.length
+      searchedCases: entries.length,
+      capturedBillingSnapshots: Object.keys(snapshots).length
     }, [
-      'Это поиск по уже прочитанным Workbench кейсам, а не глобальный поиск по базе Billing.'
+      'Это поиск по уже прочитанным Workbench/Billing кейсам, а не глобальный поиск по базе Billing.'
     ]);
   }
 
@@ -239,7 +271,7 @@ function confirmCustomer(toolArgs = {}, labState = {}) {
   }
 
   const confirmed = toolArgs.confirmed === true
-    || /^(?:yes|true|1|да|так)$/i.test(String(toolArgs.confirmed || '').trim());
+    || /^(?:yes|true|1|да|так|верно|вірно)$/i.test(String(toolArgs.confirmed || '').trim());
 
   if (!confirmed) {
     return result('customer.confirm', true, 'REJECTED', {
@@ -270,7 +302,7 @@ async function confirmedCase(tool, labState = {}) {
       })
     };
   }
-  const { key, state } = await loadWorkbenchState();
+  const [{ key, state }, snapshots] = await Promise.all([loadWorkbenchState(), loadBillingSnapshots()]);
   const caseData = state?.cases?.[caseId];
   if (!caseData) {
     return {
@@ -280,21 +312,176 @@ async function confirmedCase(tool, labState = {}) {
       })
     };
   }
-  return { caseId, caseData, sourceKey: key };
+  return {
+    caseId,
+    caseData,
+    snapshot: snapshotForCase(caseId, caseData, snapshots),
+    sourceKey: key
+  };
 }
 
-function balanceResult(caseData, sourceKey) {
-  const balance = text(firstValue(caseData, ['profile.balance']), 120);
-  return balance
-    ? result('billing.balance', true, 'OK', { balance, source: sourceKey })
-    : result('billing.balance', false, 'DATA_NOT_AVAILABLE', { message: 'Баланс не прочитан в текущем кейсе Workbench.' });
+function ponSnapshot(caseData = {}) {
+  const liveSnapshot = caseData?.live?.oltSnapshot && typeof caseData.live.oltSnapshot === 'object'
+    ? caseData.live.oltSnapshot
+    : {};
+  const currentPoll = caseData?.operations?.poll?.current && typeof caseData.operations.poll.current === 'object'
+    ? caseData.operations.poll.current
+    : {};
+
+  return {
+    connectionFamily: text(firstValue(caseData, ['network.connectionFamily']), 80),
+    onuMac: text(firstValue(caseData, ['pon.onuMac']), 100),
+    onuSerial: text(firstValue(caseData, ['pon.onuSerial']), 120),
+    oltName: text(firstValue(caseData, ['pon.oltName']), 180),
+    oltIp: text(firstValue(caseData, ['pon.oltIp']), 80),
+    port: text(firstValue(caseData, ['pon.port', 'pon.locatedInterface']), 120),
+    status: text(firstValue(caseData, ['pon.status']) || liveSnapshot.onuStatus || liveSnapshot.status, 100),
+    rx: text(firstValue(caseData, ['pon.rx']) || liveSnapshot.rx, 100),
+    tx: text(firstValue(caseData, ['pon.tx']) || liveSnapshot.tx, 100),
+    oltRx: text(liveSnapshot.oltRx, 100),
+    distance: text(firstValue(caseData, ['pon.distance']) || liveSnapshot.distance, 100),
+    offlineSince: text(liveSnapshot.offlineSince, 100),
+    offlineDuration: text(liveSnapshot.offlineDuration, 100),
+    pollOutcome: text(liveSnapshot.outcome || currentPoll.outcome || currentPoll.status, 100),
+    pollUpdatedAt: text(currentPoll.updatedAt || currentPoll.resolvedAt || caseData?.visits?.onuPollConfirmedAt, 100)
+  };
 }
 
-function tariffResult(caseData, sourceKey) {
-  const tariff = text(firstValue(caseData, ['profile.tariff']), 300);
-  return tariff
-    ? result('billing.tariff', true, 'OK', { tariff, source: sourceKey })
-    : result('billing.tariff', false, 'DATA_NOT_AVAILABLE', { message: 'Тариф не прочитан в текущем кейсе Workbench.' });
+function richSubscriberSnapshot(caseId, caseData = {}, snapshot = null, sourceKey = '') {
+  const canonical = caseSummary(caseId, caseData, snapshot);
+  const finance = snapshot?.finance && typeof snapshot.finance === 'object' ? snapshot.finance : {};
+  const service = snapshot?.service && typeof snapshot.service === 'object' ? snapshot.service : {};
+  const network = snapshot?.network && typeof snapshot.network === 'object' ? snapshot.network : {};
+  const technical = snapshot?.technical && typeof snapshot.technical === 'object' ? snapshot.technical : {};
+  const auth = network?.authorization && typeof network.authorization === 'object' ? network.authorization : {};
+
+  return {
+    identity: {
+      billingId: canonical.billingId,
+      contract: canonical.contract,
+      login: canonical.login,
+      fullName: canonical.fullName,
+      contractDate: text(snapshot?.identity?.contractDate, 80)
+    },
+    address: compactObject(snapshot?.address || (canonical.address ? { full: canonical.address } : {})),
+    contacts: compactObject(snapshot?.contacts || {}),
+    customer: compactObject(snapshot?.customer || {}),
+    service: {
+      group: text(service.group, 260),
+      currentTariff: text(firstDefined(service.currentTariff, firstValue(caseData, ['profile.tariff'])), 320),
+      nextTariff: text(service.nextTariff, 320),
+      nextTariffDelay: text(service.nextTariffDelay, 120),
+      accessState: text(service.accessState, 120),
+      serviceState: text(service.serviceState, 120),
+      startDay: text(service.startDay, 80),
+      limit: text(service.limit, 120),
+      connectionFamily: text(firstValue(caseData, ['network.connectionFamily']), 80),
+      connectionRaw: text(firstValue(caseData, ['network.connectionRaw']), 160)
+    },
+    finance: {
+      accountBalance: firstDefined(finance.accountBalance, ''),
+      price: firstDefined(finance.price, ''),
+      totalDue: firstDefined(finance.totalDue, ''),
+      balanceAfterTariff: firstDefined(finance.balanceAfterTariff, firstValue(caseData, ['profile.balance'])),
+      balanceWithoutTemporary: firstDefined(finance.balanceWithoutTemporary, ''),
+      temporaryPayment: firstDefined(finance.temporaryPayment, ''),
+      temporaryPaymentText: text(finance.temporaryPaymentText, 260)
+    },
+    network: {
+      ip: text(firstDefined(network.ip, firstValue(caseData, ['network.ip'])), 80),
+      mac: text(firstDefined(technical.subscriberMac, firstValue(caseData, ['network.mac'])), 100),
+      authStatus: text(auth.title, 180),
+      authorized: auth.authorized === true ? true : auth.authorized === false ? false : null,
+      accessAllowed: auth.accessAllowed === true ? true : auth.accessAllowed === false ? false : null,
+      lastActivity: text(auth.lastActivity, 100),
+      trafficIncomingBytes: text(network.trafficIncomingBytes, 120),
+      trafficOutgoingBytes: text(network.trafficOutgoingBytes, 120)
+    },
+    technical: compactObject(technical),
+    pon: ponSnapshot(caseData),
+    payments: Array.isArray(snapshot?.payments) ? compactObject(snapshot.payments) : [],
+    evidence: {
+      workbenchState: sourceKey,
+      billingSnapshot: snapshot ? BILLING_SNAPSHOT_KEY : '',
+      billingSnapshotObservedAt: text(snapshot?.observedAt, 100)
+    }
+  };
+}
+
+function snapshotResult(caseId, caseData, snapshot, sourceKey) {
+  const data = richSubscriberSnapshot(caseId, caseData, snapshot, sourceKey);
+  const hasData = Boolean(
+    data.identity.contract
+    || data.identity.login
+    || data.service.currentTariff
+    || data.finance.balanceAfterTariff !== ''
+    || data.address?.full
+    || data.network.ip
+  );
+  return hasData
+    ? result('customer.snapshot', true, 'OK', data, snapshot ? [] : [
+        'Расширенный Billing snapshot ещё не накоплен; показаны доступные факты канонического кейса.'
+      ])
+    : result('customer.snapshot', false, 'DATA_NOT_AVAILABLE', {
+        message: 'По подтверждённому абоненту ещё нет прочитанного Billing-контекста.'
+      });
+}
+
+function balanceResult(caseId, caseData, snapshot, sourceKey) {
+  const data = richSubscriberSnapshot(caseId, caseData, snapshot, sourceKey);
+  const hasFinancialData = [
+    data.finance.accountBalance,
+    data.finance.balanceAfterTariff,
+    data.finance.balanceWithoutTemporary,
+    data.finance.temporaryPayment,
+    data.finance.price,
+    data.finance.totalDue
+  ].some(value => value !== '' && value !== null && value !== undefined);
+
+  return hasFinancialData
+    ? result('billing.balance', true, 'OK', {
+        ...data.finance,
+        currentTariff: data.service.currentTariff,
+        accessState: data.service.accessState,
+        serviceState: data.service.serviceState,
+        source: snapshot ? BILLING_SNAPSHOT_KEY : sourceKey
+      })
+    : result('billing.balance', false, 'DATA_NOT_AVAILABLE', {
+        message: 'Финансовые данные не прочитаны в текущем кейсе Workbench/Billing.'
+      });
+}
+
+function tariffResult(caseId, caseData, snapshot, sourceKey) {
+  const data = richSubscriberSnapshot(caseId, caseData, snapshot, sourceKey);
+  const hasTariff = Boolean(data.service.currentTariff || data.service.nextTariff);
+  return hasTariff
+    ? result('billing.tariff', true, 'OK', {
+        currentTariff: data.service.currentTariff,
+        nextTariff: data.service.nextTariff,
+        nextTariffDelay: data.service.nextTariffDelay,
+        price: data.finance.price,
+        totalDue: data.finance.totalDue,
+        accessState: data.service.accessState,
+        serviceState: data.service.serviceState,
+        group: data.service.group,
+        source: snapshot ? BILLING_SNAPSHOT_KEY : sourceKey
+      })
+    : result('billing.tariff', false, 'DATA_NOT_AVAILABLE', {
+        message: 'Тариф не прочитан в текущем кейсе Workbench/Billing.'
+      });
+}
+
+function paymentsResult(snapshot) {
+  const payments = Array.isArray(snapshot?.payments) ? snapshot.payments : [];
+  return payments.length
+    ? result('billing.payments', true, 'OK', {
+        payments,
+        count: payments.length,
+        source: BILLING_SNAPSHOT_KEY
+      })
+    : result('billing.payments', false, 'DATA_NOT_AVAILABLE', {
+        message: 'Последние платежи ещё не прочитаны с Billing-карточки.'
+      });
 }
 
 function networkSessionResult(tool, caseData, sourceKey) {
@@ -328,33 +515,6 @@ function networkSessionResult(tool, caseData, sourceKey) {
     hasTraffic: details.hasTraffic === true ? true : details.hasTraffic === false ? false : null,
     source: sourceKey
   });
-}
-
-function ponSnapshot(caseData = {}) {
-  const liveSnapshot = caseData?.live?.oltSnapshot && typeof caseData.live.oltSnapshot === 'object'
-    ? caseData.live.oltSnapshot
-    : {};
-  const currentPoll = caseData?.operations?.poll?.current && typeof caseData.operations.poll.current === 'object'
-    ? caseData.operations.poll.current
-    : {};
-
-  return {
-    connectionFamily: text(firstValue(caseData, ['network.connectionFamily']), 80),
-    onuMac: text(firstValue(caseData, ['pon.onuMac']), 100),
-    onuSerial: text(firstValue(caseData, ['pon.onuSerial']), 120),
-    oltName: text(firstValue(caseData, ['pon.oltName']), 180),
-    oltIp: text(firstValue(caseData, ['pon.oltIp']), 80),
-    port: text(firstValue(caseData, ['pon.port', 'pon.locatedInterface']), 120),
-    status: text(firstValue(caseData, ['pon.status']) || liveSnapshot.onuStatus || liveSnapshot.status, 100),
-    rx: text(firstValue(caseData, ['pon.rx']) || liveSnapshot.rx, 100),
-    tx: text(firstValue(caseData, ['pon.tx']) || liveSnapshot.tx, 100),
-    oltRx: text(liveSnapshot.oltRx, 100),
-    distance: text(firstValue(caseData, ['pon.distance']) || liveSnapshot.distance, 100),
-    offlineSince: text(liveSnapshot.offlineSince, 100),
-    offlineDuration: text(liveSnapshot.offlineDuration, 100),
-    pollOutcome: text(liveSnapshot.outcome || currentPoll.outcome || currentPoll.status, 100),
-    pollUpdatedAt: text(currentPoll.updatedAt || currentPoll.resolvedAt || caseData?.visits?.onuPollConfirmedAt, 100)
-  };
 }
 
 function ponOnuResult(caseData, sourceKey) {
@@ -395,22 +555,19 @@ export async function executeOperatorTool({ tool, toolArgs = {}, labState = {} }
 
   const resolved = await confirmedCase(name, labState);
   if (resolved.error) return resolved.error;
-  const { caseData, sourceKey } = resolved;
+  const { caseId, caseData, snapshot, sourceKey } = resolved;
 
-  if (name === 'billing.balance') return balanceResult(caseData, sourceKey);
-  if (name === 'billing.tariff') return tariffResult(caseData, sourceKey);
+  if (name === 'customer.snapshot') return snapshotResult(caseId, caseData, snapshot, sourceKey);
+  if (name === 'billing.balance') return balanceResult(caseId, caseData, snapshot, sourceKey);
+  if (name === 'billing.tariff') return tariffResult(caseId, caseData, snapshot, sourceKey);
+  if (name === 'billing.payments') return paymentsResult(snapshot);
   if (name === 'network.session' || name === 'network.last_session') return networkSessionResult(name, caseData, sourceKey);
   if (name === 'pon.onu') return ponOnuResult(caseData, sourceKey);
   if (name === 'pon.signal') return ponSignalResult(caseData, sourceKey);
 
-  if (name === 'billing.payments') {
-    return result(name, false, 'DATA_NOT_AVAILABLE', {
-      message: 'История платежей пока не подключена к подтверждённому READ-адаптеру.'
-    });
-  }
   if (name === 'billing.next_charge') {
     return result(name, false, 'DATA_NOT_AVAILABLE', {
-      message: 'Следующее списание пока не подключено к подтверждённому READ-адаптеру.'
+      message: 'Дата/сумма следующего списания не выводится без прямого подтверждённого источника.'
     });
   }
   return result(name, false, 'DATA_NOT_AVAILABLE', {
@@ -418,4 +575,4 @@ export async function executeOperatorTool({ tool, toolArgs = {}, labState = {} }
   });
 }
 
-export const AI_OPERATOR_TOOL_STATE_KEYS = [...WORKBENCH_STATE_KEYS];
+export const AI_OPERATOR_TOOL_STATE_KEYS = [...WORKBENCH_STATE_KEYS, BILLING_SNAPSHOT_KEY];
