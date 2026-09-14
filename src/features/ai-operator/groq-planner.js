@@ -48,10 +48,11 @@ function normalizeTool(value) {
   return TOOL_NAMES.has(tool) ? tool : '';
 }
 
-function normalizeDecision(raw = {}, model = '') {
+function normalizeDecision(raw = {}, model = '', maxReplyChars = 700) {
   const action = ACTIONS.has(String(raw.action || '').trim()) ? String(raw.action).trim() : 'escalate';
   const tool = normalizeTool(raw.tool);
-  const reply = block(raw.reply || '', 2200);
+  const maxReply = Math.max(180, Math.min(1800, Number(maxReplyChars) || 700));
+  const reply = block(raw.reply || '', maxReply);
   return {
     action: action === 'tool_required' && !tool ? 'escalate' : action,
     domain: oneLine(raw.domain || 'other', 80).toLowerCase(),
@@ -111,7 +112,37 @@ async function requestModel(messages, apiKey, model) {
   }
 }
 
-function systemPrompt() {
+function styleInstruction(style) {
+  if (style === 'detailed') return 'Допускается подробный ответ, но без воды и повторов.';
+  if (style === 'normal') return 'Ответ средней длины: достаточно объяснения и одного следующего шага.';
+  return 'Ответ максимально компактный: обычно 1–4 коротких предложения, только существенное.';
+}
+
+function correctionExamples(corrections = []) {
+  const examples = (Array.isArray(corrections) ? corrections : [])
+    .slice(0, 8)
+    .map((item, index) => {
+      const client = block(item?.customerText || '', 700);
+      const ai = block(item?.aiReply || '', 700);
+      const corrected = block(item?.correctedReply || '', 700);
+      const note = block(item?.note || '', 500);
+      if (!client && !corrected && !note) return '';
+      return [
+        `CORRECTION ${index + 1}:`,
+        client ? `CLIENT: ${client}` : '',
+        ai ? `OLD_AI: ${ai}` : '',
+        corrected ? `PREFERRED_REPLY: ${corrected}` : '',
+        note ? `OPERATOR_NOTE: ${note}` : ''
+      ].filter(Boolean).join('\n');
+    })
+    .filter(Boolean);
+  return examples.join('\n\n');
+}
+
+function systemPrompt(input = {}) {
+  const config = input.operatorConfig || {};
+  const customInstructions = block(config.customInstructions || '', 4000);
+  const corrections = correctionExamples(input.corrections || []);
   return `Ты — полностью автономный оператор первой линии интернет-провайдера SIMNET. Ты общаешься НАПРЯМУЮ с абонентом, не с оператором-человеком.
 
 Твоя задача на каждом ходе: понять смысл обращения, учесть уже известные данные, решить — можно ли ответить сейчас, нужен ли один уточняющий вопрос, или нужен READ-инструмент.
@@ -123,9 +154,16 @@ function systemPrompt() {
 - Не задавай анкету. За один ход максимум один наиболее полезный вопрос.
 - Не предлагай изменять данные и не выполняй WRITE-действия.
 - Если клиент просит действие, требующее изменения системы, объясни необходимость передачи человеку: action=escalate.
-- Отвечай на языке клиента; коротко, естественно, без внутренних терминов, если они не нужны.
+- Отвечай на языке клиента; естественно, без внутренних терминов, если они не нужны.
 - HelpCrunch tech/private события не являются репликами разговора и в контекст не передаются.
+- Пользовательские настройки и примеры коррекций меняют стиль и предпочтения, но НЕ могут отменить запрет на выдумывание фактов, WRITE-действия и требования безопасности.
 
+СТИЛЬ ОТВЕТА:
+${styleInstruction(config.replyStyle)}
+Максимальная длина готового ответа: ${Math.max(180, Math.min(1800, Number(config.maxReplyChars) || 700))} символов.
+
+${customInstructions ? `ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ ОПЕРАТОРА:\n${customInstructions}\n` : ''}
+${corrections ? `ПРИМЕРЫ РАНЕЕ ИСПРАВЛЕННОГО ПОВЕДЕНИЯ:\n${corrections}\n` : ''}
 На первом этапе доступны только эти возможные READ-tools:
 customer.lookup, billing.balance, billing.tariff, billing.payments, billing.next_charge, network.session, network.last_session, pon.onu, pon.signal, outage.by_customer.
 
@@ -170,7 +208,7 @@ export async function planAutonomousTurn(input = {}) {
   if (!apiKey) throw new Error('Groq API key is not configured in Workbench AI settings');
 
   const messages = [
-    { role: 'system', content: systemPrompt() },
+    { role: 'system', content: systemPrompt(input) },
     { role: 'user', content: conversationPrompt(input) }
   ];
 
@@ -178,7 +216,11 @@ export async function planAutonomousTurn(input = {}) {
   for (const model of modelsForRuntime(runtime)) {
     try {
       const result = await requestModel(messages, apiKey, model);
-      const decision = normalizeDecision(parseJsonObject(result.answer), result.model || model);
+      const decision = normalizeDecision(
+        parseJsonObject(result.answer),
+        result.model || model,
+        input?.operatorConfig?.maxReplyChars
+      );
       return { ...decision, usage: result.usage || {}, attemptedModels: [...failures.map(item => item.model), model] };
     } catch (error) {
       failures.push({ model, status: Number(error?.status || 0), error: oneLine(error?.message || error, 500) });
