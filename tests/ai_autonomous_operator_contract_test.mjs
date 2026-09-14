@@ -18,15 +18,24 @@ assert.equal(latestCustomerTurn(messages)?.id, 3, 'latest customer semantic turn
 const background = fs.readFileSync(new URL('../src/features/ai-operator/background.js', import.meta.url), 'utf8');
 const client = fs.readFileSync(new URL('../src/features/ai-operator/helpcrunch-client.js', import.meta.url), 'utf8');
 const planner = fs.readFileSync(new URL('../src/features/ai-operator/groq-planner.js', import.meta.url), 'utf8');
+const settingsHtml = fs.readFileSync(new URL('../src/ui/settings.html', import.meta.url), 'utf8');
+const settingsJs = fs.readFileSync(new URL('../src/ui/settings.js', import.meta.url), 'utf8');
 const entry = fs.readFileSync(new URL('../src/background-entry.js', import.meta.url), 'utf8');
 const manifest = JSON.parse(fs.readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
 
 assert.match(background, /shadowMode:\s*true/, 'first autonomous runtime must be locked to shadow mode');
 assert.match(background, /blocked_shadow_mode/, 'outbound send must stay blocked until a captured send contract exists');
+assert.match(background, /AI_OPERATOR_FEEDBACK_ADD/, 'runtime must accept explicit operator corrections');
+assert.match(background, /learnFromCorrections/, 'runtime must support enabling/disabling correction learning');
 assert.doesNotMatch(client, /method:\s*['"]POST['"]/, 'HelpCrunch client must be read-only in the first stage');
 assert.match(client, /credentials:\s*['"]include['"]/, 'HelpCrunch read must reuse authenticated session safely');
 assert.match(planner, /полностью автономный оператор/i, 'Groq prompt must address subscriber as an autonomous operator');
 assert.match(planner, /action=tool_required/i, 'unknown internal facts must request a read tool rather than hallucinate');
+assert.match(planner, /ПРИМЕРЫ РАНЕЕ ИСПРАВЛЕННОГО ПОВЕДЕНИЯ/, 'saved corrections must be included in the next AI decisions');
+assert.match(planner, /ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ ОПЕРАТОРА/, 'operator custom behavior instructions must be part of the prompt');
+assert.match(settingsHtml, /Автономный оператор · Test Lab/, 'settings must expose the autonomous operator test lab');
+assert.match(settingsHtml, /aiOperatorCustomInstructions/, 'settings must expose editable behavior instructions');
+assert.match(settingsJs, /Запомнить исправление/, 'settings must expose per-case correction action');
 assert.match(entry, /features\/ai-operator\/background\.js/, 'service worker must load autonomous operator runtime');
 assert.ok(manifest.permissions.includes('alarms'), 'poll scheduler permission must be present');
 assert.ok(manifest.host_permissions.includes('https://stargroup.helpcrunch.com/*'), 'HelpCrunch host must be explicitly allowlisted');
