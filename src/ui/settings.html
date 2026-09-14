@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>SIMNET Workbench · Settings</title>
   <link rel="stylesheet" href="settings.css">
+  <link rel="stylesheet" href="ai-operator-lab.css">
 </head>
 <body>
   <main class="shell">
@@ -99,6 +100,47 @@
       </div>
       <div id="aiOperatorStatus" class="status">Автономный оператор ещё не запускался.</div>
 
+      <div class="section-head ai-lab-head">
+        <div>
+          <h3>Ручной диалог · ты = абонент</h3>
+          <p class="muted">Пиши как клиент. AI должен сам запросить идентификацию, вызвать READ-инструмент, прочитать результат и продолжить разговор.</p>
+        </div>
+        <button id="aiLabReset" class="secondary compact-button" type="button">Новый диалог</button>
+      </div>
+
+      <div id="aiLabIdentity" class="ai-lab-identity empty">
+        <strong>Абонент не определён</strong>
+        <span>AI должен запросить договор или адрес, когда без идентификации нельзя продолжить.</span>
+      </div>
+
+      <div id="aiLabTranscript" class="ai-lab-chat" aria-live="polite">
+        <div class="ai-lab-empty">
+          <strong>Начни как абонент</strong>
+          <span>Например: «Какой у меня баланс?» или «У меня нет интернета».</span>
+        </div>
+      </div>
+
+      <div class="ai-lab-quick">
+        <button type="button" data-ai-lab-prompt="Какой у меня баланс?">Баланс</button>
+        <button type="button" data-ai-lab-prompt="Какой у меня тариф?">Тариф</button>
+        <button type="button" data-ai-lab-prompt="У меня нет интернета">Нет интернета</button>
+        <button type="button" data-ai-lab-prompt="Интернет часто обрывается">Обрывы</button>
+      </div>
+
+      <div class="ai-lab-compose">
+        <textarea id="aiLabInput" rows="3" placeholder="Сообщение от имени абонента…"></textarea>
+        <button id="aiLabSend" type="button">Отправить как абонент</button>
+      </div>
+      <div id="aiLabStatus" class="status ai-lab-status">Готово. Ты пишешь как абонент; AI сам выбирает READ-проверки.</div>
+      <p class="note ai-lab-safety"><b>Сейчас:</b> lookup читает уже собранные кейсы Workbench. Billing/UserSide/сеть остаются READ-only; HelpCrunch SEND заблокирован.</p>
+
+      <details class="ai-lab-log" open>
+        <summary>Лог решений и tool calls</summary>
+        <div id="aiLabEvents" class="ai-lab-events">
+          <div class="ai-lab-log-empty">Tool-вызовов пока нет.</div>
+        </div>
+      </details>
+
       <div class="section-head">
         <div>
           <h3>Последние решения AI</h3>
@@ -133,5 +175,6 @@
     </section>
   </main>
   <script src="settings.js"></script>
+  <script src="ai-operator-lab.js"></script>
 </body>
 </html>
