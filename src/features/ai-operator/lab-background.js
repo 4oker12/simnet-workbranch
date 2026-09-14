@@ -222,6 +222,19 @@ async function runTurn(customerText) {
       break;
     }
 
+    if (turn >= MAX_TOOL_TURNS) {
+      const message = `Достигнут лимит ${MAX_TOOL_TURNS} READ-вызовов за один ход.`;
+      appendEvent(lab, 'error', { code: 'TOOL_LOOP_LIMIT', message });
+      finalDecision = {
+        ...decision,
+        action: 'escalate',
+        intent: 'tool_loop_limit',
+        reply: 'Не удалось завершить проверку автоматически. Нужна проверка оператором.',
+        reason: message
+      };
+      break;
+    }
+
     const signature = toolSignature(decision);
     if (seenToolCalls.has(signature)) {
       appendEvent(lab, 'error', {
