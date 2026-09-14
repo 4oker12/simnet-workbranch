@@ -210,7 +210,7 @@
   function deepMerge(target, patch) {
     const out = target && typeof target === 'object' && !Array.isArray(target) ? { ...target } : {};
     for (const [key, value] of Object.entries(patch || {})) {
-      if (value === undefined || value === null || value === '') continue;
+      if (value === undefined) continue;
       if (value && typeof value === 'object' && !Array.isArray(value)) out[key] = deepMerge(out[key], value);
       else out[key] = value;
     }
