@@ -105,7 +105,11 @@
           <h3>Ручной диалог · ты = абонент</h3>
           <p class="muted">Пиши как клиент. AI должен сам запросить идентификацию, вызвать READ-инструмент, прочитать результат и продолжить разговор.</p>
         </div>
-        <button id="aiLabReset" class="secondary compact-button" type="button">Новый диалог</button>
+        <div class="actions ai-lab-head-actions">
+          <button id="aiLabDownloadTxt" class="secondary compact-button" type="button">Скачать TXT</button>
+          <button id="aiLabDownloadJson" class="secondary compact-button" type="button">Скачать JSON</button>
+          <button id="aiLabReset" class="secondary compact-button" type="button">Новый диалог</button>
+        </div>
       </div>
 
       <div id="aiLabIdentity" class="ai-lab-identity empty">
@@ -121,8 +125,11 @@
       </div>
 
       <div class="ai-lab-quick">
+        <button type="button" data-ai-lab-prompt="Дай сводку по моему договору">Сводка</button>
         <button type="button" data-ai-lab-prompt="Какой у меня баланс?">Баланс</button>
         <button type="button" data-ai-lab-prompt="Какой у меня тариф?">Тариф</button>
+        <button type="button" data-ai-lab-prompt="Какие у меня последние платежи?">Платежи</button>
+        <button type="button" data-ai-lab-prompt="Какой адрес подключения и какая технология?">Адрес / подключение</button>
         <button type="button" data-ai-lab-prompt="У меня нет интернета">Нет интернета</button>
         <button type="button" data-ai-lab-prompt="Интернет часто обрывается">Обрывы</button>
       </div>
