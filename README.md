@@ -1,3 +1,9 @@
+## 1.7.36.163 — Technical controls and reverse navigation
+
+- Compact “Подставить из ТМЦ” button beside OLT changes only differing fields. Native/select2/chosen OLT controls refresh and close after selection; saving remains explicit.
+- Confirmed TMC ONU/OLT evidence supplies PON classification when the connection family is missing. Explicit Ethernet is preserved.
+- UserSide → Billing ignores stale cross-case handoffs and recovers closed source tabs using a live session in the correct Billing realm. Failed navigation reports a reason instead of silently focusing a wrong destination.
+
 ## 1.7.36.162 — OLT route and selective TMC transfer
 
 - Engineer poll navigation resolves the native technology from existing OLT/TMC evidence even before Billing completeness permits an actual request. Request guards remain active.

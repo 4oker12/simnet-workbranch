@@ -506,7 +506,7 @@
     openUsersideForCase,
     focusSource: (caseData = null, options = {}) => WB.store.focusHandoffSource({
       token: WB.runtime.handoffClaim?.token || extractToken(),
-      caseId: WB.runtime.handoffClaim?.caseId || String(caseData?.id || ''),
+      caseId: String(caseData?.id || '') || WB.runtime.handoffClaim?.caseId || '',
       targetUrl: String(options?.targetUrl || ''),
       semanticTargetId: String(options?.semanticTargetId || ''),
       entityId: String(options?.entityId || valueOf(caseData?.identity?.billingId) || '')

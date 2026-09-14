@@ -143,8 +143,9 @@
     }
 
     rail.collapseForNavigation?.();
-    return rail.runNavigation?.(() => rail.navigateToBillingForAction?.(currentCase, target))
-      || { ok: false, reason: 'poll-navigation-unavailable' };
+    const result = await rail.runNavigation?.(() => rail.navigateToBillingForAction?.(currentCase, target));
+    if (!result?.ok) rail.toast?.(`Переход к опросу не выполнен: ${result?.code || result?.reason || 'нет доступной вкладки Billing'}. Откройте Billing и повторите переход.`);
+    return result || { ok: false, reason: 'poll-navigation-unavailable' };
   }
 
   async function openEngineerTool(key) {

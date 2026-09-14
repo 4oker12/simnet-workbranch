@@ -5,7 +5,7 @@ import {
   discoverySnapshot,
   evidenceSnapshot
 } from './discovery.js';
-import { derivePonWorkflow, pollRouteForCase } from './pon.js';
+import { derivePonWorkflow, pollRouteForCase, connectionFamilyForCase } from './pon.js';
 
 function nowIso() { return new Date().toISOString(); }
 function comparable(value) { return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' '); }
@@ -23,9 +23,7 @@ export function validOltIp(caseData) {
 }
 
 export function computeDiagnosticDecision(caseData) {
-  const family = rawFactValue(
-    caseData.network?.connectionFamily
-  );
+  const family = connectionFamilyForCase(caseData);
 
   const ponWorkflow = derivePonWorkflow(caseData);
   const subtype = ponWorkflow.applicable

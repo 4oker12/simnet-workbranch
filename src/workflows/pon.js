@@ -430,8 +430,16 @@ function result(base, state, action, reason, extra = {}) {
   };
 }
 
+export function connectionFamilyForCase(caseData = {}) {
+  const declared = comparable(valueOf(caseData?.network?.connectionFamily));
+  if (declared === 'ethernet' || declared === 'pon') return declared;
+  const tmc = tmcFacts(caseData);
+  if (tmc.foundOnOlt && normalizePonMac(tmc.onuMac) && pollRouteForCase(caseData).action) return 'pon';
+  return declared;
+}
+
 export function derivePonWorkflow(caseData = {}) {
-  const family = comparable(valueOf(caseData?.network?.connectionFamily));
+  const family = connectionFamilyForCase(caseData);
   if (family !== 'pon') {
     return {
       applicable: false,

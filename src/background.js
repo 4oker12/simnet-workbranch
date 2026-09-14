@@ -1,4 +1,5 @@
 import { MessageType } from './shared/messages.js';
+import { syncBillingSelect } from './infrastructure/billing-select-sync.js';
 import { parseUsersideCallListHtml } from './features/call/userside-call-list-bridge.js';
 import { createCallModule, createCallModuleState, ensureCallModuleState } from './features/call/index.js';
 import { parseOwnUsersideCalls, latestUnresolvedPreview } from './features/call/source/userside-call-list.js';
@@ -3132,7 +3133,7 @@ async function focusHandoffSource(payload) {
   let handoff = validHandoffToken(token)
     ? state.handoffs[token]
     : null;
-  if (handoff && !handoffFresh(handoff)) handoff = null;
+  if (handoff && (!handoffFresh(handoff) || (caseId && handoff.caseId !== caseId))) handoff = null;
 
   if (!handoff && caseId) {
     handoff = Object.values(
@@ -3146,6 +3147,26 @@ async function focusHandoffSource(payload) {
       )[0] || null;
   }
 
+  // A remembered handoff can point at a closed tab or a tab now on UserSide.
+  const caseSnapshot = state.cases?.[caseId];
+  const billingHosts = new Set(Object.values(caseSnapshot?.contexts || {}).flatMap(context => {
+    try {
+      const host = new URL(context.url).hostname;
+      return ['admin.simnet.kiev.ua', 'admin.looknet.kiev.ua'].includes(host) ? [host] : [];
+    } catch { return []; }
+  }));
+  const eligibleSource = tab => {
+    try {
+      const url = new URL(tab?.url || '');
+      return url.protocol === 'https:' && ['admin.simnet.kiev.ua', 'admin.looknet.kiev.ua'].includes(url.hostname)
+        && (!billingHosts.size || billingHosts.has(url.hostname)) && Boolean(url.searchParams.get('pp'));
+    } catch { return false; }
+  };
+  if (handoff) {
+    try { if (!eligibleSource(await chrome.tabs.get(handoff.sourceTabId))) handoff = null; }
+    catch { handoff = null; }
+  }
+
   // UserSide → Billing with equal strength: if there is no prior Billing→UserSide
   // handoff source, adopt any open Billing tab that already has a live session (pp).
   let adoptedBillingTab = null;
@@ -3157,7 +3178,14 @@ async function focusHandoffSource(payload) {
       const billingTabs = await chrome.tabs.query({
         url: ['https://admin.simnet.kiev.ua/*', 'https://admin.looknet.kiev.ua/*']
       });
-      for (const tab of billingTabs) {
+      const eligible = billingTabs.filter(eligibleSource);
+      if (!billingHosts.size && new Set(eligible.map(tab => new URL(tab.url).hostname)).size > 1) {
+        return { focused: false, reason: 'billing-realm-ambiguous', code: 'BILLING_DESTINATION_CASE_MISMATCH' };
+      }
+      const billingId = String(rawFactValue(caseSnapshot?.identity?.billingId) || '');
+      eligible.sort((a, b) => Number(new URL(b.url).searchParams.get('id') === billingId)
+        - Number(new URL(a.url).searchParams.get('id') === billingId));
+      for (const tab of eligible) {
         try {
           const url = new URL(String(tab.url || ''));
           if (!url.searchParams.get('pp')) continue;
@@ -3237,6 +3265,9 @@ async function focusHandoffSource(payload) {
       ? safeBillingTechnicalTarget(payload?.targetUrl, sourceTab?.url || '')
       : '';
     const targetUrl = semanticUrl || legacyTechnicalUrl;
+    if (semanticTargetId && !targetUrl) {
+      return { focused: false, reason: 'billing-target-unresolved', code: 'BILLING_NAVIGATION_BUILD_FAILED' };
+    }
     const alreadyDestination = Boolean(
       targetUrl
       && (semanticTargetId
@@ -5895,6 +5926,11 @@ chrome.runtime.onMessage.addListener(
 
     if (type === MessageType.HANDOFF_FOCUS_SOURCE) {
       respond(focusHandoffSource(payload));
+      return true;
+    }
+
+    if (type === MessageType.BILLING_SELECT_SYNC) {
+      respond(syncBillingSelect(payload, sender));
       return true;
     }
 
