@@ -21,6 +21,7 @@ const toolRuntime = fs.readFileSync(new URL('../src/features/ai-operator/tool-ru
 const billingSnapshot = fs.readFileSync(new URL('../src/features/ai-operator/billing-snapshot-capture.js', import.meta.url), 'utf8');
 const client = fs.readFileSync(new URL('../src/features/ai-operator/helpcrunch-client.js', import.meta.url), 'utf8');
 const planner = fs.readFileSync(new URL('../src/features/ai-operator/groq-planner.js', import.meta.url), 'utf8');
+const supportCorpus = fs.readFileSync(new URL('../src/features/ai-operator/support-corpus-guidance.js', import.meta.url), 'utf8');
 const settingsHtml = fs.readFileSync(new URL('../src/ui/settings.html', import.meta.url), 'utf8');
 const settingsJs = fs.readFileSync(new URL('../src/ui/settings.js', import.meta.url), 'utf8');
 const labJs = fs.readFileSync(new URL('../src/ui/ai-operator-lab.js', import.meta.url), 'utf8');
@@ -42,6 +43,11 @@ assert.match(planner, /номер договора ИЛИ полный адре�
 assert.match(planner, /balanceWithoutTemporary/, 'planner must understand temporary-payment-aware Billing balances');
 assert.match(planner, /ПРИМЕРЫ РАНЕЕ ИСПРАВЛЕННОГО ПОВЕДЕНИЯ/, 'saved corrections must be included in the next AI decisions');
 assert.match(planner, /ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ ОПЕРАТОРА/, 'operator custom behavior instructions must be part of the prompt');
+
+assert.match(supportCorpus, /accountBalance: это текущее значение поля Billing «На счету, грн»/i, 'support guidance must treat accountBalance as the current balance');
+assert.match(supportCorpus, /balanceAfterTariff — НЕ текущий баланс/i, 'support guidance must keep projected post-tariff balance secondary');
+assert.match(supportCorpus, /сначала прямо ответь тарифную скорость/i, 'support guidance must answer tariff speed before Wi-Fi diagnostics when evidence already contains it');
+assert.doesNotMatch(supportCorpus, /GOOD: «Після поточного нарахування на рахунку 411 грн/i, 'support corpus must not teach projected balance as current balance');
 
 assert.match(toolRuntime, /simnet_workbench_state_v5/, 'tool runtime must read the canonical Workbench case store');
 assert.match(toolRuntime, /simnet_ai_operator_billing_snapshots_v1/, 'tool runtime must read captured Billing snapshots');
