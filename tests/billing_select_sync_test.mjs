@@ -14,4 +14,26 @@ assert.equal(sandbox.sync('40839', 'wrong-value').ok, false);
 assert.equal(sandbox.sync('40839', '22').ok, true);
 assert.equal(select.size, 1);
 assert.deepEqual(calls, ['blur', 'change', 'close']);
+// Selectize removes unselected options from the underlying select.
+select.value = '';
+select.options = [{ value: '', textContent: '' }];
+select.selectize = {
+  settings: { valueField: 'id', labelField: 'label' },
+  options: { 44: { id: '44', label: 'Panoramna-2B-GPON (172.16.13.90) BDCOM' } },
+  setValue: value => { calls.push(`set:${value}`); select.value = value; },
+  close: () => calls.push('selectize:close'), blur: () => calls.push('selectize:blur')
+};
+calls.length = 0;
+let result = sandbox.sync('40839', '', '172.16.13.90');
+assert.equal(result.ok, true);
+assert.equal(result.changed, true);
+assert.equal(select.value, '44');
+assert.deepEqual(calls, ['set:44', 'blur', 'selectize:close', 'selectize:blur']);
+calls.length = 0;
+result = sandbox.sync('40839', '44', '172.16.13.90');
+assert.equal(result.changed, false);
+assert.ok(!calls.some(call => call.startsWith('set:')));
+assert.equal(sandbox.sync('40839', '44', '172.16.13.9').ok, false, 'exact IP only');
+select.selectize.options[45] = { id: '45', label: 'Duplicate (172.16.13.90)' };
+assert.equal(sandbox.sync('40839', '44', '172.16.13.90').reason, 'olt-ip-ambiguous');
 console.log('billing_select_sync_test: PASS');

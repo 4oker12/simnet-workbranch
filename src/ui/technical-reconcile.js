@@ -34,7 +34,15 @@
     const parser = WB.parsers?.billing?.technical;
     if (!parser?.planTmcPatch) return null;
     const parsed = parser.parseDocument();
-    return { current, parsed, plan: parser.planTmcPatch(parsed, expected) };
+    const plan = parser.planTmcPatch(parsed, expected);
+    const selectizeOlt = Boolean(parsed.controls.olt?.classList.contains('selectized'));
+    const pendingOlt = selectizeOlt && expected.oltIp && expected.oltIp !== parsed.values.oltIp;
+    if (selectizeOlt) {
+      // Selectize owns the option catalogue in MAIN, not in the hidden select.
+      plan.changes = plan.changes.filter(item => item.field !== 'olt');
+      plan.unavailable = plan.unavailable.filter(field => field !== 'olt');
+    }
+    return { current, parsed, plan, pendingOlt, expected };
   }
 
   function sync() {
@@ -54,9 +62,13 @@
       button.style.cssText = 'padding:4px 9px;border:1px solid #a50046;border-radius:4px;background:#a50046;color:#fff;cursor:pointer;font:12px sans-serif';
       button.addEventListener('click', apply);
       box.append(button, document.createElement('div'));
-      anchor.insertAdjacentElement('afterend', box);
+      const row = anchor.closest('tr');
+      const targetCell = row?.cells?.[2];
+      if (targetCell) targetCell.appendChild(box);
+      else anchor.closest('td')?.appendChild(box);
     }
     const fields = ctx.plan.changes.map(item => labels[item.field]);
+    if (ctx.pendingOlt) fields.push(labels.olt);
     const button = box.querySelector('button');
     button.disabled = applying || !fields.length;
     button.style.opacity = button.disabled ? '.55' : '1';
@@ -80,21 +92,26 @@
     }
     const olt = ctx.parsed.controls.olt;
     let widgetFailed = false;
+    let oltChanged = false;
     if (olt && !olt.multiple) {
       olt.size = 1;
       olt.blur();
       try {
         const response = await chrome.runtime.sendMessage({ type: 'BILLING_SELECT_SYNC', payload: {
-          billingId: String(valueOf(ctx.current.identity.billingId)), value: olt.value
+          billingId: String(valueOf(ctx.current.identity.billingId)), value: olt.value,
+          oltIp: ctx.pendingOlt ? ctx.expected.oltIp : ''
         } });
         widgetFailed = response?.success !== true || response?.data?.ok !== true;
+        oltChanged = response?.data?.ok === true && response.data.changed === true;
       } catch { widgetFailed = true; }
     }
-    message = ctx.plan.changes.length
-      ? `Подставлено: ${ctx.plan.changes.map(item => labels[item.field]).join(', ')}. Нажмите штатную кнопку «Сохранить» в Billing.`
+    const changedFields = ctx.plan.changes.map(item => labels[item.field]);
+    if (oltChanged) changedFields.push(labels.olt);
+    message = changedFields.length
+      ? `Подставлено: ${changedFields.join(', ')}. Нажмите «Сохранить».`
       : 'Нет доступных изменений.';
     if (ctx.plan.unavailable.length) message += ` Не подставлено: ${ctx.plan.unavailable.map(field => labels[field]).join(', ')}.`;
-    if (widgetFailed) message += ' Проверьте отображение выбранной OLT.';
+    if (widgetFailed) message += ` OLT не подтверждена: проверьте наличие единственного варианта с IP ${ctx.expected.oltIp || 'из ТМЦ'}.`;
     applying = false;
     WB.rail?.toast?.(message);
     sync();

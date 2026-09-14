@@ -1,3 +1,8 @@
+## 1.7.36.164 — Selectize OLT selection
+
+- The TMC fill button sits in the right-hand cell of the OLT row.
+- Selectize OLT options are resolved from the live widget catalogue by exact IP, including when the hidden native select contains only an empty option. A single click fills differing ONU fields and selects OLT through Selectize, then closes/blurs the dropdown. Equal fields are preserved; missing/ambiguous OLT choices are reported without inventing IDs.
+
 ## 1.7.36.163 — Technical controls and reverse navigation
 
 - Compact “Подставить из ТМЦ” button beside OLT changes only differing fields. Native/select2/chosen OLT controls refresh and close after selection; saving remains explicit.
