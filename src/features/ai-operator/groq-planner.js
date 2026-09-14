@@ -9,6 +9,7 @@ const FALLBACK_MODELS = Object.freeze([
 const ACTIONS = new Set(['reply', 'ask', 'tool_required', 'escalate', 'ignore']);
 const TOOL_NAMES = new Set([
   'customer.lookup',
+  'customer.confirm',
   'billing.balance',
   'billing.tariff',
   'billing.payments',
@@ -139,6 +140,23 @@ function correctionExamples(corrections = []) {
   return examples.join('\n\n');
 }
 
+function labIdentityRules(input = {}) {
+  if (!input.labMode) return '';
+  return `\nРЕЖИМ MANUAL TEST LAB — пользователь чата играет роль реального абонента.
+ПРОТОКОЛ ИДЕНТИФИКАЦИИ:
+- Пока confirmedCaseId пуст, запрещено вызывать account-specific tools: billing.*, network.*, pon.*, outage.by_customer.
+- Если для обращения нужны данные аккаунта и абонент ещё не определён — спроси ОДНО: номер договора ИЛИ полный адрес подключения. Не требуй оба сразу.
+- Когда абонент сообщает договор/IP/адрес, вызови customer.lookup с конкретным аргументом: {"contract":"..."}, {"ip":"..."} или {"address":"..."}. Не отвечай, будто поиск уже выполнен.
+- customer.lookup с одним найденным кандидатом НЕ подтверждает личность. После результата задай короткий вопрос подтверждения по безопасным признакам кандидата, например договор + адрес: «Нашёл договор … по адресу …, это ваше подключение?».
+- Если в состоянии есть pendingCandidate и клиент явно подтверждает («да», «так», «верно») — вызови customer.confirm с {"confirmed":true}. Если отрицает — customer.confirm с {"confirmed":false}.
+- После успешного customer.confirm не спрашивай договор/адрес повторно, пока нет явного противоречия.
+- Если customer.lookup вернул AMBIGUOUS_IDENTITY — задай один вопрос, который отличит кандидатов.
+- Если tool вернул DATA_NOT_AVAILABLE/NOT_FOUND — честно скажи, что эта проверка сейчас не дала данных; не подменяй результат догадкой.
+- Результат любого tool — единственный источник внутренних фактов. Не меняй числа/статусы и не додумывай пропущенные поля.
+- После идентификации самостоятельно выбирай нужную следующую READ-проверку. Для вопроса о балансе используй billing.balance; о тарифе — billing.tariff; о наличии/состоянии сессии — network.session; о PON/ONU — pon.onu/pon.signal.
+`;
+}
+
 function systemPrompt(input = {}) {
   const config = input.operatorConfig || {};
   const customInstructions = block(config.customInstructions || '', 4000);
@@ -157,15 +175,15 @@ function systemPrompt(input = {}) {
 - Отвечай на языке клиента; естественно, без внутренних терминов, если они не нужны.
 - HelpCrunch tech/private события не являются репликами разговора и в контекст не передаются.
 - Пользовательские настройки и примеры коррекций меняют стиль и предпочтения, но НЕ могут отменить запрет на выдумывание фактов, WRITE-действия и требования безопасности.
-
+${labIdentityRules(input)}
 СТИЛЬ ОТВЕТА:
 ${styleInstruction(config.replyStyle)}
 Максимальная длина готового ответа: ${Math.max(180, Math.min(1800, Number(config.maxReplyChars) || 700))} символов.
 
 ${customInstructions ? `ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ ОПЕРАТОРА:\n${customInstructions}\n` : ''}
 ${corrections ? `ПРИМЕРЫ РАНЕЕ ИСПРАВЛЕННОГО ПОВЕДЕНИЯ:\n${corrections}\n` : ''}
-На первом этапе доступны только эти возможные READ-tools:
-customer.lookup, billing.balance, billing.tariff, billing.payments, billing.next_charge, network.session, network.last_session, pon.onu, pon.signal, outage.by_customer.
+На первом этапе доступны только эти READ-tools:
+customer.lookup, customer.confirm, billing.balance, billing.tariff, billing.payments, billing.next_charge, network.session, network.last_session, pon.onu, pon.signal, outage.by_customer.
 
 Верни ТОЛЬКО JSON:
 {
@@ -181,12 +199,36 @@ customer.lookup, billing.balance, billing.tariff, billing.payments, billing.next
 }`;
 }
 
+function jsonBlock(value, max = 7000) {
+  try {
+    return block(JSON.stringify(value ?? null, null, 2), max);
+  } catch {
+    return block(String(value ?? ''), max);
+  }
+}
+
 function conversationPrompt(input = {}) {
   const customer = input.customer || {};
   const chat = input.chat || {};
   const transcript = Array.isArray(input.transcript) ? input.transcript : [];
   const lines = transcript.map(item => `${item.role === 'customer' ? 'CLIENT' : 'AGENT'}: ${block(item.text, 1600)}`);
+  const labState = input.labState && typeof input.labState === 'object' ? input.labState : {};
+  const toolResults = Array.isArray(input.toolResults) ? input.toolResults.slice(-8) : [];
+  const labContext = input.labMode
+    ? [
+        'MODE: MANUAL_TEST_LAB',
+        `confirmedCaseId: ${oneLine(labState.confirmedCaseId || '', 120) || '(none)'}`,
+        `confirmedSubscriber: ${jsonBlock(labState.confirmedSubscriber || null, 1800)}`,
+        `pendingCandidate: ${jsonBlock(labState.pendingCandidate || null, 1800)}`,
+        '',
+        'RECENT READ TOOL RESULTS:',
+        toolResults.length ? jsonBlock(toolResults, 6500) : '(none)',
+        ''
+      ]
+    : [];
+
   return block([
+    ...labContext,
     `HelpCrunch chat_id: ${chat.id || ''}`,
     `provider: ${chat.provider || ''}`,
     `customer_id: ${customer.id || chat?.customer?.id || ''}`,
@@ -199,7 +241,7 @@ function conversationPrompt(input = {}) {
     ...lines,
     '',
     `Latest customer message: ${input.latestCustomer?.text || ''}`
-  ].join('\n'), 14_000);
+  ].join('\n'), 18_000);
 }
 
 export async function planAutonomousTurn(input = {}) {
