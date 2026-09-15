@@ -218,6 +218,7 @@ async function runTurn(customerText) {
 
     let plannedDecision = routeBasicCase({
       customerText: intentText,
+      latestCustomerText: customerMessage.text,
       labState: plannerLabState(lab),
       toolResults
     });
