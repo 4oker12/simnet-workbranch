@@ -6,7 +6,7 @@ import {
   sanitizeLookupToolResultData
 } from './lab-identity-policy.js';
 import { guardFuturePaymentDecision } from './finance-safety-policy.js';
-import { routeBasicCase } from './basic-case-router.js';
+import { basicConfirmationValue, routeBasicCase } from './basic-case-router.js';
 import { executeFuturePaymentTool } from './future-payment-tool.js';
 
 const LAB_KEY = 'simnet_ai_operator_lab_v1';
@@ -181,14 +181,14 @@ function toolSignature(decision = {}) {
 
 function intentAnchorText(lab, currentMessage) {
   const current = compact(currentMessage?.text || '', 4000);
-  const confirmationOnly = /^(?:да|так|верно|вірно|yes|ага|угу|нет|ні|no)[.!?\s]*$/i;
-  if (!confirmationOnly.test(current)) return current;
+  const confirmationOnly = value => basicConfirmationValue(value) !== null;
+  if (!confirmationOnly(current)) return current;
   const messages = Array.isArray(lab?.messages) ? lab.messages : [];
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const item = messages[index];
     if (item?.id === currentMessage?.id || item?.role !== 'customer') continue;
     const text = compact(item?.text || '', 4000);
-    if (text && !confirmationOnly.test(text)) return text;
+    if (text && !confirmationOnly(text)) return text;
   }
   return current;
 }
