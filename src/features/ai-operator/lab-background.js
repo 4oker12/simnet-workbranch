@@ -6,6 +6,8 @@ import {
   sanitizeLookupToolResultData
 } from './lab-identity-policy.js';
 import { guardFuturePaymentDecision } from './finance-safety-policy.js';
+import { routeBasicCase } from './basic-case-router.js';
+import { executeFuturePaymentTool } from './future-payment-tool.js';
 
 const LAB_KEY = 'simnet_ai_operator_lab_v1';
 const OPERATOR_CONFIG_KEY = 'simnet_ai_operator_runtime_v1';
@@ -214,36 +216,43 @@ async function runTurn(customerText) {
       createdAt: message.at
     }));
 
-    let plannedDecision = null;
-    try {
-      plannedDecision = await planAutonomousTurn({
-        labMode: true,
-        chat: { id: lab.id, provider: 'manual-test-lab' },
-        customer: {},
-        transcript,
-        latestCustomer: { id: customerMessage.id, text: customerMessage.text },
-        operatorConfig: config,
-        corrections: feedback.slice(0, 12),
-        labState: plannerLabState(lab),
-        toolResults
-      });
-    } catch (error) {
-      const message = compact(error?.message || error || 'AI planner failed', 1200);
-      appendEvent(lab, 'error', { code: 'PLANNER_FAILED', message });
-      finalDecision = {
-        action: 'escalate',
-        domain: 'other',
-        intent: 'planner_failed',
-        language: '',
-        tool: '',
-        toolArgs: {},
-        reply: 'Не удалось завершить автоматическую проверку. Нужна повторная попытка или проверка оператором.',
-        reason: message,
-        confidence: 0,
-        model: ''
-      };
-      await writeLab(lab);
-      break;
+    let plannedDecision = routeBasicCase({
+      customerText: intentText,
+      labState: plannerLabState(lab),
+      toolResults
+    });
+
+    if (!plannedDecision) {
+      try {
+        plannedDecision = await planAutonomousTurn({
+          labMode: true,
+          chat: { id: lab.id, provider: 'manual-test-lab' },
+          customer: {},
+          transcript,
+          latestCustomer: { id: customerMessage.id, text: customerMessage.text },
+          operatorConfig: config,
+          corrections: feedback.slice(0, 12),
+          labState: plannerLabState(lab),
+          toolResults
+        });
+      } catch (error) {
+        const message = compact(error?.message || error || 'AI planner failed', 1200);
+        appendEvent(lab, 'error', { code: 'PLANNER_FAILED', message });
+        finalDecision = {
+          action: 'escalate',
+          domain: 'other',
+          intent: 'planner_failed',
+          language: '',
+          tool: '',
+          toolArgs: {},
+          reply: 'Не удалось завершить автоматическую проверку. Нужна повторная попытка или проверка оператором.',
+          reason: message,
+          confidence: 0,
+          model: ''
+        };
+        await writeLab(lab);
+        break;
+      }
     }
 
     const normalizedDecision = normalizeLabLookupDecision(plannedDecision);
@@ -315,11 +324,14 @@ async function runTurn(customerText) {
       toolArgs: clone(decision.toolArgs || {})
     });
 
-    const toolResult = await executeOperatorTool({
-      tool: decision.tool,
-      toolArgs: decision.toolArgs || {},
-      labState: toolLabState(lab)
-    });
+    const runtimeState = toolLabState(lab);
+    const toolResult = decision.tool === 'billing.future_payment'
+      ? await executeFuturePaymentTool({ toolArgs: decision.toolArgs || {}, labState: runtimeState })
+      : await executeOperatorTool({
+          tool: decision.tool,
+          toolArgs: decision.toolArgs || {},
+          labState: runtimeState
+        });
 
     applyStatePatch(lab, toolResult.statePatch || {});
     const visibleResult = publicToolResult(toolResult);
