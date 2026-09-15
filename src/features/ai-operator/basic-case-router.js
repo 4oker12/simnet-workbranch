@@ -17,6 +17,12 @@ function money(value) {
   return `${number.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} грн`;
 }
 
+function numeric(value) {
+  if (value === '' || value === null || value === undefined) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 function isUk(value) {
   return /[іїєґ]|(?:скільки|рахунк|місяц|оплатити|договір)/i.test(String(value || ''));
 }
@@ -77,6 +83,48 @@ function serviceBreakdown(data = {}, uk = false) {
     parts.push(`${name} ${amount}`);
   }
   return parts;
+}
+
+function stripInternalTariffDate(value) {
+  return String(value || '')
+    .replace(/\s*-\s*\(\s*\d{1,2}[./-]\d{1,2}[./-]\d{4}\s*\)\s*$/u, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tariffHumanSummary(rawTariff, uk = false) {
+  const tariff = stripInternalTariffDate(rawTariff);
+  if (!tariff) return '';
+
+  const pricedSpeed = tariff.match(/^тариф\s+(\d+(?:[.,]\d+)?)\s*\(\s*(\d+(?:[.,]\d+)?)\s*(?:mbit|мбит(?:\/с)?)\s*\)$/iu);
+  if (pricedSpeed) {
+    const price = pricedSpeed[1].replace(',', '.');
+    const speed = pricedSpeed[2].replace(',', '.');
+    return uk
+      ? `У вас тариф ${price} грн, швидкість до ${speed} Мбіт/с.`
+      : `У вас тариф ${price} грн, скорость до ${speed} Мбит/с.`;
+  }
+
+  return uk
+    ? `Ваш поточний тариф — «${tariff}».`
+    : `Ваш текущий тариф — «${tariff}».`;
+}
+
+function tariffPaymentContext(balanceResult, uk = false) {
+  if (!balanceResult?.ok) return '';
+  const afterTariff = numeric(balanceResult?.data?.balanceAfterTariff);
+  if (afterTariff === null || afterTariff < 0) return '';
+  return uk
+    ? ' Поточний місяць за тарифом оплачено.'
+    : ' Текущий месяц по тарифу оплачен.';
+}
+
+function tariffReply(tariffResult, balanceResult, uk = false) {
+  const summary = tariffHumanSummary(tariffResult?.data?.currentTariff, uk);
+  if (!summary) {
+    return uk ? 'Поточний тариф у Billing не знайдено.' : 'Текущий тариф в Billing не найден.';
+  }
+  return `${summary}${tariffPaymentContext(balanceResult, uk)}`.trim();
 }
 
 function futurePaymentReply(result, horizon, uk) {
@@ -186,14 +234,30 @@ export function routeBasicCase({ customerText = '', latestCustomerText = '', lab
     return decision('reply', 'balance', reply, '', {}, 'Deterministic balance answer.');
   }
 
-  if (/(?:какой|який|мой|мій).{0,30}тариф|тариф\s*(?:сейчас|зараз|у\s+меня|у\s+мене)/i.test(text)) {
-    const existing = latestToolResult(toolResults, 'billing.tariff');
-    if (!existing) return decision('tool_required', 'current_tariff', '', 'billing.tariff', {}, 'Basic tariff question.');
-    const tariff = String(existing?.data?.currentTariff || '').trim();
-    const reply = tariff
-      ? (uk ? `Ваш поточний тариф — «${tariff}».` : `Ваш текущий тариф — «${tariff}».`)
-      : (uk ? 'Поточний тариф у Billing не знайдено.' : 'Текущий тариф в Billing не найден.');
-    return decision('reply', 'current_tariff', reply, '', {}, 'Deterministic tariff answer.');
+  if (/(?:какой|який|мой|мій).{0,30}тариф|тариф\s*(?:сейчас|зараз|у\s+меня|у\s+мене)|(?:что|що).{0,18}по\s+тариф/i.test(text)) {
+    const tariffResult = latestToolResult(toolResults, 'billing.tariff');
+    if (!tariffResult) return decision('tool_required', 'current_tariff', '', 'billing.tariff', {}, 'Basic tariff question.');
+
+    const balanceResult = latestToolResult(toolResults, 'billing.balance');
+    if (!balanceResult) {
+      return decision(
+        'tool_required',
+        'current_tariff_context',
+        '',
+        'billing.balance',
+        {},
+        'Enrich basic tariff answer with current payment context when Billing exposes it.'
+      );
+    }
+
+    return decision(
+      'reply',
+      'current_tariff',
+      tariffReply(tariffResult, balanceResult, uk),
+      '',
+      {},
+      'Deterministic client-facing tariff summary without internal tariff metadata.'
+    );
   }
 
   if (/(?:номер|№).{0,20}(?:договора|договору)|(?:мой|мій).{0,15}(?:договор|договір)/i.test(text)) {
