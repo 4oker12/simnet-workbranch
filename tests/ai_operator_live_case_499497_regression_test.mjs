@@ -44,6 +44,10 @@ const searchSource = fs.readFileSync(
   new URL('../src/features/ai-operator/billing-live-search.js', import.meta.url),
   'utf8'
 );
+const runtimeSource = fs.readFileSync(
+  new URL('../src/features/ai-operator/live-tool-runtime.js', import.meta.url),
+  'utf8'
+);
 
 // A natural confirmation must still resume the original request after customer.confirm.
 assert.match(labSource, /basicConfirmationValue/);
@@ -55,5 +59,11 @@ assert.match(searchSource, /TextDecoder\('windows-1251'\)/);
 assert.match(searchSource, /headerCharset/);
 assert.match(searchSource, /metaCharset/);
 assert.doesNotMatch(searchSource, /await\s+response\.text\(\)/);
+
+// A sparse live lookup must not wipe already captured finance, and missing finance gets one live refresh.
+assert.match(runtimeSource, /function\s+mergeFinance/);
+assert.match(runtimeSource, /value\s*===\s*null\s*\|\|\s*value\s*===\s*undefined\s*\|\|\s*value\s*===\s*''/);
+assert.match(runtimeSource, /refreshLiveSnapshotForLab/);
+assert.match(runtimeSource, /liveResult\?\.code\s*===\s*'DATA_NOT_AVAILABLE'/);
 
 console.log('ai_operator_live_case_499497_regression_test: PASS');
