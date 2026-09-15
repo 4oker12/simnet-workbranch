@@ -42,14 +42,16 @@ export function guardFuturePaymentDecision({ customerText = '', decision = {}, t
   if (decision.action === 'tool_required' || decision.action === 'ask' || decision.intent === 'confirm_identity') return decision;
   if (hasConfirmedFutureAmount(toolResults)) return decision;
 
-  const deterministic = latestToolResult(toolResults, 'billing.future_payment');
   const nextCharge = latestToolResult(toolResults, 'billing.next_charge');
   const uk = isUkrainian(decision, customerText);
-  const message = String(deterministic?.data?.message || nextCharge?.data?.message || '').trim();
-
-  const reply = message || (uk
-    ? 'Точну суму за майбутній період зараз порахувати не вдалося — підтверджених даних недостатньо.'
-    : 'Точную сумму за будущий период сейчас посчитать не удалось — подтверждённых данных недостаточно.');
+  const unavailable = nextCharge && nextCharge.ok === false;
+  const reply = uk
+    ? (unavailable
+        ? 'Точну суму за майбутній період зараз порахувати не вдалося: Billing не повернув підтверджений розрахунок наступного нарахування.'
+        : 'Точну суму за майбутній період зараз порахувати не вдалося — підтверджених даних недостатньо.')
+    : (unavailable
+        ? 'Точную сумму за будущий период сейчас посчитать не удалось: Billing не вернул подтверждённый расчёт следующего начисления.'
+        : 'Точную сумму за будущий период сейчас посчитать не удалось — подтверждённых данных недостаточно.');
 
   return {
     ...decision,
