@@ -10,7 +10,7 @@ const FALLBACK_MODELS = Object.freeze([
 
 const ACTIONS = new Set(['reply', 'ask', 'tool_required', 'escalate', 'ignore']);
 
-// Compatibility tools stay accepted during migration, but are intentionally not advertised to the model.
+// Compatibility tools stay accepted during migration, but narrow intent-shaped tools are not advertised to the model.
 const TOOL_NAMES = new Set([
   'customer.lookup',
   'customer.confirm',
@@ -185,6 +185,7 @@ function labIdentityRules(input = {}) {
   if (!input.labMode) return '';
   return `TEST LAB:
 - Пока confirmedCaseId пуст, account-specific READ запрещены.
+- Если абонент неизвестен, запроси ОДНО: номер договора ИЛИ полный адрес.
 - Для поиска используй customer.lookup; один кандидат требует подтверждения.
 - Явное «да/верно/правильно» при pendingCandidate → customer.confirm(true), отрицание → false.
 - После подтверждения не спрашивай договор/адрес повторно.
@@ -195,21 +196,23 @@ function systemPrompt(input = {}) {
   const config = input.operatorConfig || {};
   const customInstructions = block(config.customInstructions || '', 700);
   const corrections = correctionExamples(input.corrections || []);
-  return block(`Ты — автономный оператор первой линии SIMNET и говоришь напрямую с абонентом.
+  return block(`Ты — полностью автономный оператор первой линии SIMNET и говоришь напрямую с абонентом.
 
 ${OPERATOR_ASSISTANT_REASONING_CORE}
 
 БЕЗОПАСНОСТЬ:
 - Не выдумывай CRM/сетевые факты, суммы, даты, ONU, аварии.
+- Если для ответа нужен неизвестный внутренний факт — action=tool_required и один лучший источник.
 - WRITE-действия не выполняй; если без них нельзя — escalate.
 - Один ход = максимум один новый READ-source. Если фактов достаточно — reply.
 - DATA_NOT_AVAILABLE/NOT_FOUND не заменяй догадкой.
+- balanceWithoutTemporary — баланс без временного платежа; не путай его с текущим балансом.
 - Отвечай на языке клиента и учитывай весь переданный контекст разговора.
 
 ${labIdentityRules(input)}
 СТИЛЬ: ${styleInstruction(config.replyStyle)} Максимум ответа: ${Math.max(180, Math.min(1800, Number(config.maxReplyChars) || 700))} символов.
-${customInstructions ? `CUSTOM: ${customInstructions}` : ''}
-${corrections ? `CORRECTIONS:\n${corrections}` : ''}
+${customInstructions ? `ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ ОПЕРАТОРА: ${customInstructions}` : ''}
+${corrections ? `ПРИМЕРЫ РАНЕЕ ИСПРАВЛЕННОГО ПОВЕДЕНИЯ:\n${corrections}` : ''}
 
 Доступные источники:
 ${VISIBLE_TOOLS.map(item => `- ${item}`).join('\n')}
