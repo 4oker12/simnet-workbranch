@@ -49,4 +49,17 @@ assert.ok(!second.transcript.some(item => item.id === 8), 'private notes must no
 const nested = { data: { chats: payload.chats } };
 assert.equal(extractReplayCases(nested).cases.length, 2, 'nested data.chats export shape must be supported');
 
+const wrapped = {
+  source: 'wrapped exporter',
+  chats: [{
+    chat: { id: 81234, status: 'closed', customer: { id: 22, name: 'Wrapped Customer' } },
+    messages: payload.chats[0].messages
+  }]
+};
+const wrappedReplay = extractReplayCases(wrapped);
+assert.equal(wrappedReplay.cases.length, 2, 'wrapper {chat,messages} export shape must be supported');
+assert.equal(wrappedReplay.cases[0].chatId, 81234);
+assert.equal(wrappedReplay.cases[0].customerId, 22);
+assert.equal(wrappedReplay.cases[0].customer.name, 'Wrapped Customer');
+
 console.log('ai_operator_replay_cases_test: PASS');
