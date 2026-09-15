@@ -53,10 +53,15 @@ function explicitLookup(text) {
   return contract ? { contract } : null;
 }
 
-function confirmationValue(value) {
+export function basicConfirmationValue(value) {
   const text = normalized(value).replace(/[.!?]+$/g, '').trim();
-  if (/^(?:да|так|верно|вірно|yes|ага|угу)$/.test(text)) return true;
-  if (/^(?:нет|ні|no|не\s+мой|не\s+мій)$/.test(text)) return false;
+  if (!text) return null;
+
+  if (/^(?:нет|ні|no)(?:[\s,;:.-]+.*)?$/iu.test(text)) return false;
+  if (/^(?:(?:это|це)\s+)?не\s+(?:мой|мій|мо[её]|моє)$/iu.test(text)) return false;
+
+  if (/^(?:верно|вірно|правильно)$/iu.test(text)) return true;
+  if (/^(?:да|так|yes|ага|угу)(?:[\s,;:.-]+(?:(?:вс[её]\s+)?(?:верно|вірно|правильно)|(?:это|це)\s+(?:мой|мій|мо[её]|моє)|(?:мой|мій|мо[её]|моє)))?$/iu.test(text)) return true;
   return null;
 }
 
@@ -213,7 +218,7 @@ export function routeBasicCase({ customerText = '', latestCustomerText = '', lab
     : null;
 
   if (!confirmed && pending) {
-    const confirmation = confirmationValue(latestCustomerText);
+    const confirmation = basicConfirmationValue(latestCustomerText);
     if (confirmation !== null) {
       return decision(
         'tool_required',
