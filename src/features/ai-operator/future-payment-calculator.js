@@ -28,6 +28,9 @@ export function futurePaymentHorizonFromText(value = '') {
   if (/(?:следующ(?:ий|его|ем|ую)\s+месяц|наступн(?:ий|ого|ому)\s+місяц)/i.test(text)) {
     return { kind: 'next_month', year: null };
   }
+  if (/(?:сколько|скільки).{0,40}(?:в\s+месяц|за\s+месяц|на\s+місяць|за\s+місяць)|(?:абонплат|щомісяч|ежемесяч)/i.test(text)) {
+    return { kind: 'monthly', year: null };
+  }
   return null;
 }
 
@@ -41,11 +44,12 @@ function recurringComposition({ service = {}, finance = {} } = {}) {
         }))
         .filter(item => item.name || item.amount !== null || item.amountText)
     : [];
-  const activeServicesComplete = activeServices.length > 0
-    && activeServices.every(item => item.amount !== null);
-  const addOnsTotal = activeServicesComplete
+  const activeServicesComplete = activeServices.every(item => item.amount !== null);
+  const addOnsTotalFromList = activeServicesComplete
     ? roundMoney(activeServices.reduce((sum, item) => sum + item.amount, 0))
-    : numeric(service.activeServicesTotal);
+    : null;
+  const storedAddOnsTotal = numeric(service.activeServicesTotal);
+  const addOnsTotal = storedAddOnsTotal !== null ? storedAddOnsTotal : addOnsTotalFromList;
   const currentTotal = numeric(finance.totalDue);
   const derivedBase = numeric(service.derivedBaseTariffAmount);
   const baseTariffAmount = derivedBase !== null
@@ -53,16 +57,14 @@ function recurringComposition({ service = {}, finance = {} } = {}) {
     : currentTotal !== null && addOnsTotal !== null
       ? roundMoney(Math.max(0, currentTotal - addOnsTotal))
       : null;
-  const monthlyRecurringTotal = currentTotal !== null && baseTariffAmount !== null && addOnsTotal !== null
-    ? currentTotal
-    : null;
 
   return {
     currentTariff: String(service.currentTariff || '').trim(),
     baseTariffAmount,
     activeServices,
     addOnsTotal,
-    monthlyRecurringTotal
+    monthlyRecurringTotal: currentTotal,
+    compositionComplete: currentTotal !== null && baseTariffAmount !== null && addOnsTotal !== null
   };
 }
 
@@ -74,10 +76,10 @@ export function calculateFuturePayment({ service = {}, finance = {}, horizon = {
   const accountBalance = numeric(finance.accountBalance);
   const nextTariff = String(service.nextTariff || '').trim();
 
-  if (!['next_month', 'year_end'].includes(kind)) {
-    return { ok: false, code: 'UNSUPPORTED_HORIZON', message: 'Не удалось определить период будущей оплаты.' };
+  if (!['monthly', 'next_month', 'year_end'].includes(kind)) {
+    return { ok: false, code: 'UNSUPPORTED_HORIZON', message: 'Не удалось определить период оплаты.' };
   }
-  if (nextTariff) {
+  if ((kind === 'next_month' || kind === 'year_end') && nextTariff) {
     return {
       ok: false,
       code: 'FUTURE_TARIFF_CHANGE',
@@ -91,13 +93,13 @@ export function calculateFuturePayment({ service = {}, finance = {}, horizon = {
     return {
       ok: false,
       code: 'RECURRING_TOTAL_NOT_AVAILABLE',
-      message: 'Не удалось надёжно собрать ежемесячный итог из основного тарифа и активных допуслуг.',
+      message: 'В Billing не найден текущий общий ежемесячный итог.',
       ...composition
     };
   }
 
   let months = 1;
-  let periodLabel = 'next_month';
+  let periodLabel = kind;
   if (kind === 'year_end') {
     if (!targetYear || targetYear < current.year) {
       return { ok: false, code: 'PAST_TARGET_YEAR', message: 'Указанный год уже завершён.' };
@@ -111,10 +113,9 @@ export function calculateFuturePayment({ service = {}, finance = {}, horizon = {
   }
 
   const futureCharges = roundMoney(months * composition.monthlyRecurringTotal);
-  const usableBalance = accountBalance === null ? null : accountBalance;
-  const requiredTopUpNow = usableBalance === null
+  const requiredTopUpNow = accountBalance === null
     ? null
-    : roundMoney(Math.max(0, futureCharges - usableBalance));
+    : roundMoney(Math.max(0, futureCharges - accountBalance));
 
   return {
     ok: true,
