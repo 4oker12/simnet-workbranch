@@ -15,6 +15,7 @@
   if (!transcriptNode || !eventsNode || !identityNode || !input || !sendButton || !resetButton || !statusNode) return;
 
   let latestState = null;
+  let usageNode = null;
 
   function short(value, max = 260) {
     const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
@@ -40,6 +41,17 @@
     return node;
   }
 
+  function ensureUsageNode() {
+    if (usageNode?.isConnected) return usageNode;
+    usageNode = document.getElementById('aiLabUsage');
+    if (usageNode) return usageNode;
+    usageNode = create('div', 'status compact ai-lab-token-usage', 'Tokens · —');
+    usageNode.id = 'aiLabUsage';
+    usageNode.title = 'Фактический usage последнего LLM-вызова и лимит Groq из HTTP headers.';
+    identityNode.insertAdjacentElement('afterend', usageNode);
+    return usageNode;
+  }
+
   function json(value) {
     try { return JSON.stringify(value ?? null, null, 2); } catch { return String(value ?? ''); }
   }
@@ -54,6 +66,43 @@
     const date = new Date(value);
     const pad = number => String(number).padStart(2, '0');
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+  }
+
+  function number(value) {
+    const parsed = Number(value || 0);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  }
+
+  function renderUsage(state = {}) {
+    const node = ensureUsageNode();
+    const last = state?.lastDecision || {};
+    const usage = last?.usage || {};
+    const rate = last?.rateLimit || {};
+    const inputTokens = number(usage.prompt_tokens ?? usage.input_tokens);
+    const outputTokens = number(usage.completion_tokens ?? usage.output_tokens);
+    const totalTokens = number(usage.total_tokens) || inputTokens + outputTokens;
+
+    const cutoff = Date.now() - 60_000;
+    const input60s = (Array.isArray(state?.events) ? state.events : [])
+      .filter(event => event?.type === 'decision' && Date.parse(event?.at || 0) >= cutoff)
+      .reduce((sum, event) => sum + number(event?.promptTokens), 0);
+
+    if (!inputTokens && !outputTokens && !totalTokens) {
+      node.textContent = 'Tokens · 0 · этот ход без LLM-вызова';
+      return;
+    }
+
+    const parts = [
+      `Tokens · ${inputTokens} in / ${outputTokens} out = ${totalTokens}`,
+      input60s ? `input 60с: ${input60s}` : ''
+    ];
+
+    const limit = number(rate.limitTokens);
+    const remaining = number(rate.remainingTokens);
+    if (limit) parts.push(`Groq: ${remaining}/${limit} осталось`);
+    if (rate.resetTokens) parts.push(`reset ${rate.resetTokens}`);
+    if (rate.retryAfter) parts.push(`retry ${rate.retryAfter}s`);
+    node.textContent = parts.filter(Boolean).join(' · ');
   }
 
   function identityLabel(state = {}) {
@@ -126,7 +175,10 @@
   function eventSummary(event = {}) {
     if (event.type === 'tool_call') return `TOOL → ${event.tool || 'unknown'}`;
     if (event.type === 'tool_result') return `RESULT ← ${event.tool || 'unknown'} · ${event.code || (event.ok ? 'OK' : 'ERROR')}`;
-    if (event.type === 'decision') return `AI DECISION · ${event.action || '—'}${event.tool ? ` → ${event.tool}` : ''}`;
+    if (event.type === 'decision') {
+      const tokens = number(event.promptTokens);
+      return `AI DECISION · ${event.action || '—'}${event.tool ? ` → ${event.tool}` : ''}${tokens ? ` · ${tokens} in` : ''}`;
+    }
     if (event.type === 'error') return `ERROR · ${event.code || 'runtime'}`;
     if (event.type === 'customer_message') return 'CLIENT MESSAGE';
     return String(event.type || 'event').toUpperCase();
@@ -166,6 +218,7 @@
   function render(state = {}) {
     latestState = state && typeof state === 'object' ? state : {};
     renderIdentity(latestState);
+    renderUsage(latestState);
     renderMessages(latestState.messages || []);
     renderEvents(latestState.events || []);
     const last = latestState.lastDecision || {};
