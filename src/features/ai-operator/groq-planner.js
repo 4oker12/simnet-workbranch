@@ -103,6 +103,21 @@ function modelsForRuntime(runtime = {}) {
   return [preferred, ...FALLBACK_MODELS].filter((model, index, all) => model && all.indexOf(model) === index);
 }
 
+function numberHeader(headers, name) {
+  const value = Number(headers?.get?.(name) || 0);
+  return Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+function rateLimitFromHeaders(headers) {
+  return {
+    limitTokens: numberHeader(headers, 'x-ratelimit-limit-tokens'),
+    remainingTokens: numberHeader(headers, 'x-ratelimit-remaining-tokens'),
+    resetTokens: oneLine(headers?.get?.('x-ratelimit-reset-tokens') || '', 80),
+    remainingRequests: numberHeader(headers, 'x-ratelimit-remaining-requests'),
+    retryAfter: oneLine(headers?.get?.('retry-after') || '', 80)
+  };
+}
+
 async function requestModel(messages, apiKey, model) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.min(45_000, Number(AI_CONFIG.timeoutMs || 45_000)));
@@ -122,17 +137,24 @@ async function requestModel(messages, apiKey, model) {
       }),
       signal: controller.signal
     });
+    const rateLimit = rateLimitFromHeaders(response.headers);
     const text = await response.text();
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch {}
     if (!response.ok) {
       const error = new Error(`Groq HTTP ${response.status} — ${oneLine(data?.error?.message || text || response.statusText, 500)}`);
       error.status = response.status;
+      error.rateLimit = rateLimit;
       throw error;
     }
     const answer = data?.choices?.[0]?.message?.content;
     if (!answer) throw new Error('Groq returned an empty operator decision');
-    return { answer: String(answer), model: String(data?.model || model), usage: data?.usage || {} };
+    return {
+      answer: String(answer),
+      model: String(data?.model || model),
+      usage: data?.usage || {},
+      rateLimit
+    };
   } catch (error) {
     if (controller.signal.aborted) throw new Error('Groq operator request timeout');
     throw error;
@@ -276,11 +298,17 @@ export async function planAutonomousTurn(input = {}) {
       return {
         ...decision,
         usage: result.usage || {},
+        rateLimit: result.rateLimit || {},
         promptChars: messages.reduce((sum, item) => sum + String(item.content || '').length, 0),
         attemptedModels: [...failures.map(item => item.model), model]
       };
     } catch (error) {
-      failures.push({ model, status: Number(error?.status || 0), error: oneLine(error?.message || error, 500) });
+      failures.push({
+        model,
+        status: Number(error?.status || 0),
+        error: oneLine(error?.message || error, 500),
+        rateLimit: error?.rateLimit || {}
+      });
       if ([401, 403].includes(Number(error?.status || 0))) break;
     }
   }
