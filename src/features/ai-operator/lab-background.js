@@ -1,5 +1,5 @@
 import { planAutonomousTurn } from './groq-planner.js';
-import { executeOperatorTool } from './tool-runtime.js';
+import { executeOperatorTool } from './live-tool-runtime.js';
 import {
   normalizeLabLookupDecision,
   publicPendingCandidate,
