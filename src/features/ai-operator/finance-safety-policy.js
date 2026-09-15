@@ -1,6 +1,7 @@
 const FUTURE_PAYMENT_RE = /(?:следующ(?:ий|его|ем|ую)|наступн(?:ий|ого|ому|ий)|до\s+конц[аы]|до\s+кінц[яю]|до\s+кінця|майбутн|будущ|вперед|наперед).{0,60}(?:месяц|місяц|год|рік|202\d)|(?:сколько|скільки).{0,80}(?:следующ|наступн|до\s+конц|до\s+кінц)/i;
 
 function asNumber(value) {
+  if (value === '' || value === null || value === undefined) return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
@@ -9,12 +10,6 @@ function latestToolResult(toolResults = [], toolName = '') {
   return [...(Array.isArray(toolResults) ? toolResults : [])]
     .reverse()
     .find(item => String(item?.tool || '') === toolName) || null;
-}
-
-function money(value) {
-  const number = asNumber(value);
-  if (number === null) return '';
-  return `${number.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} грн`;
 }
 
 function isUkrainian(decision = {}, customerText = '') {
@@ -27,9 +22,16 @@ export function isFuturePaymentQuestion(value) {
 }
 
 export function hasConfirmedFutureAmount(toolResults = []) {
-  const result = latestToolResult(toolResults, 'billing.next_charge');
-  if (!result?.ok) return false;
-  const data = result?.data && typeof result.data === 'object' ? result.data : {};
+  const deterministic = latestToolResult(toolResults, 'billing.future_payment');
+  if (deterministic?.ok) {
+    const data = deterministic?.data && typeof deterministic.data === 'object' ? deterministic.data : {};
+    if ([data.futureCharges, data.monthlyRecurringTotal, data.requiredTopUpNow]
+      .some(value => asNumber(value) !== null)) return true;
+  }
+
+  const nextCharge = latestToolResult(toolResults, 'billing.next_charge');
+  if (!nextCharge?.ok) return false;
+  const data = nextCharge?.data && typeof nextCharge.data === 'object' ? nextCharge.data : {};
   return [data.amount, data.nextCharge, data.projectedAmount, data.requiredTopUp]
     .some(value => asNumber(value) !== null);
 }
@@ -40,31 +42,14 @@ export function guardFuturePaymentDecision({ customerText = '', decision = {}, t
   if (decision.action === 'tool_required' || decision.action === 'ask' || decision.intent === 'confirm_identity') return decision;
   if (hasConfirmedFutureAmount(toolResults)) return decision;
 
+  const deterministic = latestToolResult(toolResults, 'billing.future_payment');
   const nextCharge = latestToolResult(toolResults, 'billing.next_charge');
-  const tariff = latestToolResult(toolResults, 'billing.tariff');
-  const tariffData = tariff?.data && typeof tariff.data === 'object' ? tariff.data : {};
-  const currentTariff = String(tariffData.currentTariff || '').trim();
-  const currentPrice = money(tariffData.price);
   const uk = isUkrainian(decision, customerText);
+  const message = String(deterministic?.data?.message || nextCharge?.data?.message || '').trim();
 
-  const known = [];
-  if (currentTariff) known.push(uk ? `Поточний тариф — «${currentTariff}»` : `Текущий тариф — «${currentTariff}»`);
-  if (currentPrice) known.push(uk ? `поточне поле ціни в Billing — ${currentPrice}` : `текущее поле цены в Billing — ${currentPrice}`);
-
-  const unavailable = nextCharge && nextCharge.ok === false;
-  const reply = uk
-    ? [
-        unavailable
-          ? 'Точну суму оплати за майбутній період зараз підтвердити не можу: Billing не повернув окремий розрахунок наступного нарахування.'
-          : 'Для точної суми оплати за майбутній період потрібен підтверджений розрахунок наступного нарахування.',
-        known.length ? `${known.join('; ')}. Це не є прогнозом суми на наступний місяць.` : ''
-      ].filter(Boolean).join(' ')
-    : [
-        unavailable
-          ? 'Точную сумму оплаты за будущий период сейчас подтвердить не могу: Billing не вернул отдельный расчёт следующего начисления.'
-          : 'Для точной суммы оплаты за будущий период нужен подтверждённый расчёт следующего начисления.',
-        known.length ? `${known.join('; ')}. Это не является прогнозом суммы на следующий месяц.` : ''
-      ].filter(Boolean).join(' ');
+  const reply = message || (uk
+    ? 'Точну суму за майбутній період зараз порахувати не вдалося — підтверджених даних недостатньо.'
+    : 'Точную сумму за будущий период сейчас посчитать не удалось — подтверждённых данных недостаточно.');
 
   return {
     ...decision,
@@ -73,7 +58,7 @@ export function guardFuturePaymentDecision({ customerText = '', decision = {}, t
     tool: '',
     toolArgs: {},
     reply,
-    reason: 'Future payment guard: current price/totalDue are not a confirmed future charge; billing.next_charge did not provide an explicit amount.',
+    reason: 'Future payment guard: only explicit next-charge data or deterministic billing.future_payment calculation may support a future amount.',
     confidence: Math.min(Number(decision.confidence || 0.9) || 0.9, 0.95)
   };
 }
