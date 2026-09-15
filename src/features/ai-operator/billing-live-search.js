@@ -160,9 +160,36 @@ async function executeSearch(tabId, request) {
         return output;
       };
       const authPage = doc => Boolean(doc.querySelector('input[type="password"]'));
+      const decodeResponseHtml = async response => {
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        const contentType = String(response.headers.get('content-type') || '');
+        const headerCharset = contentType.match(/charset\s*=\s*["']?([^;"'\s]+)/i)?.[1] || '';
+        const head = new TextDecoder('windows-1252').decode(bytes.slice(0, 8192));
+        const metaCharset = head.match(/charset\s*=\s*["']?\s*([a-z0-9._-]+)/i)?.[1] || '';
+        const declared = String(headerCharset || metaCharset || '').toLowerCase();
+        const charset = /^(?:windows-1251|win-?1251|cp1251)$/i.test(declared)
+          ? 'windows-1251'
+          : /^(?:utf-?8)$/i.test(declared)
+            ? 'utf-8'
+            : declared || 'utf-8';
+
+        let html = '';
+        try {
+          html = new TextDecoder(charset).decode(bytes);
+        } catch {
+          html = new TextDecoder('utf-8').decode(bytes);
+        }
+
+        if (html.includes('\uFFFD') && charset !== 'windows-1251') {
+          const legacy = new TextDecoder('windows-1251').decode(bytes);
+          const replacementCount = value => (String(value).match(/\uFFFD/g) || []).length;
+          if (replacementCount(legacy) < replacementCount(html)) html = legacy;
+        }
+        return html;
+      };
       const fetchDoc = async url => {
         const response = await fetch(url.href, { method: 'GET', credentials: 'include', cache: 'no-store' });
-        const html = await response.text();
+        const html = await decodeResponseHtml(response);
         return {
           ok: response.ok,
           status: response.status,
