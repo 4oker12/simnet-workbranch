@@ -5,6 +5,7 @@ import {
   publicPendingCandidate,
   sanitizeLookupToolResultData
 } from './lab-identity-policy.js';
+import { guardFuturePaymentDecision } from './finance-safety-policy.js';
 
 const LAB_KEY = 'simnet_ai_operator_lab_v1';
 const OPERATOR_CONFIG_KEY = 'simnet_ai_operator_runtime_v1';
@@ -176,6 +177,20 @@ function toolSignature(decision = {}) {
   return `${String(decision.tool || '')}|${args}`;
 }
 
+function intentAnchorText(lab, currentMessage) {
+  const current = compact(currentMessage?.text || '', 4000);
+  const confirmationOnly = /^(?:да|так|верно|вірно|yes|ага|угу|нет|ні|no)[.!?\s]*$/i;
+  if (!confirmationOnly.test(current)) return current;
+  const messages = Array.isArray(lab?.messages) ? lab.messages : [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const item = messages[index];
+    if (item?.id === currentMessage?.id || item?.role !== 'customer') continue;
+    const text = compact(item?.text || '', 4000);
+    if (text && !confirmationOnly.test(text)) return text;
+  }
+  return current;
+}
+
 async function runTurn(customerText) {
   const lab = await readLab();
   const incoming = compact(customerText, 4000);
@@ -188,6 +203,7 @@ async function runTurn(customerText) {
   const { config, feedback } = await readOperatorConfig();
   const toolResults = [];
   const seenToolCalls = new Set();
+  const intentText = intentAnchorText(lab, customerMessage);
   let finalDecision = null;
 
   for (let turn = 0; turn <= MAX_TOOL_TURNS; turn += 1) {
@@ -198,18 +214,44 @@ async function runTurn(customerText) {
       createdAt: message.at
     }));
 
-    const plannedDecision = await planAutonomousTurn({
-      labMode: true,
-      chat: { id: lab.id, provider: 'manual-test-lab' },
-      customer: {},
-      transcript,
-      latestCustomer: { id: customerMessage.id, text: customerMessage.text },
-      operatorConfig: config,
-      corrections: feedback.slice(0, 12),
-      labState: plannerLabState(lab),
+    let plannedDecision = null;
+    try {
+      plannedDecision = await planAutonomousTurn({
+        labMode: true,
+        chat: { id: lab.id, provider: 'manual-test-lab' },
+        customer: {},
+        transcript,
+        latestCustomer: { id: customerMessage.id, text: customerMessage.text },
+        operatorConfig: config,
+        corrections: feedback.slice(0, 12),
+        labState: plannerLabState(lab),
+        toolResults
+      });
+    } catch (error) {
+      const message = compact(error?.message || error || 'AI planner failed', 1200);
+      appendEvent(lab, 'error', { code: 'PLANNER_FAILED', message });
+      finalDecision = {
+        action: 'escalate',
+        domain: 'other',
+        intent: 'planner_failed',
+        language: '',
+        tool: '',
+        toolArgs: {},
+        reply: 'Не удалось завершить автоматическую проверку. Нужна повторная попытка или проверка оператором.',
+        reason: message,
+        confidence: 0,
+        model: ''
+      };
+      await writeLab(lab);
+      break;
+    }
+
+    const normalizedDecision = normalizeLabLookupDecision(plannedDecision);
+    const decision = guardFuturePaymentDecision({
+      customerText: intentText,
+      decision: normalizedDecision,
       toolResults
     });
-    const decision = normalizeLabLookupDecision(plannedDecision);
 
     lab.lastDecision = clone(decision);
     appendEvent(lab, 'decision', {
