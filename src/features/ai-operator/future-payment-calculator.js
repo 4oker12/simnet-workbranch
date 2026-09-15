@@ -25,7 +25,7 @@ export function futurePaymentHorizonFromText(value = '') {
     const year = Number(text.match(/\b(20\d{2})\b/)?.[1] || 0);
     return { kind: 'year_end', year: year || null };
   }
-  if (/(?:следующ(?:ий|его|ем|ую)\s+месяц|наступн(?:ий|ого|ому)\s+місяц)/i.test(text)) {
+  if (/(?:следующ(?:ий|его|ем|ую)\s+месяц|наступн(?:ий|ого|ому)\s+місяц|на\s+след\.?\s+месяц)/i.test(text)) {
     return { kind: 'next_month', year: null };
   }
   if (/(?:сколько|скільки).{0,40}(?:в\s+месяц|за\s+месяц|на\s+місяць|за\s+місяць)|(?:абонплат|щомісяч|ежемесяч)/i.test(text)) {
@@ -74,6 +74,8 @@ export function calculateFuturePayment({ service = {}, finance = {}, horizon = {
   const targetYear = Number(horizon?.year || current.year);
   const composition = recurringComposition({ service, finance });
   const accountBalance = numeric(finance.accountBalance);
+  const balanceAfterTariff = numeric(finance.balanceAfterTariff);
+  const currentPeriodCovered = balanceAfterTariff === null ? null : balanceAfterTariff >= 0;
   const nextTariff = String(service.nextTariff || '').trim();
 
   if (!['monthly', 'next_month', 'year_end'].includes(kind)) {
@@ -113,9 +115,18 @@ export function calculateFuturePayment({ service = {}, finance = {}, horizon = {
   }
 
   const futureCharges = roundMoney(months * composition.monthlyRecurringTotal);
-  const requiredTopUpNow = accountBalance === null
+  const usePostCurrentPeriodBalance = kind === 'next_month' || kind === 'year_end';
+  const availableBalanceForFuture = usePostCurrentPeriodBalance && balanceAfterTariff !== null
+    ? balanceAfterTariff
+    : accountBalance;
+  const balanceBasis = usePostCurrentPeriodBalance && balanceAfterTariff !== null
+    ? 'balanceAfterTariff'
+    : accountBalance !== null
+      ? 'accountBalance'
+      : 'none';
+  const requiredTopUpNow = availableBalanceForFuture === null
     ? null
-    : roundMoney(Math.max(0, futureCharges - accountBalance));
+    : roundMoney(Math.max(0, futureCharges - availableBalanceForFuture));
 
   return {
     ok: true,
@@ -128,12 +139,17 @@ export function calculateFuturePayment({ service = {}, finance = {}, horizon = {
     ...composition,
     futureCharges,
     accountBalance,
+    balanceAfterTariff,
+    currentPeriodCovered,
+    availableBalanceForFuture,
+    balanceBasis,
     requiredTopUpNow,
     calculation: {
       formula: `${months} × ${composition.monthlyRecurringTotal}`,
-      balanceApplied: accountBalance !== null,
-      requiredTopUpFormula: accountBalance !== null
-        ? `max(0, ${futureCharges} - ${accountBalance})`
+      balanceApplied: availableBalanceForFuture !== null,
+      balanceBasis,
+      requiredTopUpFormula: availableBalanceForFuture !== null
+        ? `max(0, ${futureCharges} - ${availableBalanceForFuture})`
         : ''
     }
   };
