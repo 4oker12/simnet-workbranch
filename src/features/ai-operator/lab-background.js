@@ -15,6 +15,7 @@ const FEEDBACK_KEY = 'simnet_ai_operator_feedback_v1';
 const MAX_MESSAGES = 60;
 const MAX_EVENTS = 140;
 const MAX_TOOL_TURNS = 6;
+const MAX_CONTEXT_TOOL_RESULTS = 6;
 
 const TYPES = Object.freeze({
   GET: 'AI_OPERATOR_LAB_GET',
@@ -45,6 +46,13 @@ function id(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function normalizeContextToolResults(value) {
+  return (Array.isArray(value) ? value : [])
+    .filter(item => item && typeof item === 'object' && !Array.isArray(item))
+    .slice(-MAX_CONTEXT_TOOL_RESULTS)
+    .map(clone);
+}
+
 function emptyLab() {
   return {
     version: 1,
@@ -54,6 +62,7 @@ function emptyLab() {
     pendingCandidate: null,
     confirmedCaseId: '',
     confirmedSubscriber: null,
+    contextToolResults: [],
     lastDecision: null,
     createdAt: nowIso(),
     updatedAt: nowIso()
@@ -74,6 +83,7 @@ function normalizeLab(raw = {}) {
     confirmedSubscriber: raw.confirmedSubscriber && typeof raw.confirmedSubscriber === 'object'
       ? raw.confirmedSubscriber
       : null,
+    contextToolResults: normalizeContextToolResults(raw.contextToolResults),
     lastDecision: raw.lastDecision && typeof raw.lastDecision === 'object'
       ? raw.lastDecision
       : null,
@@ -173,6 +183,26 @@ function publicToolResult(toolResult = {}) {
   };
 }
 
+function rememberToolResult(lab, visibleResult) {
+  const tool = String(visibleResult?.tool || '');
+  if (!tool) return;
+
+  if (tool === 'customer.lookup') {
+    lab.contextToolResults = [];
+    return;
+  }
+
+  if (tool === 'customer.confirm') {
+    if (!visibleResult?.data?.confirmed) lab.contextToolResults = [];
+    return;
+  }
+
+  if (!visibleResult?.ok) return;
+  const current = normalizeContextToolResults(lab.contextToolResults)
+    .filter(item => String(item?.tool || '') !== tool);
+  lab.contextToolResults = [...current, clone(visibleResult)].slice(-MAX_CONTEXT_TOOL_RESULTS);
+}
+
 function toolSignature(decision = {}) {
   let args = '';
   try { args = JSON.stringify(decision.toolArgs || {}); } catch {}
@@ -203,7 +233,7 @@ async function runTurn(customerText) {
   await writeLab(lab);
 
   const { config, feedback } = await readOperatorConfig();
-  const toolResults = [];
+  const toolResults = normalizeContextToolResults(lab.contextToolResults);
   const seenToolCalls = new Set();
   const intentText = intentAnchorText(lab, customerMessage);
   let finalDecision = null;
@@ -232,7 +262,7 @@ async function runTurn(customerText) {
           transcript,
           latestCustomer: { id: customerMessage.id, text: customerMessage.text },
           operatorConfig: config,
-          corrections: feedback.slice(0, 12),
+          corrections: feedback.slice(0, 4),
           labState: plannerLabState(lab),
           toolResults
         });
@@ -268,12 +298,15 @@ async function runTurn(customerText) {
       action: decision.action,
       domain: decision.domain,
       intent: decision.intent,
+      semantic: clone(decision.semantic || {}),
       tool: decision.tool,
       toolArgs: clone(decision.toolArgs || {}),
       reply: decision.reply,
       reason: decision.reason,
       confidence: decision.confidence,
-      model: decision.model
+      model: decision.model,
+      promptChars: Number(decision.promptChars || 0) || 0,
+      promptTokens: Number(decision?.usage?.prompt_tokens || 0) || 0
     });
 
     if (decision.action !== 'tool_required') {
@@ -336,7 +369,11 @@ async function runTurn(customerText) {
 
     applyStatePatch(lab, toolResult.statePatch || {});
     const visibleResult = publicToolResult(toolResult);
+
+    if (decision.tool === 'customer.lookup') toolResults.length = 0;
     toolResults.push(visibleResult);
+    rememberToolResult(lab, visibleResult);
+
     appendEvent(lab, 'tool_result', visibleResult);
     await writeLab(lab);
   }
