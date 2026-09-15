@@ -127,6 +127,45 @@ function tariffReply(tariffResult, balanceResult, uk = false) {
   return `${summary}${tariffPaymentContext(balanceResult, uk)}`.trim();
 }
 
+function futureTopUpContext(data = {}, uk = false, kind = '') {
+  const topUpValue = numeric(data.requiredTopUpNow);
+  if (topUpValue === null) return '';
+  const topUp = money(topUpValue);
+  const availableValue = numeric(data.availableBalanceForFuture);
+  const basis = String(data.balanceBasis || '');
+
+  if (basis === 'balanceAfterTariff' && availableValue !== null) {
+    const available = money(availableValue);
+    if (kind === 'year_end') {
+      return availableValue >= 0
+        ? (uk
+            ? ` Після врахування вартості поточного місяця залишається ${available}, тому до кінця періоду потрібно доплатити ${topUp}.`
+            : ` После учёта стоимости текущего месяца остаётся ${available}, поэтому до конца периода нужно доплатить ${topUp}.`)
+        : (uk
+            ? ` Після врахування вартості поточного місяця баланс ${available}, тому до кінця періоду потрібно доплатити ${topUp}.`
+            : ` После учёта стоимости текущего месяца баланс ${available}, поэтому до конца периода нужно доплатить ${topUp}.`);
+    }
+    return availableValue >= 0
+      ? (uk
+          ? ` Після врахування вартості поточного місяця залишається ${available}, тому поповнити потрібно на ${topUp}.`
+          : ` После учёта стоимости текущего месяца остаётся ${available}, поэтому пополнить нужно на ${topUp}.`)
+      : (uk
+          ? ` Після врахування вартості поточного місяця баланс ${available}, тому поповнити потрібно на ${topUp}.`
+          : ` После учёта стоимости текущего месяца баланс ${available}, поэтому пополнить нужно на ${topUp}.`);
+  }
+
+  const accountBalance = money(data.accountBalance);
+  if (!accountBalance) return '';
+  if (kind === 'year_end') {
+    return uk
+      ? ` На рахунку зараз ${accountBalance}, тому потрібно доплатити ${topUp}.`
+      : ` На счёте сейчас ${accountBalance}, поэтому доплатить нужно ${topUp}.`;
+  }
+  return uk
+    ? ` На рахунку зараз ${accountBalance}, тому поповнити потрібно на ${topUp}.`
+    : ` На счёте сейчас ${accountBalance}, поэтому пополнить нужно на ${topUp}.`;
+}
+
 function futurePaymentReply(result, horizon, uk) {
   const data = result?.data || {};
   if (!result?.ok) {
@@ -137,8 +176,6 @@ function futurePaymentReply(result, horizon, uk) {
 
   const monthly = money(data.monthlyRecurringTotal);
   const charges = money(data.futureCharges);
-  const balance = money(data.accountBalance);
-  const topUp = money(data.requiredTopUpNow);
   const breakdown = serviceBreakdown(data, uk);
 
   if (horizon?.kind === 'monthly') {
@@ -154,26 +191,16 @@ function futurePaymentReply(result, horizon, uk) {
     const base = breakdown.length >= 2
       ? (uk ? `На наступний місяць — ${monthly}: ${breakdown.join(' + ')}.` : `На следующий месяц — ${monthly}: ${breakdown.join(' + ')}.`)
       : (uk ? `На наступний місяць — ${monthly}.` : `На следующий месяц — ${monthly}.`);
-    if (balance && topUp) {
-      return uk
-        ? `${base} На рахунку зараз ${balance}, тому поповнити потрібно на ${topUp}.`
-        : `${base} На счёте сейчас ${balance}, поэтому пополнить нужно на ${topUp}.`;
-    }
-    return base;
+    return `${base}${futureTopUpContext(data, uk, 'next_month')}`.trim();
   }
 
   const months = Number(data.months || 0);
   const year = Number(data.targetYear || data.currentYear || 0);
   const formula = `${months} × ${monthly} = ${charges}`;
-  let text = uk
+  const text = uk
     ? `До кінця ${year} року залишилось ${months} міс. За поточної вартості: ${formula}.`
     : `До конца ${year} года осталось ${months} мес. При текущей стоимости: ${formula}.`;
-  if (balance && topUp) {
-    text += uk
-      ? ` На рахунку зараз ${balance}, тому поповнити потрібно на ${topUp}.`
-      : ` На счёте сейчас ${balance}, поэтому доплатить нужно ${topUp}.`;
-  }
-  return text;
+  return `${text}${futureTopUpContext(data, uk, 'year_end')}`.trim();
 }
 
 export function routeBasicCase({ customerText = '', latestCustomerText = '', labState = {}, toolResults = [] } = {}) {
