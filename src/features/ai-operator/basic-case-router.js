@@ -18,7 +18,7 @@ function money(value) {
 }
 
 function isUk(value) {
-  return /[іїєґ]|\b(?:скільки|рахунк|місяц|тариф|оплатити|договір)\b/i.test(String(value || ''));
+  return /[іїєґ]|(?:скільки|рахунк|місяц|оплатити|договір)/i.test(String(value || ''));
 }
 
 function decision(action, intent, reply = '', tool = '', toolArgs = {}, reason = '') {
@@ -37,12 +37,12 @@ function decision(action, intent, reply = '', tool = '', toolArgs = {}, reason =
 }
 
 function explicitLookup(text) {
-  const login = String(text || '').match(/\babon\s*\d{3,12}\b/i)?.[0]?.replace(/\s+/g, '').toLowerCase();
+  const login = String(text || '').match(/abon\s*\d{3,12}/i)?.[0]?.replace(/\s+/g, '').toLowerCase();
   if (login) return { query: login };
 
   const source = String(text || '');
   const contractAfter = source.match(/(?:договор|договір|контракт)(?:\s*(?:№|номер))?\s*[:#№-]?\s*(\d{3,12})/i)?.[1];
-  const contractBefore = source.match(/\b(\d{3,12})\b.{0,20}(?:мой\s+договор|мій\s+договір|это\s+договор|це\s+договір)/i)?.[1];
+  const contractBefore = source.match(/(\d{3,12}).{0,20}(?:мой\s+договор|мій\s+договір|это\s+договор|це\s+договір)/i)?.[1];
   const contract = contractAfter || contractBefore || '';
   return contract ? { contract } : null;
 }
@@ -176,7 +176,7 @@ export function routeBasicCase({ customerText = '', latestCustomerText = '', lab
     return decision('reply', 'future_payment', futurePaymentReply(existing, horizon, uk), '', {}, 'Deterministic future-payment result.');
   }
 
-  if (/\b(?:баланс|на\s+счету|на\s+рахунку|сколько\s+денег|скільки\s+грошей)\b/i.test(text)) {
+  if (/(?:баланс|на\s+счету|на\s+рахунку|сколько\s+денег|скільки\s+грошей)/i.test(text)) {
     const existing = latestToolResult(toolResults, 'billing.balance');
     if (!existing) return decision('tool_required', 'balance', '', 'billing.balance', {}, 'Basic balance question.');
     const amount = money(existing?.data?.accountBalance);
@@ -186,7 +186,7 @@ export function routeBasicCase({ customerText = '', latestCustomerText = '', lab
     return decision('reply', 'balance', reply, '', {}, 'Deterministic balance answer.');
   }
 
-  if (/\b(?:какой|який|мой|мій)\b.{0,30}\bтариф\b|\bтариф\s*(?:сейчас|зараз|у\s+меня|у\s+мене)\b/i.test(text)) {
+  if (/(?:какой|який|мой|мій).{0,30}тариф|тариф\s*(?:сейчас|зараз|у\s+меня|у\s+мене)/i.test(text)) {
     const existing = latestToolResult(toolResults, 'billing.tariff');
     if (!existing) return decision('tool_required', 'current_tariff', '', 'billing.tariff', {}, 'Basic tariff question.');
     const tariff = String(existing?.data?.currentTariff || '').trim();
