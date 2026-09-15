@@ -36,6 +36,36 @@ function decision(action, intent, reply = '', tool = '', toolArgs = {}, reason =
   };
 }
 
+function explicitLookup(text) {
+  const login = String(text || '').match(/\babon\s*\d{3,12}\b/i)?.[0]?.replace(/\s+/g, '').toLowerCase();
+  if (login) return { query: login };
+
+  const source = String(text || '');
+  const contractAfter = source.match(/(?:договор|договір|контракт)(?:\s*(?:№|номер))?\s*[:#№-]?\s*(\d{3,12})/i)?.[1];
+  const contractBefore = source.match(/\b(\d{3,12})\b.{0,20}(?:мой\s+договор|мій\s+договір|это\s+договор|це\s+договір)/i)?.[1];
+  const contract = contractAfter || contractBefore || '';
+  return contract ? { contract } : null;
+}
+
+function confirmationValue(value) {
+  const text = normalized(value).replace(/[.!?]+$/g, '').trim();
+  if (/^(?:да|так|верно|вірно|yes|ага|угу)$/.test(text)) return true;
+  if (/^(?:нет|ні|no|не\s+мой|не\s+мій)$/.test(text)) return false;
+  return null;
+}
+
+function confirmationReply(candidate = {}, uk = false) {
+  const contract = String(candidate.contract || '').trim();
+  const address = String(candidate.address || '').trim();
+  const target = [
+    contract ? (uk ? `договір ${contract}` : `договор ${contract}`) : '',
+    address ? (uk ? `за адресою ${address}` : `по адресу ${address}`) : ''
+  ].filter(Boolean).join(' ');
+  return uk
+    ? `Знайшов ${target || 'підключення'}. Це ваше підключення?`
+    : `Нашёл ${target || 'подключение'}. Это ваше подключение?`;
+}
+
 function serviceBreakdown(data = {}, uk = false) {
   const parts = [];
   const base = money(data.baseTariffAmount);
@@ -74,7 +104,7 @@ function futurePaymentReply(result, horizon, uk) {
 
   if (horizon?.kind === 'next_month') {
     const base = breakdown.length >= 2
-      ? (uk ? `Наступний місяць — ${monthly}: ${breakdown.join(' + ')}.` : `На следующий месяц — ${monthly}: ${breakdown.join(' + ')}.`)
+      ? (uk ? `На наступний місяць — ${monthly}: ${breakdown.join(' + ')}.` : `На следующий месяц — ${monthly}: ${breakdown.join(' + ')}.`)
       : (uk ? `На наступний місяць — ${monthly}.` : `На следующий месяц — ${monthly}.`);
     if (balance && topUp) {
       return uk
@@ -98,10 +128,37 @@ function futurePaymentReply(result, horizon, uk) {
   return text;
 }
 
-export function routeBasicCase({ customerText = '', labState = {}, toolResults = [] } = {}) {
+export function routeBasicCase({ customerText = '', latestCustomerText = '', labState = {}, toolResults = [] } = {}) {
   const text = normalized(customerText);
-  if (!text || !String(labState?.confirmedCaseId || '').trim()) return null;
-  const uk = isUk(customerText);
+  if (!text) return null;
+  const uk = isUk(customerText || latestCustomerText);
+  const confirmed = Boolean(String(labState?.confirmedCaseId || '').trim());
+  const pending = labState?.pendingCandidate && typeof labState.pendingCandidate === 'object'
+    ? labState.pendingCandidate
+    : null;
+
+  if (!confirmed && pending) {
+    const confirmation = confirmationValue(latestCustomerText);
+    if (confirmation !== null) {
+      return decision(
+        'tool_required',
+        'confirm_identity',
+        '',
+        'customer.confirm',
+        { confirmed: confirmation },
+        'Deterministic subscriber confirmation.'
+      );
+    }
+    return decision('ask', 'confirm_identity', confirmationReply(pending, uk), '', {}, 'One candidate requires confirmation.');
+  }
+
+  if (!confirmed) {
+    const lookup = explicitLookup(customerText);
+    if (lookup) {
+      return decision('tool_required', 'identify_subscriber', '', 'customer.lookup', lookup, 'Explicit subscriber identifier in a basic request.');
+    }
+    return null;
+  }
 
   const horizon = futurePaymentHorizonFromText(customerText);
   if (horizon) {
