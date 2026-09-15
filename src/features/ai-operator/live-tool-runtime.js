@@ -52,15 +52,45 @@ async function readSnapshots() {
   return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
 }
 
+function mergeObject(currentValue, incomingValue) {
+  return {
+    ...(currentValue && typeof currentValue === 'object' && !Array.isArray(currentValue) ? currentValue : {}),
+    ...(incomingValue && typeof incomingValue === 'object' && !Array.isArray(incomingValue) ? incomingValue : {})
+  };
+}
+
+function mergeFinance(currentFinance, incomingFinance) {
+  const merged = mergeObject(currentFinance, {});
+  if (!incomingFinance || typeof incomingFinance !== 'object' || Array.isArray(incomingFinance)) return merged;
+  for (const [key, value] of Object.entries(incomingFinance)) {
+    if (value === null || value === undefined || value === '') continue;
+    merged[key] = value;
+  }
+  return merged;
+}
+
 async function persistSnapshots(patch = {}) {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch) || !Object.keys(patch).length) return;
   const current = await readSnapshots();
   const merged = { ...current };
   for (const [billingId, snapshot] of Object.entries(patch)) {
     if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) continue;
+    const previous = current[String(billingId)] && typeof current[String(billingId)] === 'object'
+      ? current[String(billingId)]
+      : {};
     merged[String(billingId)] = {
-      ...(current[String(billingId)] || {}),
+      ...previous,
       ...snapshot,
+      identity: mergeObject(previous.identity, snapshot.identity),
+      address: mergeObject(previous.address, snapshot.address),
+      contacts: mergeObject(previous.contacts, snapshot.contacts),
+      customer: mergeObject(previous.customer, snapshot.customer),
+      service: mergeObject(previous.service, snapshot.service),
+      finance: mergeFinance(previous.finance, snapshot.finance),
+      network: mergeObject(previous.network, snapshot.network),
+      payments: Array.isArray(snapshot.payments) && snapshot.payments.length
+        ? snapshot.payments
+        : (Array.isArray(previous.payments) ? previous.payments : []),
       billingId: String(snapshot.billingId || billingId),
       observedAt: String(snapshot.observedAt || nowIso()),
       source: 'billing-live-read-only'
@@ -171,6 +201,32 @@ async function liveSnapshotForLab(labState = {}) {
   return snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot) ? snapshot : null;
 }
 
+function lookupArgsFromLab(labState = {}) {
+  const subscriber = labState?.confirmedSubscriber && typeof labState.confirmedSubscriber === 'object'
+    ? labState.confirmedSubscriber
+    : {};
+  const login = text(subscriber.login, 80).replace(/\s+/g, '').toLowerCase();
+  const contract = text(subscriber.contract, 80).replace(/\D+/g, '');
+  const ip = text(subscriber.ip, 80);
+  if (/^abon\d{3,12}$/i.test(login)) return { login };
+  if (contract) return { contract };
+  if (ip) return { ip };
+  return null;
+}
+
+async function refreshLiveSnapshotForLab(labState = {}) {
+  const lookupArgs = lookupArgsFromLab(labState);
+  if (!lookupArgs) return null;
+  try {
+    const live = await searchBillingLive(lookupArgs);
+    if (!live?.ok) return null;
+    await persistSnapshots(live.snapshots || {});
+    return liveSnapshotForLab(labState);
+  } catch {
+    return null;
+  }
+}
+
 function liveSnapshotResult(tool, snapshot) {
   const identity = snapshot?.identity || {};
   const address = snapshot?.address || {};
@@ -246,8 +302,18 @@ export async function executeOperatorTool({ tool, toolArgs = {}, labState = {} }
   if (name === 'customer.lookup') return liveLookup(toolArgs);
 
   if (['customer.snapshot', 'billing.balance', 'billing.tariff', 'billing.payments'].includes(name)) {
-    const liveSnapshot = await liveSnapshotForLab(labState);
-    if (liveSnapshot) return liveSnapshotResult(name, liveSnapshot);
+    let liveSnapshot = await liveSnapshotForLab(labState);
+    if (liveSnapshot) {
+      let liveResult = liveSnapshotResult(name, liveSnapshot);
+      if (['billing.balance', 'billing.tariff'].includes(name) && liveResult?.code === 'DATA_NOT_AVAILABLE') {
+        const refreshed = await refreshLiveSnapshotForLab(labState);
+        if (refreshed) {
+          liveSnapshot = refreshed;
+          liveResult = liveSnapshotResult(name, liveSnapshot);
+        }
+      }
+      return liveResult;
+    }
   }
 
   return executeLocalOperatorTool({ tool: name, toolArgs, labState });
