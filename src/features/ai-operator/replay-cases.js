@@ -13,15 +13,25 @@ function arrayFrom(value) {
   return Array.isArray(value) ? value : [];
 }
 
-function messageArray(chat = {}) {
+function chatCore(record = {}) {
+  return record?.chat && typeof record.chat === 'object' && !Array.isArray(record.chat)
+    ? record.chat
+    : record;
+}
+
+function messageArray(record = {}) {
+  const chat = chatCore(record);
   const candidates = [
+    record.messages,
+    record?.messages?.data,
+    record?.messages?.items,
+    record.conversation,
+    record.history,
     chat.messages,
     chat?.messages?.data,
     chat?.messages?.items,
     chat.conversation,
-    chat.history,
-    chat?.chat?.messages,
-    chat?.chat?.messages?.data
+    chat.history
   ];
   return candidates.find(Array.isArray) || [];
 }
@@ -69,24 +79,41 @@ function blockText(items = []) {
   return items.map(item => text(item?.text)).filter(Boolean).join('\n');
 }
 
-function chatIdOf(chat = {}, index = 0) {
-  return numericId(chat.id || chat.chatId || chat.chat_id || chat?.chat?.id) || index + 1;
+function customerOf(record = {}) {
+  const chat = chatCore(record);
+  const candidates = [
+    record.customer,
+    record.customerInfo,
+    record.customerInformation,
+    chat.customer,
+    chat.customerInfo,
+    chat.customerInformation
+  ];
+  return candidates.find(value => value && typeof value === 'object' && !Array.isArray(value)) || {};
 }
 
-function replayChatMetadata(chat = {}, chatId = 0) {
-  const customer = chat.customer && typeof chat.customer === 'object' ? chat.customer : {};
+function chatIdOf(record = {}, index = 0) {
+  const chat = chatCore(record);
+  return numericId(record.id || record.chatId || record.chat_id || chat.id || chat.chatId || chat.chat_id) || index + 1;
+}
+
+function replayChatMetadata(record = {}, chatId = 0) {
+  const chat = chatCore(record);
+  const customer = customerOf(record);
   return {
     id: chatId,
-    provider: text(chat.provider || 'helpcrunch'),
-    status: text(chat.status || ''),
-    inboxId: numericId(chat.inboxId || chat.inbox_id || chat?.inbox?.id) || null,
+    provider: text(record.provider || chat.provider || 'helpcrunch'),
+    status: text(record.status || chat.status || ''),
+    inboxId: numericId(
+      record.inboxId || record.inbox_id || record?.inbox?.id ||
+      chat.inboxId || chat.inbox_id || chat?.inbox?.id
+    ) || null,
     customer
   };
 }
 
-function replayCustomer(chat = {}) {
-  const customer = chat.customer && typeof chat.customer === 'object' ? chat.customer : {};
-  return { ...customer };
+function replayCustomer(record = {}) {
+  return { ...customerOf(record) };
 }
 
 function humanReference(group = {}) {
@@ -110,12 +137,13 @@ export function extractReplayCases(payload, options = {}) {
   let skippedNoReference = 0;
 
   for (let chatIndex = 0; chatIndex < chats.length && cases.length < maxCases; chatIndex += 1) {
-    const chat = chats[chatIndex];
-    const rawMessages = messageArray(chat);
+    const record = chats[chatIndex];
+    const rawMessages = messageArray(record);
     const transcript = normalizeHelpCrunchTranscript(rawMessages, Math.max(transcriptLimit * 4, 120));
     semanticMessages += transcript.length;
     const groups = groupByRole(transcript);
-    const chatId = chatIdOf(chat, chatIndex);
+    const chatId = chatIdOf(record, chatIndex);
+    const customer = replayCustomer(record);
 
     for (let groupIndex = 0; groupIndex < groups.length - 1 && cases.length < maxCases; groupIndex += 1) {
       const customerGroup = groups[groupIndex];
@@ -144,9 +172,9 @@ export function extractReplayCases(payload, options = {}) {
       cases.push({
         id: `${chatId}:${turnKey}`,
         chatId,
-        customerId: numericId(chat?.customer?.id) || null,
-        chat: replayChatMetadata(chat, chatId),
-        customer: replayCustomer(chat),
+        customerId: numericId(customer?.id) || null,
+        chat: replayChatMetadata(record, chatId),
+        customer,
         transcript: prefix,
         latestCustomer: { ...latestCustomer },
         customerText,
