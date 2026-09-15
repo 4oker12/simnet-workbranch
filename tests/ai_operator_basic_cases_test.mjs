@@ -32,6 +32,42 @@ assert.equal(yearEnd.requiredTopUpNow, 1047);
 assert.equal(yearEnd.baseTariffAmount, 350);
 assert.equal(yearEnd.addOnsTotal, 99);
 
+const initialLookup = routeBasicCase({
+  customerText: 'abon472532 мой договор, сколько на следующий месяц надо заплатить?',
+  latestCustomerText: 'abon472532 мой договор, сколько на следующий месяц надо заплатить?',
+  labState: {},
+  toolResults: []
+});
+assert.equal(initialLookup.tool, 'customer.lookup');
+assert.deepEqual(initialLookup.toolArgs, { query: 'abon472532' });
+
+const pending = {
+  pendingCandidate: {
+    contract: '472532',
+    login: 'abon472532',
+    address: '',
+    ip: '192.0.2.10'
+  }
+};
+const confirmAsk = routeBasicCase({
+  customerText: 'abon472532 мой договор, сколько на следующий месяц надо заплатить?',
+  latestCustomerText: 'abon472532 мой договор, сколько на следующий месяц надо заплатить?',
+  labState: pending,
+  toolResults: [{ tool: 'customer.lookup', ok: true, data: { count: 1 } }]
+});
+assert.equal(confirmAsk.action, 'ask');
+assert.equal(confirmAsk.reply, 'Нашёл договор 472532. Это ваше подключение?');
+assert.doesNotMatch(confirmAsk.reply, /имя|на имя|Багацька/i);
+
+const confirmYes = routeBasicCase({
+  customerText: 'abon472532 мой договор, сколько на следующий месяц надо заплатить?',
+  latestCustomerText: 'да',
+  labState: pending,
+  toolResults: []
+});
+assert.equal(confirmYes.tool, 'customer.confirm');
+assert.deepEqual(confirmYes.toolArgs, { confirmed: true });
+
 const confirmed = {
   confirmedCaseId: 'login:abon472532',
   confirmedSubscriber: { contract: '472532', billingId: '47253', login: 'abon472532' }
