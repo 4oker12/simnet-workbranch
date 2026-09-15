@@ -52,7 +52,8 @@ assert.match(labSource, /confirmationOnly\s*=\s*value\s*=>\s*basicConfirmationVa
 // Legacy Billing pages are not safe to read with Response.text(): they may be windows-1251.
 assert.match(searchSource, /response\.arrayBuffer\(\)/);
 assert.match(searchSource, /TextDecoder\('windows-1251'\)/);
-assert.match(searchSource, /charset\s*\\s\*=/);
+assert.match(searchSource, /headerCharset/);
+assert.match(searchSource, /metaCharset/);
 assert.doesNotMatch(searchSource, /await\s+response\.text\(\)/);
 
 console.log('ai_operator_live_case_499497_regression_test: PASS');
