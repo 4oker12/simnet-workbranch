@@ -15,6 +15,7 @@ const finance = {
 };
 
 assert.deepEqual(futurePaymentHorizonFromText('сколько на следующий месяц надо заплатить?'), { kind: 'next_month', year: null });
+assert.deepEqual(futurePaymentHorizonFromText('сколько на след. месяц надо заплатить?'), { kind: 'next_month', year: null });
 assert.deepEqual(futurePaymentHorizonFromText('сколько нужно до конца 2026 года?'), { kind: 'year_end', year: 2026 });
 assert.deepEqual(futurePaymentHorizonFromText('сколько плачу в месяц?'), { kind: 'monthly', year: null });
 
@@ -31,6 +32,7 @@ assert.equal(yearEnd.futureCharges, 1347);
 assert.equal(yearEnd.requiredTopUpNow, 1047);
 assert.equal(yearEnd.baseTariffAmount, 350);
 assert.equal(yearEnd.addOnsTotal, 99);
+assert.equal(yearEnd.balanceBasis, 'accountBalance', 'legacy snapshots may fall back to visible account balance when post-tariff balance is absent');
 
 const initialLookup = routeBasicCase({
   customerText: 'abon472532 мой договор, сколько на следующий месяц надо заплатить?',
@@ -106,6 +108,51 @@ const finalNextReply = routeBasicCase({
 assert.match(finalNextReply.reply, /449\s*грн/i);
 assert.match(finalNextReply.reply, /интернет\s+350\s*грн/i);
 assert.match(finalNextReply.reply, /MEGOGO\s+99\s*грн/i);
+
+const realBillingNextMonth = calculateFuturePayment({
+  service: {
+    currentTariff: 'Безліміт 250 (100 Mbit) - (15.10.2024)',
+    nextTariff: '',
+    activeServices: [],
+    activeServicesTotal: 0,
+    derivedBaseTariffAmount: 250
+  },
+  finance: {
+    totalDue: 250,
+    accountBalance: 270.1,
+    balanceAfterTariff: 20.1
+  },
+  horizon: { kind: 'next_month' },
+  now: new Date('2026-09-15T12:00:00Z')
+});
+assert.equal(realBillingNextMonth.ok, true);
+assert.equal(realBillingNextMonth.currentPeriodCovered, true, 'non-negative post-tariff balance means the current month is covered');
+assert.equal(realBillingNextMonth.availableBalanceForFuture, 20.1, 'future money starts from the balance after current-month charges');
+assert.equal(realBillingNextMonth.balanceBasis, 'balanceAfterTariff');
+assert.equal(realBillingNextMonth.futureCharges, 250);
+assert.equal(realBillingNextMonth.requiredTopUpNow, 229.9, '270.10 visible balance must not be applied twice; 250 - 20.10 = 229.90');
+assert.equal(realBillingNextMonth.calculation.requiredTopUpFormula, 'max(0, 250 - 20.1)');
+
+const negativeCurrentPeriod = calculateFuturePayment({
+  service: {
+    currentTariff: 'Безліміт 250 (100 Mbit) - (15.10.2024)',
+    nextTariff: '',
+    activeServices: [],
+    activeServicesTotal: 0,
+    derivedBaseTariffAmount: 250
+  },
+  finance: {
+    totalDue: 250,
+    accountBalance: 240.1,
+    balanceAfterTariff: -9.9,
+    balanceWithoutTemporary: 20.1
+  },
+  horizon: { kind: 'next_month' },
+  now: new Date('2026-09-15T12:00:00Z')
+});
+assert.equal(negativeCurrentPeriod.currentPeriodCovered, false, 'negative post-tariff balance means current month is not fully covered');
+assert.equal(negativeCurrentPeriod.availableBalanceForFuture, -9.9, 'balanceWithoutTemporary must not override the primary post-tariff financial status');
+assert.equal(negativeCurrentPeriod.requiredTopUpNow, 259.9);
 
 const balanceRoute = routeBasicCase({
   customerText: 'какой баланс?',
