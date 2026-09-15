@@ -1,5 +1,10 @@
 import { planAutonomousTurn } from './groq-planner.js';
 import { executeOperatorTool } from './tool-runtime.js';
+import {
+  normalizeLabLookupDecision,
+  publicPendingCandidate,
+  sanitizeLookupToolResultData
+} from './lab-identity-policy.js';
 
 const LAB_KEY = 'simnet_ai_operator_lab_v1';
 const OPERATOR_CONFIG_KEY = 'simnet_ai_operator_runtime_v1';
@@ -120,6 +125,14 @@ function appendEvent(lab, type, payload = {}) {
 
 function plannerLabState(lab) {
   return {
+    pendingCandidate: publicPendingCandidate(lab.pendingCandidate),
+    confirmedCaseId: String(lab.confirmedCaseId || ''),
+    confirmedSubscriber: clone(lab.confirmedSubscriber)
+  };
+}
+
+function toolLabState(lab) {
+  return {
     pendingCandidate: clone(lab.pendingCandidate),
     confirmedCaseId: String(lab.confirmedCaseId || ''),
     confirmedSubscriber: clone(lab.confirmedSubscriber)
@@ -144,12 +157,15 @@ function applyStatePatch(lab, patch = {}) {
 }
 
 function publicToolResult(toolResult = {}) {
+  const tool = String(toolResult.tool || '');
   return {
-    tool: String(toolResult.tool || ''),
+    tool,
     ok: Boolean(toolResult.ok),
     code: String(toolResult.code || ''),
     observedAt: String(toolResult.observedAt || ''),
-    data: clone(toolResult.data || {}),
+    data: tool === 'customer.lookup'
+      ? sanitizeLookupToolResultData(toolResult.data || {})
+      : clone(toolResult.data || {}),
     warnings: Array.isArray(toolResult.warnings) ? clone(toolResult.warnings) : []
   };
 }
@@ -182,7 +198,7 @@ async function runTurn(customerText) {
       createdAt: message.at
     }));
 
-    const decision = await planAutonomousTurn({
+    const plannedDecision = await planAutonomousTurn({
       labMode: true,
       chat: { id: lab.id, provider: 'manual-test-lab' },
       customer: {},
@@ -193,6 +209,7 @@ async function runTurn(customerText) {
       labState: plannerLabState(lab),
       toolResults
     });
+    const decision = normalizeLabLookupDecision(plannedDecision);
 
     lab.lastDecision = clone(decision);
     appendEvent(lab, 'decision', {
@@ -259,7 +276,7 @@ async function runTurn(customerText) {
     const toolResult = await executeOperatorTool({
       tool: decision.tool,
       toolArgs: decision.toolArgs || {},
-      labState: plannerLabState(lab)
+      labState: toolLabState(lab)
     });
 
     applyStatePatch(lab, toolResult.statePatch || {});
