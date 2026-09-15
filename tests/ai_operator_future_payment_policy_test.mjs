@@ -6,19 +6,37 @@ import {
 } from '../src/features/ai-operator/finance-safety-policy.js';
 
 assert.equal(isFuturePaymentQuestion('сколько на следующий месяц надо заплатить?'), true);
+assert.equal(isFuturePaymentQuestion('так сколько на следующий заплатить надо?'), true, 'shorthand future-payment wording should be recognized as a finance amount request');
 assert.equal(isFuturePaymentQuestion('сколько надо доплатить до конца 2026?'), true);
 assert.equal(isFuturePaymentQuestion('какой у меня баланс сейчас?'), false);
 
 const toolDecision = {
   action: 'tool_required',
-  intent: 'next_month_payment',
+  intent: 'next_payment_amount',
+  tool: 'billing.next_charge',
+  toolArgs: {}
+};
+const redirectedToolDecision = guardFuturePaymentDecision({
+  customerText: 'так сколько на следующий заплатить надо?',
+  decision: toolDecision,
+  toolResults: []
+});
+assert.equal(redirectedToolDecision.action, 'tool_required');
+assert.equal(redirectedToolDecision.intent, 'future_payment');
+assert.equal(redirectedToolDecision.tool, 'billing.future_payment', 'LLM may interpret the wording, but verified future money must go through the deterministic calculator');
+assert.deepEqual(redirectedToolDecision.toolArgs.horizon, { kind: 'next_month', year: null });
+assert.equal(redirectedToolDecision.toolArgs.query, 'так сколько на следующий заплатить надо?');
+
+const paidUntilDecision = {
+  action: 'tool_required',
+  intent: 'paid_until',
   tool: 'billing.next_charge',
   toolArgs: {}
 };
 assert.equal(
-  guardFuturePaymentDecision({ customerText: 'сколько на следующий месяц?', decision: toolDecision, toolResults: [] }),
-  toolDecision,
-  'future-payment guard must not block a legitimate read-tool request'
+  guardFuturePaymentDecision({ customerText: 'до какого у меня оплачено?', decision: paidUntilDecision, toolResults: [] }),
+  paidUntilDecision,
+  'paid-through/date questions must not be silently converted into an amount calculation'
 );
 
 const unsafeReply = {
