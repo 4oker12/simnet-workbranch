@@ -99,7 +99,19 @@ export async function runFactTurn({ text, state: previous = {}, transcript = [],
   }
   const lookup = lookupFromText(interpretation.ids, text);
   if (lookup && (!state.confirmedCaseId || interpretation.speechAct === 'correct' || (lookup.contract && lookup.contract !== state.confirmedSubscriber?.contract) || (lookup.address && lookup.address !== state.confirmedSubscriber?.address))) {
-    await read('customer.lookup', lookup); if (pendingRead) return finish();
+    await read('customer.lookup', lookup);
+    if (pendingRead) {
+      // Replay is intentionally isolated from live Billing. Still remember an explicit contract so later
+      // turns of the same historical chat do not repeatedly ask for an identifier already supplied.
+      if (replay && lookup.contract) {
+        const replayCaseId = `replay-contract:${lookup.contract}`;
+        state.facts = {}; state.reads = {}; state.derived = [];
+        state.pendingCandidate = null;
+        state.confirmedCaseId = replayCaseId;
+        state.confirmedSubscriber = { caseId: replayCaseId, contract: lookup.contract };
+      }
+      return finish();
+    }
   }
   if (hadPending && !lookup && interpretation.confirmation !== null) { await read('customer.confirm', { confirmed: interpretation.confirmation }); if (pendingRead) return finish(); }
   if (state.pendingCandidate) {
@@ -108,7 +120,8 @@ export async function runFactTurn({ text, state: previous = {}, transcript = [],
     action = 'ask'; return finish();
   }
   const questions = state.topic.length ? state.topic : [{ entity: 'unknown', relation: 'info', period: 'current' }];
-  const personal = questions.some(q => !['static_ip', 'unknown'].includes(q.entity) && !['payment.instructions', 'network.info'].includes(`${q.entity}.${q.relation}`));
+  const nonPersonal = new Set(['payment.instructions', 'network.info', 'tariff.upgrade', 'tariff.downgrade', 'tariff.change', 'equipment.compatibility']);
+  const personal = questions.some(q => !['static_ip', 'unknown'].includes(q.entity) && !nonPersonal.has(`${q.entity}.${q.relation}`));
   if (personal && !state.confirmedCaseId) { lines.push(say('Подскажите номер договора или полный адрес подключения.', 'Підкажіть номер договору або повну адресу підключення.')); action = 'ask'; return finish(); }
   const values = () => Object.fromEntries(Object.keys(FACT_CATALOG).map(name => [name, readFact(state.facts, name, state.confirmedCaseId, now)?.value]).filter(([, v]) => v !== undefined));
   async function ensure(names) {
@@ -128,6 +141,10 @@ export async function runFactTurn({ text, state: previous = {}, transcript = [],
   for (const q of questions) {
     const key = `${q.entity}.${q.relation}`;
     if (key === 'network.info') { lines.push(say('Роутер соединяет домашние устройства с сетью провайдера и раздаёт Wi-Fi. Поэтому его проверка помогает отделить проблему дома от проблемы линии. Сама рекомендация проверить роутер ещё не означает, что неисправен именно он.', 'Роутер з’єднує домашні пристрої з мережею провайдера та роздає Wi-Fi. Тому його перевірка допомагає відрізнити проблему вдома від проблеми лінії. Сама рекомендація перевірити роутер ще не означає, що несправний саме він.')); continue; }
+    if (key === 'equipment.compatibility') { lines.push(say('Если модель роутера не знаете, посмотрите её на наклейке снизу или сзади. Для гигабитного тарифа нужны гигабитные WAN/LAN-порты роутера и 8-жильный Ethernet-кабель; по Wi-Fi фактическая скорость может быть ниже гигабита.', 'Якщо модель роутера не знаєте, подивіться її на наліпці знизу або ззаду. Для гігабітного тарифу потрібні гігабітні WAN/LAN-порти роутера та 8-жильний Ethernet-кабель; через Wi-Fi фактична швидкість може бути нижчою за гігабіт.')); continue; }
+    if (key === 'tariff.upgrade') { lines.push(say('На более быстрый тариф можно перейти в любой день месяца. Разница в стоимости списывается сразу полностью, не пропорционально дням: например, при переходе 250 → 350 грн спишется 100 грн. Перед переключением нужно согласие абонента на это списание. Для гигабита оборудование клиента должно поддерживать 1 Гбит/с.', 'На швидший тариф можна перейти в будь-який день місяця. Різниця у вартості списується одразу повністю, не пропорційно дням: наприклад, при переході 250 → 350 грн спишеться 100 грн. Перед перемиканням потрібна згода абонента на це списання. Для гігабіта обладнання клієнта має підтримувати 1 Гбіт/с.')); continue; }
+    if (key === 'tariff.downgrade') { lines.push(say('Понизить тариф с 1-го по 10-е число включительно можно сразу, выбрав более дешёвый текущий пакет. После 10-го снижение ставится как следующий пакет на следующий месяц; текущий тариф работает до конца месяца.', 'Знизити тариф з 1-го по 10-те число включно можна одразу, вибравши дешевший поточний пакет. Після 10-го зниження ставиться як наступний пакет на наступний місяць; поточний тариф працює до кінця місяця.')); continue; }
+    if (key === 'tariff.change') { lines.push(say('Если повышаете тариф, перейти можно в любой день: полная разница в цене списывается сразу после согласия. Если понижаете — до 10-го включительно можно сменить текущий пакет, после 10-го новый тариф ставится со следующего месяца.', 'Якщо підвищуєте тариф, перейти можна в будь-який день: повна різниця в ціні списується одразу після згоди. Якщо знижуєте — до 10-го включно можна змінити поточний пакет, після 10-го новий тариф ставиться з наступного місяця.')); continue; }
     if (key === 'payment.instructions') { const contract = state.confirmedSubscriber?.contract; lines.push(say(`Оплатить можно через онлайн-банкинг: Платежи → Интернет → SIMNET${contract ? ` → договор ${contract}` : ' → номер вашего договора'}.`, `Оплатити можна через онлайн-банкінг: Платежі → Інтернет → SIMNET${contract ? ` → договір ${contract}` : ' → номер вашого договору'}.`)); continue; }
     if (q.entity === 'static_ip') {
       lines.push(say(`Статический IP стоит ${money(STATIC_IP_PRICE_KOP)} в месяц. При подключении ${money(STATIC_IP_PRICE_KOP)} спишутся сразу; затем услуга добавляется к ежемесячной оплате.`, `Статична IP-адреса коштує ${money(STATIC_IP_PRICE_KOP)} на місяць. При підключенні ${money(STATIC_IP_PRICE_KOP)} спишуться одразу; далі послуга додається до щомісячної оплати.`));
