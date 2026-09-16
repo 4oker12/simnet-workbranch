@@ -42,40 +42,26 @@
     const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
     return text.length > max ? `${text.slice(0, max - 1)}…` : text;
   }
-
   function create(tag, className = '', text = '') {
     const node = document.createElement(tag);
     if (className) node.className = className;
     if (text !== undefined && text !== null) node.textContent = String(text);
     return node;
   }
-
-  function json(value) {
-    try { return JSON.stringify(value ?? null, null, 2); } catch { return String(value ?? ''); }
-  }
-
-  function number(value) {
-    const parsed = Number(value || 0);
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-  }
-
+  function json(value) { try { return JSON.stringify(value ?? null, null, 2); } catch { return String(value ?? ''); } }
+  function number(value) { const parsed = Number(value || 0); return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0; }
   function localTime(value) {
     const date = new Date(value || 0);
-    if (!Number.isFinite(date.getTime())) return String(value || '');
-    return date.toLocaleString('ru-RU', { hour12: false });
+    return Number.isFinite(date.getTime()) ? date.toLocaleString('ru-RU', { hour12: false }) : String(value || '');
   }
-
   function fileStamp(value = Date.now()) {
-    const date = new Date(value);
-    const pad = n => String(n).padStart(2, '0');
+    const date = new Date(value); const pad = n => String(n).padStart(2, '0');
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
   }
-
   function setStatus(message, kind = '') {
     statusNode.textContent = String(message || '');
     statusNode.className = `status ai-lab-status${kind ? ` ${kind}` : ''}`;
   }
-
   async function runtime(type, payload = undefined) {
     const response = await chrome.runtime.sendMessage(payload === undefined ? { type } : { type, payload });
     if (!response?.success) throw new Error(response?.error || 'Test Lab runtime did not return success');
@@ -88,21 +74,17 @@
     const group = create('div', 'ai-lab-segmented');
     for (const [value, label] of Object.entries(values)) {
       const button = create('button', 'ai-lab-segment', label);
-      button.type = 'button';
-      button.dataset[attr] = value;
-      group.append(button);
+      button.type = 'button'; button.dataset[attr] = value; group.append(button);
     }
-    wrap.append(group);
-    return wrap;
+    wrap.append(group); return wrap;
   }
 
   function ensureControls() {
     if (controls?.root?.isConnected) return controls;
-    const root = create('section', 'ai-lab-experiment');
-    root.id = 'aiLabExperiment';
+    const root = create('section', 'ai-lab-experiment'); root.id = 'aiLabExperiment';
     const head = create('div', 'ai-lab-experiment-head');
     const titleWrap = create('div');
-    titleWrap.append(create('strong', '', 'Эксперимент в реальном времени'), create('span', '', 'Меняй профиль → повторяй тот же ход → сравнивай результат.'));
+    titleWrap.append(create('strong', '', 'Эксперимент в реальном времени'), create('span', '', 'Меняй профиль → повторяй тот же ход → сравнивай смысл, tools и ответ.'));
     const capability = create('div', 'ai-lab-capabilities');
     head.append(titleWrap, capability);
 
@@ -112,31 +94,19 @@
     modes.append(knowledge, display);
 
     const sliders = create('div', 'ai-lab-sliders');
-    const sliderInputs = {};
-    const sliderValues = {};
+    const sliderInputs = {}; const sliderValues = {};
     for (const [key, labelText, help] of SLIDERS) {
-      const row = create('label', 'ai-lab-slider');
-      row.title = help;
+      const row = create('label', 'ai-lab-slider'); row.title = help;
       const label = create('span', 'ai-lab-slider-label');
       label.append(create('b', '', labelText), create('small', '', help));
-      const range = create('input');
-      range.type = 'range'; range.min = '0'; range.max = '100'; range.step = '5';
-      range.dataset.behaviorKey = key;
+      const range = create('input'); range.type = 'range'; range.min = '0'; range.max = '100'; range.step = '5'; range.dataset.behaviorKey = key;
       const out = create('output', 'ai-lab-slider-value', '—');
-      row.append(label, range, out);
-      sliders.append(row);
-      sliderInputs[key] = range;
-      sliderValues[key] = out;
+      row.append(label, range, out); sliders.append(row); sliderInputs[key] = range; sliderValues[key] = out;
     }
-
-    const followRow = create('label', 'ai-lab-followups');
-    followRow.append(create('span', '', 'Макс. уточнений за ход'));
+    const followRow = create('label', 'ai-lab-followups'); followRow.append(create('span', '', 'Макс. уточнений за ход'));
     const followSelect = create('select');
-    for (const value of [1, 2, 3]) {
-      const option = create('option', '', String(value)); option.value = String(value); followSelect.append(option);
-    }
-    followRow.append(followSelect);
-    sliders.append(followRow);
+    for (const value of [1, 2, 3]) { const option = create('option', '', String(value)); option.value = String(value); followSelect.append(option); }
+    followRow.append(followSelect); sliders.append(followRow);
 
     const actions = create('div', 'actions ai-lab-experiment-actions');
     const repeat = create('button', 'secondary', '↻ Пересчитать последний ход'); repeat.type = 'button';
@@ -148,12 +118,10 @@
     const comparison = create('div', 'ai-lab-comparison'); comparison.hidden = true;
     const diagnostics = create('details', 'ai-lab-diagnostics'); diagnostics.open = true;
     diagnostics.append(create('summary', '', 'Разбор текущего хода'), create('div', 'ai-lab-diagnostics-body'));
-
     root.append(head, modes, sliders, actions, comparison, diagnostics);
     identityNode.insertAdjacentElement('beforebegin', root);
 
-    controls = { root, capability, knowledge, display, sliderInputs, sliderValues, followSelect, repeat, snapshot, exportSnapshots, snapshotState, comparison, diagnostics, diagnosticsBody: diagnostics.querySelector('.ai-lab-diagnostics-body') };
-
+    controls = { root, capability, sliderInputs, sliderValues, followSelect, repeat, snapshot, exportSnapshots, snapshotState, comparison, diagnostics, diagnosticsBody: diagnostics.querySelector('.ai-lab-diagnostics-body') };
     root.querySelectorAll('[data-knowledge-mode]').forEach(button => button.addEventListener('click', () => void saveConfig({ knowledgeMode: button.dataset.knowledgeMode })));
     root.querySelectorAll('[data-display-mode]').forEach(button => button.addEventListener('click', () => void saveConfig({ displayMode: button.dataset.displayMode })));
     Object.values(sliderInputs).forEach(range => {
@@ -170,83 +138,70 @@
   async function saveConfig(patch) {
     if (busy) return;
     try {
-      const state = await runtime('AI_OPERATOR_LAB_CONFIG', patch);
-      render(state);
-      setStatus('Профиль изменён. Нажми «Пересчитать последний ход», чтобы увидеть разницу на той же реплике.', 'ok');
+      const state = await runtime('AI_OPERATOR_LAB_CONFIG', patch); render(state);
+      setStatus('Профиль изменён. Нажми «Пересчитать последний ход», чтобы сравнить тот же контекст.', 'ok');
     } catch (error) { setStatus(short(error?.message || error, 600), 'bad'); }
   }
-
   async function saveBehavior() {
-    const ui = ensureControls();
-    const behavior = {};
+    const ui = ensureControls(); const behavior = {};
     for (const [key, range] of Object.entries(ui.sliderInputs)) behavior[key] = Number(range.value);
-    behavior.maxFollowUpQuestions = Number(ui.followSelect.value);
-    await saveConfig({ behavior });
+    behavior.maxFollowUpQuestions = Number(ui.followSelect.value); await saveConfig({ behavior });
   }
 
   function renderControlState(state = {}) {
-    const ui = ensureControls();
-    const mode = state.knowledgeMode || 'auto';
+    const ui = ensureControls(); const mode = state.knowledgeMode || 'auto';
     ui.root.querySelectorAll('[data-knowledge-mode]').forEach(button => button.classList.toggle('active', button.dataset.knowledgeMode === mode));
     ui.root.querySelectorAll('[data-display-mode]').forEach(button => button.classList.toggle('active', button.dataset.displayMode === (state.displayMode || 'answer_analysis')));
     for (const [key, range] of Object.entries(ui.sliderInputs)) {
-      const value = Number(state.behavior?.[key] ?? 50);
-      range.value = String(value); ui.sliderValues[key].textContent = String(value);
+      const value = Number(state.behavior?.[key] ?? 50); range.value = String(value); ui.sliderValues[key].textContent = String(value);
     }
     ui.followSelect.value = String(state.behavior?.maxFollowUpQuestions || 2);
     ui.capability.replaceChildren();
+    const caps = state.capabilities || {};
     const badges = [
       [`KB: ${String(mode).toUpperCase()}`, mode === 'off' ? 'off' : 'on'],
-      ['BILLING: OFF', 'off'], ['USERSIDE: OFF', 'off'], ['NETWORK: OFF', 'off']
+      [`BILLING: ${caps.billing ? 'ON' : 'OFF'}`, caps.billing ? 'on' : 'off'],
+      [`USERSIDE: ${caps.userside ? 'ON' : 'OFF'}`, caps.userside ? 'on' : 'off'],
+      [`NETWORK: ${caps.network ? 'ON' : 'OFF'}`, caps.network ? 'on' : 'off']
     ];
     for (const [text, status] of badges) ui.capability.append(create('span', `ai-lab-capability ${status}`, text));
     const snapshots = Array.isArray(state.snapshots) ? state.snapshots : [];
     ui.snapshotState.textContent = snapshots.length ? `Слепков: ${snapshots.length} · последний ${localTime(snapshots.at(-1)?.at)}` : 'Слепков: 0';
-    ui.repeat.disabled = busy || !state.lastTurnBase;
-    ui.snapshot.disabled = busy || !state.lastExperiment;
-    ui.exportSnapshots.disabled = busy || !snapshots.length;
+    ui.repeat.disabled = busy || !state.lastTurnBase; ui.snapshot.disabled = busy || !state.lastExperiment; ui.exportSnapshots.disabled = busy || !snapshots.length;
   }
 
   function activeVariant(experiment = {}) {
     const variants = Array.isArray(experiment.variants) ? experiment.variants : [];
     return variants.find(item => item.label === experiment.activeVariant) || variants[0] || null;
   }
-
   function diagnosticRow(label, value, className = '') {
     if (value == null || value === '' || (Array.isArray(value) && !value.length)) return null;
     const row = create('div', `ai-lab-diagnostic-row ${className}`.trim());
-    row.append(create('b', '', label), create('span', '', Array.isArray(value) ? value.join(' · ') : value));
-    return row;
+    row.append(create('b', '', label), create('span', '', Array.isArray(value) ? value.join(' · ') : value)); return row;
   }
 
   function renderExperiment(state = {}) {
-    const ui = ensureControls();
-    const exp = state.lastExperiment;
-    ui.comparison.replaceChildren(); ui.comparison.hidden = true;
-    ui.diagnosticsBody.replaceChildren();
+    const ui = ensureControls(); const exp = state.lastExperiment;
+    ui.comparison.replaceChildren(); ui.comparison.hidden = true; ui.diagnosticsBody.replaceChildren();
     if (!exp) {
-      ui.diagnosticsBody.append(create('div', 'ai-lab-log-empty', 'Отправь реплику — здесь появится понимание, использованные знания, live-data needs и влияние профиля.'));
+      ui.diagnosticsBody.append(create('div', 'ai-lab-log-empty', 'Отправь реплику — здесь появятся понимание, знания, запросы к READ-tools, результаты проверок и итоговый ответ.'));
       return;
     }
-
     const variants = Array.isArray(exp.variants) ? exp.variants : [];
     if (variants.length > 1) {
-      ui.comparison.hidden = false;
-      ui.comparison.append(create('div', 'ai-lab-comparison-title', 'Одна реплика · один контекст · два ответа'));
+      ui.comparison.hidden = false; ui.comparison.append(create('div', 'ai-lab-comparison-title', 'Одна реплика · один контекст · два ответа'));
       const grid = create('div', 'ai-lab-comparison-grid');
       for (const variant of variants) {
         const card = create('div', `ai-lab-variant ${variant.useKnowledge ? 'with-kb' : 'without-kb'}`);
         const heading = create('div', 'ai-lab-variant-head');
-        heading.append(create('strong', '', variant.useKnowledge ? 'С энциклопедией' : 'Без энциклопедии'), create('span', '', `${number(variant.usage?.total_tokens)} ток. · ${short(variant.model, 80)}`));
-        card.append(heading, create('div', 'ai-lab-variant-reply', variant.reply || '—'));
-        grid.append(card);
+        heading.append(create('strong', '', variant.useKnowledge ? 'С энциклопедией' : 'Без энциклопедии'), create('span', '', `${number(variant.usage?.total_tokens)} ток. · tools ${number(variant.toolTrace?.length)} · ${short(variant.model, 80)}`));
+        card.append(heading, create('div', 'ai-lab-variant-reply', variant.reply || '—')); grid.append(card);
       }
       ui.comparison.append(grid);
     }
 
-    const probe = exp.analysis?.probe || {};
-    const knowledge = exp.analysis?.knowledge || {};
-    const variant = activeVariant(exp);
+    const probe = exp.analysis?.probe || {}; const knowledge = exp.analysis?.knowledge || {}; const variant = activeVariant(exp);
+    const toolTrace = Array.isArray(variant?.toolTrace) ? variant.toolTrace : [];
     const rows = [
       diagnosticRow('Понял', probe.whatUserWants),
       diagnosticRow('Последняя реплика', probe.latestMessageMeans),
@@ -258,44 +213,51 @@
       diagnosticRow('Нельзя считать фактом', knowledge.mustNotAssume, 'warn'),
       diagnosticRow('Пробел KB', knowledge.knowledgeGaps, 'warn'),
       diagnosticRow('Нужны live-данные', (variant?.subscriberDataNeeded || []).map(item => `${item.system}${item.field ? ` → ${item.field}` : ''}${item.why ? `: ${item.why}` : ''}`), 'live'),
+      diagnosticRow('READ-tools', toolTrace.map(item => `${item.tool} → ${item.code}${item.source ? ` [${item.source}]` : ''}`), 'live'),
+      diagnosticRow('Подтверждено tools', toolTrace.filter(item => item.ok).map(item => item.tool), 'live'),
       diagnosticRow('Проверить перед утверждением', variant?.verificationNeeded, 'warn'),
       diagnosticRow('Уточнения', variant?.clarificationQuestions),
       diagnosticRow('Следующий шаг', variant?.nextStepOffered),
+      diagnosticRow('Degraded fallback', variant?.degraded ? (variant.degradationReason || 'да') : '', 'warn'),
       diagnosticRow('Модель', exp.model),
       diagnosticRow('Время', `${number(exp.elapsedMs)} мс`),
       diagnosticRow('Токены', `${number(exp.usage?.prompt_tokens)} in / ${number(exp.usage?.completion_tokens)} out = ${number(exp.usage?.total_tokens)}`)
     ].filter(Boolean);
     for (const row of rows) ui.diagnosticsBody.append(row);
 
+    if (toolTrace.length) {
+      const details = create('details', 'ai-lab-behavior-effects');
+      details.append(create('summary', '', `Данные READ-tools (${toolTrace.length})`), create('pre', '', json(toolTrace)));
+      ui.diagnosticsBody.append(details);
+    }
     const effects = variant?.behaviorEffects || {};
     const effectValues = [effects.directness, effects.clarification, effects.verification, effects.initiative, effects.brevity].filter(Boolean);
     if (effectValues.length) {
-      const details = create('details', 'ai-lab-behavior-effects');
-      details.append(create('summary', '', 'Как профиль повлиял на этот ответ'));
-      const list = create('div');
-      for (const value of effectValues) list.append(create('div', '', value));
-      details.append(list); ui.diagnosticsBody.append(details);
+      const details = create('details', 'ai-lab-behavior-effects'); details.append(create('summary', '', 'Как профиль повлиял на этот ответ'));
+      const list = create('div'); for (const value of effectValues) list.append(create('div', '', value)); details.append(list); ui.diagnosticsBody.append(details);
     }
     ui.diagnostics.hidden = state.displayMode === 'answer';
   }
 
   function renderCapabilities(state = {}) {
-    identityNode.replaceChildren();
-    identityNode.className = 'ai-lab-identity experiment';
-    identityNode.append(create('strong', '', 'Сейчас тестируем разговор + знания'), create('span', '', `Энциклопедия: ${KNOWLEDGE_LABELS[state.knowledgeMode] || state.knowledgeMode}. Live Billing/UserSide/Network пока отключены — агент не должен выдумывать их значения.`));
+    identityNode.replaceChildren(); identityNode.className = 'ai-lab-identity experiment';
+    const details = state.capabilityDetails || {};
+    identityNode.append(
+      create('strong', '', 'Сейчас тестируем разговор + знания + READ-tools'),
+      create('span', '', `Энциклопедия: ${KNOWLEDGE_LABELS[state.knowledgeMode] || state.knowledgeMode}. Billing: ${details.billing || '—'}; UserSide: ${details.userside || '—'}; Network: ${details.network || '—'}. UserSide-контекст не выдаётся за свежий глобальный поиск.`)
+    );
   }
 
   function renderMessages(messages = []) {
     transcriptNode.replaceChildren();
     if (!Array.isArray(messages) || !messages.length) {
       const empty = create('div', 'ai-lab-empty');
-      empty.append(create('strong', '', 'Начни как абонент'), create('span', '', 'Например: «Можно перейти на гигабит?» или «Какой у меня баланс?»'));
+      empty.append(create('strong', '', 'Начни как абонент'), create('span', '', 'Например: «Какой у меня баланс?» → затем дай договор. В разборе будет видно, какой READ-tool выбрал агент.'));
       transcriptNode.append(empty); return;
     }
     for (const message of messages) {
-      const role = message?.role === 'agent' ? 'agent' : 'customer';
-      const row = create('div', `ai-lab-message ${role}`);
-      const variant = message?.variant === 'with_knowledge' ? ' · KB' : message?.variant === 'without_knowledge' ? ' · без KB' : '';
+      const role = message?.role === 'agent' ? 'agent' : 'customer'; const row = create('div', `ai-lab-message ${role}`);
+      const variant = message?.variant === 'with_knowledge' ? ' · KB' : message?.variant === 'without_knowledge' ? ' · без KB' : message?.variant === 'degraded' ? ' · fallback' : '';
       row.append(create('div', 'ai-lab-message-label', role === 'agent' ? `AI оператор${variant}` : 'Ты · абонент'), create('div', 'ai-lab-message-bubble', message?.text || ''));
       transcriptNode.append(row);
     }
@@ -305,47 +267,35 @@
   function ensureUsageNode() {
     if (usageNode?.isConnected) return usageNode;
     usageNode = document.getElementById('aiLabUsage');
-    if (!usageNode) {
-      usageNode = create('div', 'status compact ai-lab-token-usage', 'Tokens · —');
-      usageNode.id = 'aiLabUsage'; identityNode.insertAdjacentElement('afterend', usageNode);
-    }
+    if (!usageNode) { usageNode = create('div', 'status compact ai-lab-token-usage', 'Tokens · —'); usageNode.id = 'aiLabUsage'; identityNode.insertAdjacentElement('afterend', usageNode); }
     return usageNode;
   }
-
   function renderUsage(state = {}) {
-    const node = ensureUsageNode();
-    const usage = state.lastDecision?.usage || {};
-    const total = number(usage.total_tokens) || number(usage.prompt_tokens) + number(usage.completion_tokens);
-    const exp = state.lastExperiment;
-    node.textContent = total
-      ? `Последний ход · ${number(usage.prompt_tokens)} in / ${number(usage.completion_tokens)} out = ${total} ток. · ${number(exp?.elapsedMs)} мс`
-      : 'Последний ход · LLM ещё не запускался';
+    const node = ensureUsageNode(); const usage = state.lastDecision?.usage || {};
+    const total = number(usage.total_tokens) || number(usage.prompt_tokens) + number(usage.completion_tokens); const exp = state.lastExperiment;
+    node.textContent = total ? `Последний ход · ${number(usage.prompt_tokens)} in / ${number(usage.completion_tokens)} out = ${total} ток. · ${number(exp?.toolCalls)} tool · ${number(exp?.elapsedMs)} мс` : 'Последний ход · LLM ещё не запускался';
   }
-
   function renderCost(state = {}) {
-    if (!costNode) {
-      costNode = create('div', 'status compact ai-lab-cost');
-      ensureUsageNode().insertAdjacentElement('afterend', costNode);
-    }
-    const cost = state.apiCost;
-    if (!cost) { costNode.textContent = 'Расход API · —'; return; }
+    if (!costNode) { costNode = create('div', 'status compact ai-lab-cost'); ensureUsageNode().insertAdjacentElement('afterend', costNode); }
+    const cost = state.apiCost; if (!cost) { costNode.textContent = 'Расход API · —'; return; }
     const usd = value => '$' + Number(value || 0).toFixed(6);
     costNode.textContent = `Расход API · ход ≈ ${usd(cost.turn?.usd)} · диалог ≈ ${usd(cost.session?.usd)} · вызовов ${number(cost.session?.calls)}`;
   }
 
   function eventSummary(event = {}) {
     if (event.type === 'semantic_analysis') return `SEMANTIC · ${Math.round(number(event.confidence) * 100)}% · KB ${event.knowledgeMode || '—'}${event.knowledgeUsed ? ' used' : ''}`;
-    if (event.type === 'experiment_result') return `RESULT · ${event.mode || '—'} · ${number(event.totalTokens)} tok · ${number(event.elapsedMs)} ms`;
+    if (event.type === 'tool_execution') return `TOOL · ${event.tool || '—'} · ${event.code || '—'}${event.ok ? ' ✓' : ''}`;
+    if (event.type === 'experiment_result') return `RESULT · ${event.mode || '—'} · ${number(event.toolCalls)} tool · ${number(event.totalTokens)} tok · ${number(event.elapsedMs)} ms`;
+    if (event.type === 'turn_degraded') return 'DEGRADED FALLBACK';
     if (event.type === 'profile_change') return 'PROFILE CHANGED';
     if (event.type === 'repeat_turn') return 'REPEAT LAST TURN';
     if (event.type === 'snapshot') return 'SNAPSHOT';
     if (event.type === 'customer_message') return 'CLIENT MESSAGE';
     return String(event.type || 'event').toUpperCase();
   }
-
   function renderEvents(events = []) {
     eventsNode.replaceChildren();
-    const useful = (Array.isArray(events) ? events : []).filter(event => event?.type !== 'customer_message').slice(-40).reverse();
+    const useful = (Array.isArray(events) ? events : []).filter(event => event?.type !== 'customer_message').slice(-50).reverse();
     if (!useful.length) { eventsNode.append(create('div', 'ai-lab-log-empty', 'Событий эксперимента пока нет.')); return; }
     for (const event of useful) {
       const item = document.createElement('details'); item.className = `ai-lab-event ${event.type || ''}`;
@@ -357,79 +307,53 @@
 
   function render(state = {}) {
     latestState = state && typeof state === 'object' ? state : {};
-    renderControlState(latestState);
-    renderCapabilities(latestState);
-    renderMessages(latestState.messages || []);
-    renderExperiment(latestState);
-    renderUsage(latestState);
-    renderCost(latestState);
-    renderEvents(latestState.events || []);
+    renderControlState(latestState); renderCapabilities(latestState); renderMessages(latestState.messages || []); renderExperiment(latestState); renderUsage(latestState); renderCost(latestState); renderEvents(latestState.events || []);
     const last = latestState.lastDecision || {};
-    setStatus(last.action
-      ? `Последний ход: ${last.action} · KB ${String(latestState.knowledgeMode || 'auto').toUpperCase()}${last.model ? ` · ${short(last.model, 110)}` : ''}`
-      : 'Готово. Меняй параметры, пиши как абонент и сравнивай ответы.', last.action ? 'ok' : '');
+    setStatus(last.action ? `Последний ход: ${last.action} · KB ${String(latestState.knowledgeMode || 'auto').toUpperCase()} · tools ${number(latestState.lastExperiment?.toolCalls)}${last.model ? ` · ${short(last.model, 110)}` : ''}` : 'Готово. Пиши как абонент и наблюдай, что AI понял, какие данные запросил и чем подтвердил ответ.', last.action ? 'ok' : '');
   }
-
   function setBusy(value) {
-    busy = Boolean(value);
-    sendButton.disabled = busy; resetButton.disabled = busy; input.disabled = busy;
-    if (downloadTxtButton) downloadTxtButton.disabled = busy;
-    if (downloadJsonButton) downloadJsonButton.disabled = busy;
-    quickButtons.forEach(button => { button.disabled = busy; });
-    if (controls) renderControlState(latestState || {});
+    busy = Boolean(value); sendButton.disabled = busy; resetButton.disabled = busy; input.disabled = busy;
+    if (downloadTxtButton) downloadTxtButton.disabled = busy; if (downloadJsonButton) downloadJsonButton.disabled = busy;
+    quickButtons.forEach(button => { button.disabled = busy; }); if (controls) renderControlState(latestState || {});
   }
-
   async function refresh() { const state = await runtime('AI_OPERATOR_LAB_GET'); render(state || {}); return state; }
-
   async function send() {
     const message = String(input.value || '').trim(); if (!message) return;
-    setBusy(true); setStatus('AI разбирает контекст и формирует ответ…'); input.value = '';
+    setBusy(true); setStatus('AI разбирает контекст; при необходимости читает Billing/UserSide/Network и формирует ответ…'); input.value = '';
     try { render(await runtime('AI_OPERATOR_LAB_SEND', { text: message })); }
     catch (error) { input.value = message; setStatus(short(error?.message || error, 600), 'bad'); }
     finally { setBusy(false); input.focus(); }
   }
-
   async function repeatLast() {
-    setBusy(true); setStatus('Пересчитываю тот же ход с текущими параметрами…');
+    setBusy(true); setStatus('Пересчитываю тот же ход и повторяю READ-проверки при необходимости…');
     try { render(await runtime('AI_OPERATOR_LAB_REPEAT')); setStatus('Последний ход пересчитан на том же pre-turn контексте.', 'ok'); }
     catch (error) { setStatus(short(error?.message || error, 600), 'bad'); }
     finally { setBusy(false); }
   }
-
   async function takeSnapshot() {
     setBusy(true);
-    try { render(await runtime('AI_OPERATOR_LAB_SNAPSHOT')); setStatus('Слепок текущего эксперимента сохранён.', 'ok'); }
+    try { render(await runtime('AI_OPERATOR_LAB_SNAPSHOT')); setStatus('Слепок понимания, tools и ответа сохранён.', 'ok'); }
     catch (error) { setStatus(short(error?.message || error, 600), 'bad'); }
     finally { setBusy(false); }
   }
-
   function downloadFile(filename, content, type) {
     const blob = new Blob([content], { type }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a');
     anchor.href = url; anchor.download = filename; anchor.style.display = 'none'; document.body.append(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-
   function exportSnapshotFile() {
-    const snapshots = latestState?.snapshots || [];
-    if (!snapshots.length) return;
+    const snapshots = latestState?.snapshots || []; if (!snapshots.length) return;
     downloadFile(`simnet-ai-lab-snapshots-${fileStamp()}.json`, `${JSON.stringify({ exportedAt: new Date().toISOString(), snapshots }, null, 2)}\n`, 'application/json;charset=utf-8');
     setStatus(`Экспортировано слепков: ${snapshots.length}.`, 'ok');
   }
-
   function txtExport(state = {}) {
     const lines = [
-      'SIMNET Workbench · AI Behavior Lab',
-      `Lab: ${state.id || 'unknown'}`,
-      `Knowledge mode: ${state.knowledgeMode || 'auto'}`,
-      `Display mode: ${state.displayMode || 'answer_analysis'}`,
-      `Behavior: ${json(state.behavior || {})}`,
-      `Capabilities: ${json(state.capabilities || {})}`,
-      '', '=== DIALOG ==='
+      'SIMNET Workbench · AI Behavior Lab', `Lab: ${state.id || 'unknown'}`, `Knowledge mode: ${state.knowledgeMode || 'auto'}`,
+      `Display mode: ${state.displayMode || 'answer_analysis'}`, `Behavior: ${json(state.behavior || {})}`,
+      `Capabilities: ${json(state.capabilities || {})}`, `Capability details: ${json(state.capabilityDetails || {})}`, '', '=== DIALOG ==='
     ];
     for (const message of state.messages || []) lines.push(`[${localTime(message.at)}] ${message.role === 'agent' ? 'AI' : 'CLIENT'}: ${message.text || ''}`);
-    lines.push('', '=== LAST EXPERIMENT ===', json(state.lastExperiment || {}));
-    return `${lines.join('\n')}\n`;
+    lines.push('', '=== LAST EXPERIMENT ===', json(state.lastExperiment || {})); return `${lines.join('\n')}\n`;
   }
-
   async function download(format) {
     try {
       const state = latestState || await refresh(); const stamp = fileStamp();
@@ -443,7 +367,7 @@
   input.addEventListener('keydown', event => { if (event.key !== 'Enter' || event.shiftKey) return; event.preventDefault(); void send(); });
   resetButton.addEventListener('click', async () => {
     setBusy(true);
-    try { render(await runtime('AI_OPERATOR_LAB_RESET')); setStatus('Новый диалог создан. Профиль и слепки сохранены.', 'ok'); }
+    try { render(await runtime('AI_OPERATOR_LAB_RESET')); setStatus('Новый диалог создан. Профиль и слепки сохранены; привязка абонента сброшена.', 'ok'); }
     catch (error) { setStatus(short(error?.message || error, 500), 'bad'); }
     finally { setBusy(false); input.focus(); }
   });
