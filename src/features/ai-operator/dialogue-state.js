@@ -87,9 +87,9 @@ export function localDialogueControl(text, state) {
   if (/^(?:ну\s+)?(?:так\s+)?(?:сколько|скільки)[?!.,\s]*$/iu.test(clean) && state.topic.length === 1 && state.topic[0].relation === 'amount') {
     return { questions: state.topic, ids: {}, language: state.language, speechAct: 'follow_up', refresh: '' };
   }
-  if (/^(?:я\s+)?(?:не\s+знаю|не\s+знаю\s*[)!.]*|не\s+відомо|не\s+знаю\s+який)[)!.\s]*$/iu.test(clean) && state.topic.length) {
-    return { questions: state.topic, ids: {}, language: state.language, speechAct: 'follow_up', refresh: '' };
-  }
+
+  // Replies such as "не знаю", "нет", "да" may answer the immediately preceding operator question.
+  // Do not blindly reuse the previous customer topic here: NLU must resolve their referent from dialogue context.
   return null;
 }
 
