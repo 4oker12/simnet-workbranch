@@ -61,14 +61,14 @@ async function evaluateReplayCase(payload = {}) {
     throw new Error('Replay case does not contain a customer turn.');
   }
 
-  // Experimental mode: Replay measures raw semantic understanding only.
-  // fact-runtime, fact-catalog and dialogue-state are deliberately bypassed here.
+  // Experimental mode: understand the human first, then softly consult the SIMNET encyclopedia.
+  // The old deterministic regulators remain in the repository but are deliberately bypassed here.
   const outcome = await analyzeSubscriberIntent({
     transcript: replayCase.transcript,
     latestCustomer: replayCase.latestCustomer,
     meterContext: {
-      scope: `semantic-probe:${replayCase.chatId}:${replayCase.id}`,
-      turnId: `semantic-probe:${replayCase.id}:${Date.now()}`
+      scope: `knowledge-probe:${replayCase.chatId}:${replayCase.id}`,
+      turnId: `knowledge-probe:${replayCase.id}:${Date.now()}`
     }
   });
 
@@ -78,7 +78,9 @@ async function evaluateReplayCase(payload = {}) {
     decision: outcome.decision,
     events: [],
     semanticProbe: outcome.probe,
-    mode: 'semantic_probe',
+    knowledgeProbe: outcome.knowledge,
+    knowledgeCandidates: outcome.candidates,
+    mode: 'knowledge_probe',
     evaluatedAt: new Date().toISOString()
   };
 }
@@ -106,14 +108,14 @@ async function recordResult(payload = {}) {
     verdict,
     customerText: replayCase.customerText,
     referenceReply: replayCase.referenceReply,
-    mode: 'semantic_probe',
+    mode: 'knowledge_probe',
     decision: {
       action: String(decision.action || ''),
       domain: String(decision.domain || ''),
       intent: String(decision.intent || ''),
       tool: String(decision.tool || ''),
-      reply: compact(decision.reply || '', 3200),
-      reason: compact(decision.reason || '', 1200),
+      reply: compact(decision.reply || '', 5200),
+      reason: compact(decision.reason || '', 1400),
       confidence: Number(decision.confidence || 0) || 0,
       model: String(decision.model || ''),
       usage: decision.usage && typeof decision.usage === 'object' ? clone(decision.usage) : {},
