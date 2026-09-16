@@ -36,4 +36,14 @@ input::placeholder,textarea::placeholder{color:#6c7685}
 .ai-api-pricing{margin-top:8px}.ai-api-pricing summary{font-size:11px;color:#6e3650;cursor:pointer}
 .ai-api-price-grid{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:8px;margin-bottom:8px}
 .ai-api-price-grid input,.ai-api-price-grid select{margin-top:5px;min-width:0}.ai-api-price-grid label{min-width:0}
+.settings-panel-summary:hover,.lab-section-summary:hover{background:#faf7f9}
+.settings-panel[open]>.settings-panel-summary,.lab-section[open]>.lab-section-summary{border-color:#dce0e7}
+.settings-panel-kicker{color:#9b3c63}
+.settings-chevron{border-color:#d7dce4;color:#697486;background:#fff}
+.settings-panel-summary-lab{background:linear-gradient(90deg,#fbf2f6,#fff 62%)}
+.settings-live-badge{border-color:#dec1cf;background:#f9edf3;color:#8d3157}
+.lab-section{background:#fbfcfd;border-color:#dce0e7}
+.lab-section-summary strong,.replay-workspace-head strong{color:#273346}
+.lab-section-summary span,.replay-workspace-head span{color:#687487}
+.replay-workspace-block{background:#fff;border-color:#dde2e9}
 @media(max-width:640px){.ai-api-price-grid{grid-template-columns:1fr 1fr}}
