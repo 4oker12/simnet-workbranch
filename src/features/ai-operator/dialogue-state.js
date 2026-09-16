@@ -76,8 +76,9 @@ export function localDialogueControl(text, state) {
   if (confirmation !== null && state.pendingCandidate) return { questions: [], ids: {}, language: state.language,
     speechAct: confirmation ? 'confirm' : 'deny', confirmation, refresh: '' };
 
-  // Pure courtesy/closure must not restart identification or the previous business flow.
-  if (/^(?:дякую|спасибо|спасибі|благодарю|добре,?\s*дякую|ок(?:ей)?,?\s*дякую|вже\s+є,?\s*дякую)[!.)\s]*$/iu.test(clean)) {
+  // Pure acknowledgement/courtesy must not restart identification or repeat the previous business answer.
+  // Keep yes/no and "не знаю" out of this bucket: they may answer the immediately preceding operator question.
+  if (/^(?:угу|ага|ок|окей|понял(?:а)?|ясно|зрозуміло|дякую|спасибо|спасибі|благодарю|добре,?\s*дякую|ок(?:ей)?,?\s*дякую|вже\s+є,?\s*дякую)[!.)\s]*$/iu.test(clean)) {
     return { questions: [], ids: {}, language: state.language, speechAct: 'confirm', confirmation: true, refresh: '' };
   }
 
