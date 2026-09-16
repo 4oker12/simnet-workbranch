@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { extractReplayCases, listReplayChats } from '../src/features/ai-operator/replay-cases.js';
+import { extractReplayCases, listReplayChats, selectReplayBatchCases } from '../src/features/ai-operator/replay-cases.js';
 
 const payload = {
   source: 'HelpCrunch — full messages from saved chat list',
@@ -32,6 +32,8 @@ assert.equal(replay.stats.skippedAutomation, 1);
 
 const first = replay.cases[0];
 assert.equal(first.chatId, 71748);
+assert.equal(first.chatTurnIndex, 1);
+assert.equal(first.chatTurnCount, 2);
 assert.equal(first.customerText, 'Немає інтернету\nПісля перезавантаження теж');
 assert.equal(first.referenceReply, 'Перевіряю лінію.\nЗараз уточню статус.');
 assert.equal(first.latestCustomer.id, 5);
@@ -40,6 +42,8 @@ assert.equal(first.transcript.at(-1).text, 'Після перезавантаж�
 assert.ok(!first.transcript.some(item => item.id === 6), 'real operator reference must not leak into planner prefix');
 
 const second = replay.cases[1];
+assert.equal(second.chatTurnIndex, 2);
+assert.equal(second.chatTurnCount, 2);
 assert.equal(second.customerText, 'Добре');
 assert.equal(second.referenceReply, 'Лінія вже піднялась.');
 assert.ok(second.transcript.some(item => item.id === 6), 'prior real operator context must remain visible on later turns');
@@ -61,5 +65,18 @@ assert.equal(wrappedReplay.cases.length, 2, 'wrapper {chat,messages} export shap
 assert.equal(wrappedReplay.cases[0].chatId, 81234);
 assert.equal(wrappedReplay.cases[0].customerId, 22);
 assert.equal(wrappedReplay.cases[0].customer.name, 'Wrapped Customer');
+
+const batchSource = [
+  { id: '10:1', chatId: 10 },
+  { id: '10:2', chatId: 10 },
+  { id: '20:1', chatId: 20 },
+  { id: '20:2', chatId: 20 },
+  { id: '30:1', chatId: 30 }
+];
+const twoChats = selectReplayBatchCases(batchSource, { maxChats: 2, maxCases: 10 });
+assert.deepEqual(twoChats.chatIds, [10, 20], 'batch selection must keep complete chat chronology in source order');
+assert.deepEqual(twoChats.cases.map(item => item.id), ['10:1', '10:2', '20:1', '20:2']);
+const boundedTurns = selectReplayBatchCases(batchSource, { maxChats: 3, maxCases: 3 });
+assert.deepEqual(boundedTurns.cases.map(item => item.id), ['10:1', '10:2', '20:1'], 'turn limit must stop the batch deterministically');
 
 console.log('ai_operator_replay_cases_test: PASS');
