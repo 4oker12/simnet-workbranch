@@ -302,6 +302,18 @@ function liveBillingSnapshotResult(tool, snapshot) {
       ? result(tool, true, 'OK', { payments, count: payments.length, source })
       : result(tool, false, 'DATA_NOT_AVAILABLE', { message: 'Последние платежи не прочитаны при live-поиске Billing.' });
   }
+  if (tool === 'billing.next_charge') {
+    return result(tool, false, 'DATA_NOT_AVAILABLE', {
+      message: 'Billing live-read не даёт подтверждённую точную дату и сумму следующего списания.',
+      currentTariff: service.currentTariff || '',
+      nextTariff: service.nextTariff || '',
+      nextTariffDelay: service.nextTariffDelay || '',
+      accountBalance: finance.accountBalance ?? '',
+      price: finance.price ?? '',
+      totalDue: finance.totalDue ?? '',
+      source
+    }, ['Не выводить следующее списание из price, totalDue или текущего тарифа без отдельного подтверждённого источника.']);
+  }
   return null;
 }
 
@@ -356,23 +368,27 @@ function userSideLookupArgsFromLab(labState = {}) {
   return null;
 }
 
-function userSideIdentityMatches(snapshot = {}, labState = {}) {
+export function userSideIdentityMatches(snapshot = {}, labState = {}) {
   const expected = labState?.confirmedSubscriber || {};
   const identity = snapshot?.identity || {};
-  const checks = [];
+  const strongChecks = [];
   const expectedLogin = text(expected.login, 80).toLowerCase();
   const actualLogin = text(identity.login, 80).toLowerCase();
-  if (expectedLogin && actualLogin) checks.push(expectedLogin === actualLogin);
+  if (expectedLogin && actualLogin) strongChecks.push(expectedLogin === actualLogin);
   const expectedContract = text(expected.contract, 80).replace(/\D+/g, '');
   const actualContract = text(identity.contract, 80).replace(/\D+/g, '');
-  if (expectedContract && actualContract) checks.push(expectedContract === actualContract);
+  if (expectedContract && actualContract) strongChecks.push(expectedContract === actualContract);
   const expectedIp = text(expected.ip, 80);
   const actualIp = text(snapshot?.network?.ip, 80);
-  if (expectedIp && actualIp) checks.push(expectedIp === actualIp);
+  if (expectedIp && actualIp) strongChecks.push(expectedIp === actualIp);
+  if (strongChecks.length) return strongChecks.every(Boolean);
+
   const expectedAddress = normalizeAddress(expected.address);
   const actualAddress = normalizeAddress(snapshot?.address?.full);
-  if (expectedAddress && actualAddress) checks.push(expectedAddress === actualAddress || expectedAddress.includes(actualAddress) || actualAddress.includes(expectedAddress));
-  return checks.length ? checks.some(Boolean) && !checks.some(value => value === false && checks.length === 1) : true;
+  if (expectedAddress && actualAddress) {
+    return expectedAddress === actualAddress || expectedAddress.includes(actualAddress) || actualAddress.includes(expectedAddress);
+  }
+  return false;
 }
 
 function userSideStatePatch(snapshot = {}, labState = {}) {
@@ -525,7 +541,7 @@ export async function executeOperatorTool({ tool, toolArgs = {}, labState = {} }
   const name = String(tool || '').trim();
   if (name === 'customer.lookup') return liveLookup(toolArgs);
 
-  if (['customer.snapshot', 'billing.balance', 'billing.tariff', 'billing.payments'].includes(name)) {
+  if (['customer.snapshot', 'billing.balance', 'billing.tariff', 'billing.payments', 'billing.next_charge'].includes(name)) {
     if (!String(labState.confirmedCaseId || '').trim()) return result(name, false, 'IDENTITY_REQUIRED');
     let liveSnapshot = await liveBillingSnapshotForLab(labState);
     if (toolArgs.refresh) {
