@@ -46,7 +46,7 @@ function rateLimitFromHeaders(headers) {
     limitTokens: numberHeader(headers, 'x-ratelimit-limit-tokens'),
     remainingTokens: numberHeader(headers, 'x-ratelimit-remaining-tokens'),
     resetTokens: oneLine(headers?.get?.('x-ratelimit-reset-tokens') || '', 80),
-    remainingRequests: numberHeader(headers?.get?.('x-ratelimit-remaining-requests')),
+    remainingRequests: numberHeader(headers, 'x-ratelimit-remaining-requests'),
     retryAfter: oneLine(headers?.get?.('retry-after') || '', 80)
   };
 }
