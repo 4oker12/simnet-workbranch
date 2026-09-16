@@ -1,5 +1,9 @@
 import { analyzeSubscriberIntent } from './semantic-probe.js';
 
+// Keep the replay planner contract stable while this branch experiments with a freer interpreter.
+// In knowledge_probe mode the planner is the semantic+encyclopedia pipeline, not the legacy fact runtime.
+const planAutonomousTurn = analyzeSubscriberIntent;
+
 const RESULTS_KEY = 'simnet_ai_operator_replay_results_v1';
 const MAX_RESULTS = 1000;
 
@@ -60,10 +64,15 @@ async function evaluateReplayCase(payload = {}) {
   if (!replayCase.customerText || !replayCase.transcript.length) {
     throw new Error('Replay case does not contain a customer turn.');
   }
+  // Preserve cross-turn state transport expected by the Replay harness. The current semantic/knowledge
+  // experiment derives conversational context from the transcript and deliberately does not mutate it.
+  const replayState = payload?.state && typeof payload.state === 'object' && !Array.isArray(payload.state)
+    ? clone(payload.state)
+    : {};
 
   // Experimental mode: understand the human first, then softly consult the SIMNET encyclopedia.
   // The old deterministic regulators remain in the repository but are deliberately bypassed here.
-  const outcome = await analyzeSubscriberIntent({
+  const outcome = await planAutonomousTurn({
     transcript: replayCase.transcript,
     latestCustomer: replayCase.latestCustomer,
     meterContext: {
@@ -74,7 +83,7 @@ async function evaluateReplayCase(payload = {}) {
 
   return {
     case: replayCase,
-    state: {},
+    state: replayState,
     decision: outcome.decision,
     events: [],
     semanticProbe: outcome.probe,
