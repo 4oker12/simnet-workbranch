@@ -1,13 +1,15 @@
 import { BILLING_KNOWLEDGE } from './billing.js';
 import { TARIFF_KNOWLEDGE } from './tariffs.js';
+import { PROMOTION_KNOWLEDGE } from './promotions.js';
 import { TECHNICAL_KNOWLEDGE } from './technical.js';
 import { SERVICE_KNOWLEDGE } from './services.js';
 import { CONNECTION_KNOWLEDGE } from './connection.js';
 
-export const SIMNET_KNOWLEDGE_VERSION = 'simnet-encyclopedia-v1';
+export const SIMNET_KNOWLEDGE_VERSION = 'simnet-encyclopedia-v2';
 export const SIMNET_KNOWLEDGE = Object.freeze([
   ...BILLING_KNOWLEDGE,
   ...TARIFF_KNOWLEDGE,
+  ...PROMOTION_KNOWLEDGE,
   ...TECHNICAL_KNOWLEDGE,
   ...SERVICE_KNOWLEDGE,
   ...CONNECTION_KNOWLEDGE
