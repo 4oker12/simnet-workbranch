@@ -47,6 +47,17 @@ input::placeholder,textarea::placeholder{color:#667085}
 .lab-section-summary span,.replay-workspace-head span{color:#526174}
 .replay-workspace-block{background:#fff;border-color:#cbd3df}
 
+/* Restore the live behavior scale. The controls already persist and affect reply generation;
+   the compact Lab redesign had only hidden them with display:none. */
+.ai-lab-experiment{padding:12px 13px}
+.ai-lab-experiment-head{align-items:flex-start}
+.ai-lab-experiment-head>div:first-child{display:flex;flex-direction:column;gap:2px}
+.ai-lab-experiment-head>div:first-child strong{color:#1f2937;font-size:12px}
+.ai-lab-experiment-head>div:first-child span{color:#526174;font-size:10px;line-height:1.4}
+.ai-lab-sliders{display:grid!important;grid-template-columns:1fr 1fr;gap:8px 14px;margin-top:12px;padding-top:11px;border-top:1px solid #dbe1e9}
+.ai-lab-slider-label b{color:#263548}.ai-lab-slider-label small{color:#667085}.ai-lab-slider-value{background:#eef2f7;color:#263548}
+.ai-lab-followups{color:#475569}
+
 /* High-contrast knowledge-gap inbox for Manual Lab. */
 .ai-kb-curator{margin-top:10px;padding:12px;border:1px solid #b9c3d1;border-left:4px solid #64748b;border-radius:10px;background:#fff;color:#172033;box-shadow:0 3px 12px rgba(15,23,42,.05)}
 .ai-kb-curator.has-gap{border-color:#d8b35a;border-left-color:#b97800;background:#fffaf0}
@@ -59,4 +70,5 @@ input::placeholder,textarea::placeholder{color:#667085}
 /* Diagnostic colors: warnings must look like warnings, not washed-out metadata. */
 .ai-lab-diagnostic-row{color:#263548}.ai-lab-diagnostic-row b{color:#475569!important}.ai-lab-diagnostic-row span{color:#1f2937!important}.ai-lab-diagnostic-row.warn{padding:7px 8px;border-radius:6px;background:#fff4d6}.ai-lab-diagnostic-row.warn b,.ai-lab-diagnostic-row.warn span{color:#6f4a00!important}.ai-lab-diagnostic-row.live{background:#eef5ff}.ai-lab-diagnostic-row.live span{color:#174ea6!important}
 
+@media(max-width:900px){.ai-lab-sliders{grid-template-columns:1fr!important}}
 @media(max-width:640px){.ai-api-price-grid{grid-template-columns:1fr 1fr}.ai-kb-curator-head{flex-direction:column}.ai-kb-curator-actions{align-items:stretch}.ai-kb-curator-actions button{width:100%}}
