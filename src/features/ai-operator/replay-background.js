@@ -1,9 +1,5 @@
-import { interpretOperatorTurn as planAutonomousTurn } from './groq-planner.js';
-import { runFactTurn } from './fact-runtime.js';
-import { explicitContractFromText } from './dialogue-state.js';
+import { analyzeSubscriberIntent } from './semantic-probe.js';
 
-const OPERATOR_CONFIG_KEY = 'simnet_ai_operator_runtime_v1';
-const FEEDBACK_KEY = 'simnet_ai_operator_feedback_v1';
 const RESULTS_KEY = 'simnet_ai_operator_replay_results_v1';
 const MAX_RESULTS = 1000;
 
@@ -58,70 +54,31 @@ function normalizedCase(raw = {}) {
   };
 }
 
-function seedReplayIdentity(initialState = {}, transcript = []) {
-  const state = clone(initialState) || {};
-  if (String(state.confirmedCaseId || '').trim()) return state;
-
-  const messages = Array.isArray(transcript) ? transcript : [];
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const item = messages[index];
-    if (item?.role !== 'customer') continue;
-    const contract = explicitContractFromText(item?.text || '');
-    if (!contract) continue;
-    const caseId = `replay-contract:${contract}`;
-    state.confirmedCaseId = caseId;
-    state.confirmedSubscriber = { caseId, contract };
-    state.pendingCandidate = null;
-    return state;
-  }
-  return state;
-}
-
-async function readOperatorContext() {
-  const stored = await chrome.storage.local.get([OPERATOR_CONFIG_KEY, FEEDBACK_KEY]);
-  const config = stored?.[OPERATOR_CONFIG_KEY];
-  const feedback = stored?.[FEEDBACK_KEY];
-  return {
-    config: config && typeof config === 'object' && !Array.isArray(config) ? config : {},
-    feedback: Array.isArray(feedback) ? feedback : []
-  };
-}
-
 async function evaluateReplayCase(payload = {}) {
   const rawCase = payload?.case && typeof payload.case === 'object' ? payload.case : payload;
   const replayCase = normalizedCase(rawCase);
   if (!replayCase.customerText || !replayCase.transcript.length) {
     throw new Error('Replay case does not contain a customer turn.');
   }
-  const suppliedState = payload?.state && typeof payload.state === 'object' && !Array.isArray(payload.state)
-    ? clone(payload.state)
-    : {};
-  // Starting a batch at an arbitrary case may land in the middle of a chat. Seed identity from the
-  // already visible customer history so Replay does not forget a contract that appeared earlier.
-  const initialState = seedReplayIdentity(suppliedState, replayCase.transcript);
-  const { config } = await readOperatorContext();
-  const outcome = await runFactTurn({
-    text: replayCase.latestCustomer.text,
-    state: initialState,
+
+  // Experimental mode: Replay measures raw semantic understanding only.
+  // fact-runtime, fact-catalog and dialogue-state are deliberately bypassed here.
+  const outcome = await analyzeSubscriberIntent({
     transcript: replayCase.transcript,
-    interpret: input => planAutonomousTurn({
-      ...input,
-      operatorConfig: config,
-      meterContext: {
-        scope: `replay:${replayCase.chatId}:${replayCase.id}`,
-        turnId: `replay:${replayCase.id}:${Date.now()}`
-      }
-    }),
-    replay: true,
-    now: Number.isFinite(Date.parse(replayCase.latestCustomer.createdAt))
-      ? Date.parse(replayCase.latestCustomer.createdAt)
-      : Date.now()
+    latestCustomer: replayCase.latestCustomer,
+    meterContext: {
+      scope: `semantic-probe:${replayCase.chatId}:${replayCase.id}`,
+      turnId: `semantic-probe:${replayCase.id}:${Date.now()}`
+    }
   });
+
   return {
     case: replayCase,
-    state: outcome.state,
+    state: {},
     decision: outcome.decision,
-    events: outcome.events,
+    events: [],
+    semanticProbe: outcome.probe,
+    mode: 'semantic_probe',
     evaluatedAt: new Date().toISOString()
   };
 }
@@ -149,6 +106,7 @@ async function recordResult(payload = {}) {
     verdict,
     customerText: replayCase.customerText,
     referenceReply: replayCase.referenceReply,
+    mode: 'semantic_probe',
     decision: {
       action: String(decision.action || ''),
       domain: String(decision.domain || ''),
