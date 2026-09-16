@@ -31,6 +31,10 @@ assert.match(settingsHtml, /tool_required/, 'UI must explain that historical CRM
 assert.match(settingsHtml, /type="module" src="ai-operator-replay\.js"/, 'replay UI must load as a module');
 
 assert.match(replayUi, /selectReplayBatchCases/, 'replay UI must build a bounded chat batch');
+assert.match(replayUi, /aiReplayStartCase/, 'batch replay must allow starting from an arbitrary replay case number');
+assert.match(replayUi, /cases\.slice\(startIndex\)/, 'batch selection must begin from the requested replay case');
+assert.match(replayUi, /simnet_ai_replay_resume_v1/, 'batch replay must persist a resume checkpoint');
+assert.match(replayUi, /saveResumeCheckpoint/, 'successful turns must advance the resume checkpoint');
 assert.match(replayUi, /aiReplayMaxChats/, 'batch replay must expose a chat limit');
 assert.match(replayUi, /aiReplayMaxTurns/, 'batch replay must expose a turn limit');
 assert.match(replayUi, /aiReplayTokenBudget/, 'batch replay must expose a total token budget');
@@ -38,7 +42,10 @@ assert.match(replayUi, /aiReplayDelayMs/, 'batch replay must pace requests');
 assert.match(replayUi, /aiReplayStart/, 'batch replay must have a start control');
 assert.match(replayUi, /aiReplayStop/, 'batch replay must have a stop control');
 assert.match(replayUi, /tokensUsed >= settings\.tokenBudget/, 'batch replay must stop at its token budget');
-assert.match(replayUi, /diagnosticStatus === 429/, 'batch replay must stop on rate limit instead of hammering the API');
+assert.match(replayUi, /diagnosticStatus === 429/, 'batch replay must detect Groq rate limits');
+assert.match(replayUi, /waitForRateLimit/, 'batch replay must wait through the rate-limit cooldown');
+assert.match(replayUi, /продолжу автоматически/, 'rate-limit UI must explain automatic continuation');
+assert.match(replayUi, /MAX_RATE_LIMIT_RETRIES/, 'rate-limit retries must be bounded');
 assert.match(replayUi, /replayCase\.chatId !== activeChatId/, 'AI state must reset between chats');
 assert.match(replayUi, /state: chatState/, 'AI state must be carried to the next turn of the same chat');
 assert.match(replayUi, /AI_OPERATOR_REPLAY_EVALUATE/, 'replay UI must call the replay planner runtime');
