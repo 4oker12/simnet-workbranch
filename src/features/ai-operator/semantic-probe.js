@@ -46,7 +46,7 @@ function rateLimitFromHeaders(headers) {
     limitTokens: numberHeader(headers, 'x-ratelimit-limit-tokens'),
     remainingTokens: numberHeader(headers, 'x-ratelimit-remaining-tokens'),
     resetTokens: oneLine(headers?.get?.('x-ratelimit-reset-tokens') || '', 80),
-    remainingRequests: numberHeader(headers, 'x-ratelimit-remaining-requests'),
+    remainingRequests: numberHeader(headers?.get?.('x-ratelimit-remaining-requests')),
     retryAfter: oneLine(headers?.get?.('retry-after') || '', 80)
   };
 }
@@ -311,6 +311,13 @@ function normalizeUsedArticles(value, candidateArticles) {
     .filter(item => item.id && allowed.has(item.id)).slice(0, 6);
 }
 
+function selectedArticleEvidence(usedArticles = [], candidateArticles = []) {
+  const selected = new Set((Array.isArray(usedArticles) ? usedArticles : []).map(item => item?.id).filter(Boolean));
+  return (Array.isArray(candidateArticles) ? candidateArticles : [])
+    .filter(article => selected.has(article?.id))
+    .map(articlePayload);
+}
+
 function normalizeHypotheses(value) {
   return (Array.isArray(value) ? value : [])
     .map(item => ({ text: oneLine(item?.text || '', 360), basis: oneLine(item?.basis || '', 420) }))
@@ -319,10 +326,12 @@ function normalizeHypotheses(value) {
 
 function normalizeKnowledgeReflection(raw = {}, candidateArticles = []) {
   const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const usedArticles = normalizeUsedArticles(value.used_articles, candidateArticles);
   return {
     skipped: false,
     skipReason: '',
-    usedArticles: normalizeUsedArticles(value.used_articles, candidateArticles),
+    usedArticles,
+    articleEvidence: selectedArticleEvidence(usedArticles, candidateArticles),
     relevantInternalKnowledge: stringList(value.relevant_internal_knowledge, 8, 420),
     howItApplies: oneLine(value.how_it_applies || '', 800),
     alreadyEnough: stringList(value.already_enough, 6, 320),
@@ -337,6 +346,7 @@ function skippedKnowledge(probe = {}, reason = 'semantic_gate_none') {
     skipped: true,
     skipReason: reason,
     usedArticles: [],
+    articleEvidence: [],
     relevantInternalKnowledge: [],
     howItApplies: '',
     alreadyEnough: probe.whatUserWants ? [probe.whatUserWants] : [],
@@ -485,6 +495,7 @@ function answerPayload(analysis = {}, useKnowledge = true) {
     internal_knowledge: {
       enabled: Boolean(useKnowledge && !knowledge.skipped),
       used_articles: (knowledge.usedArticles || []).map(item => item.id),
+      article_evidence: knowledge.articleEvidence || [],
       relevant: knowledge.relevantInternalKnowledge || [],
       must_not_assume: knowledge.mustNotAssume || [],
       knowledge_gaps: knowledge.knowledgeGaps || []
@@ -518,6 +529,7 @@ export async function generateSubscriberReply({
 - не выдумывай баланс, текущий тариф конкретного договора, платежи, адрес, состояние сессии/OLT/ONU/BRAS, аварию или выполненную проверку;
 - customer_claim и слова прошлого оператора не являются подтверждёнными фактами системы;
 - внутреннее правило/цена SIMNET можно утверждать только если оно присутствует в переданном internal_knowledge;
+- internal_knowledge.article_evidence содержит прямой текст выбранных статей энциклопедии и является подтверждённым внутренним источником. Если нужный факт есть там, используй его; не отвечай, что подтверждённых данных нет только потому, что поле internal_knowledge.relevant пустое или неполное;
 - если internal_knowledge.enabled=false, не используй из памяти конкретные внутренние тарифы, цены, акции или процедуры SIMNET;
 - если для точного ответа нужны live-данные конкретного абонента, явно не придумывай их. Сформулируй, что именно нужно проверить/уточнить. Если это блокирует полноценный ответ, допустимо кратко сказать, что в текущем лабораторном режиме live-данные не подключены;
 - не добавляй «обычную практику отрасли» как замену отсутствующему правилу SIMNET;
