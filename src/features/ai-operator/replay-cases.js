@@ -61,6 +61,29 @@ export function listReplayChats(payload) {
   return [];
 }
 
+export function selectReplayBatchCases(allCases = [], options = {}) {
+  const maxChats = Math.max(1, Math.min(5000, Number(options.maxChats) || 50));
+  const maxCases = Math.max(1, Math.min(20000, Number(options.maxCases) || 100));
+  const selectedChatIds = [];
+  const selectedSet = new Set();
+  const selected = [];
+
+  for (const replayCase of arrayFrom(allCases)) {
+    const chatId = numericId(replayCase?.chatId);
+    if (!chatId) continue;
+    if (!selectedSet.has(chatId)) {
+      if (selectedChatIds.length >= maxChats) continue;
+      selectedSet.add(chatId);
+      selectedChatIds.push(chatId);
+    }
+    if (!selectedSet.has(chatId)) continue;
+    selected.push(replayCase);
+    if (selected.length >= maxCases) break;
+  }
+
+  return { cases: selected, chatIds: selectedChatIds };
+}
+
 function groupByRole(transcript = []) {
   const groups = [];
   for (const item of transcript) {
@@ -128,7 +151,7 @@ function lastCustomerItem(group = {}) {
 export function extractReplayCases(payload, options = {}) {
   const maxChats = Math.max(1, Math.min(5000, Number(options.maxChats) || 1000));
   const maxCases = Math.max(1, Math.min(20000, Number(options.maxCases) || 5000));
-  const transcriptLimit = Math.max(4, Math.min(80, Number(options.transcriptLimit) || 28));
+  const transcriptLimit = Math.max(4, Math.min(200, Number(options.transcriptLimit) || 120));
   const includeAutomation = options.includeAutomation === true;
   const chats = listReplayChats(payload).slice(0, maxChats);
   const cases = [];
@@ -144,6 +167,7 @@ export function extractReplayCases(payload, options = {}) {
     const groups = groupByRole(transcript);
     const chatId = chatIdOf(record, chatIndex);
     const customer = replayCustomer(record);
+    let chatTurnIndex = 0;
 
     for (let groupIndex = 0; groupIndex < groups.length - 1 && cases.length < maxCases; groupIndex += 1) {
       const customerGroup = groups[groupIndex];
@@ -168,10 +192,12 @@ export function extractReplayCases(payload, options = {}) {
         .flatMap(group => group.items)
         .slice(-transcriptLimit);
       const turnKey = latestCustomer.id || latestCustomer.externalId || `${groupIndex + 1}`;
+      chatTurnIndex += 1;
 
       cases.push({
         id: `${chatId}:${turnKey}`,
         chatId,
+        chatTurnIndex,
         customerId: numericId(customer?.id) || null,
         chat: replayChatMetadata(record, chatId),
         customer,
@@ -184,6 +210,10 @@ export function extractReplayCases(payload, options = {}) {
       });
     }
   }
+
+  const counts = new Map();
+  for (const replayCase of cases) counts.set(replayCase.chatId, (counts.get(replayCase.chatId) || 0) + 1);
+  for (const replayCase of cases) replayCase.chatTurnCount = counts.get(replayCase.chatId) || 1;
 
   return {
     cases,
