@@ -5,7 +5,8 @@ import {
   AI_OPERATOR_GENERATION_MODEL_POOL,
   AI_OPERATOR_PROMPT_GUARD_MODEL,
   buildKnowledgeReflectionMessages,
-  buildSubscriberIntentProbeMessages
+  buildSubscriberIntentProbeMessages,
+  shouldReadKnowledge
 } from '../src/features/ai-operator/semantic-probe.js';
 import {
   SIMNET_KNOWLEDGE,
@@ -28,6 +29,30 @@ test('semantic probe asks what the subscriber wants without deterministic intent
   assert.match(prompt, /что действительно следует из разговора/i);
   assert.doesNotMatch(prompt, /balance\.amount|tariff\.upgrade|customer\.lookup|recurring_charge\.amount/);
   assert.doesNotMatch(prompt, /would_need_to_know|assumptions/);
+});
+
+test('semantic layer decides whether encyclopedia is useful without phrase routing', () => {
+  const messages = buildSubscriberIntentProbeMessages({
+    transcript: [
+      { role: 'agent', text: 'Будь ласка, вкажіть Ваш номер договору' },
+      { role: 'customer', text: '146888' }
+    ],
+    latestCustomer: { text: '146888' }
+  });
+  const prompt = messages.map(item => item.content).join('\n');
+  assert.match(prompt, /knowledge_need/i);
+  assert.match(prompt, /none\|maybe\|needed/i);
+  assert.match(prompt, /не открывай энциклопедию только потому/i);
+  assert.match(prompt, /служебный выбор меню/i);
+  assert.equal(shouldReadKnowledge({ knowledgeNeed: 'none' }), false);
+  assert.equal(shouldReadKnowledge({ knowledgeNeed: 'maybe' }), true);
+  assert.equal(shouldReadKnowledge({ knowledgeNeed: 'needed' }), true);
+  assert.equal(shouldReadKnowledge({}), true, 'missing gate must fail open and preserve encyclopedia access');
+
+  const source = fs.readFileSync(new URL('../src/features/ai-operator/semantic-probe.js', import.meta.url), 'utf8');
+  assert.match(source, /if \(shouldReadKnowledge\(probe\)\)/);
+  assert.match(source, /semantic_gate_none/);
+  assert.match(source, /knowledgeMessages = \[\]/);
 });
 
 test('SIMNET knowledge library is descriptive encyclopedia, not phrase routing matrix', () => {
