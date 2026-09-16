@@ -203,10 +203,11 @@ function articlePayload(article) {
 }
 
 export function buildKnowledgeReflectionMessages({ probe = {}, candidateArticles = [] } = {}) {
+  const noCandidates = !candidateArticles.length;
   return [
     {
       role: 'system',
-      content: `Ты продолжаешь разбор обращения абонента SIMNET. Первый этап уже понял человеческий смысл разговора. Теперь перед тобой несколько КАНДИДАТНЫХ статей внутренней энциклопедии SIMNET.
+      content: `Ты продолжаешь разбор обращения абонента SIMNET. Первый этап уже понял человеческий смысл разговора. Перед тобой КАНДИДАТНЫЕ статьи внутренней энциклопедии SIMNET. Иногда список может быть пустым: это означает только, что поиск не нашёл подходящей подтверждённой статьи.
 
 Энциклопедия — справочник, а не сценарий и не приказ. Не подгоняй обращение под статью. Используй только ту информацию, которая действительно помогает понять конкретную ситуацию. Разрешено признать, что ни одна статья не нужна.
 
@@ -218,7 +219,9 @@ export function buildKnowledgeReflectionMessages({ probe = {}, candidateArticles
 - утверждение прошлого оператора не становится автоматически фактом энциклопедии;
 - гипотезы допустимы, но явно помечай их как hypothesis и объясняй, на чём они основаны;
 - не создавай искусственные «неясности» и не перечисляй всё, что вообще можно было бы проверить;
-- отделяй главное от второстепенного: если для понимания простого вопроса достаточно одного понятия, не тащи соседние статьи и поля.
+- отделяй главное от второстепенного: если для понимания простого вопроса достаточно одного понятия, не тащи соседние статьи и поля;
+- если клиент спрашивает о конкретном внутреннем правиле/условии SIMNET, а среди статей нет подтверждения этого правила, запиши это в knowledge_gaps. Не превращай слова клиента или прошлого оператора в правило компании;
+- knowledge_gaps — только пробел внутренней энциклопедии. Не записывай туда номер договора, адрес, модель роутера, баланс и другие персональные данные, которые просто понадобятся позже из tools.
 
 Верни только JSON:
 {
@@ -228,7 +231,7 @@ export function buildKnowledgeReflectionMessages({ probe = {}, candidateArticles
   "already_enough":["что уже понятно/достаточно на уровне смысла"],
   "must_not_assume":["что нельзя превращать в факт без проверки"],
   "hypotheses":[{"text":"допустимое предположение","basis":"на чём оно основано"}],
-  "knowledge_gaps":["чего нет в энциклопедии, если это действительно мешает понять внутреннее правило; не список данных клиента"]
+  "knowledge_gaps":["какого внутреннего правила/знания SIMNET нет в энциклопедии, если это действительно важно"]
 }`
     },
     {
@@ -236,6 +239,7 @@ export function buildKnowledgeReflectionMessages({ probe = {}, candidateArticles
       content: JSON.stringify({
         understanding: probe,
         knowledge_version: SIMNET_KNOWLEDGE_VERSION,
+        retrieval_status: noCandidates ? 'no_candidate_articles_found' : 'candidate_articles_found',
         candidate_articles: candidateArticles.map(articlePayload)
       })
     }
@@ -279,12 +283,13 @@ function readableProbe(probe, knowledge) {
     probe.underlyingGoal ? `   Общая цель: ${probe.underlyingGoal}` : '',
     probe.factsSaidByUser.length ? `3. Что сообщил клиент: ${probe.factsSaidByUser.join('; ')}` : '',
     probe.factsSaidByOperator.length ? `   Контекст от прошлого оператора: ${probe.factsSaidByOperator.join('; ')}` : '',
-    articleNames ? `4. Что посмотрел в энциклопедии: ${articleNames}` : '4. Энциклопедия: релевантные статьи не потребовались.',
+    articleNames ? `4. Что посмотрел в энциклопедии: ${articleNames}` : '4. Энциклопедия: подтверждённая релевантная статья не выбрана.',
     knowledge.relevantInternalKnowledge.length ? `   Полезное внутреннее знание: ${knowledge.relevantInternalKnowledge.join('; ')}` : '',
     knowledge.howItApplies ? `5. Как это относится к обращению: ${knowledge.howItApplies}` : '',
     knowledge.mustNotAssume.length ? `6. Нельзя считать фактом без проверки: ${knowledge.mustNotAssume.join('; ')}` : '',
     knowledge.hypotheses.length ? `7. Допустимые гипотезы: ${knowledge.hypotheses.map(item => `${item.text} (${item.basis})`).join('; ')}` : '',
-    probe.ambiguities.length ? `8. Реальная неоднозначность смысла: ${probe.ambiguities.join('; ')}` : ''
+    knowledge.knowledgeGaps.length ? `8. В энциклопедии пока нет подтверждённого знания: ${knowledge.knowledgeGaps.join('; ')}` : '',
+    probe.ambiguities.length ? `9. Реальная неоднозначность смысла: ${probe.ambiguities.join('; ')}` : ''
   ].filter(Boolean).join('\n');
 }
 
@@ -299,24 +304,17 @@ export async function analyzeSubscriberIntent({ transcript = [], latestCustomer 
 
   const query = knowledgeQueryFromUnderstanding({ probe, transcript, latestCustomer });
   const candidateArticles = searchKnowledgeLibrary(query, { limit: 6, minScore: 1 });
-  let knowledge = {
-    usedArticles: [], relevantInternalKnowledge: [], howItApplies: '', alreadyEnough: [], mustNotAssume: [], hypotheses: [], knowledgeGaps: []
-  };
-  let knowledgeResponse = null;
-
-  if (candidateArticles.length) {
-    const knowledgeMessages = buildKnowledgeReflectionMessages({ probe, candidateArticles });
-    knowledgeResponse = await requestJsonWithFallback(knowledgeMessages, runtime, { ...meterContext, stage: 'knowledge' });
-    knowledge = normalizeKnowledgeReflection(parseJsonObject(knowledgeResponse.answer), candidateArticles);
-  }
+  const knowledgeMessages = buildKnowledgeReflectionMessages({ probe, candidateArticles });
+  const knowledgeResponse = await requestJsonWithFallback(knowledgeMessages, runtime, { ...meterContext, stage: 'knowledge' });
+  const knowledge = normalizeKnowledgeReflection(parseJsonObject(knowledgeResponse.answer), candidateArticles);
 
   const totalUsage = {
-    prompt_tokens: Number(semanticResponse.usage?.prompt_tokens || 0) + Number(knowledgeResponse?.usage?.prompt_tokens || 0),
-    completion_tokens: Number(semanticResponse.usage?.completion_tokens || 0) + Number(knowledgeResponse?.usage?.completion_tokens || 0),
-    total_tokens: Number(semanticResponse.usage?.total_tokens || 0) + Number(knowledgeResponse?.usage?.total_tokens || 0)
+    prompt_tokens: Number(semanticResponse.usage?.prompt_tokens || 0) + Number(knowledgeResponse.usage?.prompt_tokens || 0),
+    completion_tokens: Number(semanticResponse.usage?.completion_tokens || 0) + Number(knowledgeResponse.usage?.completion_tokens || 0),
+    total_tokens: Number(semanticResponse.usage?.total_tokens || 0) + Number(knowledgeResponse.usage?.total_tokens || 0)
   };
   const promptChars = semanticMessages.reduce((sum, item) => sum + String(item.content || '').length, 0)
-    + (candidateArticles.length ? buildKnowledgeReflectionMessages({ probe, candidateArticles }).reduce((sum, item) => sum + String(item.content || '').length, 0) : 0);
+    + knowledgeMessages.reduce((sum, item) => sum + String(item.content || '').length, 0);
 
   return {
     probe,
@@ -333,9 +331,9 @@ export async function analyzeSubscriberIntent({ transcript = [], latestCustomer 
       confidence: probe.confidence,
       language: probe.language,
       diagnostic: { understanding: probe, knowledge, candidates: candidateArticles.map(({ id, title, score }) => ({ id, title, score })) },
-      model: [semanticResponse.model, knowledgeResponse?.model].filter(Boolean).join(' → '),
+      model: [semanticResponse.model, knowledgeResponse.model].filter(Boolean).join(' → '),
       usage: totalUsage,
-      rateLimit: knowledgeResponse?.rateLimit || semanticResponse.rateLimit || {},
+      rateLimit: knowledgeResponse.rateLimit || semanticResponse.rateLimit || {},
       promptChars
     }
   };
