@@ -12,20 +12,20 @@ export const AI_OPERATOR_SOFT_TOOL_CAPABILITIES = Object.freeze({
 
 export const AI_OPERATOR_TOOL_CAPABILITY_DETAILS = Object.freeze({
   billing: 'live-read-only',
-  userside: 'workbench-reader-context',
+  userside: 'live-read-only',
   network: 'workbench-case-read-only'
 });
 
 export const AI_OPERATOR_SOFT_TOOL_CATALOG = Object.freeze([
-  { name: 'customer.lookup', source: 'Billing', purpose: 'Найти абонента по договору, login, IP или адресу.' },
-  { name: 'customer.snapshot', source: 'Billing/Workbench', purpose: 'Прочитать доступный снимок карточки подтверждённого абонента.' },
+  { name: 'customer.lookup', source: 'Billing', purpose: 'Найти абонента по договору, login, IP или адресу через текущую авторизованную Billing-сессию.' },
+  { name: 'customer.snapshot', source: 'Billing', purpose: 'Прочитать live-снимок карточки подтверждённого абонента.' },
   { name: 'billing.balance', source: 'Billing', purpose: 'Прочитать баланс и финансовое состояние.' },
-  { name: 'billing.tariff', source: 'Billing', purpose: 'Прочитать текущий/следующий тариф и доступное состояние услуги.' },
+  { name: 'billing.tariff', source: 'Billing', purpose: 'Прочитать текущий/следующий тариф и состояние услуги.' },
   { name: 'billing.payments', source: 'Billing', purpose: 'Прочитать последние доступные платежи.' },
-  { name: 'userside.snapshot', source: 'UserSide/Workbench', purpose: 'Прочитать уже собранный UserSide-контекст текущего кейса; не является глобальным UserSide-поиском.' },
-  { name: 'network.session', source: 'Juniper/BRAS', purpose: 'Прочитать последнюю доступную сетевую сессию.' },
-  { name: 'pon.onu', source: 'PON/Workbench', purpose: 'Прочитать доступные ONU/OLT/порт данные.' },
-  { name: 'pon.signal', source: 'PON/Workbench', purpose: 'Прочитать доступное состояние/оптические показатели ONU.' }
+  { name: 'userside.snapshot', source: 'UserSide', purpose: 'Найти того же подтверждённого абонента в UserSide и прочитать live технический снимок.' },
+  { name: 'network.session', source: 'Juniper/BRAS', purpose: 'Прочитать последнюю доступную сетевую сессию из Workbench-кейса того же абонента.' },
+  { name: 'pon.onu', source: 'UserSide/PON', purpose: 'Прочитать live ONU/OLT/порт данные; при недоступности использовать подтверждённый Workbench fallback.' },
+  { name: 'pon.signal', source: 'UserSide/PON', purpose: 'Прочитать live оптические показатели ONU; при недоступности использовать подтверждённый Workbench fallback.' }
 ]);
 
 const ACCOUNT_TOOLS = new Set([
@@ -44,7 +44,6 @@ function oneLine(value, max = 500) {
   const normalized = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
   return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
 }
-
 function block(value, max = 2600) {
   const normalized = String(value == null ? '' : value)
     .replace(/\r\n?/g, '\n')
@@ -53,14 +52,9 @@ function block(value, max = 2600) {
     .trim();
   return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
 }
-
 function stringList(value, maxItems = 8, maxChars = 360) {
-  return (Array.isArray(value) ? value : [])
-    .map(item => oneLine(item, maxChars))
-    .filter(Boolean)
-    .slice(0, maxItems);
+  return (Array.isArray(value) ? value : []).map(item => oneLine(item, maxChars)).filter(Boolean).slice(0, maxItems);
 }
-
 function compactObject(input, maxDepth = 4, depth = 0) {
   if (depth >= maxDepth) return oneLine(input, 320);
   if (Array.isArray(input)) return input.slice(0, 12).map(item => compactObject(item, maxDepth, depth + 1));
@@ -72,7 +66,6 @@ function compactObject(input, maxDepth = 4, depth = 0) {
   }
   return output;
 }
-
 function usageTotal(...items) {
   return items.reduce((total, item) => {
     const usage = item?.usage || item || {};
@@ -82,7 +75,6 @@ function usageTotal(...items) {
     return total;
   }, { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
 }
-
 function parseJsonObject(value) {
   const source = String(value || '').trim();
   try { return JSON.parse(source); } catch {}
@@ -91,12 +83,10 @@ function parseJsonObject(value) {
   if (first < 0 || last <= first) throw new Error('Tool synthesis: model did not return JSON');
   return JSON.parse(source.slice(first, last + 1));
 }
-
 function numberHeader(headers, name) {
   const value = Number(headers?.get?.(name) || 0);
   return Number.isFinite(value) && value >= 0 ? value : 0;
 }
-
 function rateLimitFromHeaders(headers) {
   return {
     limitTokens: numberHeader(headers, 'x-ratelimit-limit-tokens'),
@@ -106,7 +96,6 @@ function rateLimitFromHeaders(headers) {
     retryAfter: oneLine(headers?.get?.('retry-after') || '', 80)
   };
 }
-
 function durationMs(value) {
   const source = String(value || '').trim().toLowerCase();
   if (!source) return 0;
@@ -119,16 +108,13 @@ function durationMs(value) {
   }
   return Math.ceil(total);
 }
-
 function markCooling(model, rateLimit = {}) {
   const wait = Math.max(durationMs(rateLimit.retryAfter), durationMs(rateLimit.resetTokens), 5000);
   SYNTHESIS_COOLDOWNS.set(model, Date.now() + Math.min(wait + 1500, 180000));
 }
-
 function modelCandidates(runtime = {}) {
   const preferred = String(runtime.chatModel || AI_CONFIG.model || '').trim();
-  const all = [preferred, ...AI_OPERATOR_GENERATION_MODEL_POOL]
-    .filter((model, index, list) => model && list.indexOf(model) === index);
+  const all = [preferred, ...AI_OPERATOR_GENERATION_MODEL_POOL].filter((model, index, list) => model && list.indexOf(model) === index);
   const ready = all.filter(model => Number(SYNTHESIS_COOLDOWNS.get(model) || 0) <= Date.now());
   return ready.length ? ready : all;
 }
@@ -196,7 +182,6 @@ async function requestSynthesis(messages, meterContext = {}) {
 function needText(need = {}) {
   return `${oneLine(need.system, 80)} ${oneLine(need.field, 160)} ${oneLine(need.why, 260)}`.toLowerCase();
 }
-
 function toolForNeed(need = {}) {
   const text = needText(need);
   const system = oneLine(need.system, 80).toLowerCase();
@@ -214,14 +199,13 @@ function toolForNeed(need = {}) {
 
 export function mapInformationNeedsToTools(needs = []) {
   const calls = [];
+  const freshTools = new Set(['billing.balance', 'billing.tariff', 'billing.payments', 'customer.snapshot', 'userside.snapshot', 'pon.onu', 'pon.signal']);
   for (const need of Array.isArray(needs) ? needs : []) {
     const tool = toolForNeed(need);
     if (!tool || calls.some(item => item.tool === tool)) continue;
     calls.push({
       tool,
-      toolArgs: ['billing.balance', 'billing.tariff', 'billing.payments', 'customer.snapshot'].includes(tool)
-        ? { refresh: true, maxAgeMs: 120000 }
-        : {},
+      toolArgs: freshTools.has(tool) ? { refresh: true, maxAgeMs: 120000 } : {},
       requestedBy: {
         system: oneLine(need?.system, 80),
         field: oneLine(need?.field, 160),
@@ -276,55 +260,8 @@ function applyStatePatch(state = {}, patch = {}) {
   for (const [key, value] of Object.entries(patch)) next[key] = compactObject(value);
   return next;
 }
-
 function evidenceSource(result = {}) {
-  return oneLine(
-    result?.data?.source
-      || result?.data?.evidence?.source
-      || result?.data?.evidence?.workbenchState
-      || result?.tool
-      || '',
-    140
-  );
-}
-
-async function executeUserSideSnapshot(execute, labState) {
-  const base = await execute({ tool: 'customer.snapshot', toolArgs: {}, labState });
-  if (!base?.ok) return { ...base, tool: 'userside.snapshot' };
-  const workbenchSource = oneLine(base?.data?.evidence?.workbenchState, 120);
-  if (!workbenchSource) {
-    return {
-      ok: false,
-      tool: 'userside.snapshot',
-      code: 'USERSIDE_CONTEXT_UNAVAILABLE',
-      observedAt: base.observedAt || new Date().toISOString(),
-      data: { message: 'Для этого найденного абонента ещё нет отдельного UserSide-контекста в Workbench.' },
-      warnings: ['Billing snapshot не выдаётся за свежую проверку UserSide.'],
-      statePatch: base.statePatch || {}
-    };
-  }
-  return {
-    ...base,
-    tool: 'userside.snapshot',
-    data: compactObject({
-      identity: base.data?.identity || {},
-      address: base.data?.address || {},
-      network: base.data?.network || {},
-      technical: base.data?.technical || {},
-      pon: base.data?.pon || {},
-      evidence: base.data?.evidence || {},
-      source: 'workbench-userside-reader-context'
-    }),
-    warnings: [
-      ...(Array.isArray(base.warnings) ? base.warnings : []),
-      'Это уже прочитанный UserSide/Workbench-контекст, а не отдельный глобальный live-поиск UserSide.'
-    ]
-  };
-}
-
-async function executeCall(execute, call, labState) {
-  if (call.tool === 'userside.snapshot') return executeUserSideSnapshot(execute, labState);
-  return execute({ tool: call.tool, toolArgs: call.toolArgs || {}, labState });
+  return oneLine(result?.data?.source || result?.data?.evidence?.source || result?.data?.evidence?.workbenchState || result?.tool || '', 140);
 }
 
 export async function executeInformationNeeds({ needs = [], transcript = [], analysis = {}, labState = {}, execute } = {}) {
@@ -335,7 +272,13 @@ export async function executeInformationNeeds({ needs = [], transcript = [], ana
   const needsAccount = planned.some(item => ACCOUNT_TOOLS.has(item.tool));
   if (needsAccount && !String(state.confirmedCaseId || '').trim()) {
     const identity = extractIdentityHints(transcript, analysis);
-    if (Object.keys(identity).length) calls.push({ tool: 'customer.lookup', toolArgs: identity, requestedBy: { system: 'identity', field: Object.keys(identity)[0], why: 'Нужна привязка live-данных к конкретному абоненту.' } });
+    if (Object.keys(identity).length) {
+      calls.push({
+        tool: 'customer.lookup',
+        toolArgs: identity,
+        requestedBy: { system: 'identity', field: Object.keys(identity)[0], why: 'Нужна привязка live-данных к конкретному абоненту.' }
+      });
+    }
   }
   calls.push(...planned);
 
@@ -343,7 +286,7 @@ export async function executeInformationNeeds({ needs = [], transcript = [], ana
   for (const call of calls.slice(0, 6)) {
     let toolResult;
     try {
-      toolResult = await executeCall(execute, call, state);
+      toolResult = await execute({ tool: call.tool, toolArgs: call.toolArgs || {}, labState: state });
     } catch (error) {
       toolResult = {
         ok: false,
@@ -393,14 +336,11 @@ function normalizeDataNeeds(value) {
     why: oneLine(item?.why, 300)
   })).filter(item => item.system || item.field || item.why).slice(0, 6);
 }
-
 function fallbackFromAnalysis(analysis = {}, toolTrace = []) {
   const failedIdentity = toolTrace.some(item => ['IDENTITY_REQUIRED', 'IDENTITY_HINT_MISSING', 'AMBIGUOUS_IDENTITY'].includes(item.code));
   if (failedIdentity) return 'Для проверки данных по вашему подключению нужен номер договора или точный адрес. После этого смогу продолжить проверку.';
   const goal = oneLine(analysis?.probe?.whatUserWants, 420);
-  if (toolTrace.some(item => item.ok)) {
-    return 'Проверку данных выполнил, но сейчас не удалось корректно сформировать итоговый ответ. Данные проверки сохранены; повторите, пожалуйста, этот ход.';
-  }
+  if (toolTrace.some(item => item.ok)) return 'Проверку данных выполнил, но сейчас не удалось корректно сформировать итоговый ответ. Данные проверки сохранены; повторите, пожалуйста, этот ход.';
   if (goal) return `Я понял запрос: ${goal}. Сейчас не удалось получить подтверждённые данные, поэтому не буду придумывать ответ. Попробуйте повторить запрос.`;
   return 'Запрос получен, но сейчас не удалось сформировать корректный ответ. Повторите, пожалуйста, сообщение.';
 }
@@ -426,30 +366,7 @@ function synthesisMessages({ transcript = [], latestCustomer = {}, analysis = {}
   return [
     {
       role: 'system',
-      content: `Ты завершаешь ответ абоненту SIMNET после READ-only проверок. До этого AI свободно понял диалог и при необходимости запросил данные. Инструменты — источники доказательств, а не сценарий мышления.
-
-Собери естественный полезный ответ на языке разговора. Не показывай JSON, названия внутренних стадий, chain-of-thought или внутреннюю механику.
-
-Правила достоверности:
-- tool_evidence с ok=true можно использовать только в пределах реально возвращённых полей; указывай данные естественно, без технического дампа;
-- ok=false означает «проверить не удалось/данных нет в этом источнике», а НЕ доказательство отрицательного факта;
-- не выдавай Billing snapshot за UserSide и не выдавай старый Workbench-контекст за свежую live-проверку;
-- слова клиента/оператора не превращай в системный факт;
-- внутренние тарифы/правила SIMNET утверждай только из переданного internal_knowledge;
-- если данных недостаточно, задай минимальное уточнение или честно скажи, что именно не удалось подтвердить;
-- не теряй исходный вопрос клиента;
-- поле reply ОБЯЗАТЕЛЬНО должно быть непустым.
-
-Верни только JSON:
-{
-  "reply":"готовый непустой ответ абоненту",
-  "subscriber_data_needed":[{"system":"Billing|UserSide|Network","field":"что ещё нужно","why":"зачем"}],
-  "unresolved_requests":["что осталось незакрытым"],
-  "clarification_questions":["вопросы реально заданные в reply"],
-  "verification_needed":["что всё ещё нельзя утверждать"],
-  "next_step_offered":"следующий шаг или пусто",
-  "basis":["dialogue","knowledge:...","tool:..."]
-}`
+      content: `Ты завершаешь ответ абоненту SIMNET после READ-only проверок. До этого AI свободно понял диалог и при необходимости запросил данные. Инструменты — источники доказательств, а не сценарий мышления.\n\nСобери естественный полезный ответ на языке разговора. Не показывай JSON, названия внутренних стадий, chain-of-thought или внутреннюю механику.\n\nПравила достоверности:\n- tool_evidence с ok=true можно использовать только в пределах реально возвращённых полей;\n- source=billing-live-read-only означает свежую READ-проверку Billing через текущую авторизованную вкладку;\n- source=userside-live-read-only означает свежую READ-проверку UserSide через текущую авторизованную вкладку;\n- ok=false означает «проверить не удалось/данных нет в этом источнике», а НЕ доказательство отрицательного факта;\n- Workbench/Network fallback не выдавай за свежий Juniper/UserSide запрос, если источник так не говорит;\n- слова клиента/оператора не превращай в системный факт;\n- внутренние тарифы/правила SIMNET утверждай только из переданного internal_knowledge;\n- если данных недостаточно, задай минимальное уточнение или честно скажи, что именно не удалось подтвердить;\n- не теряй исходный вопрос клиента;\n- поле reply ОБЯЗАТЕЛЬНО должно быть непустым.\n\nВерни только JSON:\n{\n  "reply":"готовый непустой ответ абоненту",\n  "subscriber_data_needed":[{"system":"Billing|UserSide|Network","field":"что ещё нужно","why":"зачем"}],\n  "unresolved_requests":["что осталось незакрытым"],\n  "clarification_questions":["вопросы реально заданные в reply"],\n  "verification_needed":["что всё ещё нельзя утверждать"],\n  "next_step_offered":"следующий шаг или пусто",\n  "basis":["dialogue","knowledge:...","tool:..."]\n}`
     },
     {
       role: 'user',
