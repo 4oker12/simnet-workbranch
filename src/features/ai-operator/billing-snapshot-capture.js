@@ -129,7 +129,7 @@
 
   function readMain() {
     const login = loginFromPage();
-    const contract = clean(input('contract') || login.replace(/^abon/i, ''), 80);
+    const contract = clean(input('contract'), 80);
     const temporaryText = temporaryPaymentText();
     const auth = readAuthorization();
     const activeServices = readActiveServices();
@@ -154,7 +154,7 @@
       service: {
         group: selected('grp'),
         currentTariff: selected('paket'),
-        nextTariff: selected('next_paket'),
+        nextTariff: document.querySelector('select[name="next_paket"]') ? selected('next_paket') : null,
         nextTariffDelay: selected('next_paket_delay'),
         accessState: selected('state'),
         serviceState: selected('cstate'),
@@ -262,7 +262,7 @@
       else if (tmpl === '2') patch = readAddress();
       else return;
       const login = loginFromPage();
-      if (login) patch.identity = { ...(patch.identity || {}), billingId: id, login, contract: login.replace(/^abon/i, '') };
+      if (login) patch.identity = { ...(patch.identity || {}), billingId: id, login };
     }
 
     const stored = await chrome.storage.local.get(STORE_KEY);
@@ -271,6 +271,15 @@
     const next = deepMerge(current, patch);
     next.billingId = id;
     next.observedAt = new Date().toISOString();
+    if (action === 'user') next.financeObservedAt = next.observedAt;
+    next.fieldObservedAt = { ...(current.fieldObservedAt || {}) };
+    for (const section of ['finance', 'service']) {
+      for (const field of Object.keys(current[section] || {})) {
+        const key = `${section}.${field}`;
+        if (!next.fieldObservedAt[key]) next.fieldObservedAt[key] = current.financeObservedAt || current.observedAt || '';
+      }
+      for (const field of Object.keys(patch[section] || {})) next.fieldObservedAt[`${section}.${field}`] = next.observedAt;
+    }
     next.source = 'billing-dom-read-only';
     all[id] = next;
 

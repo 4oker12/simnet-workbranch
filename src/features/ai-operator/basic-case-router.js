@@ -60,7 +60,7 @@ export function basicConfirmationValue(value) {
   if (/^(?:нет|ні|no)(?:[\s,;:.-]+.*)?$/iu.test(text)) return false;
   if (/^(?:(?:это|це)\s+)?не\s+(?:мой|мій|мо[её]|моє)$/iu.test(text)) return false;
 
-  if (/^(?:верно|вірно|правильно)$/iu.test(text)) return true;
+  if (/^(?:(?:вс[её]|все)\s+)?(?:верно|вірно|правильно)$|^(?:это мой|це мій)$/iu.test(text)) return true;
   if (/^(?:да|так|yes|ага|угу)(?:[\s,;:.-]+(?:(?:вс[её]\s+)?(?:верно|вірно|правильно)|(?:это|це)\s+(?:мой|мій|мо[её]|моє)|(?:мой|мій|мо[её]|моє)))?$/iu.test(text)) return true;
   return null;
 }

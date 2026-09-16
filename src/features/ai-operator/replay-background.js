@@ -1,4 +1,5 @@
-import { planAutonomousTurn } from './groq-planner.js';
+import { interpretOperatorTurn as planAutonomousTurn } from './groq-planner.js';
+import { runFactTurn } from './fact-runtime.js';
 
 const OPERATOR_CONFIG_KEY = 'simnet_ai_operator_runtime_v1';
 const FEEDBACK_KEY = 'simnet_ai_operator_feedback_v1';
@@ -70,15 +71,15 @@ async function evaluateReplayCase(rawCase = {}) {
     throw new Error('Replay case does not contain a customer turn.');
   }
   const { config, feedback } = await readOperatorContext();
-  const decision = await planAutonomousTurn({
-    chat: replayCase.chat,
-    customer: replayCase.customer,
+  const outcome = await runFactTurn({
+    text: replayCase.latestCustomer.text,
+    state: {},
     transcript: replayCase.transcript,
-    latestCustomer: replayCase.latestCustomer,
-    operatorConfig: config,
-    corrections: config.learnFromCorrections === false ? [] : feedback.slice(0, 12),
-    replayMode: true
+    interpret: input => planAutonomousTurn({ ...input, operatorConfig: config, meterContext: { scope: `replay:${replayCase.id}`, turnId: `replay:${Date.now()}` } }),
+    replay: true,
+    now: Number.isFinite(Date.parse(replayCase.latestCustomer.createdAt)) ? Date.parse(replayCase.latestCustomer.createdAt) : Date.now()
   });
+  const decision = outcome.decision;
   return {
     case: replayCase,
     decision,

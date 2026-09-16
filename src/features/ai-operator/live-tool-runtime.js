@@ -78,7 +78,20 @@ async function persistSnapshots(patch = {}) {
     const previous = current[String(billingId)] && typeof current[String(billingId)] === 'object'
       ? current[String(billingId)]
       : {};
+    const fieldObservedAt = { ...(previous.fieldObservedAt || {}) };
+    // Preserve the age of fields kept from a sparse response.
+    for (const section of ['finance', 'service']) {
+      for (const field of Object.keys(previous[section] || {})) {
+        const key = `${section}.${field}`;
+        if (!fieldObservedAt[key]) fieldObservedAt[key] = previous.financeObservedAt || previous.observedAt || '';
+      }
+      for (const [field, value] of Object.entries(snapshot[section] || {})) {
+        if (value === null || value === undefined || (value === '' && field !== 'nextTariff')) continue;
+        fieldObservedAt[`${section}.${field}`] = snapshot.observedAt || '';
+      }
+    }
     merged[String(billingId)] = {
+      fieldObservedAt,
       ...previous,
       ...snapshot,
       identity: mergeObject(previous.identity, snapshot.identity),
@@ -220,6 +233,9 @@ async function refreshLiveSnapshotForLab(labState = {}) {
   try {
     const live = await searchBillingLive(lookupArgs);
     if (!live?.ok) return null;
+    const id = billingIdFromLab(labState);
+    const fresh = live.snapshots?.[id];
+    if (!fresh || String(fresh.identity?.billingId || fresh.billingId || '') !== id) return null;
     await persistSnapshots(live.snapshots || {});
     return liveSnapshotForLab(labState);
   } catch {
@@ -245,7 +261,7 @@ function liveSnapshotResult(tool, snapshot) {
       finance,
       network,
       payments: Array.isArray(snapshot?.payments) ? snapshot.payments : [],
-      evidence: { billingSnapshot: BILLING_SNAPSHOT_KEY, source, observedAt: snapshot?.observedAt || '' }
+      evidence: { billingSnapshot: BILLING_SNAPSHOT_KEY, source, observedAt: snapshot?.financeObservedAt || snapshot?.observedAt || '', fieldObservedAt: snapshot?.fieldObservedAt }
     });
   }
 
@@ -302,7 +318,18 @@ export async function executeOperatorTool({ tool, toolArgs = {}, labState = {} }
   if (name === 'customer.lookup') return liveLookup(toolArgs);
 
   if (['customer.snapshot', 'billing.balance', 'billing.tariff', 'billing.payments'].includes(name)) {
+    if (!String(labState.confirmedCaseId || '').trim()) return result(name, false, 'IDENTITY_REQUIRED');
     let liveSnapshot = await liveSnapshotForLab(labState);
+    if (toolArgs.refresh) {
+      const observed = Date.parse(liveSnapshot?.financeObservedAt || liveSnapshot?.observedAt || '');
+      const maxAge = Number(toolArgs.maxAgeMs) || 120000;
+      const outdated = !Number.isFinite(observed) || Date.now() - observed >= maxAge || observed < Number(labState.invalidatedAt || 0);
+      if (outdated) {
+        const refreshed = await refreshLiveSnapshotForLab(labState);
+        if (refreshed) liveSnapshot = refreshed;
+        else return result(name, false, 'FRESH_DATA_UNAVAILABLE');
+      }
+    }
     if (liveSnapshot) {
       let liveResult = liveSnapshotResult(name, liveSnapshot);
       if (['billing.balance', 'billing.tariff'].includes(name) && liveResult?.code === 'DATA_NOT_AVAILABLE') {

@@ -1,0 +1,39 @@
+/* Whole settings page: light surfaces, readable text, SIMNET plum actions. */
+:root{color-scheme:light;background:#f4f5f8;color:#202433}
+body{background:linear-gradient(180deg,#faf8fa,#f1f3f7);color:#202433}
+.card{background:#fff;border-color:#dce0e7;box-shadow:0 6px 22px rgba(40,32,48,.05)}
+.top h1,.card h2,.card h3,.case-head strong{color:#202433}
+.eyebrow{color:#a50046}.version,.muted,.case-meta,.correction-count,.routes li span,.profile p{color:#596475!important}
+.card p,.field-label,.toggle-label{color:#465163}
+.badge{background:#f3edf1;border-color:#dacbd4;color:#74324f}
+.badge.ok,.status.ok,.profile span{background:#eaf7ef;border-color:#abd9bc;color:#22623b}
+.key-row input,.text-input,select,textarea{background:#fff;color:#202433;border-color:#cbd2dc}
+input::placeholder,textarea::placeholder{color:#6c7685}
+.toggle-row,.case-item,.routes li,.ai-lab-identity,.ai-lab-log{background:#f8f9fc;border-color:#dce0e7}
+.secondary{background:#f7eef3;border-color:#dbc5d1;color:#862249}.secondary:hover{background:#eddce5}
+.danger{background:#a62736;border-color:#912032;color:white}.danger:hover{background:#8e1b2a}
+.status,.case-summary{background:#eef1f6;color:#495569}
+.status.bad,.case-error{background:#fff0f1;color:#982838}
+.note,.note code{color:#596475!important}
+.section-head,.ai-replay-head{border-color:#dce0e7}
+.case-bubble,.ai-replay-panel,.ai-lab-event{background:#f8f9fc;color:#253044;border-color:#dce0e7}
+.empty{border-color:#cad1db;color:#596475}.mini-label{color:#626d7d}
+.profile{background:#f1faf4;border-color:#b9dbc5}
+.ai-lab-identity span,.ai-lab-log>summary,.ai-replay-meta{color:#586477}
+.ai-lab-identity.confirmed{border-color:#afd1bb;background:#f0f9f3}.ai-lab-identity.confirmed strong{color:#21603a}
+.ai-lab-identity.pending{border-color:#e5cd96;background:#fff9e9}.ai-lab-identity.pending strong{color:#805815}
+.ai-lab-chat{background:#f5f7fb;border-color:#dce0e7}
+.ai-lab-empty,.ai-lab-empty strong,.ai-lab-message-label,.ai-lab-log-empty{color:#5c687b}
+.ai-lab-message.agent .ai-lab-message-bubble{background:#fff;color:#202c3e;border-color:#d5dce6}
+.ai-lab-message.customer .ai-lab-message-bubble{background:#a50046;color:#fff}
+.ai-lab-quick button{background:#fff;color:#5b3347;border-color:#d8c9d2}.ai-lab-quick button:hover{background:#f5eaf0}
+.ai-lab-event>summary,.ai-replay-panel strong,.ai-lab-safety b,.ai-replay-file{color:#38475b}
+.ai-lab-event.tool_call>summary{color:#663b93}.ai-lab-event.tool_result>summary{color:#286941}.ai-lab-event.error>summary{color:#a32b39}
+.ai-lab-event pre,.ai-replay-panel pre{color:#344256;border-color:#dce0e7}
+.ai-api-cost{margin-top:12px;padding:12px;border:1px solid #d8c5d0;border-radius:10px;background:#fcf8fa}
+.ai-api-cost>strong{font-size:12px;color:#842347}
+.ai-api-cost-summary{margin-top:7px;font-size:12px;line-height:1.7;color:#283549;font-variant-numeric:tabular-nums}
+.ai-api-pricing{margin-top:8px}.ai-api-pricing summary{font-size:11px;color:#6e3650;cursor:pointer}
+.ai-api-price-grid{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:8px;margin-bottom:8px}
+.ai-api-price-grid input,.ai-api-price-grid select{margin-top:5px;min-width:0}.ai-api-price-grid label{min-width:0}
+@media(max-width:640px){.ai-api-price-grid{grid-template-columns:1fr 1fr}}
