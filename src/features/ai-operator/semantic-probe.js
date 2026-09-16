@@ -2,10 +2,14 @@ import { recordApiUsage } from './api-cost.js';
 import { AI_CONFIG, readAiRuntimeConfig } from '../../config/ai-config.js';
 import { SIMNET_KNOWLEDGE_VERSION, knowledgeQueryFromUnderstanding, searchKnowledgeLibrary } from './knowledge/index.js';
 
-const FALLBACK_MODELS = Object.freeze([
+const GENERATION_FALLBACK_MODELS = Object.freeze([
+  'qwen/qwen3.8-27b',
+  'qwen/qwen3.6-27b',
   'openai/gpt-oss-120b',
   'openai/gpt-oss-20b'
 ]);
+const PROMPT_GUARD_MODEL = 'meta-llama/llama-prompt-guard-2-86m';
+const MODEL_COOLDOWNS = new Map();
 
 function oneLine(value, max = 1000) {
   const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
@@ -45,12 +49,52 @@ function rateLimitFromHeaders(headers) {
   };
 }
 
-function modelsForRuntime(runtime = {}) {
-  const preferred = String(runtime.chatModel || AI_CONFIG.model || '').trim();
-  return [preferred, ...FALLBACK_MODELS].filter((model, index, all) => model && all.indexOf(model) === index);
+function durationMs(value) {
+  const source = String(value || '').trim().toLowerCase();
+  if (!source) return 0;
+  if (/^\d+(?:\.\d+)?$/.test(source)) return Math.ceil(Number(source) * 1000);
+  let total = 0;
+  const re = /(\d+(?:\.\d+)?)\s*(ms|h|m|s)/g;
+  for (const match of source.matchAll(re)) {
+    const amount = Number(match[1]);
+    const unit = match[2];
+    total += unit === 'ms' ? amount : unit === 'h' ? amount * 3600000 : unit === 'm' ? amount * 60000 : amount * 1000;
+  }
+  return Math.ceil(total);
 }
 
-async function requestModel(messages, apiKey, model, meterContext = {}, { jsonMode = true } = {}) {
+function markRateLimited(model, rateLimit = {}) {
+  const wait = Math.max(
+    durationMs(rateLimit.retryAfter),
+    durationMs(rateLimit.resetTokens),
+    5000
+  );
+  MODEL_COOLDOWNS.set(model, Date.now() + Math.min(wait + 1500, 180000));
+}
+
+function isCoolingDown(model) {
+  const until = Number(MODEL_COOLDOWNS.get(model) || 0);
+  if (!until) return false;
+  if (until <= Date.now()) {
+    MODEL_COOLDOWNS.delete(model);
+    return false;
+  }
+  return true;
+}
+
+function modelsForRuntime(runtime = {}) {
+  const preferred = String(runtime.chatModel || AI_CONFIG.model || '').trim();
+  const all = [preferred, ...GENERATION_FALLBACK_MODELS]
+    .filter((model, index, list) => model && model !== PROMPT_GUARD_MODEL && list.indexOf(model) === index);
+  const ready = all.filter(model => !isCoolingDown(model));
+  return ready.length ? ready : all;
+}
+
+async function requestModel(messages, apiKey, model, meterContext = {}, {
+  jsonMode = true,
+  maxTokens = 900,
+  temperature = 0.15
+} = {}) {
   let reportedUsage = null;
   let reportedModel = model;
   const controller = new AbortController();
@@ -58,8 +102,8 @@ async function requestModel(messages, apiKey, model, meterContext = {}, { jsonMo
   try {
     const body = {
       model,
-      temperature: 0.15,
-      max_tokens: 900,
+      temperature,
+      max_tokens: maxTokens,
       messages
     };
     if (jsonMode) body.response_format = { type: 'json_object' };
@@ -82,8 +126,10 @@ async function requestModel(messages, apiKey, model, meterContext = {}, { jsonMo
       const error = new Error(`Groq HTTP ${response.status} — ${oneLine(data?.error?.message || raw || response.statusText, 500)}`);
       error.status = response.status;
       error.rateLimit = rateLimit;
+      if (Number(response.status) === 429) markRateLimited(model, rateLimit);
       throw error;
     }
+    MODEL_COOLDOWNS.delete(model);
     const answer = data?.choices?.[0]?.message?.content;
     if (!answer) throw new Error('Semantic probe: Groq returned an empty response');
     return { answer: String(answer), model: reportedModel, usage: data?.usage || {}, rateLimit };
@@ -98,12 +144,13 @@ async function requestModel(messages, apiKey, model, meterContext = {}, { jsonMo
 
 async function requestJsonWithFallback(messages, runtime, meterContext = {}) {
   const failures = [];
-  for (const model of modelsForRuntime(runtime).slice(0, 2)) {
+  for (const model of modelsForRuntime(runtime)) {
     try {
       return await requestModel(messages, runtime.groqApiKey, model, meterContext, { jsonMode: true });
     } catch (error) {
       failures.push(error);
-      const generation400 = Number(error?.status || 0) === 400 && /generate json|validate json|failed_generation/i.test(String(error?.message || ''));
+      const status = Number(error?.status || 0);
+      const generation400 = status === 400 && /generate json|validate json|failed_generation/i.test(String(error?.message || ''));
       if (generation400) {
         try {
           return await requestModel(messages, runtime.groqApiKey, model, meterContext, { jsonMode: false });
@@ -111,10 +158,42 @@ async function requestJsonWithFallback(messages, runtime, meterContext = {}) {
           failures.push(retryError);
         }
       }
-      if ([401, 403].includes(Number(error?.status || 0))) break;
+      // A per-model 429 is not a reason to stop the turn: immediately try the next Groq model.
+      if ([401, 403].includes(status)) break;
     }
   }
   throw failures.at(-1) || new Error('Semantic probe failed');
+}
+
+async function runPromptGuard(latestCustomer = {}, runtime = {}, meterContext = {}) {
+  const text = block(latestCustomer?.text || '', 1600);
+  if (!text) return { model: PROMPT_GUARD_MODEL, skipped: true, output: '', usage: {}, rateLimit: {} };
+  try {
+    const response = await requestModel(
+      [{ role: 'user', content: text }],
+      runtime.groqApiKey,
+      PROMPT_GUARD_MODEL,
+      { ...meterContext, stage: 'prompt_guard' },
+      { jsonMode: false, maxTokens: 64, temperature: 0 }
+    );
+    return {
+      model: response.model || PROMPT_GUARD_MODEL,
+      skipped: false,
+      output: oneLine(response.answer, 500),
+      usage: response.usage || {},
+      rateLimit: response.rateLimit || {}
+    };
+  } catch (error) {
+    // Guard is advisory here: a temporary classifier failure must not break customer understanding.
+    return {
+      model: PROMPT_GUARD_MODEL,
+      skipped: false,
+      output: '',
+      error: oneLine(error?.message || error, 500),
+      usage: {},
+      rateLimit: error?.rateLimit || {}
+    };
+  }
 }
 
 function transcriptForProbe(transcript = []) {
@@ -293,10 +372,22 @@ function readableProbe(probe, knowledge) {
   ].filter(Boolean).join('\n');
 }
 
+function usageTotal(...items) {
+  return items.reduce((total, item) => ({
+    prompt_tokens: total.prompt_tokens + Number(item?.usage?.prompt_tokens || 0),
+    completion_tokens: total.completion_tokens + Number(item?.usage?.completion_tokens || 0),
+    total_tokens: total.total_tokens + Number(item?.usage?.total_tokens || 0)
+  }), { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+}
+
 export async function analyzeSubscriberIntent({ transcript = [], latestCustomer = {}, meterContext = {} } = {}) {
   const runtime = await readAiRuntimeConfig();
   const apiKey = String(runtime.groqApiKey || '').trim();
   if (!apiKey) throw new Error('Groq API key is not configured');
+
+  // Prompt Guard is a specialized classifier, not a general chat fallback. It gets only the latest
+  // customer text and its result is advisory; it never replaces semantic reasoning.
+  const guard = await runPromptGuard(latestCustomer, runtime, meterContext);
 
   const semanticMessages = buildSubscriberIntentProbeMessages({ transcript, latestCustomer });
   const semanticResponse = await requestJsonWithFallback(semanticMessages, runtime, { ...meterContext, stage: 'understanding' });
@@ -308,13 +399,10 @@ export async function analyzeSubscriberIntent({ transcript = [], latestCustomer 
   const knowledgeResponse = await requestJsonWithFallback(knowledgeMessages, runtime, { ...meterContext, stage: 'knowledge' });
   const knowledge = normalizeKnowledgeReflection(parseJsonObject(knowledgeResponse.answer), candidateArticles);
 
-  const totalUsage = {
-    prompt_tokens: Number(semanticResponse.usage?.prompt_tokens || 0) + Number(knowledgeResponse.usage?.prompt_tokens || 0),
-    completion_tokens: Number(semanticResponse.usage?.completion_tokens || 0) + Number(knowledgeResponse.usage?.completion_tokens || 0),
-    total_tokens: Number(semanticResponse.usage?.total_tokens || 0) + Number(knowledgeResponse.usage?.total_tokens || 0)
-  };
+  const totalUsage = usageTotal(guard, semanticResponse, knowledgeResponse);
   const promptChars = semanticMessages.reduce((sum, item) => sum + String(item.content || '').length, 0)
-    + knowledgeMessages.reduce((sum, item) => sum + String(item.content || '').length, 0);
+    + knowledgeMessages.reduce((sum, item) => sum + String(item.content || '').length, 0)
+    + String(latestCustomer?.text || '').length;
 
   return {
     probe,
@@ -330,11 +418,24 @@ export async function analyzeSubscriberIntent({ transcript = [], latestCustomer 
       reason: `Свободное понимание обращения + мягкое чтение ${SIMNET_KNOWLEDGE_VERSION}; fact-runtime/fact-catalog/dialogue-state не участвуют.`,
       confidence: probe.confidence,
       language: probe.language,
-      diagnostic: { understanding: probe, knowledge, candidates: candidateArticles.map(({ id, title, score }) => ({ id, title, score })) },
-      model: [semanticResponse.model, knowledgeResponse.model].filter(Boolean).join(' → '),
+      diagnostic: {
+        promptGuard: {
+          model: guard.model,
+          output: guard.output,
+          error: guard.error || '',
+          skipped: Boolean(guard.skipped)
+        },
+        understanding: probe,
+        knowledge,
+        candidates: candidateArticles.map(({ id, title, score }) => ({ id, title, score }))
+      },
+      model: [guard.model, semanticResponse.model, knowledgeResponse.model].filter(Boolean).join(' → '),
       usage: totalUsage,
-      rateLimit: knowledgeResponse.rateLimit || semanticResponse.rateLimit || {},
+      rateLimit: knowledgeResponse.rateLimit || semanticResponse.rateLimit || guard.rateLimit || {},
       promptChars
     }
   };
 }
+
+export const AI_OPERATOR_GENERATION_MODEL_POOL = [...GENERATION_FALLBACK_MODELS];
+export const AI_OPERATOR_PROMPT_GUARD_MODEL = PROMPT_GUARD_MODEL;
