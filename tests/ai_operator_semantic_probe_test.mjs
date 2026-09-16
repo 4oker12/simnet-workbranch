@@ -81,6 +81,26 @@ test('knowledge reflection treats encyclopedia as optional reference and separat
   assert.doesNotMatch(prompt, /обязательно вызови|обязан вызвать/i);
 });
 
+test('unknown company policy stays an explicit encyclopedia gap instead of becoming a customer-claim fact', () => {
+  const candidates = searchKnowledgeLibrary('Чув що компанія дає ветеранам знижку 15 відсотків', { limit: 6 });
+  assert.equal(candidates.length, 0, 'unconfirmed veteran discount must not be silently represented by an unrelated article');
+
+  const messages = buildKnowledgeReflectionMessages({
+    probe: {
+      whatUserWants: 'Узнать, есть ли в SIMNET скидка 15% для ветеранов',
+      factsSaidByUser: ['Клиент говорит, что слышал о скидке 15% для ветеранов'],
+      factsSaidByOperator: [],
+      ambiguities: []
+    },
+    candidateArticles: []
+  });
+  const prompt = messages.map(item => item.content).join('\n');
+  assert.match(prompt, /no_candidate_articles_found/);
+  assert.match(prompt, /knowledge_gaps/);
+  assert.match(prompt, /не превращай слова клиента.*в правило компании/i);
+  assert.match(prompt, /не записывай туда номер договора, адрес, модель роутера, баланс/i);
+});
+
 test('Replay knowledge experiment bypasses deterministic regulator files', () => {
   const source = fs.readFileSync(new URL('../src/features/ai-operator/replay-background.js', import.meta.url), 'utf8');
   assert.match(source, /semantic-probe\.js/);
