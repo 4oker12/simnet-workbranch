@@ -22,6 +22,12 @@ assert.match(replayBackground, /verdict.*unreviewed/s, 'batch evaluations must b
 assert.match(replayBackground, /filter\(existing => existing\?\.caseId !== item\.caseId\)/, 'manual verdict must replace the unreviewed result for the same case');
 assert.doesNotMatch(replayBackground, /executeOperatorTool/, 'historical replay must not execute current subscriber READ tools');
 assert.doesNotMatch(replayBackground, /method:\s*['"]POST['"]/, 'replay runtime must not perform outbound writes');
+assert.match(replayBackground, /isEmptyAiResponseError/, 'empty AI completions need an explicit recoverable Replay path');
+assert.match(replayBackground, /action:\s*'ai_no_response'/, 'an empty completion must remain visible as a recorded result');
+assert.match(replayBackground, /code:\s*'AI_NO_RESPONSE'/, 'empty completion diagnostics must not be hidden');
+assert.match(replayBackground, /recoverable:\s*true/, 'empty completion must be marked recoverable so the batch can continue');
+assert.match(replayBackground, /Кейс пропущен, Replay продолжает со следующего/, 'Replay should explain that only the failed case is skipped');
+assert.doesNotMatch(replayBackground, /if \(!isEmptyAiResponseError\(error\)\)\s*return/, 'non-empty runtime errors must not be silently swallowed');
 
 assert.match(settingsHtml, /Replay реальных обращений/, 'settings must expose stage 2 replay lab');
 assert.match(settingsHtml, /id="aiReplayFile"/, 'replay lab must accept a HelpCrunch JSON export');
