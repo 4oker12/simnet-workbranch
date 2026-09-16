@@ -1,0 +1,48 @@
+function clone(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function text(value, max = 500) {
+  const normalized = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+  return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
+}
+
+export function isSubscriberLogin(value) {
+  return /^abon\s*\d{3,12}$/i.test(text(value, 80));
+}
+
+export function normalizeLabLookupDecision(decision = {}) {
+  const next = clone(decision) || {};
+  if (String(next.tool || '') !== 'customer.lookup') return next;
+
+  const args = next.toolArgs && typeof next.toolArgs === 'object' && !Array.isArray(next.toolArgs)
+    ? { ...next.toolArgs }
+    : {};
+  const mistakenContract = text(args.contract, 80);
+  if (!isSubscriberLogin(mistakenContract)) {
+    next.toolArgs = args;
+    return next;
+  }
+
+  delete args.contract;
+  if (!args.query) args.query = mistakenContract.replace(/\s+/g, '');
+  next.toolArgs = args;
+  return next;
+}
+
+export function publicPendingCandidate(candidate = null) {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null;
+  return {
+    contract: text(candidate.contract, 80),
+    login: text(candidate.login, 80),
+    address: text(candidate.address, 240),
+    ip: text(candidate.ip, 80)
+  };
+}
+
+export function sanitizeLookupToolResultData(data = {}) {
+  const copy = clone(data && typeof data === 'object' && !Array.isArray(data) ? data : {}) || {};
+  if (copy.candidate) copy.candidate = publicPendingCandidate(copy.candidate);
+  if (Array.isArray(copy.candidates)) copy.candidates = copy.candidates.map(publicPendingCandidate).filter(Boolean);
+  return copy;
+}

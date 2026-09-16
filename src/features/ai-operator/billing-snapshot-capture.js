@@ -93,6 +93,24 @@
     }).filter(item => item.date || item.description || item.amount).slice(0, 6);
   }
 
+  function readActiveServices() {
+    const services = [];
+    for (const checkbox of document.querySelectorAll('input[type="checkbox"][name^="sr"]')) {
+      if (!checkbox.checked) continue;
+      const outerRow = checkbox.closest('tr');
+      const innerRow = checkbox.closest('table')?.querySelector('tr') || outerRow;
+      const cells = innerRow ? [...innerRow.querySelectorAll(':scope > td, :scope > th')] : [];
+      const rawName = clean(cells[0]?.textContent || '', 220).replace(/^услуга\s*/i, '');
+      const amountText = clean(cells[cells.length - 1]?.textContent || '', 120);
+      services.push({
+        name: rawName || clean(checkbox.name, 80),
+        amount: money(amountText),
+        amountText
+      });
+    }
+    return services.slice(0, 20);
+  }
+
   function readAuthorization() {
     const row = document.querySelector('table.usrlist tbody tr');
     if (!row) return {};
@@ -111,9 +129,20 @@
 
   function readMain() {
     const login = loginFromPage();
-    const contract = clean(input('contract') || login.replace(/^abon/i, ''), 80);
+    const contract = clean(input('contract'), 80);
     const temporaryText = temporaryPaymentText();
     const auth = readAuthorization();
+    const activeServices = readActiveServices();
+    const activeServiceAmounts = activeServices.map(item => item.amount).filter(Number.isFinite);
+    const activeServicesComplete = activeServices.length === activeServiceAmounts.length;
+    const activeServicesTotal = activeServicesComplete
+      ? activeServiceAmounts.reduce((sum, value) => sum + value, 0)
+      : null;
+    const totalDue = money(rowValue([/^разом до сплати/i, /^итого к оплате/i]));
+    const derivedBaseTariffAmount = Number.isFinite(totalDue) && Number.isFinite(activeServicesTotal)
+      ? Math.max(0, totalDue - activeServicesTotal)
+      : null;
+
     return {
       identity: {
         billingId: billingId() || auth.billingId,
@@ -125,17 +154,22 @@
       service: {
         group: selected('grp'),
         currentTariff: selected('paket'),
-        nextTariff: selected('next_paket'),
+        nextTariff: document.querySelector('select[name="next_paket"]') ? selected('next_paket') : null,
         nextTariffDelay: selected('next_paket_delay'),
         accessState: selected('state'),
         serviceState: selected('cstate'),
         startDay: input('start_day'),
-        limit: rowValue([/^лимит$/i])
+        limit: rowValue([/^лимит$/i]),
+        activeServices,
+        activeServicesTotal,
+        derivedBaseTariffAmount
       },
       finance: {
         accountBalance: money(rowValue([/^на счету,?\s*грн/i, /^на рахунку,?\s*грн/i])),
         price: money(rowValue([/^ціна,?\s*грн/i, /^цена,?\s*грн/i])),
-        totalDue: money(rowValue([/^разом до сплати/i, /^итого к оплате/i])),
+        priceSemantics: 'generic_price_row_not_guaranteed_to_be_internet_tariff',
+        totalDue,
+        totalDueSemantics: 'current_billing_total_for_rendered_service_set_not_future_charge',
         balanceAfterTariff: money(rowValue([/на счете с учетом стоимости тарифного плана/i, /на рахунку з урахуванням вартості тарифного плану/i])),
         balanceWithoutTemporary: money(rowValue([/на счете без учета временных платежей/i, /на рахунку без урахування тимчасових платежів/i])),
         temporaryPayment: money(temporaryText),
@@ -228,7 +262,7 @@
       else if (tmpl === '2') patch = readAddress();
       else return;
       const login = loginFromPage();
-      if (login) patch.identity = { ...(patch.identity || {}), billingId: id, login, contract: login.replace(/^abon/i, '') };
+      if (login) patch.identity = { ...(patch.identity || {}), billingId: id, login };
     }
 
     const stored = await chrome.storage.local.get(STORE_KEY);
@@ -237,6 +271,15 @@
     const next = deepMerge(current, patch);
     next.billingId = id;
     next.observedAt = new Date().toISOString();
+    if (action === 'user') next.financeObservedAt = next.observedAt;
+    next.fieldObservedAt = { ...(current.fieldObservedAt || {}) };
+    for (const section of ['finance', 'service']) {
+      for (const field of Object.keys(current[section] || {})) {
+        const key = `${section}.${field}`;
+        if (!next.fieldObservedAt[key]) next.fieldObservedAt[key] = current.financeObservedAt || current.observedAt || '';
+      }
+      for (const field of Object.keys(patch[section] || {})) next.fieldObservedAt[`${section}.${field}`] = next.observedAt;
+    }
     next.source = 'billing-dom-read-only';
     all[id] = next;
 

@@ -6,6 +6,7 @@
   <title>SIMNET Workbench · Settings</title>
   <link rel="stylesheet" href="settings.css">
   <link rel="stylesheet" href="ai-operator-lab.css">
+  <link rel="stylesheet" href="settings-light.css">
 </head>
 <body>
   <main class="shell">
@@ -148,6 +149,46 @@
         </div>
       </details>
 
+      <div class="section-head ai-replay-head">
+        <div>
+          <h3>Replay реальных обращений</h3>
+          <p class="muted">Загрузи JSON-экспорт HelpCrunch. Workbench выделит реальные переходы «клиент → живой оператор» и прогонит текущий AI на том же контексте.</p>
+        </div>
+        <div class="actions ai-lab-head-actions">
+          <input id="aiReplayFile" class="ai-replay-file" type="file" accept="application/json,.json">
+          <button id="aiReplayExport" class="secondary compact-button" type="button">Экспорт результатов</button>
+        </div>
+      </div>
+      <p class="note ai-replay-note"><b>Важно:</b> исторический ответ оператора — только эталон для сравнения. Если для ответа нужны Billing/сеть/PON, replay не выдумывает старые CRM-данные: нормальным решением может быть <code>tool_required</code>.</p>
+      <div id="aiReplayStatus" class="status ai-replay-status">Загрузите HelpCrunch JSON.</div>
+      <div id="aiReplayMeta" class="ai-replay-meta">Replay-кейсы не загружены.</div>
+
+      <div id="aiReplayTranscript" class="ai-lab-chat ai-replay-chat" aria-live="polite">
+        <div class="ai-lab-empty">Replay-кейсы не загружены.</div>
+      </div>
+
+      <div class="ai-replay-compare">
+        <div class="ai-replay-panel">
+          <strong>Реальный ответ оператора</strong>
+          <pre id="aiReplayReference">—</pre>
+        </div>
+        <div class="ai-replay-panel">
+          <strong>Решение текущего AI</strong>
+          <pre id="aiReplayAi">—</pre>
+        </div>
+      </div>
+
+      <label class="field-label" for="aiReplayNote">Если GAP — какого правила или логики не хватает?</label>
+      <textarea id="aiReplayNote" rows="3" placeholder="Например: после уточнения адреса не спрашивать договор повторно. Не копируй сюда старые суммы/баланс как постоянное правило."></textarea>
+      <div class="actions ai-replay-actions">
+        <button id="aiReplayPrev" class="secondary" type="button">← Предыдущий</button>
+        <button id="aiReplayEvaluate" type="button">Прогнать кейс</button>
+        <button id="aiReplayNext" class="secondary" type="button">Следующий →</button>
+        <button id="aiReplayPass" class="secondary" type="button">PASS</button>
+        <button id="aiReplayGap" class="danger" type="button">GAP · сохранить правило</button>
+        <button id="aiReplaySkip" class="secondary" type="button">SKIP</button>
+      </div>
+
       <div class="section-head">
         <div>
           <h3>Последние решения AI</h3>
@@ -183,5 +224,6 @@
   </main>
   <script src="settings.js"></script>
   <script src="ai-operator-lab.js"></script>
+  <script type="module" src="ai-operator-replay.js"></script>
 </body>
 </html>

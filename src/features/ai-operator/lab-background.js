@@ -1,5 +1,8 @@
-import { planAutonomousTurn } from './groq-planner.js';
-import { executeOperatorTool } from './tool-runtime.js';
+import { apiCostSummary, saveApiPrice } from './api-cost.js';
+import { basicConfirmationValue } from './basic-case-router.js';
+import { interpretOperatorTurn } from './groq-planner.js';
+import { executeOperatorTool } from './live-tool-runtime.js';
+import { runFactTurn } from './fact-runtime.js';
 
 const LAB_KEY = 'simnet_ai_operator_lab_v1';
 const OPERATOR_CONFIG_KEY = 'simnet_ai_operator_runtime_v1';
@@ -7,11 +10,13 @@ const FEEDBACK_KEY = 'simnet_ai_operator_feedback_v1';
 const MAX_MESSAGES = 60;
 const MAX_EVENTS = 140;
 const MAX_TOOL_TURNS = 6;
+const MAX_CONTEXT_TOOL_RESULTS = 6;
 
 const TYPES = Object.freeze({
   GET: 'AI_OPERATOR_LAB_GET',
   SEND: 'AI_OPERATOR_LAB_SEND',
-  RESET: 'AI_OPERATOR_LAB_RESET'
+  RESET: 'AI_OPERATOR_LAB_RESET',
+  PRICE: 'AI_OPERATOR_LAB_PRICE'
 });
 
 let turnPromise = null;
@@ -37,6 +42,13 @@ function id(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function normalizeContextToolResults(value) {
+  return (Array.isArray(value) ? value : [])
+    .filter(item => item && typeof item === 'object' && !Array.isArray(item))
+    .slice(-MAX_CONTEXT_TOOL_RESULTS)
+    .map(clone);
+}
+
 function emptyLab() {
   return {
     version: 1,
@@ -46,6 +58,9 @@ function emptyLab() {
     pendingCandidate: null,
     confirmedCaseId: '',
     confirmedSubscriber: null,
+    contextToolResults: [],
+    conversationState: null,
+    lastMeterTurnId: null,
     lastDecision: null,
     createdAt: nowIso(),
     updatedAt: nowIso()
@@ -66,6 +81,9 @@ function normalizeLab(raw = {}) {
     confirmedSubscriber: raw.confirmedSubscriber && typeof raw.confirmedSubscriber === 'object'
       ? raw.confirmedSubscriber
       : null,
+    contextToolResults: normalizeContextToolResults(raw.contextToolResults),
+    lastMeterTurnId: raw.lastMeterTurnId || null,
+    conversationState: raw.conversationState && typeof raw.conversationState === 'object' ? raw.conversationState : null,
     lastDecision: raw.lastDecision && typeof raw.lastDecision === 'object'
       ? raw.lastDecision
       : null,
@@ -76,12 +94,15 @@ function normalizeLab(raw = {}) {
 
 async function readLab() {
   const raw = (await chrome.storage.local.get(LAB_KEY))?.[LAB_KEY];
-  return normalizeLab(raw || {});
+  const lab = normalizeLab(raw || {});
+  lab.apiCost = await apiCostSummary(lab.id, lab.lastMeterTurnId);
+  return lab;
 }
 
 async function writeLab(lab) {
   const next = normalizeLab({ ...lab, updatedAt: nowIso() });
   await chrome.storage.local.set({ [LAB_KEY]: next });
+  next.apiCost = await apiCostSummary(next.id, next.lastMeterTurnId);
   return next;
 }
 
@@ -118,190 +139,53 @@ function appendEvent(lab, type, payload = {}) {
   return event;
 }
 
-function plannerLabState(lab) {
-  return {
-    pendingCandidate: clone(lab.pendingCandidate),
-    confirmedCaseId: String(lab.confirmedCaseId || ''),
-    confirmedSubscriber: clone(lab.confirmedSubscriber)
-  };
-}
-
-function applyStatePatch(lab, patch = {}) {
-  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return;
-  if (Object.prototype.hasOwnProperty.call(patch, 'pendingCandidate')) {
-    lab.pendingCandidate = patch.pendingCandidate && typeof patch.pendingCandidate === 'object'
-      ? clone(patch.pendingCandidate)
-      : null;
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, 'confirmedCaseId')) {
-    lab.confirmedCaseId = String(patch.confirmedCaseId || '');
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, 'confirmedSubscriber')) {
-    lab.confirmedSubscriber = patch.confirmedSubscriber && typeof patch.confirmedSubscriber === 'object'
-      ? clone(patch.confirmedSubscriber)
-      : null;
-  }
-}
-
-function publicToolResult(toolResult = {}) {
-  return {
-    tool: String(toolResult.tool || ''),
-    ok: Boolean(toolResult.ok),
-    code: String(toolResult.code || ''),
-    observedAt: String(toolResult.observedAt || ''),
-    data: clone(toolResult.data || {}),
-    warnings: Array.isArray(toolResult.warnings) ? clone(toolResult.warnings) : []
-  };
-}
-
-function toolSignature(decision = {}) {
-  let args = '';
-  try { args = JSON.stringify(decision.toolArgs || {}); } catch {}
-  return `${String(decision.tool || '')}|${args}`;
-}
-
 async function runTurn(customerText) {
   const lab = await readLab();
   const incoming = compact(customerText, 4000);
   if (!incoming) throw new Error('Напиши сообщение от имени абонента.');
-
-  const customerMessage = appendMessage(lab, 'customer', incoming);
-  appendEvent(lab, 'customer_message', { messageId: customerMessage.id, text: incoming });
+  const message = appendMessage(lab, 'customer', incoming);
+  lab.lastMeterTurnId = message.id;
+  const confirmationOnly = value => basicConfirmationValue(value) !== null;
+  appendEvent(lab, 'customer_message', { messageId: message.id, text: incoming, confirmationOnly: confirmationOnly(incoming) });
   await writeLab(lab);
-
-  const { config, feedback } = await readOperatorConfig();
-  const toolResults = [];
-  const seenToolCalls = new Set();
-  let finalDecision = null;
-
-  for (let turn = 0; turn <= MAX_TOOL_TURNS; turn += 1) {
-    const transcript = lab.messages.map(message => ({
-      id: message.id,
-      role: message.role,
-      text: message.text,
-      createdAt: message.at
-    }));
-
-    const decision = await planAutonomousTurn({
-      labMode: true,
-      chat: { id: lab.id, provider: 'manual-test-lab' },
-      customer: {},
-      transcript,
-      latestCustomer: { id: customerMessage.id, text: customerMessage.text },
-      operatorConfig: config,
-      corrections: feedback.slice(0, 12),
-      labState: plannerLabState(lab),
-      toolResults
-    });
-
-    lab.lastDecision = clone(decision);
-    appendEvent(lab, 'decision', {
-      action: decision.action,
-      domain: decision.domain,
-      intent: decision.intent,
-      tool: decision.tool,
-      toolArgs: clone(decision.toolArgs || {}),
-      reply: decision.reply,
-      reason: decision.reason,
-      confidence: decision.confidence,
-      model: decision.model
-    });
-
-    if (decision.action !== 'tool_required') {
-      finalDecision = decision;
-      break;
+  const { config } = await readOperatorConfig();
+  const outcome = await runFactTurn({
+    text: incoming,
+    state: lab.conversationState || {
+      confirmedCaseId: lab.confirmedCaseId,
+      confirmedSubscriber: lab.confirmedSubscriber,
+      pendingCandidate: lab.pendingCandidate
+    },
+    transcript: lab.messages,
+    interpret: input => interpretOperatorTurn({ ...input, operatorConfig: config, meterContext: { scope: lab.id, turnId: message.id } }),
+    execute: executeOperatorTool,
+    maxReads: MAX_TOOL_TURNS,
+    onEvent: async (event, state) => {
+      appendEvent(lab, event.type, event);
+      lab.conversationState = state;
+      await writeLab(lab);
     }
-
-    if (!decision.tool) {
-      appendEvent(lab, 'error', { code: 'EMPTY_TOOL', message: 'AI запросил tool_required без имени инструмента.' });
-      finalDecision = {
-        ...decision,
-        action: 'escalate',
-        reply: 'Не удалось выбрать проверку. Нужна проверка оператором.'
-      };
-      break;
-    }
-
-    if (turn >= MAX_TOOL_TURNS) {
-      const message = `Достигнут лимит ${MAX_TOOL_TURNS} READ-вызовов за один ход.`;
-      appendEvent(lab, 'error', { code: 'TOOL_LOOP_LIMIT', message });
-      finalDecision = {
-        ...decision,
-        action: 'escalate',
-        intent: 'tool_loop_limit',
-        reply: 'Не удалось завершить проверку автоматически. Нужна проверка оператором.',
-        reason: message
-      };
-      break;
-    }
-
-    const signature = toolSignature(decision);
-    if (seenToolCalls.has(signature)) {
-      appendEvent(lab, 'error', {
-        code: 'REPEATED_TOOL_CALL',
-        tool: decision.tool,
-        message: 'AI повторил тот же tool-вызов без изменения аргументов.'
-      });
-      finalDecision = {
-        ...decision,
-        action: 'escalate',
-        reply: 'Эта проверка не дала новых данных. Нужна дополнительная проверка оператором.'
-      };
-      break;
-    }
-    seenToolCalls.add(signature);
-
-    appendEvent(lab, 'tool_call', {
-      tool: decision.tool,
-      toolArgs: clone(decision.toolArgs || {})
-    });
-
-    const toolResult = await executeOperatorTool({
-      tool: decision.tool,
-      toolArgs: decision.toolArgs || {},
-      labState: plannerLabState(lab)
-    });
-
-    applyStatePatch(lab, toolResult.statePatch || {});
-    const visibleResult = publicToolResult(toolResult);
-    toolResults.push(visibleResult);
-    appendEvent(lab, 'tool_result', visibleResult);
-    await writeLab(lab);
-  }
-
-  if (!finalDecision) {
-    finalDecision = {
-      action: 'escalate',
-      domain: 'other',
-      intent: 'tool_loop_limit',
-      reply: 'Не удалось завершить проверку автоматически. Нужна проверка оператором.',
-      reason: `Достигнут лимит ${MAX_TOOL_TURNS} READ-вызовов за один ход.`,
-      confidence: 0,
-      model: ''
-    };
-    appendEvent(lab, 'error', {
-      code: 'TOOL_LOOP_LIMIT',
-      message: finalDecision.reason
-    });
-  }
-
-  const reply = compact(finalDecision.reply, Number(config.maxReplyChars || 700) || 700);
-  if (['reply', 'ask', 'escalate'].includes(finalDecision.action)) {
-    const output = reply || 'Не удалось сформировать текст ответа. Нужна проверка оператором.';
-    appendMessage(lab, 'agent', output, {
-      action: finalDecision.action,
-      intent: finalDecision.intent || '',
-      model: finalDecision.model || ''
-    });
-  }
-
-  lab.lastDecision = clone(finalDecision);
+  });
+  // REPEATED_TOOL_CALL is prevented by the shared resolver's per-turn source cache.
+  lab.conversationState = outcome.state;
+  lab.confirmedCaseId = outcome.state.confirmedCaseId;
+  lab.confirmedSubscriber = outcome.state.confirmedSubscriber;
+  lab.pendingCandidate = outcome.state.pendingCandidate;
+  // Legacy UI projection only; authoritative memory is conversationState.facts.
+  lab.contextToolResults = outcome.events.filter(e => e.type === 'tool_result').slice(-MAX_CONTEXT_TOOL_RESULTS);
+  lab.lastDecision = outcome.decision;
+  appendEvent(lab, 'decision', { ...outcome.decision, promptTokens: outcome.decision.usage?.prompt_tokens || 0 });
+  if (outcome.decision.reply) appendMessage(lab, 'agent', outcome.decision.reply, {
+    action: outcome.decision.action, intent: outcome.decision.intent, model: outcome.decision.model
+  });
   return writeLab(lab);
 }
 
 async function resetLab() {
+  if (turnPromise) throw new Error('Дождитесь завершения текущего ответа перед сбросом диалога.');
   const next = emptyLab();
   await chrome.storage.local.set({ [LAB_KEY]: next });
+  next.apiCost = await apiCostSummary(next.id, null);
   return next;
 }
 
@@ -317,6 +201,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   const action = type === TYPES.GET
     ? readLab()
+    : type === TYPES.PRICE
+      ? saveApiPrice(message?.payload).then(() => readLab())
     : type === TYPES.RESET
       ? resetLab()
       : serializedTurn(message?.payload?.text || '');

@@ -15,6 +15,9 @@
   if (!transcriptNode || !eventsNode || !identityNode || !input || !sendButton || !resetButton || !statusNode) return;
 
   let latestState = null;
+  let usageNode = null;
+  let costPanel = null;
+  let priceControls = null;
 
   function short(value, max = 260) {
     const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
@@ -40,6 +43,17 @@
     return node;
   }
 
+  function ensureUsageNode() {
+    if (usageNode?.isConnected) return usageNode;
+    usageNode = document.getElementById('aiLabUsage');
+    if (usageNode) return usageNode;
+    usageNode = create('div', 'status compact ai-lab-token-usage', 'Tokens · —');
+    usageNode.id = 'aiLabUsage';
+    usageNode.title = 'Фактический usage последнего LLM-вызова и лимит Groq из HTTP headers.';
+    identityNode.insertAdjacentElement('afterend', usageNode);
+    return usageNode;
+  }
+
   function json(value) {
     try { return JSON.stringify(value ?? null, null, 2); } catch { return String(value ?? ''); }
   }
@@ -54,6 +68,109 @@
     const date = new Date(value);
     const pad = number => String(number).padStart(2, '0');
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+  }
+
+  function number(value) {
+    const parsed = Number(value || 0);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  }
+
+  function renderUsage(state = {}) {
+    const node = ensureUsageNode();
+    const last = state?.lastDecision || {};
+    const usage = last?.usage || {};
+    const rate = last?.rateLimit || {};
+    const inputTokens = number(usage.prompt_tokens ?? usage.input_tokens);
+    const outputTokens = number(usage.completion_tokens ?? usage.output_tokens);
+    const totalTokens = number(usage.total_tokens) || inputTokens + outputTokens;
+
+    const cutoff = Date.now() - 60_000;
+    const input60s = (Array.isArray(state?.events) ? state.events : [])
+      .filter(event => event?.type === 'decision' && Date.parse(event?.at || 0) >= cutoff)
+      .reduce((sum, event) => sum + number(event?.promptTokens), 0);
+
+    if (!inputTokens && !outputTokens && !totalTokens) {
+      node.textContent = 'Tokens · 0 · этот ход без LLM-вызова';
+      return;
+    }
+
+    const parts = [
+      `Tokens · ${inputTokens} in / ${outputTokens} out = ${totalTokens}`,
+      input60s ? `input 60с: ${input60s}` : ''
+    ];
+
+    const limit = number(rate.limitTokens);
+    const remaining = number(rate.remainingTokens);
+    if (limit) parts.push(`Groq: ${remaining}/${limit} осталось`);
+    if (rate.resetTokens) parts.push(`reset ${rate.resetTokens}`);
+    if (rate.retryAfter) parts.push(`retry ${rate.retryAfter}s`);
+    node.textContent = parts.filter(Boolean).join(' · ');
+  }
+
+  function usd(value) {
+    const amount = Number(value || 0);
+    return amount > 0 && amount < 0.000001 ? '<$0.000001' : '$' + amount.toFixed(6);
+  }
+
+  function renderCost(state = {}) {
+    if (!costPanel) {
+      const section = create('section', 'ai-api-cost');
+      section.setAttribute('aria-label', 'Расход API');
+      costPanel = create('div', 'ai-api-cost-summary');
+      costPanel.id = 'aiLabCost';
+      costPanel.setAttribute('aria-live', 'polite');
+      const details = create('details', 'ai-api-pricing');
+      details.append(create('summary', '', 'Изменить цены моделей'));
+      const form = create('div', 'ai-api-price-grid');
+      const model = create('select');
+      const fields = {};
+      const modelLabel = create('label', 'field-label', 'Модель');
+      modelLabel.append(model); form.append(modelLabel);
+      for (const [key, title] of [['input', 'Вход · $ / 1 млн'], ['output', 'Выход · $ / 1 млн'], ['cached', 'Кэш · $ / 1 млн']]) {
+        const label = create('label', 'field-label', title);
+        const field = create('input', 'text-input'); field.type = 'number'; field.min = '0'; field.step = 'any';
+        if (key === 'cached') field.placeholder = 'По цене входа';
+        label.append(field); form.append(label); fields[key] = field;
+      }
+      const save = create('button', 'secondary', 'Сохранить цену'); save.type = 'button';
+      const notice = create('div', 'status'); notice.setAttribute('role', 'status');
+      const fill = () => {
+        const rate = latestState?.apiCost?.prices?.[model.value] || {};
+        for (const [key, field] of Object.entries(fields)) field.value = rate[key] ?? '';
+      };
+      model.addEventListener('change', fill);
+      save.addEventListener('click', async () => {
+        save.disabled = true;
+        try {
+          const updated = await runtime('AI_OPERATOR_LAB_PRICE', { model: model.value, ...Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value])) });
+          render(updated); notice.textContent = 'Цена сохранена. Оценка пересчитана по сохранённым токенам.';
+        } catch (error) { notice.textContent = short(error.message || error); }
+        finally { save.disabled = false; }
+      });
+      details.append(form, save, notice);
+      section.append(create('strong', '', 'Расход API · оценка USD'), costPanel, details,
+        create('p', 'note', 'По usage ответов API. Счётчик только автооператора в этом Chrome-профиле; не баланс Groq и не расходы других приложений. Неизвестные списания не считаются нулевыми.'));
+      ensureUsageNode().insertAdjacentElement('afterend', section);
+      priceControls = { model, fill };
+    }
+    const cost = state.apiCost;
+    if (!cost) { costPanel.textContent = 'Счётчик расходов недоступен.'; return; }
+    const summary = (name, data = {}) => `${name}: ≈ ${usd(data.usd)}${data.missingUsage || data.unpricedCalls ? ' + неизвестная часть' : ''}`;
+    costPanel.textContent = [summary('Последний ход', cost.turn), summary('Диалог', cost.session), summary('Всего с начала учёта', cost.total),
+      `API-попыток в диалоге: ${cost.session.calls} · токены ${cost.session.input} вход / ${cost.session.output} выход`,
+      cost.total.missingUsage ? `Без полного usage: ${cost.total.missingUsage}` : '',
+      cost.total.unpricedCalls ? `Цена модели не задана: ${cost.total.unpricedCalls} выз.` : '',
+      cost.total.cacheAtRegularRate ? 'Кэш с неизвестным тарифом оценён по обычной входной цене.' : '',
+      cost.storageError ? 'Ошибка сохранения счётчика: итог может быть неполным.' : ''
+    ].filter(Boolean).join(' · ');
+    const selected = priceControls.model.value;
+    const names = [...new Set([...Object.keys(cost.prices || {}), ...(cost.models || [])])];
+    if (state.lastDecision?.model && !['fact-runtime', 'deterministic-basic-router'].includes(state.lastDecision.model) && !names.includes(state.lastDecision.model)) names.push(state.lastDecision.model);
+    if (Array.from(priceControls.model.options).map(o => o.value).join('|') !== names.join('|')) {
+      priceControls.model.replaceChildren(...names.map(name => { const option = create('option', '', name); option.value = name; return option; }));
+      priceControls.model.value = names.includes(selected) ? selected : names[0];
+      priceControls.fill();
+    }
   }
 
   function identityLabel(state = {}) {
@@ -126,7 +243,10 @@
   function eventSummary(event = {}) {
     if (event.type === 'tool_call') return `TOOL → ${event.tool || 'unknown'}`;
     if (event.type === 'tool_result') return `RESULT ← ${event.tool || 'unknown'} · ${event.code || (event.ok ? 'OK' : 'ERROR')}`;
-    if (event.type === 'decision') return `AI DECISION · ${event.action || '—'}${event.tool ? ` → ${event.tool}` : ''}`;
+    if (event.type === 'decision') {
+      const tokens = number(event.promptTokens);
+      return `AI DECISION · ${event.action || '—'}${event.tool ? ` → ${event.tool}` : ''}${tokens ? ` · ${tokens} in` : ''}`;
+    }
     if (event.type === 'error') return `ERROR · ${event.code || 'runtime'}`;
     if (event.type === 'customer_message') return 'CLIENT MESSAGE';
     return String(event.type || 'event').toUpperCase();
@@ -166,6 +286,8 @@
   function render(state = {}) {
     latestState = state && typeof state === 'object' ? state : {};
     renderIdentity(latestState);
+    renderUsage(latestState);
+    renderCost(latestState);
     renderMessages(latestState.messages || []);
     renderEvents(latestState.events || []);
     const last = latestState.lastDecision || {};
@@ -215,6 +337,8 @@
       `Created: ${localTime(state.createdAt)}`,
       `Updated: ${localTime(state.updatedAt)}`,
       `Identity: ${identity.title}${identity.detail ? ` · ${identity.detail}` : ''}`,
+      '',
+      `API COST ESTIMATE USD: ${json(state.apiCost || {})}`,
       '',
       '=== DIALOG ==='
     ];

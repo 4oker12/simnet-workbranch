@@ -59,8 +59,8 @@ function firstDefined(...values) {
 }
 
 function normalizeContract(value) {
-  const source = String(value == null ? '' : value).trim().toLowerCase().replace(/^abon\s*/i, '');
-  return source.replace(/\D/g, '');
+  const source = String(value == null ? '' : value).trim();
+  return /^\d{1,12}$/.test(source) ? source : '';
 }
 
 function normalizeAddress(value) {
@@ -110,17 +110,26 @@ async function loadBillingSnapshots() {
 
 function snapshotForCase(caseId, caseData = {}, snapshots = {}) {
   const billingId = text(firstValue(caseData, ['identity.billingId']) || caseId, 80);
-  if (billingId && snapshots[billingId]) return snapshots[billingId];
-
-  const contract = normalizeContract(firstValue(caseData, ['identity.contract']));
-  const login = normalizeContract(firstValue(caseData, ['identity.login']));
-  for (const snapshot of Object.values(snapshots)) {
-    if (!snapshot || typeof snapshot !== 'object') continue;
-    const snapshotContract = normalizeContract(snapshot?.identity?.contract);
-    const snapshotLogin = normalizeContract(snapshot?.identity?.login);
-    if (contract && (snapshotContract === contract || snapshotLogin === contract)) return snapshot;
-    if (login && (snapshotContract === login || snapshotLogin === login)) return snapshot;
+  if (billingId && snapshots[billingId]) {
+    const found = snapshots[billingId];
+    const contract = text(firstValue(caseData, ['identity.contract']), 80);
+    const login = text(firstValue(caseData, ['identity.login']), 80).toLowerCase();
+    if (contract && found.identity?.contract && contract !== String(found.identity.contract)) return null;
+    if (login && found.identity?.login && login !== String(found.identity.login).toLowerCase()) return null;
+    return found;
   }
+
+  const contract = text(firstValue(caseData, ['identity.contract']), 80);
+  const login = text(firstValue(caseData, ['identity.login']), 80).toLowerCase();
+  const matches = Object.values(snapshots).filter(snapshot => {
+    if (!snapshot || typeof snapshot !== 'object') return false;
+    const identity = snapshot.identity || {};
+    if (contract && identity.contract && contract !== String(identity.contract)) return false;
+    if (login && identity.login && login !== String(identity.login).toLowerCase()) return false;
+    return Boolean((contract && String(identity.contract) === contract) || (login && String(identity.login).toLowerCase() === login));
+  });
+  if (matches.length === 1) return matches[0];
+
   return null;
 }
 
@@ -154,19 +163,21 @@ function candidateMatchScore(summary, query = {}) {
   const rawIp = normalizeIp(raw);
   const rawAddress = normalizeAddress(raw);
 
-  const candidateContract = normalizeContract(summary.contract || summary.login);
-  const candidateLogin = normalizeContract(summary.login);
-  const candidateBillingId = normalizeContract(summary.billingId);
+  const candidateContract = normalizeContract(summary.contract);
   const candidateAddress = normalizeAddress(summary.address);
   const candidateIp = normalizeIp(summary.ip);
 
-  const soughtContract = contract || (/^(?:abon\s*)?\d{3,12}$/i.test(raw) ? rawContract : '');
+  const soughtLogin = text(query.login || (/^abon\s*\d{3,12}$/i.test(raw) ? raw : ''), 80).replace(/\s/g, '').toLowerCase();
+  const soughtContract = contract || (/^\d{3,12}$/.test(raw) ? rawContract : '');
   const soughtIp = ip || rawIp;
-  const soughtAddress = address || (!soughtContract && !soughtIp ? rawAddress : '');
+  const soughtAddress = address || (!soughtContract && !soughtLogin && !soughtIp ? rawAddress : '');
 
+  if (soughtLogin) {
+    if (String(summary.login || '').toLowerCase() === soughtLogin) score += 100;
+    else return 0;
+  }
   if (soughtContract) {
-    if (candidateContract === soughtContract || candidateLogin === soughtContract) score += 100;
-    else if (candidateBillingId === soughtContract) score += 85;
+    if (candidateContract === soughtContract) score += 100;
     else return 0;
   }
   if (soughtIp) {
@@ -205,6 +216,7 @@ async function lookupCustomer(toolArgs = {}) {
   const entries = Object.entries(state?.cases || {});
   const hasQuery = Boolean(
     normalizeContract(toolArgs.contract)
+    || text(toolArgs.login, 80)
     || normalizeAddress(toolArgs.address)
     || normalizeIp(toolArgs.ip)
     || text(toolArgs.query, 300)
@@ -369,8 +381,11 @@ function richSubscriberSnapshot(caseId, caseData = {}, snapshot = null, sourceKe
     service: {
       group: text(service.group, 260),
       currentTariff: text(firstDefined(service.currentTariff, firstValue(caseData, ['profile.tariff'])), 320),
-      nextTariff: text(service.nextTariff, 320),
+      nextTariff: typeof service.nextTariff === 'string' ? text(service.nextTariff, 320) : null,
       nextTariffDelay: text(service.nextTariffDelay, 120),
+      nextTariffPrice: service.nextTariffPrice ?? null,
+      activeServices: service.activeServices,
+      activeServicesTotal: service.activeServicesTotal,
       accessState: text(service.accessState, 120),
       serviceState: text(service.serviceState, 120),
       startDay: text(service.startDay, 80),
@@ -403,7 +418,8 @@ function richSubscriberSnapshot(caseId, caseData = {}, snapshot = null, sourceKe
     evidence: {
       workbenchState: sourceKey,
       billingSnapshot: snapshot ? BILLING_SNAPSHOT_KEY : '',
-      billingSnapshotObservedAt: text(snapshot?.observedAt, 100)
+      billingSnapshotObservedAt: text(snapshot?.financeObservedAt || snapshot?.observedAt, 100),
+      fieldObservedAt: snapshot?.fieldObservedAt
     }
   };
 }
