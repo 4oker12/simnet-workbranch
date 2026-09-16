@@ -4,11 +4,7 @@ import { recordApiUsage } from './api-cost.js';
 import { AI_CONFIG, readAiRuntimeConfig } from '../../config/ai-config.js';
 import { AI_OPERATOR_GENERATION_MODEL_POOL } from './semantic-probe.js';
 
-export const AI_OPERATOR_SOFT_TOOL_CAPABILITIES = Object.freeze({
-  billing: true,
-  userside: true,
-  network: true
-});
+export const AI_OPERATOR_SOFT_TOOL_CAPABILITIES = Object.freeze({ billing: true, userside: true, network: true });
 
 export const AI_OPERATOR_TOOL_CAPABILITY_DETAILS = Object.freeze({
   billing: 'live-read-only',
@@ -18,6 +14,7 @@ export const AI_OPERATOR_TOOL_CAPABILITY_DETAILS = Object.freeze({
 
 export const AI_OPERATOR_SOFT_TOOL_CATALOG = Object.freeze([
   { name: 'customer.lookup', source: 'Billing', purpose: 'Найти абонента по договору, login, IP или адресу через текущую авторизованную Billing-сессию.' },
+  { name: 'customer.confirm', source: 'Conversation', purpose: 'Подтвердить или отклонить найденного по адресу кандидата.' },
   { name: 'customer.snapshot', source: 'Billing', purpose: 'Прочитать live-снимок карточки подтверждённого абонента.' },
   { name: 'billing.balance', source: 'Billing', purpose: 'Прочитать баланс и финансовое состояние.' },
   { name: 'billing.tariff', source: 'Billing', purpose: 'Прочитать текущий/следующий тариф и состояние услуги.' },
@@ -28,16 +25,7 @@ export const AI_OPERATOR_SOFT_TOOL_CATALOG = Object.freeze([
   { name: 'pon.signal', source: 'UserSide/PON', purpose: 'Прочитать live оптические показатели ONU; при недоступности использовать подтверждённый Workbench fallback.' }
 ]);
 
-const ACCOUNT_TOOLS = new Set([
-  'customer.snapshot',
-  'billing.balance',
-  'billing.tariff',
-  'billing.payments',
-  'userside.snapshot',
-  'network.session',
-  'pon.onu',
-  'pon.signal'
-]);
+const ACCOUNT_TOOLS = new Set(['customer.snapshot', 'billing.balance', 'billing.tariff', 'billing.payments', 'userside.snapshot', 'network.session', 'pon.onu', 'pon.signal']);
 const SYNTHESIS_COOLDOWNS = new Map();
 
 function oneLine(value, max = 500) {
@@ -45,11 +33,7 @@ function oneLine(value, max = 500) {
   return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
 }
 function block(value, max = 2600) {
-  const normalized = String(value == null ? '' : value)
-    .replace(/\r\n?/g, '\n')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  const normalized = String(value == null ? '' : value).replace(/\r\n?/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
 }
 function stringList(value, maxItems = 8, maxChars = 360) {
@@ -206,11 +190,7 @@ export function mapInformationNeedsToTools(needs = []) {
     calls.push({
       tool,
       toolArgs: freshTools.has(tool) ? { refresh: true, maxAgeMs: 120000 } : {},
-      requestedBy: {
-        system: oneLine(need?.system, 80),
-        field: oneLine(need?.field, 160),
-        why: oneLine(need?.why, 260)
-      }
+      requestedBy: { system: oneLine(need?.system, 80), field: oneLine(need?.field, 160), why: oneLine(need?.why, 260) }
     });
   }
   return calls.slice(0, 5);
@@ -218,6 +198,17 @@ export function mapInformationNeedsToTools(needs = []) {
 
 function customerMessages(transcript = []) {
   return (Array.isArray(transcript) ? transcript : []).filter(item => item?.role === 'customer' && oneLine(item?.text, 1200)).slice(-12);
+}
+function latestCustomerText(transcript = []) {
+  return oneLine(customerMessages(transcript).at(-1)?.text, 500);
+}
+function pendingConfirmation(transcript = [], state = {}) {
+  if (!state?.pendingCandidate || state?.confirmedCaseId) return null;
+  const source = latestCustomerText(transcript).toLowerCase().replace(/[.!?,;:]+$/g, '').trim();
+  if (!source) return null;
+  if (/^(?:да|так|ага|угу|верно|вірно|правильно|це\s+він|это\s+он|це\s+мій|это\s+мой|мій|мой)$/.test(source)) return true;
+  if (/^(?:нет|ні|неа|не\s+он|не\s+він|не\s+мой|не\s+мій|неверно|невірно)$/.test(source)) return false;
+  return null;
 }
 
 export function extractIdentityHints(transcript = [], analysis = {}) {
@@ -237,8 +228,8 @@ export function extractIdentityHints(transcript = [], analysis = {}) {
       const semanticRef = `${oneLine(analysis?.probe?.refersTo, 400)} ${oneLine(analysis?.probe?.latestMessageMeans, 500)}`;
       if (/договор|договір|номер|login|логин|особов|лицев/i.test(`${previous} ${semanticRef}`)) return { contract: source.trim() };
     }
-    if (/\b(?:адрес|адреса|вул\.?|улица|ул\.?|просп\.?|проспект|пров\.?|переулок|буд\.?|будинок|дом|д\.?|кв\.?|квартира)\b/i.test(source) && /\d/.test(source)) {
-      return { address: source.replace(/^\s*(?:адрес|адреса)\s*[:\-]?\s*/i, '').trim() };
+    if (/(?:^|\s)(?:адрес|адреса|вул\.?|улица|ул\.?|просп\.?|проспект|пров\.?|переулок|буд\.?|будинок|дом|д\.?|кв\.?|квартира)(?:\s|$)/iu.test(source) && /\d/.test(source)) {
+      return { address: source.replace(/^\s*(?:адрес|адреса)\s*[:\-]?\s*/iu, '').trim() };
     }
   }
   const userFacts = Array.isArray(analysis?.probe?.factsSaidByUser) ? analysis.probe.factsSaidByUser : [];
@@ -248,7 +239,7 @@ export function extractIdentityHints(transcript = [], analysis = {}) {
     if (login) return { login: login.toLowerCase() };
     const contract = source.match(/(?:договор|договір|лицев|особов)[^\d]{0,30}(\d{3,12})/i)?.[1];
     if (contract) return { contract };
-    const address = source.match(/(?:адрес|адреса)\s*[:\-]?\s*(.+)$/i)?.[1];
+    const address = source.match(/(?:адрес|адреса)\s*[:\-]?\s*(.+)$/iu)?.[1];
     if (address && /\d/.test(address)) return { address: oneLine(address, 320) };
   }
   return {};
@@ -270,7 +261,14 @@ export async function executeInformationNeeds({ needs = [], transcript = [], ana
   let state = applyStatePatch({}, labState);
   const calls = [];
   const needsAccount = planned.some(item => ACCOUNT_TOOLS.has(item.tool));
-  if (needsAccount && !String(state.confirmedCaseId || '').trim()) {
+  const confirmation = pendingConfirmation(transcript, state);
+  if (confirmation !== null) {
+    calls.push({
+      tool: 'customer.confirm',
+      toolArgs: { confirmed: confirmation },
+      requestedBy: { system: 'identity', field: 'pendingCandidate', why: confirmation ? 'Клиент подтвердил найденное подключение.' : 'Клиент отклонил найденное подключение.' }
+    });
+  } else if (needsAccount && !String(state.confirmedCaseId || '').trim() && !state.pendingCandidate) {
     const identity = extractIdentityHints(transcript, analysis);
     if (Object.keys(identity).length) {
       calls.push({
@@ -288,15 +286,7 @@ export async function executeInformationNeeds({ needs = [], transcript = [], ana
     try {
       toolResult = await execute({ tool: call.tool, toolArgs: call.toolArgs || {}, labState: state });
     } catch (error) {
-      toolResult = {
-        ok: false,
-        tool: call.tool,
-        code: 'TOOL_EXECUTION_ERROR',
-        observedAt: new Date().toISOString(),
-        data: { message: oneLine(error?.message || error, 500) },
-        warnings: [],
-        statePatch: {}
-      };
+      toolResult = { ok: false, tool: call.tool, code: 'TOOL_EXECUTION_ERROR', observedAt: new Date().toISOString(), data: { message: oneLine(error?.message || error, 500) }, warnings: [], statePatch: {} };
     }
     state = applyStatePatch(state, toolResult?.statePatch || {});
     trace.push({
@@ -325,16 +315,11 @@ export async function executeInformationNeeds({ needs = [], transcript = [], ana
       warnings: []
     });
   }
-
   return { planned, trace, labState: state };
 }
 
 function normalizeDataNeeds(value) {
-  return (Array.isArray(value) ? value : []).map(item => ({
-    system: oneLine(item?.system, 80),
-    field: oneLine(item?.field, 160),
-    why: oneLine(item?.why, 300)
-  })).filter(item => item.system || item.field || item.why).slice(0, 6);
+  return (Array.isArray(value) ? value : []).map(item => ({ system: oneLine(item?.system, 80), field: oneLine(item?.field, 160), why: oneLine(item?.why, 300) })).filter(item => item.system || item.field || item.why).slice(0, 6);
 }
 function fallbackFromAnalysis(analysis = {}, toolTrace = []) {
   const failedIdentity = toolTrace.some(item => ['IDENTITY_REQUIRED', 'IDENTITY_HINT_MISSING', 'AMBIGUOUS_IDENTITY'].includes(item.code));
@@ -344,25 +329,13 @@ function fallbackFromAnalysis(analysis = {}, toolTrace = []) {
   if (goal) return `Я понял запрос: ${goal}. Сейчас не удалось получить подтверждённые данные, поэтому не буду придумывать ответ. Попробуйте повторить запрос.`;
   return 'Запрос получен, но сейчас не удалось сформировать корректный ответ. Повторите, пожалуйста, сообщение.';
 }
-
 export function ensureNonEmptyReply(reply, analysis = {}, toolTrace = []) {
   return block(reply, 2200) || fallbackFromAnalysis(analysis, toolTrace);
 }
 
 function synthesisMessages({ transcript = [], latestCustomer = {}, analysis = {}, draft = {}, toolTrace = [], useKnowledge = true } = {}) {
-  const dialogue = (Array.isArray(transcript) ? transcript : []).slice(-14).map(item => ({
-    role: item?.role === 'customer' ? 'customer' : 'operator',
-    text: block(item?.text, 700)
-  })).filter(item => item.text);
-  const evidence = toolTrace.map(item => ({
-    tool: item.tool,
-    ok: item.ok,
-    code: item.code,
-    observed_at: item.observedAt,
-    source: item.source,
-    data: item.data,
-    warnings: item.warnings
-  }));
+  const dialogue = (Array.isArray(transcript) ? transcript : []).slice(-14).map(item => ({ role: item?.role === 'customer' ? 'customer' : 'operator', text: block(item?.text, 700) })).filter(item => item.text);
+  const evidence = toolTrace.map(item => ({ tool: item.tool, ok: item.ok, code: item.code, observed_at: item.observedAt, source: item.source, data: item.data, warnings: item.warnings }));
   return [
     {
       role: 'system',
@@ -382,7 +355,6 @@ function synthesisMessages({ transcript = [], latestCustomer = {}, analysis = {}
     }
   ];
 }
-
 function normalizeSynthesis(raw = {}, draft = {}) {
   const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   return {
@@ -398,28 +370,14 @@ function normalizeSynthesis(raw = {}, draft = {}) {
   };
 }
 
-export async function groundSubscriberReply({
-  draft = {}, transcript = [], latestCustomer = {}, analysis = {}, useKnowledge = true,
-  labState = {}, execute, meterContext = {}
-} = {}) {
+export async function groundSubscriberReply({ draft = {}, transcript = [], latestCustomer = {}, analysis = {}, useKnowledge = true, labState = {}, execute, meterContext = {} } = {}) {
   const needs = normalizeDataNeeds(draft?.subscriberDataNeeded);
   const cycle = await executeInformationNeeds({ needs, transcript, analysis, labState, execute });
   const hasToolActivity = cycle.trace.length > 0;
   const safeDraft = ensureNonEmptyReply(draft?.reply, analysis, cycle.trace);
-
   if (!hasToolActivity) {
-    return {
-      ...draft,
-      reply: safeDraft,
-      subscriberDataNeeded: needs,
-      toolTrace: [],
-      toolEvidence: [],
-      degraded: Boolean(draft?.degraded),
-      degradationReason: oneLine(draft?.degradationReason, 500),
-      toolState: cycle.labState
-    };
+    return { ...draft, reply: safeDraft, subscriberDataNeeded: needs, toolTrace: [], toolEvidence: [], degraded: Boolean(draft?.degraded), degradationReason: oneLine(draft?.degradationReason, 500), toolState: cycle.labState };
   }
-
   try {
     const response = await requestSynthesis(
       synthesisMessages({ transcript, latestCustomer, analysis, draft: { ...draft, reply: safeDraft }, toolTrace: cycle.trace, useKnowledge }),
