@@ -4,6 +4,7 @@ import fs from 'node:fs';
 const html = fs.readFileSync(new URL('../src/ui/settings.html', import.meta.url), 'utf8');
 const workspace = fs.readFileSync(new URL('../src/ui/settings-accordion.js', import.meta.url), 'utf8');
 const css = fs.readFileSync(new URL('../src/ui/settings.css', import.meta.url), 'utf8');
+const lightCss = fs.readFileSync(new URL('../src/ui/settings-light.css', import.meta.url), 'utf8');
 const lab = fs.readFileSync(new URL('../src/ui/ai-operator-lab.js', import.meta.url), 'utf8');
 const labCss = fs.readFileSync(new URL('../src/ui/ai-operator-lab.css', import.meta.url), 'utf8');
 
@@ -52,6 +53,8 @@ assert.match(lab, /Нужны live-данные/, 'Manual Lab diagnostics must s
 assert.match(lab, /Пересчитать последний ход/, 'Manual Lab must expose live retuning workflow');
 assert.match(lab, /UserSide-контекст не выдаётся за свежий глобальный поиск/, 'Manual Lab must disclose UserSide freshness limitations');
 assert.match(labCss, /\.ai-lab-sliders/, 'behavior controls must have dedicated layout');
+assert.match(lightCss, /\.ai-lab-sliders\{display:grid!important/, 'behavior tuning scale must remain visible in the light Lab UI');
+assert.match(lightCss, /\.ai-lab-experiment-head>div:first-child\{display:flex/, 'behavior tuning scale must keep its explanatory heading visible');
 assert.match(labCss, /\.ai-lab-comparison-grid/, 'A/B answers must have dedicated comparison layout');
 assert.match(labCss, /\.ai-lab-diagnostic-row/, 'live diagnostics must have dedicated visual rows');
 
