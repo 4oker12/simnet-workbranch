@@ -16,7 +16,7 @@ const normalized = normalizeLabLookupDecision({
   toolArgs: { contract: 'abon31590' },
   reason: 'lookup subscriber'
 });
-assert.deepEqual(normalized.toolArgs, { query: 'abon31590' }, 'abonNNN must not be logged/executed as a contract field');
+assert.deepEqual(normalized.toolArgs, { contract: '31590' }, 'abonNNN must canonicalize to the same numeric contract identity as NNN');
 
 const untouchedContract = normalizeLabLookupDecision({
   action: 'tool_required',
