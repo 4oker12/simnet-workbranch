@@ -11,6 +11,7 @@ const GENERATION_FALLBACK_MODELS = Object.freeze([
 const PROMPT_GUARD_MODEL = 'meta-llama/llama-prompt-guard-2-86m';
 const MODEL_COOLDOWNS = new Map();
 const KNOWLEDGE_NEEDS = new Set(['none', 'maybe', 'needed']);
+const KNOWLEDGE_MODES = new Set(['off', 'auto', 'on']);
 
 function oneLine(value, max = 1000) {
   const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
@@ -65,11 +66,7 @@ function durationMs(value) {
 }
 
 function markRateLimited(model, rateLimit = {}) {
-  const wait = Math.max(
-    durationMs(rateLimit.retryAfter),
-    durationMs(rateLimit.resetTokens),
-    5000
-  );
+  const wait = Math.max(durationMs(rateLimit.retryAfter), durationMs(rateLimit.resetTokens), 5000);
   MODEL_COOLDOWNS.set(model, Date.now() + Math.min(wait + 1500, 180000));
 }
 
@@ -101,19 +98,11 @@ async function requestModel(messages, apiKey, model, meterContext = {}, {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.min(45_000, Number(AI_CONFIG.timeoutMs || 45_000)));
   try {
-    const body = {
-      model,
-      temperature,
-      max_tokens: maxTokens,
-      messages
-    };
+    const body = { model, temperature, max_tokens: maxTokens, messages };
     if (jsonMode) body.response_format = { type: 'json_object' };
     const response = await fetch(`${AI_CONFIG.baseUrl}/chat/completions`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal: controller.signal
     });
@@ -143,23 +132,22 @@ async function requestModel(messages, apiKey, model, meterContext = {}, {
   }
 }
 
-async function requestJsonWithFallback(messages, runtime, meterContext = {}) {
+async function requestJsonWithFallback(messages, runtime, meterContext = {}, requestOptions = {}) {
   const failures = [];
   for (const model of modelsForRuntime(runtime)) {
     try {
-      return await requestModel(messages, runtime.groqApiKey, model, meterContext, { jsonMode: true });
+      return await requestModel(messages, runtime.groqApiKey, model, meterContext, { jsonMode: true, ...requestOptions });
     } catch (error) {
       failures.push(error);
       const status = Number(error?.status || 0);
       const generation400 = status === 400 && /generate json|validate json|failed_generation/i.test(String(error?.message || ''));
       if (generation400) {
         try {
-          return await requestModel(messages, runtime.groqApiKey, model, meterContext, { jsonMode: false });
+          return await requestModel(messages, runtime.groqApiKey, model, meterContext, { jsonMode: false, ...requestOptions });
         } catch (retryError) {
           failures.push(retryError);
         }
       }
-      // A per-model 429 is not a reason to stop the turn: immediately try the next Groq model.
       if ([401, 403].includes(status)) break;
     }
   }
@@ -177,33 +165,16 @@ async function runPromptGuard(latestCustomer = {}, runtime = {}, meterContext = 
       { ...meterContext, stage: 'prompt_guard' },
       { jsonMode: false, maxTokens: 64, temperature: 0 }
     );
-    return {
-      model: response.model || PROMPT_GUARD_MODEL,
-      skipped: false,
-      output: oneLine(response.answer, 500),
-      usage: response.usage || {},
-      rateLimit: response.rateLimit || {}
-    };
+    return { model: response.model || PROMPT_GUARD_MODEL, skipped: false, output: oneLine(response.answer, 500), usage: response.usage || {}, rateLimit: response.rateLimit || {} };
   } catch (error) {
-    // Guard is advisory here: a temporary classifier failure must not break customer understanding.
-    return {
-      model: PROMPT_GUARD_MODEL,
-      skipped: false,
-      output: '',
-      error: oneLine(error?.message || error, 500),
-      usage: {},
-      rateLimit: error?.rateLimit || {}
-    };
+    return { model: PROMPT_GUARD_MODEL, skipped: false, output: '', error: oneLine(error?.message || error, 500), usage: {}, rateLimit: error?.rateLimit || {} };
   }
 }
 
 function transcriptForProbe(transcript = []) {
   return (Array.isArray(transcript) ? transcript : [])
     .slice(-24)
-    .map(item => ({
-      role: item?.role === 'customer' ? 'customer' : 'operator',
-      text: block(item?.text || '', 700)
-    }))
+    .map(item => ({ role: item?.role === 'customer' ? 'customer' : 'operator', text: block(item?.text || '', 700) }))
     .filter(item => item.text);
 }
 
@@ -216,11 +187,11 @@ export function buildSubscriberIntentProbeMessages({ transcript = [], latestCust
 
 Это общение с человеком, а не классификация заранее известных команд. Люди пишут неполно, с ошибками, эмоциями, намёками, сменой темы и короткими ответами. Нельзя заранее перечислить все возможные формулировки.
 
-Твоя задача — свободно понять смысл разговора: чего человек хочет добиться, что является главным и второстепенным, к чему относится последняя реплика, какие факты он сам сообщил и что действительно остаётся неоднозначным.
+Твоя задача — свободно понять смысл разговора: чего человек хочет добиться, что является главным и второстепенным, к чему относится последняя реплика, какие факты он сам сообщил, какие вопросы/просьбы ещё не закрыты и что действительно остаётся неоднозначным.
 
 Не отвечай абоненту. Не выбирай инструменты. Не проверяй Billing. Не применяй бизнес-правила. Не вычисляй суммы. Не пытайся уложить фразу в фиксированную матрицу intent/entity. Не оценивай правильность ответа прошлого оператора.
 
-Смотри на весь доступный диалог, особенно на непосредственно предыдущую реплику оператора. Короткие ответы вроде «да», «нет», «не знаю», «а сколько?», «почему?», «а следующий?» понимай только в контексте разговора. Опечатки и смешение русского/украинского воспринимай как обычную речь.
+Смотри на весь доступный диалог, особенно на непосредственно предыдущую реплику оператора. Короткие ответы вроде «да», «нет», «не знаю», «а сколько?», «почему?», «а следующий?» понимай только в контексте разговора. Опечатки и смешение русского/украинского воспринимай как обычную речь. Служебные кнопки/пункты меню сами по себе не означают смену реальной темы, если последующий контекст этого не подтверждает.
 
 Контекст: оператор работает у интернет-провайдера. Поэтому слова «скорость», «тариф», «роутер», «оплата», «интернет», «договор» прежде всего трактуй в контексте услуги связи, если сам диалог не указывает иначе.
 
@@ -243,27 +214,19 @@ export function buildSubscriberIntentProbeMessages({ transcript = [], latestCust
   "underlying_goal":"более широкая цель клиента, если она видна",
   "facts_said_by_user":["только то, что клиент реально сообщил/утверждает"],
   "facts_said_by_operator":["важные утверждения прошлого оператора, если они влияют на контекст"],
+  "unresolved_requests":["реальные незакрытые вопросы/просьбы клиента из текущего диалога"],
   "ambiguities":["только реальная неоднозначность смысла; не придумывай лишние варианты"],
   "knowledge_need":"none|maybe|needed",
   "knowledge_reason":"коротко: что именно энциклопедия может добавить или почему она не нужна",
   "confidence":0.0
 }`
     },
-    {
-      role: 'user',
-      content: JSON.stringify({
-        dialogue,
-        latest_customer_message: block(latestCustomer?.text || '', 1200)
-      })
-    }
+    { role: 'user', content: JSON.stringify({ dialogue, latest_customer_message: block(latestCustomer?.text || '', 1200) }) }
   ];
 }
 
 function stringList(value, maxItems = 8, maxChars = 260) {
-  return (Array.isArray(value) ? value : [])
-    .map(item => oneLine(item, maxChars))
-    .filter(Boolean)
-    .slice(0, maxItems);
+  return (Array.isArray(value) ? value : []).map(item => oneLine(item, maxChars)).filter(Boolean).slice(0, maxItems);
 }
 
 function normalizeKnowledgeNeed(value) {
@@ -281,6 +244,7 @@ function normalizeProbe(raw = {}) {
     underlyingGoal: oneLine(value.underlying_goal || '', 500),
     factsSaidByUser: stringList(value.facts_said_by_user),
     factsSaidByOperator: stringList(value.facts_said_by_operator),
+    unresolvedRequests: stringList(value.unresolved_requests, 8, 420),
     ambiguities: stringList(value.ambiguities, 6),
     knowledgeNeed: normalizeKnowledgeNeed(value.knowledge_need),
     knowledgeReason: oneLine(value.knowledge_reason || '', 420),
@@ -293,12 +257,7 @@ export function shouldReadKnowledge(probe = {}) {
 }
 
 function articlePayload(article) {
-  return {
-    id: article.id,
-    title: article.title,
-    summary: article.summary,
-    text: block(article.text, 2400)
-  };
+  return { id: article.id, title: article.title, summary: article.summary, text: block(article.text, 2400) };
 }
 
 export function buildKnowledgeReflectionMessages({ probe = {}, candidateArticles = [] } = {}) {
@@ -316,11 +275,11 @@ export function buildKnowledgeReflectionMessages({ probe = {}, candidateArticles
 - не придумывай правил, цен, фактов Billing/сети или выполненных действий;
 - утверждение клиента остаётся customer_claim, пока внутренний источник его не подтвердил;
 - утверждение прошлого оператора не становится автоматически фактом энциклопедии;
-- гипотезы допустимы, но явно помечай их как hypothesis и объясняй, на чём они основаны;
+- гипотеза допустима только если у неё есть конкретное основание в диалоге, прочитанной статье или технической причинно-следственной связи. Не добавляй «типичную практику отрасли», штрафы, сроки, документы и другие общие догадки, которых нет в источниках;
 - не создавай искусственные «неясности» и не перечисляй всё, что вообще можно было бы проверить;
 - отделяй главное от второстепенного: если для понимания простого вопроса достаточно одного понятия, не тащи соседние статьи и поля;
 - если клиент спрашивает о конкретном внутреннем правиле/условии SIMNET, а среди статей нет подтверждения этого правила, запиши это в knowledge_gaps. Не превращай слова клиента или прошлого оператора в правило компании;
-- knowledge_gaps — только пробел внутренней энциклопедии. Не записывай туда номер договора, адрес, модель роутера, баланс и другие персональные данные, которые просто понадобятся позже из tools.
+- knowledge_gaps — только пробел внутренней энциклопедии. Не записывай туда номер договора, адрес, модель роутера, баланс, текущий тариф конкретного договора и другие персональные/live-данные, которые должны прийти из Billing/UserSide/сети.
 
 Верни только JSON:
 {
@@ -329,7 +288,7 @@ export function buildKnowledgeReflectionMessages({ probe = {}, candidateArticles
   "how_it_applies":"как внутреннее знание уточняет понимание текущего обращения",
   "already_enough":["что уже понятно/достаточно на уровне смысла"],
   "must_not_assume":["что нельзя превращать в факт без проверки"],
-  "hypotheses":[{"text":"допустимое предположение","basis":"на чём оно основано"}],
+  "hypotheses":[{"text":"допустимое предположение","basis":"конкретное основание из диалога/KB/технической логики"}],
   "knowledge_gaps":["какого внутреннего правила/знания SIMNET нет в энциклопедии, если это действительно важно"]
 }`
     },
@@ -349,15 +308,13 @@ function normalizeUsedArticles(value, candidateArticles) {
   const allowed = new Map(candidateArticles.map(article => [article.id, article.title]));
   return (Array.isArray(value) ? value : [])
     .map(item => ({ id: oneLine(item?.id || '', 100), why: oneLine(item?.why || '', 360) }))
-    .filter(item => item.id && allowed.has(item.id))
-    .slice(0, 6);
+    .filter(item => item.id && allowed.has(item.id)).slice(0, 6);
 }
 
 function normalizeHypotheses(value) {
   return (Array.isArray(value) ? value : [])
     .map(item => ({ text: oneLine(item?.text || '', 360), basis: oneLine(item?.basis || '', 420) }))
-    .filter(item => item.text)
-    .slice(0, 4);
+    .filter(item => item.text).slice(0, 4);
 }
 
 function normalizeKnowledgeReflection(raw = {}, candidateArticles = []) {
@@ -375,10 +332,10 @@ function normalizeKnowledgeReflection(raw = {}, candidateArticles = []) {
   };
 }
 
-function skippedKnowledge(probe = {}) {
+function skippedKnowledge(probe = {}, reason = 'semantic_gate_none') {
   return {
     skipped: true,
-    skipReason: 'semantic_gate_none',
+    skipReason: reason,
     usedArticles: [],
     relevantInternalKnowledge: [],
     howItApplies: '',
@@ -392,10 +349,8 @@ function skippedKnowledge(probe = {}) {
 function readableProbe(probe, knowledge) {
   const articleNames = knowledge.usedArticles.map(item => item.id).join(', ');
   const encyclopediaLine = knowledge.skipped
-    ? `4. Энциклопедия: пропущена — ${probe.knowledgeReason || 'внутренние знания не нужны для понимания этой реплики'}.`
-    : articleNames
-      ? `4. Что посмотрел в энциклопедии: ${articleNames}`
-      : '4. Энциклопедия: подтверждённая релевантная статья не выбрана.';
+    ? `4. Энциклопедия: пропущена — ${knowledge.skipReason === 'knowledge_mode_off' ? 'режим OFF' : (probe.knowledgeReason || 'внутренние знания не нужны для понимания этой реплики')}.`
+    : articleNames ? `4. Что посмотрел в энциклопедии: ${articleNames}` : '4. Энциклопедия: подтверждённая релевантная статья не выбрана.';
   return [
     probe.whatUserWants ? `1. Что хочет абонент: ${probe.whatUserWants}` : '',
     probe.latestMessageMeans ? `2. Смысл последней реплики: ${probe.latestMessageMeans}` : '',
@@ -403,6 +358,7 @@ function readableProbe(probe, knowledge) {
     probe.underlyingGoal ? `   Общая цель: ${probe.underlyingGoal}` : '',
     probe.factsSaidByUser.length ? `3. Что сообщил клиент: ${probe.factsSaidByUser.join('; ')}` : '',
     probe.factsSaidByOperator.length ? `   Контекст от прошлого оператора: ${probe.factsSaidByOperator.join('; ')}` : '',
+    probe.unresolvedRequests.length ? `   Незакрытые вопросы/просьбы: ${probe.unresolvedRequests.join('; ')}` : '',
     encyclopediaLine,
     knowledge.relevantInternalKnowledge.length ? `   Полезное внутреннее знание: ${knowledge.relevantInternalKnowledge.join('; ')}` : '',
     knowledge.howItApplies ? `5. Как это относится к обращению: ${knowledge.howItApplies}` : '',
@@ -421,15 +377,18 @@ function usageTotal(...items) {
   }), { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
 }
 
-export async function analyzeSubscriberIntent({ transcript = [], latestCustomer = {}, meterContext = {} } = {}) {
+function normalizeKnowledgeMode(value) {
+  const mode = oneLine(value || 'auto', 12).toLowerCase();
+  return KNOWLEDGE_MODES.has(mode) ? mode : 'auto';
+}
+
+export async function analyzeSubscriberIntent({ transcript = [], latestCustomer = {}, meterContext = {}, knowledgeMode = 'auto' } = {}) {
   const runtime = await readAiRuntimeConfig();
   const apiKey = String(runtime.groqApiKey || '').trim();
   if (!apiKey) throw new Error('Groq API key is not configured');
+  const mode = normalizeKnowledgeMode(knowledgeMode);
 
-  // Prompt Guard is a specialized classifier, not a general chat fallback. It gets only the latest
-  // customer text and its result is advisory; it never replaces semantic reasoning.
   const guard = await runPromptGuard(latestCustomer, runtime, meterContext);
-
   const semanticMessages = buildSubscriberIntentProbeMessages({ transcript, latestCustomer });
   const semanticResponse = await requestJsonWithFallback(semanticMessages, runtime, { ...meterContext, stage: 'understanding' });
   const probe = normalizeProbe(parseJsonObject(semanticResponse.answer));
@@ -437,9 +396,10 @@ export async function analyzeSubscriberIntent({ transcript = [], latestCustomer 
   let candidateArticles = [];
   let knowledgeMessages = [];
   let knowledgeResponse = null;
-  let knowledge = skippedKnowledge(probe);
+  const readKnowledge = mode === 'on' || (mode === 'auto' && shouldReadKnowledge(probe));
+  let knowledge = skippedKnowledge(probe, mode === 'off' ? 'knowledge_mode_off' : 'semantic_gate_none');
 
-  if (shouldReadKnowledge(probe)) {
+  if (readKnowledge) {
     const query = knowledgeQueryFromUnderstanding({ probe, transcript, latestCustomer });
     candidateArticles = searchKnowledgeLibrary(query, { limit: 6, minScore: 1 });
     knowledgeMessages = buildKnowledgeReflectionMessages({ probe, candidateArticles });
@@ -456,31 +416,22 @@ export async function analyzeSubscriberIntent({ transcript = [], latestCustomer 
   return {
     probe,
     knowledge,
+    knowledgeMode: mode,
     candidates: candidateArticles.map(({ id, title, summary, score }) => ({ id, title, summary, score })),
     decision: {
       action: 'knowledge_probe',
       domain: 'understanding',
       intent: probe.whatUserWants || 'unknown',
-      tool: '',
-      toolArgs: {},
+      tool: '', toolArgs: {},
       reply: readableProbe(probe, knowledge),
       reason: usedKnowledge
-        ? `Свободное понимание обращения + мягкое чтение ${SIMNET_KNOWLEDGE_VERSION}; fact-runtime/fact-catalog/dialogue-state не участвуют.`
-        : 'Свободное понимание обращения; semantic gate решил, что энциклопедия на этом ходе не нужна; fact-runtime/fact-catalog/dialogue-state не участвуют.',
+        ? `Свободное понимание обращения + чтение ${SIMNET_KNOWLEDGE_VERSION} (${mode}); fact-runtime/fact-catalog/dialogue-state не участвуют.`
+        : `Свободное понимание обращения; энциклопедия пропущена (${mode}); fact-runtime/fact-catalog/dialogue-state не участвуют.`,
       confidence: probe.confidence,
       language: probe.language,
       diagnostic: {
-        promptGuard: {
-          model: guard.model,
-          output: guard.output,
-          error: guard.error || '',
-          skipped: Boolean(guard.skipped)
-        },
-        knowledgeGate: {
-          need: probe.knowledgeNeed,
-          reason: probe.knowledgeReason,
-          skipped: knowledge.skipped
-        },
+        promptGuard: { model: guard.model, output: guard.output, error: guard.error || '', skipped: Boolean(guard.skipped) },
+        knowledgeGate: { mode, need: probe.knowledgeNeed, reason: probe.knowledgeReason, skipped: knowledge.skipped },
         understanding: probe,
         knowledge,
         candidates: candidateArticles.map(({ id, title, score }) => ({ id, title, score }))
@@ -493,5 +444,143 @@ export async function analyzeSubscriberIntent({ transcript = [], latestCustomer 
   };
 }
 
+function clampBehavior(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(100, Math.round(parsed))) : fallback;
+}
+
+function behaviorProfile(value = {}) {
+  return {
+    confidenceStyle: clampBehavior(value.confidenceStyle, 45),
+    curiosity: clampBehavior(value.curiosity, 55),
+    initiative: clampBehavior(value.initiative, 50),
+    skepticism: clampBehavior(value.skepticism, 75),
+    brevity: clampBehavior(value.brevity, 65),
+    maxFollowUpQuestions: Math.max(1, Math.min(3, Math.round(Number(value.maxFollowUpQuestions || 2))))
+  };
+}
+
+function normalizeDataNeeds(value) {
+  return (Array.isArray(value) ? value : []).map(item => ({
+    system: oneLine(item?.system || '', 80), field: oneLine(item?.field || '', 120), why: oneLine(item?.why || '', 320)
+  })).filter(item => item.system || item.field || item.why).slice(0, 6);
+}
+
+function normalizeBehaviorEffects(value = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    directness: oneLine(source.directness || '', 260),
+    clarification: oneLine(source.clarification || '', 260),
+    verification: oneLine(source.verification || '', 260),
+    initiative: oneLine(source.initiative || '', 260),
+    brevity: oneLine(source.brevity || '', 260)
+  };
+}
+
+function answerPayload(analysis = {}, useKnowledge = true) {
+  const probe = analysis?.probe || {};
+  const knowledge = useKnowledge ? (analysis?.knowledge || {}) : skippedKnowledge(probe, 'answer_variant_without_knowledge');
+  return {
+    understanding: probe,
+    internal_knowledge: {
+      enabled: Boolean(useKnowledge && !knowledge.skipped),
+      used_articles: (knowledge.usedArticles || []).map(item => item.id),
+      relevant: knowledge.relevantInternalKnowledge || [],
+      must_not_assume: knowledge.mustNotAssume || [],
+      knowledge_gaps: knowledge.knowledgeGaps || []
+    }
+  };
+}
+
+export async function generateSubscriberReply({
+  transcript = [],
+  latestCustomer = {},
+  analysis = {},
+  useKnowledge = true,
+  behavior = {},
+  capabilities = { billing: false, userside: false, network: false },
+  meterContext = {}
+} = {}) {
+  const runtime = await readAiRuntimeConfig();
+  const apiKey = String(runtime.groqApiKey || '').trim();
+  if (!apiKey) throw new Error('Groq API key is not configured');
+  const profile = behaviorProfile(behavior);
+  const dialogue = transcriptForProbe(transcript);
+  const grounded = answerPayload(analysis, useKnowledge);
+  const messages = [
+    {
+      role: 'system',
+      content: `Ты формируешь ответ абоненту как оператор интернет-провайдера SIMNET. Это лабораторный режим: нужно показать, как будущий оператор ответил бы сейчас, но нельзя изображать выполненную проверку, которой не было.
+
+Главное — естественный полезный ответ человеку на языке разговора. Не показывай внутренние JSON-поля, названия стадий AI, chain-of-thought или скрытые рассуждения.
+
+НЕИЗМЕНЯЕМЫЕ правила достоверности, которые сильнее любых настроек поведения:
+- не выдумывай баланс, текущий тариф конкретного договора, платежи, адрес, состояние сессии/OLT/ONU/BRAS, аварию или выполненную проверку;
+- customer_claim и слова прошлого оператора не являются подтверждёнными фактами системы;
+- внутреннее правило/цена SIMNET можно утверждать только если оно присутствует в переданном internal_knowledge;
+- если internal_knowledge.enabled=false, не используй из памяти конкретные внутренние тарифы, цены, акции или процедуры SIMNET;
+- если для точного ответа нужны live-данные конкретного абонента, явно не придумывай их. Сформулируй, что именно нужно проверить/уточнить. Если это блокирует полноценный ответ, допустимо кратко сказать, что в текущем лабораторном режиме live-данные не подключены;
+- не добавляй «обычную практику отрасли» как замену отсутствующему правилу SIMNET;
+- не теряй незакрытый вопрос клиента только потому, что в конце сообщения есть «спасибо», «уже работает» или другая социальная реплика.
+
+Поведенческий профиль 0–100 влияет на МАНЕРУ и выбор полезного следующего шага, но никогда не ослабляет правила правдивости:
+- Решительность ${profile.confidenceStyle}: чем выше, тем прямее формулируй рабочий вывод при достаточных основаниях; при низком значении чаще обозначай неопределённость.
+- Любопытство ${profile.curiosity}: чем выше, тем активнее замечай реально мешающие пробелы контекста и задавай полезные уточнения. Не более ${profile.maxFollowUpQuestions} уточняющих вопросов за ход.
+- Инициативность ${profile.initiative}: чем выше, тем охотнее предложи один разумный следующий шаг после прямого ответа.
+- Скепсис ${profile.skepticism}: чем выше, тем внимательнее отделяй слова клиента от подтверждённых фактов и отмечай, что требует проверки.
+- Краткость ${profile.brevity}: чем выше, тем короче ответ. Не жертвуй необходимой информацией ради краткости.
+
+Capabilities сейчас: Billing=${capabilities.billing ? 'ON' : 'OFF'}, UserSide=${capabilities.userside ? 'ON' : 'OFF'}, Network=${capabilities.network ? 'ON' : 'OFF'}.
+
+Верни только JSON без markdown. Поля diagnostics — короткое операционное резюме, НЕ chain-of-thought:
+{
+  "reply":"готовый ответ абоненту",
+  "subscriber_data_needed":[{"system":"Billing|UserSide|Network","field":"что нужно прочитать","why":"зачем"}],
+  "unresolved_requests":["что из просьб клиента ещё остаётся незакрытым после этого ответа"],
+  "clarification_questions":["какие вопросы реально заданы в reply"],
+  "verification_needed":["что требует проверки перед утверждением"],
+  "next_step_offered":"какой следующий шаг предложен; пусто если нет",
+  "basis":["dialogue","knowledge:article.id"],
+  "behavior_effects":{
+    "directness":"как профиль повлиял на прямоту ответа",
+    "clarification":"почему задано/не задано уточнение",
+    "verification":"как применён скепсис",
+    "initiative":"почему предложен/не предложен следующий шаг",
+    "brevity":"как выбран объём"
+  }
+}`
+    },
+    {
+      role: 'user',
+      content: JSON.stringify({
+        dialogue,
+        latest_customer_message: block(latestCustomer?.text || '', 1200),
+        grounded_context: grounded,
+        behavior_profile: profile,
+        capabilities
+      })
+    }
+  ];
+  const response = await requestJsonWithFallback(messages, runtime, { ...meterContext, stage: useKnowledge ? 'reply_with_knowledge' : 'reply_without_knowledge' }, { maxTokens: 700, temperature: 0.2 });
+  const raw = parseJsonObject(response.answer);
+  const reply = block(raw?.reply || '', 2200);
+  if (!reply) throw new Error('Semantic reply: model returned an empty reply');
+  return {
+    reply,
+    subscriberDataNeeded: normalizeDataNeeds(raw?.subscriber_data_needed),
+    unresolvedRequests: stringList(raw?.unresolved_requests, 8, 420),
+    clarificationQuestions: stringList(raw?.clarification_questions, profile.maxFollowUpQuestions, 360),
+    verificationNeeded: stringList(raw?.verification_needed, 8, 360),
+    nextStepOffered: oneLine(raw?.next_step_offered || '', 500),
+    basis: stringList(raw?.basis, 10, 160),
+    behaviorEffects: normalizeBehaviorEffects(raw?.behavior_effects),
+    behavior: profile,
+    model: response.model,
+    usage: response.usage || {},
+    rateLimit: response.rateLimit || {}
+  };
+}
+
 export const AI_OPERATOR_GENERATION_MODEL_POOL = [...GENERATION_FALLBACK_MODELS];
 export const AI_OPERATOR_PROMPT_GUARD_MODEL = PROMPT_GUARD_MODEL;
+export const AI_OPERATOR_KNOWLEDGE_MODES = [...KNOWLEDGE_MODES];
