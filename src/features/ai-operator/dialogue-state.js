@@ -2,7 +2,8 @@ import { basicConfirmationValue } from './basic-case-router.js';
 import { FACT_RECIPES } from './fact-catalog.js';
 
 export const QUESTION_PAIRS = Object.freeze([...Object.keys(FACT_RECIPES),
-  'contract.info', 'network.info', 'payment.instructions', 'static_ip.info', 'static_ip.change', 'service.change', 'unknown.info']);
+  'contract.info', 'network.info', 'payment.instructions', 'static_ip.info', 'static_ip.change', 'service.change',
+  'tariff.upgrade', 'tariff.downgrade', 'tariff.change', 'equipment.compatibility', 'unknown.info']);
 
 function canonicalContract(value) {
   const source = String(value == null ? '' : value).trim().replace(/\s/g, '');
