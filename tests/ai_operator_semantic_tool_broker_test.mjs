@@ -13,7 +13,7 @@ import {
 test('soft broker maps information needs to evidence sources without phrase-script actions', () => {
   assert.deepEqual(AI_OPERATOR_SOFT_TOOL_CAPABILITIES, { billing: true, userside: true, network: true });
   assert.equal(AI_OPERATOR_TOOL_CAPABILITY_DETAILS.billing, 'live-read-only');
-  assert.equal(AI_OPERATOR_TOOL_CAPABILITY_DETAILS.userside, 'workbench-reader-context');
+  assert.equal(AI_OPERATOR_TOOL_CAPABILITY_DETAILS.userside, 'live-read-only');
 
   const calls = mapInformationNeedsToTools([
     { system: 'Billing', field: 'баланс договора', why: 'ответить сколько денег на счёте' },
@@ -29,6 +29,8 @@ test('soft broker maps information needs to evidence sources without phrase-scri
     'pon.signal'
   ]);
   assert.equal(calls.some(item => Object.hasOwn(item, 'intent')), false, 'broker must not emit hard intent classifications');
+  assert.equal(calls.find(item => item.tool === 'userside.snapshot')?.toolArgs?.refresh, true, 'UserSide tool must request fresh data');
+  assert.equal(calls.find(item => item.tool === 'pon.signal')?.toolArgs?.refresh, true, 'PON signal tool must request fresh data');
 });
 
 test('identity hints use explicit dialogue evidence and short numeric answer only in context', () => {
@@ -106,6 +108,53 @@ test('tool loop can identify subscriber and use returned state in the same seman
   assert.equal(result.labState.confirmedCaseId, 'billing-live:42');
 });
 
+test('same turn can identify through Billing then read live UserSide with the confirmed state', async () => {
+  const seen = [];
+  const fakeExecute = async ({ tool, labState }) => {
+    seen.push({ tool, labState: structuredClone(labState) });
+    if (tool === 'customer.lookup') {
+      return {
+        ok: true,
+        tool,
+        code: 'OK',
+        observedAt: '2026-09-16T13:00:00.000Z',
+        data: { source: 'billing-live-read-only' },
+        warnings: [],
+        statePatch: {
+          confirmedCaseId: 'billing-live:42',
+          confirmedSubscriber: { caseId: 'billing-live:42', billingId: '42', login: 'abon146888', contract: '146888' }
+        }
+      };
+    }
+    if (tool === 'userside.snapshot') {
+      assert.equal(labState.confirmedSubscriber.login, 'abon146888');
+      return {
+        ok: true,
+        tool,
+        code: 'OK',
+        observedAt: '2026-09-16T13:00:01.000Z',
+        data: { network: { connectionFamily: 'Ethernet', accessPort: '8' }, source: 'userside-live-read-only' },
+        warnings: [],
+        statePatch: { confirmedSubscriber: { ...labState.confirmedSubscriber, customerId: '383410', connectionFamily: 'Ethernet' } }
+      };
+    }
+    throw new Error(`unexpected tool ${tool}`);
+  };
+
+  const result = await executeInformationNeeds({
+    needs: [{ system: 'UserSide', field: 'точка подключения и порт', why: 'проверить линию' }],
+    transcript: [{ role: 'customer', text: 'abon146888, где я подключен?' }],
+    analysis: { probe: { whatUserWants: 'Проверить подключение' } },
+    labState: {},
+    execute: fakeExecute
+  });
+
+  assert.deepEqual(seen.map(item => item.tool), ['customer.lookup', 'userside.snapshot']);
+  assert.equal(result.trace[1].source, 'userside-live-read-only');
+  assert.equal(result.trace[1].data.network.accessPort, '8');
+  assert.equal(result.labState.confirmedSubscriber.customerId, '383410');
+});
+
 test('tool failure becomes observable evidence and never forces an empty subscriber answer', async () => {
   const result = await executeInformationNeeds({
     needs: [{ system: 'Network', field: 'BRAS session', why: 'проверить доступ' }],
@@ -130,13 +179,15 @@ test('tool failure becomes observable evidence and never forces an empty subscri
   assert.match(fallback, /номер договора|точный адрес/i);
 });
 
-test('soft broker stays independent of deterministic regulator files and discloses UserSide freshness', () => {
+test('soft broker stays independent of deterministic regulator files and distinguishes live evidence from fallback', () => {
   const source = fs.readFileSync(new URL('../src/features/ai-operator/semantic-tool-broker.js', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /fact-runtime\.js/);
   assert.doesNotMatch(source, /fact-catalog\.js/);
   assert.doesNotMatch(source, /dialogue-state\.js/);
-  assert.match(source, /workbench-userside-reader-context/);
-  assert.match(source, /не отдельный глобальный live-поиск UserSide/i);
+  assert.doesNotMatch(source, /workbench-userside-reader-context/);
+  assert.match(source, /source=userside-live-read-only/);
+  assert.match(source, /source=billing-live-read-only/);
+  assert.match(source, /Workbench\/Network fallback не выдавай за свежий/i);
   assert.match(source, /поле reply ОБЯЗАТЕЛЬНО должно быть непустым/i);
   assert.match(source, /ok=false означает.*НЕ доказательство отрицательного факта/i);
 });
