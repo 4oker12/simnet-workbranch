@@ -118,7 +118,7 @@ function rateLimitFromHeaders(headers) {
     limitTokens: numberHeader(headers, 'x-ratelimit-limit-tokens'),
     remainingTokens: numberHeader(headers, 'x-ratelimit-remaining-tokens'),
     resetTokens: oneLine(headers?.get?.('x-ratelimit-reset-tokens') || '', 80),
-    remainingRequests: numberHeader(headers?.get?.('x-ratelimit-remaining-requests') || 0),
+    remainingRequests: numberHeader(headers, 'x-ratelimit-remaining-requests'),
     retryAfter: oneLine(headers?.get?.('retry-after') || '', 80)
   };
 }
@@ -336,10 +336,11 @@ export async function interpretOperatorTurn({ text = '', state = {}, transcript 
   const messages = [{ role: 'system', content: `Ты разбираешь сообщения абонента SIMNET. Не отвечай клиенту, не выбирай tools и не вычисляй деньги.
 Верни JSON: {"language":"ru|uk","speechAct":"new|follow_up|confirm|deny|correct|request_human","confirmation":null,"ids":{},"refresh":"","questions":[]}.
 questions: до 4 объектов {entity,relation,period:"current|next|year_end",year:null}.
-Допустимые entity.relation: balance.amount, recurring_charge.amount, recurring_charge.coverage, recurring_charge.timing, tariff.info, payment.history, service.status, network.cause, network.info, contract.info, payment.instructions, static_ip.info, static_ip.change, service.change, unknown.info.
+Допустимые entity.relation: balance.amount, recurring_charge.amount, recurring_charge.coverage, recurring_charge.timing, tariff.info, tariff.upgrade, tariff.downgrade, tariff.change, equipment.compatibility, payment.history, service.status, network.cause, network.info, contract.info, payment.instructions, static_ip.info, static_ip.change, service.change, unknown.info.
 Сумма на будущий период: recurring_charge.amount + period. Дата списания: recurring_charge.timing, не amount. «Оплачено?» — coverage. «Нет интернета» — network.cause. «Роутер тут при чём?» — network.info: объяснение роли, не новая диагностика.
+Повышение скорости/переход на гигабит/доплата за более дорогой тариф → tariff.upgrade. Понижение тарифа → tariff.downgrade. Общий вопрос о смене тарифа без направления → tariff.change. Вопрос о том, поддержит ли роутер/кабель гигабит, как узнать модель или короткое «не знаю» в ответ на вопрос оператора о модели/гигабитности оборудования → equipment.compatibility.
 Используй контекст для «а следующий?», «а у меня?», «а сколько?», «почему?». При смене темы не наследуй прошлый вопрос. Сохраняй все вопросы в составной реплике.
-Короткие ответы «да», «нет», «не знаю», «я не знаю)», «понятно» сначала соотнеси с НЕПОСРЕДСТВЕННО предыдущим вопросом/репликой оператора. Не превращай «не знаю» в новый вопрос о роутере и не переиспользуй старую тему клиента механически.
+Короткие ответы «да», «нет», «не знаю», «я не знаю)», «понятно» сначала соотнеси с НЕПОСРЕДСТВЕННО предыдущим вопросом/репликой оператора. Не превращай «не знаю» в новый вопрос о роли роутера и не переиспользуй старую тему клиента механически.
 ids: только явно сообщённый идентификатор договора/аккаунта или дословный address, без догадок. В SIMNET NNN и abonNNN — один договор: для обеих форм возвращай ids.contract="NNN". Не клади abonNNN в login. Подписи «договор/договір/дог./contract/account/dogovir/dogovor» перед числом также означают contract.
 «Я оплатил» → refresh=finance; «перезагрузил» → network; «обнови/а сейчас?» → all. Это слова клиента, не доказательство платежа или исправления.
 Подтверждение относится только к ожидающему кандидату; «да, но адрес другой» не подтверждение. Язык определяется содержательной репликой, а не «так/угу».
