@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
+  AI_OPERATOR_GENERATION_MODEL_POOL,
+  AI_OPERATOR_PROMPT_GUARD_MODEL,
   buildKnowledgeReflectionMessages,
   buildSubscriberIntentProbeMessages
 } from '../src/features/ai-operator/semantic-probe.js';
@@ -109,4 +111,20 @@ test('Replay knowledge experiment bypasses deterministic regulator files', () =>
   assert.doesNotMatch(source, /dialogue-state\.js/);
   assert.match(source, /mode: 'knowledge_probe'/);
   assert.match(source, /knowledgeProbe/);
+});
+
+test('semantic experiment rotates generation models and invokes Llama Prompt Guard separately', () => {
+  assert.equal(AI_OPERATOR_PROMPT_GUARD_MODEL, 'meta-llama/llama-prompt-guard-2-86m');
+  assert.deepEqual(AI_OPERATOR_GENERATION_MODEL_POOL, [
+    'qwen/qwen3.8-27b',
+    'qwen/qwen3.6-27b',
+    'openai/gpt-oss-120b',
+    'openai/gpt-oss-20b'
+  ]);
+
+  const source = fs.readFileSync(new URL('../src/features/ai-operator/semantic-probe.js', import.meta.url), 'utf8');
+  assert.match(source, /runPromptGuard\(latestCustomer, runtime, meterContext\)/);
+  assert.match(source, /if \(Number\(response\.status\) === 429\) markRateLimited/);
+  assert.match(source, /for \(const model of modelsForRuntime\(runtime\)\)/);
+  assert.doesNotMatch(source, /modelsForRuntime\(runtime\)\.slice\(0, 2\)/);
 });
