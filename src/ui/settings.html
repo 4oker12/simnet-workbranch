@@ -18,210 +18,323 @@
       <div id="version" class="version">…</div>
     </header>
 
-    <section class="card">
-      <div class="card-head">
-        <div>
-          <h2>AI · Groq</h2>
-          <p>Один локальный ключ используется AI-помощником, автономным оператором и разбором звонков.</p>
+    <details class="card settings-panel" data-accordion-group="settings" data-accordion-panel="api">
+      <summary class="settings-panel-summary">
+        <div class="settings-panel-title">
+          <span class="settings-panel-kicker">Доступ</span>
+          <h2>Groq API key</h2>
+          <p>Ключ для AI-помощника, автономного оператора, Replay и разбора звонков.</p>
         </div>
-        <span id="keyBadge" class="badge">Не настроен</span>
-      </div>
-
-      <label class="field-label" for="groqApiKey">Groq API key</label>
-      <div class="key-row">
-        <input id="groqApiKey" type="password" autocomplete="off" spellcheck="false" placeholder="gsk_…">
-        <button id="saveKey" type="button">Сохранить</button>
-      </div>
-      <div class="actions">
-        <button id="testKey" class="secondary" type="button">Проверить ключ</button>
-        <button id="removeKey" class="danger" type="button">Удалить ключ</button>
-      </div>
-      <div id="keyStatus" class="status">Ключ ещё не сохранён.</div>
-      <p class="note">После сохранения поле очищается. Ключ остаётся только в <code>chrome.storage.local</code> этого Chrome-профиля и не попадает в GitHub или диагностический экспорт.</p>
-    </section>
-
-    <section class="card">
-      <h2>AI-помощник</h2>
-      <p class="muted">Основная модель для короткого операторского чата.</p>
-      <label class="field-label" for="chatModel">Модель</label>
-      <select id="chatModel">
-        <option value="qwen/qwen3.6-27b">Qwen 3.6 27B</option>
-        <option value="openai/gpt-oss-120b">GPT-OSS 120B</option>
-        <option value="qwen/qwen3.8-27b">Qwen 3.8 27B</option>
-        <option value="openai/gpt-oss-20b">GPT-OSS 20B</option>
-      </select>
-      <button id="saveChatModel" class="secondary save-model" type="button">Сохранить модель</button>
-    </section>
-
-    <section class="card operator-card">
-      <div class="card-head">
-        <div>
-          <h2>Автономный оператор · Test Lab</h2>
-          <p>Сам читает разрешённые HelpCrunch-чаты, ведёт Case и строит ответ. Отправка пока физически заблокирована: режим shadow.</p>
+        <div class="settings-summary-end">
+          <span id="keyBadge" class="badge">Не настроен</span>
+          <span class="settings-chevron" aria-hidden="true"></span>
         </div>
-        <span class="badge">SHADOW</span>
-      </div>
-
-      <div class="toggle-row">
-        <label class="toggle-label"><input id="aiOperatorEnabled" type="checkbox"> Включить фоновую обработку</label>
-        <label class="toggle-label"><input id="learnFromCorrections" type="checkbox" checked> Учитывать мои исправления</label>
-      </div>
-
-      <div class="form-grid two">
-        <div>
-          <label class="field-label" for="aiOperatorInboxIds">Inbox ID</label>
-          <input id="aiOperatorInboxIds" class="text-input" type="text" placeholder="1">
+      </summary>
+      <div class="settings-panel-body">
+        <label class="field-label" for="groqApiKey">Groq API key</label>
+        <div class="key-row">
+          <input id="groqApiKey" type="password" autocomplete="off" spellcheck="false" placeholder="gsk_…">
+          <button id="saveKey" type="button">Сохранить</button>
         </div>
-        <div>
-          <label class="field-label" for="aiOperatorChatAllowlist">Разрешённые chat ID</label>
-          <input id="aiOperatorChatAllowlist" class="text-input" type="text" placeholder="1502694, 1502701">
+        <div class="actions">
+          <button id="testKey" class="secondary" type="button">Проверить ключ</button>
+          <button id="removeKey" class="danger" type="button">Удалить ключ</button>
         </div>
-        <div>
-          <label class="field-label" for="aiOperatorReplyStyle">Стиль ответа</label>
-          <select id="aiOperatorReplyStyle">
-            <option value="compact">Коротко</option>
-            <option value="normal">Нормально</option>
-            <option value="detailed">Подробнее</option>
-          </select>
+        <div id="keyStatus" class="status">Ключ ещё не сохранён.</div>
+        <p class="note">После сохранения поле очищается. Ключ остаётся только в <code>chrome.storage.local</code> этого Chrome-профиля и не попадает в GitHub или диагностический экспорт.</p>
+      </div>
+    </details>
+
+    <details class="card settings-panel" data-accordion-group="settings" data-accordion-panel="chat-model">
+      <summary class="settings-panel-summary">
+        <div class="settings-panel-title">
+          <span class="settings-panel-kicker">Модель</span>
+          <h2>AI-помощник</h2>
+          <p>Основная модель для короткого операторского чата.</p>
         </div>
-        <div>
-          <label class="field-label" for="aiOperatorMaxReplyChars">Макс. символов ответа</label>
-          <input id="aiOperatorMaxReplyChars" class="text-input" type="number" min="180" max="1800" step="20" value="700">
+        <span class="settings-chevron" aria-hidden="true"></span>
+      </summary>
+      <div class="settings-panel-body">
+        <label class="field-label" for="chatModel">Модель</label>
+        <select id="chatModel">
+          <option value="qwen/qwen3.6-27b">Qwen 3.6 27B</option>
+          <option value="openai/gpt-oss-120b">GPT-OSS 120B</option>
+          <option value="qwen/qwen3.8-27b">Qwen 3.8 27B</option>
+          <option value="openai/gpt-oss-20b">GPT-OSS 20B</option>
+        </select>
+        <button id="saveChatModel" class="secondary save-model" type="button">Сохранить модель</button>
+      </div>
+    </details>
+
+    <details class="card settings-panel" data-accordion-group="settings" data-accordion-panel="operator">
+      <summary class="settings-panel-summary">
+        <div class="settings-panel-title">
+          <span class="settings-panel-kicker">Shadow</span>
+          <h2>Автономный оператор</h2>
+          <p>Фоновая обработка HelpCrunch, разрешённые чаты и стиль будущих ответов.</p>
         </div>
-      </div>
-
-      <label class="field-label" for="aiOperatorCustomInstructions">Как именно должен вести себя оператор</label>
-      <textarea id="aiOperatorCustomInstructions" rows="6" placeholder="Например: не начинай каждый ответ с приветствия; если клиент спрашивает про оплату — сначала выясни точную суть; не используй слово «абонент» в ответе клиенту; технические шаги давай по одному."></textarea>
-      <p class="note">Это дополнительный слой поведения. Он не отменяет запрет выдумывать внутренние данные и выполнять WRITE-действия.</p>
-
-      <div class="actions">
-        <button id="saveAiOperator" type="button">Сохранить настройки</button>
-        <button id="pollAiOperator" class="secondary" type="button">Проверить сейчас</button>
-        <button id="refreshAiOperator" class="secondary" type="button">Обновить результаты</button>
-      </div>
-      <div id="aiOperatorStatus" class="status">Автономный оператор ещё не запускался.</div>
-
-      <div class="section-head ai-lab-head">
-        <div>
-          <h3>Ручной диалог · ты = абонент</h3>
-          <p class="muted">Пиши как клиент. AI должен сам запросить идентификацию, вызвать READ-инструмент, прочитать результат и продолжить разговор.</p>
+        <div class="settings-summary-end">
+          <span class="badge">SHADOW</span>
+          <span class="settings-chevron" aria-hidden="true"></span>
         </div>
-        <div class="actions ai-lab-head-actions">
-          <button id="aiLabDownloadTxt" class="secondary compact-button" type="button">Скачать TXT</button>
-          <button id="aiLabDownloadJson" class="secondary compact-button" type="button">Скачать JSON</button>
-          <button id="aiLabReset" class="secondary compact-button" type="button">Новый диалог</button>
+      </summary>
+      <div class="settings-panel-body">
+        <div class="toggle-row settings-first-control">
+          <label class="toggle-label"><input id="aiOperatorEnabled" type="checkbox"> Включить фоновую обработку</label>
+          <label class="toggle-label"><input id="learnFromCorrections" type="checkbox" checked> Учитывать мои исправления</label>
         </div>
-      </div>
 
-      <div id="aiLabIdentity" class="ai-lab-identity empty">
-        <strong>Абонент не определён</strong>
-        <span>AI должен запросить договор или адрес, когда без идентификации нельзя продолжить.</span>
-      </div>
-
-      <div id="aiLabTranscript" class="ai-lab-chat" aria-live="polite">
-        <div class="ai-lab-empty">
-          <strong>Начни как абонент</strong>
-          <span>Например: «Какой у меня баланс?» или «У меня нет интернета».</span>
+        <div class="form-grid two">
+          <div>
+            <label class="field-label" for="aiOperatorInboxIds">Inbox ID</label>
+            <input id="aiOperatorInboxIds" class="text-input" type="text" placeholder="1">
+          </div>
+          <div>
+            <label class="field-label" for="aiOperatorChatAllowlist">Разрешённые chat ID</label>
+            <input id="aiOperatorChatAllowlist" class="text-input" type="text" placeholder="1502694, 1502701">
+          </div>
+          <div>
+            <label class="field-label" for="aiOperatorReplyStyle">Стиль ответа</label>
+            <select id="aiOperatorReplyStyle">
+              <option value="compact">Коротко</option>
+              <option value="normal">Нормально</option>
+              <option value="detailed">Подробнее</option>
+            </select>
+          </div>
+          <div>
+            <label class="field-label" for="aiOperatorMaxReplyChars">Макс. символов ответа</label>
+            <input id="aiOperatorMaxReplyChars" class="text-input" type="number" min="180" max="1800" step="20" value="700">
+          </div>
         </div>
-      </div>
 
-      <div class="ai-lab-quick">
-        <button type="button" data-ai-lab-prompt="Дай сводку по моему договору">Сводка</button>
-        <button type="button" data-ai-lab-prompt="Какой у меня баланс?">Баланс</button>
-        <button type="button" data-ai-lab-prompt="Какой у меня тариф?">Тариф</button>
-        <button type="button" data-ai-lab-prompt="Какие у меня последние платежи?">Платежи</button>
-        <button type="button" data-ai-lab-prompt="Какой адрес подключения и какая технология?">Адрес / подключение</button>
-        <button type="button" data-ai-lab-prompt="У меня нет интернета">Нет интернета</button>
-        <button type="button" data-ai-lab-prompt="Интернет часто обрывается">Обрывы</button>
-      </div>
+        <label class="field-label" for="aiOperatorCustomInstructions">Как именно должен вести себя оператор</label>
+        <textarea id="aiOperatorCustomInstructions" rows="6" placeholder="Например: не начинай каждый ответ с приветствия; если клиент спрашивает про оплату — сначала выясни точную суть; не используй слово «абонент» в ответе клиенту; технические шаги давай по одному."></textarea>
+        <p class="note">Это дополнительный слой поведения. Он не отменяет запрет выдумывать внутренние данные и выполнять WRITE-действия.</p>
 
-      <div class="ai-lab-compose">
-        <textarea id="aiLabInput" rows="3" placeholder="Сообщение от имени абонента…"></textarea>
-        <button id="aiLabSend" type="button">Отправить как абонент</button>
-      </div>
-      <div id="aiLabStatus" class="status ai-lab-status">Готово. Ты пишешь как абонент; AI сам выбирает READ-проверки.</div>
-      <p class="note ai-lab-safety"><b>Сейчас:</b> lookup читает уже собранные кейсы Workbench. Billing/UserSide/сеть остаются READ-only; HelpCrunch SEND заблокирован.</p>
-
-      <details class="ai-lab-log" open>
-        <summary>Лог решений и tool calls</summary>
-        <div id="aiLabEvents" class="ai-lab-events">
-          <div class="ai-lab-log-empty">Tool-вызовов пока нет.</div>
+        <div class="actions">
+          <button id="saveAiOperator" type="button">Сохранить настройки</button>
+          <button id="pollAiOperator" class="secondary" type="button">Проверить сейчас</button>
+          <button id="refreshAiOperator" class="secondary" type="button">Обновить результаты</button>
         </div>
-      </details>
+        <div id="aiOperatorStatus" class="status">Автономный оператор ещё не запускался.</div>
+      </div>
+    </details>
 
-      <div class="section-head ai-replay-head">
-        <div>
-          <h3>Replay реальных обращений</h3>
-          <p class="muted">Загрузи JSON-экспорт HelpCrunch. Workbench выделит реальные переходы «клиент → живой оператор» и прогонит текущий AI на том же контексте.</p>
+    <details class="card settings-panel settings-panel-lab" data-accordion-group="settings" data-accordion-panel="lab" data-accordion-default="true" open>
+      <summary class="settings-panel-summary settings-panel-summary-lab">
+        <div class="settings-panel-title">
+          <span class="settings-panel-kicker">Рабочая зона</span>
+          <h2>Лаборатория AI</h2>
+          <p>Ручной диалог, Replay реальных обращений, разметка и экспорт результатов.</p>
         </div>
-        <div class="actions ai-lab-head-actions">
-          <input id="aiReplayFile" class="ai-replay-file" type="file" accept="application/json,.json">
-          <button id="aiReplayExport" class="secondary compact-button" type="button">Экспорт результатов</button>
+        <div class="settings-summary-end">
+          <span class="badge settings-live-badge">LAB</span>
+          <span class="settings-chevron" aria-hidden="true"></span>
         </div>
-      </div>
-      <p class="note ai-replay-note"><b>Важно:</b> исторический ответ оператора — только эталон для сравнения. Если для ответа нужны Billing/сеть/PON, replay не выдумывает старые CRM-данные: нормальным решением может быть <code>tool_required</code>.</p>
-      <div id="aiReplayStatus" class="status ai-replay-status">Загрузите HelpCrunch JSON.</div>
-      <div id="aiReplayMeta" class="ai-replay-meta">Replay-кейсы не загружены.</div>
+      </summary>
+      <div class="settings-panel-body settings-lab-body">
 
-      <div id="aiReplayTranscript" class="ai-lab-chat ai-replay-chat" aria-live="polite">
-        <div class="ai-lab-empty">Replay-кейсы не загружены.</div>
-      </div>
+        <details class="lab-section" data-accordion-group="lab" data-accordion-panel="manual">
+          <summary class="lab-section-summary">
+            <div>
+              <strong>Ручной диалог</strong>
+              <span>Ты = абонент · живой тест одного разговора</span>
+            </div>
+            <span class="settings-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="lab-section-body">
+            <div class="section-head ai-lab-head lab-section-head-flat">
+              <div>
+                <h3>Ручной диалог · ты = абонент</h3>
+                <p class="muted">Пиши как клиент. AI должен сам запросить идентификацию, вызвать READ-инструмент, прочитать результат и продолжить разговор.</p>
+              </div>
+              <div class="actions ai-lab-head-actions">
+                <button id="aiLabDownloadTxt" class="secondary compact-button" type="button">Скачать TXT</button>
+                <button id="aiLabDownloadJson" class="secondary compact-button" type="button">Скачать JSON</button>
+                <button id="aiLabReset" class="secondary compact-button" type="button">Новый диалог</button>
+              </div>
+            </div>
 
-      <div class="ai-replay-compare">
-        <div class="ai-replay-panel">
-          <strong>Реальный ответ оператора</strong>
-          <pre id="aiReplayReference">—</pre>
+            <div id="aiLabIdentity" class="ai-lab-identity empty">
+              <strong>Абонент не определён</strong>
+              <span>AI должен запросить договор или адрес, когда без идентификации нельзя продолжить.</span>
+            </div>
+
+            <div id="aiLabTranscript" class="ai-lab-chat" aria-live="polite">
+              <div class="ai-lab-empty">
+                <strong>Начни как абонент</strong>
+                <span>Например: «Какой у меня баланс?» или «У меня нет интернета».</span>
+              </div>
+            </div>
+
+            <div class="ai-lab-quick">
+              <button type="button" data-ai-lab-prompt="Дай сводку по моему договору">Сводка</button>
+              <button type="button" data-ai-lab-prompt="Какой у меня баланс?">Баланс</button>
+              <button type="button" data-ai-lab-prompt="Какой у меня тариф?">Тариф</button>
+              <button type="button" data-ai-lab-prompt="Какие у меня последние платежи?">Платежи</button>
+              <button type="button" data-ai-lab-prompt="Какой адрес подключения и какая технология?">Адрес / подключение</button>
+              <button type="button" data-ai-lab-prompt="У меня нет интернета">Нет интернета</button>
+              <button type="button" data-ai-lab-prompt="Интернет часто обрывается">Обрывы</button>
+            </div>
+
+            <div class="ai-lab-compose">
+              <textarea id="aiLabInput" rows="3" placeholder="Сообщение от имени абонента…"></textarea>
+              <button id="aiLabSend" type="button">Отправить как абонент</button>
+            </div>
+            <div id="aiLabStatus" class="status ai-lab-status">Готово. Ты пишешь как абонент; AI сам выбирает READ-проверки.</div>
+            <p class="note ai-lab-safety"><b>Сейчас:</b> lookup читает уже собранные кейсы Workbench. Billing/UserSide/сеть остаются READ-only; HelpCrunch SEND заблокирован.</p>
+
+            <details class="ai-lab-log" open>
+              <summary>Лог решений и tool calls</summary>
+              <div id="aiLabEvents" class="ai-lab-events">
+                <div class="ai-lab-log-empty">Tool-вызовов пока нет.</div>
+              </div>
+            </details>
+          </div>
+        </details>
+
+        <details class="lab-section" data-accordion-group="lab" data-accordion-panel="replay" data-accordion-default="true" open>
+          <summary class="lab-section-summary">
+            <div>
+              <strong>Replay реальных обращений</strong>
+              <span>Пакетный прогон · сравнение · ручная разметка</span>
+            </div>
+            <span class="settings-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="lab-section-body">
+            <div class="section-head ai-replay-head lab-section-head-flat">
+              <div>
+                <h3>Replay реальных обращений</h3>
+                <p class="muted">Загрузи JSON-экспорт HelpCrunch. Workbench выделит реальные переходы «клиент → живой оператор» и прогонит текущий AI на том же контексте.</p>
+              </div>
+            </div>
+
+            <div class="replay-workspace-block replay-run-block">
+              <div class="replay-workspace-head">
+                <div>
+                  <strong>1 · Запуск</strong>
+                  <span>Источник, границы прогона и токен-бюджет</span>
+                </div>
+                <div class="actions replay-export-actions">
+                  <input id="aiReplayFile" class="ai-replay-file" type="file" accept="application/json,.json">
+                  <button id="aiReplayExport" class="secondary compact-button" type="button">JSON</button>
+                  <button id="aiReplayExportCsv" class="secondary compact-button" type="button">Таблица CSV</button>
+                </div>
+              </div>
+              <p class="note ai-replay-note"><b>JSON</b> — полный технический лог. <b>Таблица CSV</b> — строки по кейсам с пустыми колонками для ручной оценки в Excel/Google Sheets.</p>
+              <p class="note ai-replay-note"><b>Важно:</b> исторический ответ оператора — только эталон для сравнения. Если для ответа нужны Billing/сеть/PON, replay не выдумывает старые CRM-данные: нормальным решением может быть <code>tool_required</code>.</p>
+              <div id="aiReplayStatus" class="status ai-replay-status">Загрузите HelpCrunch JSON.</div>
+              <div id="aiReplayMeta" class="ai-replay-meta">Replay-кейсы не загружены.</div>
+            </div>
+
+            <div class="replay-workspace-block">
+              <div class="replay-workspace-head">
+                <div>
+                  <strong>2 · Текущий кейс</strong>
+                  <span>Контекст разговора и сравнение решения</span>
+                </div>
+              </div>
+              <div id="aiReplayTranscript" class="ai-lab-chat ai-replay-chat" aria-live="polite">
+                <div class="ai-lab-empty">Replay-кейсы не загружены.</div>
+              </div>
+
+              <div class="ai-replay-compare">
+                <div class="ai-replay-panel">
+                  <strong>Реальный ответ оператора</strong>
+                  <pre id="aiReplayReference">—</pre>
+                </div>
+                <div class="ai-replay-panel">
+                  <strong>Решение текущего AI</strong>
+                  <pre id="aiReplayAi">—</pre>
+                </div>
+              </div>
+            </div>
+
+            <div class="replay-workspace-block replay-review-block">
+              <div class="replay-workspace-head">
+                <div>
+                  <strong>3 · Разметка</strong>
+                  <span>PASS / GAP / SKIP и короткая причина</span>
+                </div>
+              </div>
+              <label class="field-label" for="aiReplayNote">Если GAP — какого правила или логики не хватает?</label>
+              <textarea id="aiReplayNote" rows="3" placeholder="Например: после уточнения адреса не спрашивать договор повторно. Не копируй сюда старые суммы/баланс как постоянное правило."></textarea>
+              <div class="actions ai-replay-actions">
+                <button id="aiReplayPrev" class="secondary" type="button">← Предыдущий</button>
+                <button id="aiReplayEvaluate" type="button">Прогнать кейс</button>
+                <button id="aiReplayNext" class="secondary" type="button">Следующий →</button>
+                <button id="aiReplayPass" class="secondary" type="button">PASS</button>
+                <button id="aiReplayGap" class="danger" type="button">GAP · сохранить правило</button>
+                <button id="aiReplaySkip" class="secondary" type="button">SKIP</button>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <details class="lab-section" data-accordion-group="lab" data-accordion-panel="decisions">
+          <summary class="lab-section-summary">
+            <div>
+              <strong>Последние решения AI</strong>
+              <span>Исправления и сохранённые замечания</span>
+            </div>
+            <span class="settings-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="lab-section-body">
+            <div class="section-head lab-section-head-flat">
+              <div>
+                <h3>Последние решения AI</h3>
+                <p class="muted">Здесь можно исправить готовый ответ или написать правило, что именно AI понял неправильно.</p>
+              </div>
+              <button id="clearAiCorrections" class="danger compact-button" type="button">Очистить исправления</button>
+            </div>
+            <div id="aiOperatorCases" class="case-list">
+              <div class="empty">Нет обработанных тестовых чатов.</div>
+            </div>
+          </div>
+        </details>
+      </div>
+    </details>
+
+    <details class="card settings-panel" data-accordion-group="settings" data-accordion-panel="call-analysis">
+      <summary class="settings-panel-summary">
+        <div class="settings-panel-title">
+          <span class="settings-panel-kicker">Whisper + AI</span>
+          <h2>Разбор звонков</h2>
+          <p>Модельная fallback-цепочка и доступность моделей.</p>
         </div>
-        <div class="ai-replay-panel">
-          <strong>Решение текущего AI</strong>
-          <pre id="aiReplayAi">—</pre>
+        <span class="settings-chevron" aria-hidden="true"></span>
+      </summary>
+      <div class="settings-panel-body">
+        <p class="muted">Стандартный разбор остаётся режимом по умолчанию: суть → причина → действия → результат → следующий шаг. При 429, недоступности или таймауте Workbench последовательно пробует резервные модели.</p>
+        <ol class="routes">
+          <li><b>Qwen 3.6 27B</b><span>основная</span></li>
+          <li><b>GPT-OSS 120B</b><span>fallback 1</span></li>
+          <li><b>Qwen 3.8 27B</b><span>fallback 2</span></li>
+          <li><b>GPT-OSS 20B</b><span>fallback 3</span></li>
+        </ol>
+        <div id="modelAvailability" class="status compact">Доступность моделей проверится вместе с ключом.</div>
+      </div>
+    </details>
+
+    <details class="card settings-panel" data-accordion-group="settings" data-accordion-panel="profiles">
+      <summary class="settings-panel-summary">
+        <div class="settings-panel-title">
+          <span class="settings-panel-kicker">Анализ</span>
+          <h2>Профили анализа</h2>
+          <p>Режимы интерпретации уже готового транскрипта.</p>
         </div>
-      </div>
-
-      <label class="field-label" for="aiReplayNote">Если GAP — какого правила или логики не хватает?</label>
-      <textarea id="aiReplayNote" rows="3" placeholder="Например: после уточнения адреса не спрашивать договор повторно. Не копируй сюда старые суммы/баланс как постоянное правило."></textarea>
-      <div class="actions ai-replay-actions">
-        <button id="aiReplayPrev" class="secondary" type="button">← Предыдущий</button>
-        <button id="aiReplayEvaluate" type="button">Прогнать кейс</button>
-        <button id="aiReplayNext" class="secondary" type="button">Следующий →</button>
-        <button id="aiReplayPass" class="secondary" type="button">PASS</button>
-        <button id="aiReplayGap" class="danger" type="button">GAP · сохранить правило</button>
-        <button id="aiReplaySkip" class="secondary" type="button">SKIP</button>
-      </div>
-
-      <div class="section-head">
-        <div>
-          <h3>Последние решения AI</h3>
-          <p class="muted">Здесь можно исправить готовый ответ или написать правило, что именно AI понял неправильно.</p>
+        <span class="settings-chevron" aria-hidden="true"></span>
+      </summary>
+      <div class="settings-panel-body">
+        <div class="profile active settings-first-control">
+          <div><b>Стандартный</b><span>по умолчанию</span></div>
+          <p>Фактическая суть звонка без оценки личности оператора и без выдумывания действий, проверок или результата.</p>
         </div>
-        <button id="clearAiCorrections" class="danger compact-button" type="button">Очистить исправления</button>
+        <p class="muted settings-after-control">Дополнительные профили вроде «Оценка действий оператора», «Технический разбор» и «Клиентский сервис» будут запускаться отдельно поверх уже готового транскрипта и не потребуют повторной работы Whisper.</p>
       </div>
-      <div id="aiOperatorCases" class="case-list">
-        <div class="empty">Нет обработанных тестовых чатов.</div>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>Разбор звонков</h2>
-      <p class="muted">Стандартный разбор остаётся режимом по умолчанию: суть → причина → действия → результат → следующий шаг. При 429, недоступности или таймауте Workbench последовательно пробует резервные модели.</p>
-      <ol class="routes">
-        <li><b>Qwen 3.6 27B</b><span>основная</span></li>
-        <li><b>GPT-OSS 120B</b><span>fallback 1</span></li>
-        <li><b>Qwen 3.8 27B</b><span>fallback 2</span></li>
-        <li><b>GPT-OSS 20B</b><span>fallback 3</span></li>
-      </ol>
-      <div id="modelAvailability" class="status compact">Доступность моделей проверится вместе с ключом.</div>
-    </section>
-
-    <section class="card">
-      <h2>Профили анализа</h2>
-      <div class="profile active">
-        <div><b>Стандартный</b><span>по умолчанию</span></div>
-        <p>Фактическая суть звонка без оценки личности оператора и без выдумывания действий, проверок или результата.</p>
-      </div>
-      <p class="muted">Дополнительные профили вроде «Оценка действий оператора», «Технический разбор» и «Клиентский сервис» будут запускаться отдельно поверх уже готового транскрипта и не потребуют повторной работы Whisper.</p>
-    </section>
+    </details>
   </main>
+  <script src="settings-accordion.js"></script>
   <script src="settings.js"></script>
   <script src="ai-operator-lab.js"></script>
   <script type="module" src="ai-operator-replay.js"></script>
