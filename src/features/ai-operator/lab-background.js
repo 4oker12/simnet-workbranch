@@ -1,5 +1,12 @@
 import { apiCostSummary, saveApiPrice } from './api-cost.js';
 import { analyzeSubscriberIntent, generateSubscriberReply } from './semantic-probe.js';
+import { executeOperatorTool } from './live-tool-runtime.js';
+import {
+  AI_OPERATOR_SOFT_TOOL_CAPABILITIES,
+  AI_OPERATOR_TOOL_CAPABILITY_DETAILS,
+  ensureNonEmptyReply,
+  groundSubscriberReply
+} from './semantic-tool-broker.js';
 
 const LAB_KEY = 'simnet_ai_operator_lab_v1';
 const MAX_MESSAGES = 60;
@@ -7,7 +14,8 @@ const MAX_EVENTS = 140;
 const MAX_SNAPSHOTS = 40;
 const KNOWLEDGE_MODES = new Set(['off', 'auto', 'on', 'ab']);
 const DISPLAY_MODES = new Set(['answer', 'answer_analysis', 'analysis']);
-const CAPABILITIES = Object.freeze({ billing: false, userside: false, network: false });
+const CAPABILITIES = AI_OPERATOR_SOFT_TOOL_CAPABILITIES;
+const CAPABILITY_DETAILS = AI_OPERATOR_TOOL_CAPABILITY_DETAILS;
 
 const TYPES = Object.freeze({
   GET: 'AI_OPERATOR_LAB_GET',
@@ -71,9 +79,19 @@ function normalizeMessage(value = {}) {
   };
 }
 
+function normalizeToolState(value = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    pendingCandidate: source.pendingCandidate || null,
+    confirmedCaseId: String(source.confirmedCaseId || ''),
+    confirmedSubscriber: source.confirmedSubscriber || null,
+    invalidatedAt: Number(source.invalidatedAt || 0) || 0
+  };
+}
+
 function emptyLab() {
   return {
-    version: 2,
+    version: 3,
     id: id('lab'),
     messages: [],
     events: [],
@@ -81,6 +99,8 @@ function emptyLab() {
     displayMode: 'answer_analysis',
     behavior: normalizeBehavior(),
     capabilities: { ...CAPABILITIES },
+    capabilityDetails: { ...CAPABILITY_DETAILS },
+    toolState: normalizeToolState(),
     snapshots: [],
     lastTurnBase: null,
     lastExperiment: null,
@@ -94,7 +114,7 @@ function emptyLab() {
 function normalizeLab(raw = {}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return emptyLab();
   return {
-    version: 2,
+    version: 3,
     id: String(raw.id || id('lab')),
     messages: (Array.isArray(raw.messages) ? raw.messages : []).slice(-MAX_MESSAGES).map(normalizeMessage),
     events: (Array.isArray(raw.events) ? raw.events : []).slice(-MAX_EVENTS),
@@ -102,6 +122,8 @@ function normalizeLab(raw = {}) {
     displayMode: normalizeDisplayMode(raw.displayMode),
     behavior: normalizeBehavior(raw.behavior),
     capabilities: { ...CAPABILITIES },
+    capabilityDetails: { ...CAPABILITY_DETAILS },
+    toolState: normalizeToolState(raw.toolState),
     snapshots: (Array.isArray(raw.snapshots) ? raw.snapshots : []).slice(-MAX_SNAPSHOTS),
     lastTurnBase: raw.lastTurnBase && typeof raw.lastTurnBase === 'object' ? raw.lastTurnBase : null,
     lastExperiment: raw.lastExperiment && typeof raw.lastExperiment === 'object' ? raw.lastExperiment : null,
@@ -160,16 +182,69 @@ function analysisForUi(analysis = {}) {
   };
 }
 
+function fallbackDraft(analysis, error) {
+  return {
+    reply: ensureNonEmptyReply('', analysis, []),
+    subscriberDataNeeded: [],
+    unresolvedRequests: clone(analysis?.probe?.unresolvedRequests || []),
+    clarificationQuestions: [],
+    verificationNeeded: ['LLM-этап формирования черновика не завершился корректно.'],
+    nextStepOffered: '',
+    basis: ['dialogue'],
+    behaviorEffects: {},
+    behavior: {},
+    model: '',
+    usage: {},
+    rateLimit: {},
+    degraded: true,
+    degradationReason: compact(error?.message || error, 600)
+  };
+}
+
 async function replyVariant({ lab, transcript, customer, analysis, useKnowledge, label }) {
-  const result = await generateSubscriberReply({
+  let draft;
+  try {
+    draft = await generateSubscriberReply({
+      transcript,
+      latestCustomer: customer,
+      analysis,
+      useKnowledge,
+      behavior: lab.behavior,
+      capabilities: CAPABILITIES,
+      meterContext: { scope: lab.id, turnId: customer.id, variant: label }
+    });
+  } catch (error) {
+    draft = fallbackDraft(analysis, error);
+  }
+
+  const grounded = await groundSubscriberReply({
+    draft,
     transcript,
     latestCustomer: customer,
     analysis,
     useKnowledge,
-    behavior: lab.behavior,
-    capabilities: CAPABILITIES,
+    labState: lab.toolState,
+    execute: executeOperatorTool,
     meterContext: { scope: lab.id, turnId: customer.id, variant: label }
   });
+  lab.toolState = normalizeToolState(grounded.toolState || lab.toolState);
+  const { toolState: _toolState, ...result } = grounded;
+
+  for (const trace of result.toolTrace || []) {
+    appendEvent(lab, 'tool_execution', {
+      customerMessageId: customer.id,
+      variant: label,
+      tool: trace.tool,
+      ok: trace.ok,
+      code: trace.code,
+      source: trace.source,
+      requestedBy: trace.requestedBy,
+      args: trace.args,
+      data: trace.data,
+      warnings: trace.warnings
+    });
+  }
+
   return { label, useKnowledge, ...result };
 }
 
@@ -198,9 +273,12 @@ async function executeExperiment(lab, baseMessages, customer) {
   const activeVariant = requestedMode === 'ab'
     ? variants.find(item => item.label === 'with_knowledge') || variants[0]
     : variants[0];
+  if (activeVariant && !compact(activeVariant.reply, 2200)) activeVariant.reply = ensureNonEmptyReply('', analysis, activeVariant.toolTrace || []);
+
   const elapsedMs = Math.round(performance.now() - startedAt);
   const totalUsage = usageTotal(analysis.decision?.usage, ...variants.map(item => item.usage));
   const model = [analysis.decision?.model, ...variants.map(item => item.model)].filter(Boolean).join(' → ');
+  const toolCalls = variants.reduce((sum, item) => sum + Number(item.toolTrace?.length || 0), 0);
 
   const experiment = {
     id: id('exp'),
@@ -210,20 +288,22 @@ async function executeExperiment(lab, baseMessages, customer) {
     displayMode: lab.displayMode,
     behavior: clone(lab.behavior),
     capabilities: { ...CAPABILITIES },
+    capabilityDetails: { ...CAPABILITY_DETAILS },
     elapsedMs,
     analysis: analysisForUi(analysis),
     variants: clone(variants),
     activeVariant: activeVariant?.label || '',
     usage: totalUsage,
-    model
+    model,
+    toolCalls
   };
 
   lab.lastExperiment = experiment;
   lab.lastDecision = {
-    action: variants.length ? 'semantic_reply' : 'semantic_analysis',
+    action: variants.length ? (toolCalls ? 'semantic_tool_reply' : 'semantic_reply') : 'semantic_analysis',
     intent: analysis.probe?.whatUserWants || 'unknown',
     reply: activeVariant?.reply || '',
-    reason: `Manual Lab semantic experiment · KB ${requestedMode} · fact-runtime не участвует.`,
+    reason: `Manual Lab: свободное понимание → KB при необходимости → мягкие READ-tools при необходимости → ответ. fact-runtime не участвует.`,
     confidence: Number(analysis.probe?.confidence || 0),
     language: analysis.probe?.language || 'other',
     model,
@@ -233,6 +313,8 @@ async function executeExperiment(lab, baseMessages, customer) {
       knowledgeMode: requestedMode,
       displayMode: lab.displayMode,
       behavior: clone(lab.behavior),
+      capabilities: { ...CAPABILITIES },
+      capabilityDetails: { ...CAPABILITY_DETAILS },
       elapsedMs,
       understanding: clone(analysis.probe || {}),
       knowledge: clone(analysis.knowledge || {}),
@@ -245,6 +327,9 @@ async function executeExperiment(lab, baseMessages, customer) {
         nextStepOffered: item.nextStepOffered,
         basis: item.basis,
         behaviorEffects: item.behaviorEffects,
+        toolTrace: item.toolTrace,
+        degraded: Boolean(item.degraded),
+        degradationReason: item.degradationReason || '',
         model: item.model,
         usage: item.usage
       })))
@@ -263,13 +348,56 @@ async function executeExperiment(lab, baseMessages, customer) {
   appendEvent(lab, 'experiment_result', {
     experimentId: experiment.id,
     mode: requestedMode,
-    variants: variants.map(item => ({ label: item.label, model: item.model, tokens: Number(item.usage?.total_tokens || 0) })),
+    variants: variants.map(item => ({
+      label: item.label,
+      model: item.model,
+      tokens: Number(item.usage?.total_tokens || 0),
+      toolCalls: Number(item.toolTrace?.length || 0),
+      degraded: Boolean(item.degraded)
+    })),
+    toolCalls,
     elapsedMs,
     totalTokens: Number(totalUsage.total_tokens || 0)
   });
 
   if (activeVariant?.reply) appendMessage(lab, 'agent', activeVariant.reply, { variant: activeVariant.label });
   return experiment;
+}
+
+function recoverTurn(lab, customer, error) {
+  const reply = 'Сейчас не удалось корректно завершить обработку сообщения. Я не буду придумывать данные. Повторите, пожалуйста, этот запрос — контекст диалога сохранён.';
+  const failure = compact(error?.message || error || 'unknown error', 800);
+  const variant = {
+    label: 'degraded',
+    useKnowledge: false,
+    reply,
+    subscriberDataNeeded: [],
+    unresolvedRequests: [],
+    clarificationQuestions: [],
+    verificationNeeded: ['Обработка хода завершилась технической ошибкой.'],
+    nextStepOffered: 'Повторить тот же ход.',
+    basis: ['dialogue'],
+    behaviorEffects: {},
+    toolTrace: [],
+    toolEvidence: [],
+    degraded: true,
+    degradationReason: failure,
+    model: '',
+    usage: {}
+  };
+  lab.lastExperiment = {
+    id: id('exp'), at: nowIso(), customerMessageId: customer.id,
+    knowledgeMode: lab.knowledgeMode, displayMode: lab.displayMode,
+    behavior: clone(lab.behavior), capabilities: { ...CAPABILITIES }, capabilityDetails: { ...CAPABILITY_DETAILS },
+    elapsedMs: 0, analysis: { probe: {}, knowledge: {}, candidates: [] }, variants: [variant], activeVariant: 'degraded', usage: {}, model: '', toolCalls: 0
+  };
+  lab.lastDecision = {
+    action: 'degraded_reply', intent: 'unknown', reply, reason: 'Anti-empty fallback после технической ошибки.',
+    confidence: 0, language: 'other', model: '', usage: {}, rateLimit: {},
+    diagnostic: { error: failure, degraded: true }
+  };
+  appendEvent(lab, 'turn_degraded', { customerMessageId: customer.id, error: failure });
+  appendMessage(lab, 'agent', reply, { variant: 'degraded' });
 }
 
 async function runTurn(customerText) {
@@ -282,7 +410,8 @@ async function runTurn(customerText) {
   lab.lastTurnBase = { messagesBefore: baseMessages, customer: clone(customer) };
   appendEvent(lab, 'customer_message', { messageId: customer.id, text: incoming });
   await writeLab(lab);
-  await executeExperiment(lab, baseMessages, customer);
+  try { await executeExperiment(lab, baseMessages, customer); }
+  catch (error) { recoverTurn(lab, customer, error); }
   return writeLab(lab);
 }
 
@@ -296,7 +425,8 @@ async function repeatLastTurn() {
   lab.lastTurnBase = { messagesBefore: clone(base.messagesBefore), customer: clone(customer) };
   appendEvent(lab, 'repeat_turn', { messageId: customer.id, knowledgeMode: lab.knowledgeMode, behavior: clone(lab.behavior) });
   await writeLab(lab);
-  await executeExperiment(lab, clone(base.messagesBefore), customer);
+  try { await executeExperiment(lab, clone(base.messagesBefore), customer); }
+  catch (error) { recoverTurn(lab, customer, error); }
   return writeLab(lab);
 }
 
@@ -322,6 +452,8 @@ async function takeSnapshot(payload = {}) {
     displayMode: lab.displayMode,
     behavior: clone(lab.behavior),
     capabilities: { ...CAPABILITIES },
+    capabilityDetails: { ...CAPABILITY_DETAILS },
+    toolState: clone(lab.toolState),
     turnBase: clone(lab.lastTurnBase),
     experiment: clone(lab.lastExperiment)
   };
