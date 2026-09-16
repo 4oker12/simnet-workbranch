@@ -10,6 +10,7 @@ const GENERATION_FALLBACK_MODELS = Object.freeze([
 ]);
 const PROMPT_GUARD_MODEL = 'meta-llama/llama-prompt-guard-2-86m';
 const MODEL_COOLDOWNS = new Map();
+const KNOWLEDGE_NEEDS = new Set(['none', 'maybe', 'needed']);
 
 function oneLine(value, max = 1000) {
   const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
@@ -225,6 +226,12 @@ export function buildSubscriberIntentProbeMessages({ transcript = [], latestCust
 
 Критически важно различать источник утверждения. То, что сказал клиент, является фактом о СЛОВАХ клиента, но не автоматически фактом о Billing, сети или правилах компании. То, что сказал прошлый оператор, также не считай внутренней истиной без отдельного подтверждения.
 
+Также реши, даст ли внутренняя энциклопедия SIMNET реальную пользу именно на ЭТОМ ходе. Это не классификация темы и не keyword routing.
+- knowledge_need=none: смысл реплики уже понятен и внутренние правила/знания компании ничего существенного не добавят. Обычно это приветствие/завершение, служебный выбор меню, предоставление запрошенного номера договора или адреса, простое подтверждение/отрицание, ожидание оператора и другие понятные из диалога реплики.
+- knowledge_need=needed: вопрос реально зависит от внутренних знаний SIMNET — тарифов, цен, условий услуг, бизнес-правил, технических принципов, внутренних процессов или значения данных.
+- knowledge_need=maybe: есть разумное сомнение, поможет ли справочник. Используй редко; не выбирай maybe просто «на всякий случай».
+Не открывай энциклопедию только потому, что в реплике встретилось слово про интернет, договор, роутер или оплату.
+
 Перед результатом мысленно проверь: «Я описываю то, что действительно следует из разговора, или то, что сам додумал?»
 
 Верни только JSON без markdown:
@@ -237,6 +244,8 @@ export function buildSubscriberIntentProbeMessages({ transcript = [], latestCust
   "facts_said_by_user":["только то, что клиент реально сообщил/утверждает"],
   "facts_said_by_operator":["важные утверждения прошлого оператора, если они влияют на контекст"],
   "ambiguities":["только реальная неоднозначность смысла; не придумывай лишние варианты"],
+  "knowledge_need":"none|maybe|needed",
+  "knowledge_reason":"коротко: что именно энциклопедия может добавить или почему она не нужна",
   "confidence":0.0
 }`
     },
@@ -257,6 +266,11 @@ function stringList(value, maxItems = 8, maxChars = 260) {
     .slice(0, maxItems);
 }
 
+function normalizeKnowledgeNeed(value) {
+  const normalized = oneLine(value || '', 20).toLowerCase();
+  return KNOWLEDGE_NEEDS.has(normalized) ? normalized : 'maybe';
+}
+
 function normalizeProbe(raw = {}) {
   const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   return {
@@ -268,8 +282,14 @@ function normalizeProbe(raw = {}) {
     factsSaidByUser: stringList(value.facts_said_by_user),
     factsSaidByOperator: stringList(value.facts_said_by_operator),
     ambiguities: stringList(value.ambiguities, 6),
+    knowledgeNeed: normalizeKnowledgeNeed(value.knowledge_need),
+    knowledgeReason: oneLine(value.knowledge_reason || '', 420),
     confidence: Math.max(0, Math.min(1, Number(value.confidence || 0) || 0))
   };
+}
+
+export function shouldReadKnowledge(probe = {}) {
+  return normalizeKnowledgeNeed(probe.knowledgeNeed || probe.knowledge_need) !== 'none';
 }
 
 function articlePayload(article) {
@@ -343,6 +363,8 @@ function normalizeHypotheses(value) {
 function normalizeKnowledgeReflection(raw = {}, candidateArticles = []) {
   const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   return {
+    skipped: false,
+    skipReason: '',
     usedArticles: normalizeUsedArticles(value.used_articles, candidateArticles),
     relevantInternalKnowledge: stringList(value.relevant_internal_knowledge, 8, 420),
     howItApplies: oneLine(value.how_it_applies || '', 800),
@@ -353,8 +375,27 @@ function normalizeKnowledgeReflection(raw = {}, candidateArticles = []) {
   };
 }
 
+function skippedKnowledge(probe = {}) {
+  return {
+    skipped: true,
+    skipReason: 'semantic_gate_none',
+    usedArticles: [],
+    relevantInternalKnowledge: [],
+    howItApplies: '',
+    alreadyEnough: probe.whatUserWants ? [probe.whatUserWants] : [],
+    mustNotAssume: [],
+    hypotheses: [],
+    knowledgeGaps: []
+  };
+}
+
 function readableProbe(probe, knowledge) {
   const articleNames = knowledge.usedArticles.map(item => item.id).join(', ');
+  const encyclopediaLine = knowledge.skipped
+    ? `4. Энциклопедия: пропущена — ${probe.knowledgeReason || 'внутренние знания не нужны для понимания этой реплики'}.`
+    : articleNames
+      ? `4. Что посмотрел в энциклопедии: ${articleNames}`
+      : '4. Энциклопедия: подтверждённая релевантная статья не выбрана.';
   return [
     probe.whatUserWants ? `1. Что хочет абонент: ${probe.whatUserWants}` : '',
     probe.latestMessageMeans ? `2. Смысл последней реплики: ${probe.latestMessageMeans}` : '',
@@ -362,7 +403,7 @@ function readableProbe(probe, knowledge) {
     probe.underlyingGoal ? `   Общая цель: ${probe.underlyingGoal}` : '',
     probe.factsSaidByUser.length ? `3. Что сообщил клиент: ${probe.factsSaidByUser.join('; ')}` : '',
     probe.factsSaidByOperator.length ? `   Контекст от прошлого оператора: ${probe.factsSaidByOperator.join('; ')}` : '',
-    articleNames ? `4. Что посмотрел в энциклопедии: ${articleNames}` : '4. Энциклопедия: подтверждённая релевантная статья не выбрана.',
+    encyclopediaLine,
     knowledge.relevantInternalKnowledge.length ? `   Полезное внутреннее знание: ${knowledge.relevantInternalKnowledge.join('; ')}` : '',
     knowledge.howItApplies ? `5. Как это относится к обращению: ${knowledge.howItApplies}` : '',
     knowledge.mustNotAssume.length ? `6. Нельзя считать фактом без проверки: ${knowledge.mustNotAssume.join('; ')}` : '',
@@ -393,16 +434,24 @@ export async function analyzeSubscriberIntent({ transcript = [], latestCustomer 
   const semanticResponse = await requestJsonWithFallback(semanticMessages, runtime, { ...meterContext, stage: 'understanding' });
   const probe = normalizeProbe(parseJsonObject(semanticResponse.answer));
 
-  const query = knowledgeQueryFromUnderstanding({ probe, transcript, latestCustomer });
-  const candidateArticles = searchKnowledgeLibrary(query, { limit: 6, minScore: 1 });
-  const knowledgeMessages = buildKnowledgeReflectionMessages({ probe, candidateArticles });
-  const knowledgeResponse = await requestJsonWithFallback(knowledgeMessages, runtime, { ...meterContext, stage: 'knowledge' });
-  const knowledge = normalizeKnowledgeReflection(parseJsonObject(knowledgeResponse.answer), candidateArticles);
+  let candidateArticles = [];
+  let knowledgeMessages = [];
+  let knowledgeResponse = null;
+  let knowledge = skippedKnowledge(probe);
+
+  if (shouldReadKnowledge(probe)) {
+    const query = knowledgeQueryFromUnderstanding({ probe, transcript, latestCustomer });
+    candidateArticles = searchKnowledgeLibrary(query, { limit: 6, minScore: 1 });
+    knowledgeMessages = buildKnowledgeReflectionMessages({ probe, candidateArticles });
+    knowledgeResponse = await requestJsonWithFallback(knowledgeMessages, runtime, { ...meterContext, stage: 'knowledge' });
+    knowledge = normalizeKnowledgeReflection(parseJsonObject(knowledgeResponse.answer), candidateArticles);
+  }
 
   const totalUsage = usageTotal(guard, semanticResponse, knowledgeResponse);
   const promptChars = semanticMessages.reduce((sum, item) => sum + String(item.content || '').length, 0)
     + knowledgeMessages.reduce((sum, item) => sum + String(item.content || '').length, 0)
     + String(latestCustomer?.text || '').length;
+  const usedKnowledge = !knowledge.skipped;
 
   return {
     probe,
@@ -415,7 +464,9 @@ export async function analyzeSubscriberIntent({ transcript = [], latestCustomer 
       tool: '',
       toolArgs: {},
       reply: readableProbe(probe, knowledge),
-      reason: `Свободное понимание обращения + мягкое чтение ${SIMNET_KNOWLEDGE_VERSION}; fact-runtime/fact-catalog/dialogue-state не участвуют.`,
+      reason: usedKnowledge
+        ? `Свободное понимание обращения + мягкое чтение ${SIMNET_KNOWLEDGE_VERSION}; fact-runtime/fact-catalog/dialogue-state не участвуют.`
+        : 'Свободное понимание обращения; semantic gate решил, что энциклопедия на этом ходе не нужна; fact-runtime/fact-catalog/dialogue-state не участвуют.',
       confidence: probe.confidence,
       language: probe.language,
       diagnostic: {
@@ -425,13 +476,18 @@ export async function analyzeSubscriberIntent({ transcript = [], latestCustomer 
           error: guard.error || '',
           skipped: Boolean(guard.skipped)
         },
+        knowledgeGate: {
+          need: probe.knowledgeNeed,
+          reason: probe.knowledgeReason,
+          skipped: knowledge.skipped
+        },
         understanding: probe,
         knowledge,
         candidates: candidateArticles.map(({ id, title, score }) => ({ id, title, score }))
       },
-      model: [guard.model, semanticResponse.model, knowledgeResponse.model].filter(Boolean).join(' → '),
+      model: [guard.model, semanticResponse.model, knowledgeResponse?.model].filter(Boolean).join(' → '),
       usage: totalUsage,
-      rateLimit: knowledgeResponse.rateLimit || semanticResponse.rateLimit || guard.rateLimit || {},
+      rateLimit: knowledgeResponse?.rateLimit || semanticResponse.rateLimit || guard.rateLimit || {},
       promptChars
     }
   };
