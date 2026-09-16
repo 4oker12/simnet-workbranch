@@ -3,6 +3,7 @@ import { FACT_RECIPES } from './fact-catalog.js';
 
 export const QUESTION_PAIRS = Object.freeze([...Object.keys(FACT_RECIPES),
   'contract.info', 'network.info', 'payment.instructions', 'static_ip.info', 'static_ip.change', 'service.change', 'unknown.info']);
+
 export function normalizeInterpretation(raw = {}) {
   const questions = (Array.isArray(raw.questions) ? raw.questions : []).slice(0, 4).map(q => ({
     entity: String(q?.entity || ''), relation: String(q?.relation || ''),
@@ -12,16 +13,21 @@ export function normalizeInterpretation(raw = {}) {
   const ids = raw.ids && typeof raw.ids === 'object' ? raw.ids : {};
   const login = String(ids.login || '').replace(/\s/g, '').toLowerCase();
   const contract = String(ids.contract || '').trim();
+  const loginContract = login.match(/^abon(\d{3,12})$/i)?.[1] || '';
+  const contractFromAbon = contract.match(/^abon\s*(\d{3,12})$/i)?.[1] || '';
   return {
     questions, language: raw.language === 'uk' ? 'uk' : 'ru',
     speechAct: ['new', 'follow_up', 'confirm', 'deny', 'correct', 'request_human'].includes(raw.speechAct) ? raw.speechAct : 'new',
     confirmation: raw.confirmation === true ? true : raw.confirmation === false ? false : null,
     refresh: ['finance', 'network', 'all'].includes(raw.refresh) ? raw.refresh : '',
-    ids: /^abon\d{3,12}$/.test(login) ? { login } : /^\d{3,12}$/.test(contract) ? { contract }
-      : /^abon\s*\d{3,12}$/i.test(contract) ? { login: contract.replace(/\s/g, '').toLowerCase() }
-        : typeof ids.address === 'string' && ids.address.trim() ? { address: ids.address.trim().slice(0, 260) } : {}
+    // In SIMNET abonNNN and NNN identify the same subscriber contract. Canonicalize both to contract.
+    ids: loginContract ? { contract: loginContract }
+      : /^\d{3,12}$/.test(contract) ? { contract }
+        : contractFromAbon ? { contract: contractFromAbon }
+          : typeof ids.address === 'string' && ids.address.trim() ? { address: ids.address.trim().slice(0, 260) } : {}
   };
 }
+
 export function newConversationState(raw = {}) {
   return {
     version: 2, confirmedCaseId: String(raw.confirmedCaseId || ''),
@@ -33,6 +39,7 @@ export function newConversationState(raw = {}) {
     derived: []
   };
 }
+
 // Only unambiguous conversational controls bypass NLU. Business requests are interpreted compositionally.
 export function localDialogueControl(text, state) {
   const clean = String(text || '').trim();
@@ -48,11 +55,14 @@ export function localDialogueControl(text, state) {
   }
   return null;
 }
+
 export function lookupFromText(ids, text) {
   // An LLM cannot supply an identifier which the customer never supplied.
   const source = String(text || '').toLowerCase().replace(/\s/g, '');
-  if (ids.login && (source.match(/abon\d{3,12}/g) || []).includes(ids.login)) return { login: ids.login };
-  if (ids.contract && (source.match(/\d+/g) || []).includes(ids.contract)) return { contract: ids.contract };
+  if (ids.contract) {
+    const explicitContracts = source.match(/\d{3,12}/g) || [];
+    if (explicitContracts.includes(ids.contract)) return { contract: ids.contract };
+  }
   if (ids.address && source.includes(ids.address.toLowerCase().replace(/\s/g, ''))) return { address: ids.address };
   return null;
 }
