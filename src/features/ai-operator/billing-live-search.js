@@ -121,9 +121,20 @@ async function executeSearch(tabId, request) {
         ].filter(Boolean).join(', ');
         return address;
       };
+      const readActiveServices = doc => {
+        if (!doc.querySelector('select[name="paket"]')) return null;
+        return [...doc.querySelectorAll('input[type="checkbox"][name^="sr"]')].filter(c => c.checked).map(c => {
+          const row = c.closest('table')?.querySelector('tr') || c.closest('tr');
+          const cells = row ? [...row.querySelectorAll(':scope > td, :scope > th')] : [];
+          return { name: compact(cells[0]?.textContent || c.name, 220), amount: money(cells.at(-1)?.textContent || '') };
+        });
+      };
       const readMain = (doc, billingId) => {
         const login = compact(input(doc, 'name') || doc.body?.textContent?.match(/\babon\d{3,12}\b/i)?.[0] || '', 80).toLowerCase();
-        const contract = compact(input(doc, 'contract') || login.replace(/^abon/i, ''), 80);
+        const contract = compact(input(doc, 'contract'), 80);
+        const activeServices = readActiveServices(doc);
+        const activeServicesTotal = activeServices && activeServices.every(s => Number.isFinite(s.amount))
+          ? Math.round(activeServices.reduce((sum, s) => sum + Math.round(s.amount * 100), 0)) / 100 : null;
         return {
           identity: {
             billingId: String(billingId || ''),
@@ -134,10 +145,12 @@ async function executeSearch(tabId, request) {
           service: {
             group: selected(doc, 'grp'),
             currentTariff: selected(doc, 'paket'),
-            nextTariff: selected(doc, 'next_paket'),
+            nextTariff: doc.querySelector('select[name="next_paket"]') ? selected(doc, 'next_paket') : null,
             nextTariffDelay: selected(doc, 'next_paket_delay'),
             accessState: selected(doc, 'state'),
-            serviceState: selected(doc, 'cstate')
+            serviceState: selected(doc, 'cstate'),
+            startDay: input(doc, 'start_day'),
+            activeServices, activeServicesTotal
           },
           finance: {
             accountBalance: money(rowValue(doc, [/^на счету,?\s*грн/i, /^на рахунку,?\s*грн/i])),
@@ -340,6 +353,7 @@ async function executeSearch(tabId, request) {
 
         snapshot.billingId = billingId;
         snapshot.observedAt = new Date().toISOString();
+        if (snapshot.finance) snapshot.financeObservedAt = snapshot.observedAt;
         snapshot.source = 'billing-live-read-only';
         snapshots[billingId] = snapshot;
         candidates.push({
