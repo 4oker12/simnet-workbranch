@@ -28,7 +28,7 @@ function clone(value) {
 
 function normalizedCase(raw = {}) {
   const transcript = Array.isArray(raw.transcript)
-    ? raw.transcript.slice(-40).map(item => ({
+    ? raw.transcript.slice(-120).map(item => ({
         id: Number(item?.id || 0) || 0,
         role: item?.role === 'customer' ? 'customer' : 'agent',
         text: compact(item?.text || '', 2200),
@@ -41,6 +41,8 @@ function normalizedCase(raw = {}) {
   return {
     id: compact(raw.id || '', 180),
     chatId: Number(raw.chatId || raw?.chat?.id || 0) || 0,
+    chatTurnIndex: Number(raw.chatTurnIndex || 0) || 0,
+    chatTurnCount: Number(raw.chatTurnCount || 0) || 0,
     chat: raw.chat && typeof raw.chat === 'object' ? clone(raw.chat) : {},
     customer: raw.customer && typeof raw.customer === 'object' ? clone(raw.customer) : {},
     transcript,
@@ -65,24 +67,38 @@ async function readOperatorContext() {
   };
 }
 
-async function evaluateReplayCase(rawCase = {}) {
+async function evaluateReplayCase(payload = {}) {
+  const rawCase = payload?.case && typeof payload.case === 'object' ? payload.case : payload;
   const replayCase = normalizedCase(rawCase);
   if (!replayCase.customerText || !replayCase.transcript.length) {
     throw new Error('Replay case does not contain a customer turn.');
   }
-  const { config, feedback } = await readOperatorContext();
+  const initialState = payload?.state && typeof payload.state === 'object' && !Array.isArray(payload.state)
+    ? clone(payload.state)
+    : {};
+  const { config } = await readOperatorContext();
   const outcome = await runFactTurn({
     text: replayCase.latestCustomer.text,
-    state: {},
+    state: initialState,
     transcript: replayCase.transcript,
-    interpret: input => planAutonomousTurn({ ...input, operatorConfig: config, meterContext: { scope: `replay:${replayCase.id}`, turnId: `replay:${Date.now()}` } }),
+    interpret: input => planAutonomousTurn({
+      ...input,
+      operatorConfig: config,
+      meterContext: {
+        scope: `replay:${replayCase.chatId}:${replayCase.id}`,
+        turnId: `replay:${replayCase.id}:${Date.now()}`
+      }
+    }),
     replay: true,
-    now: Number.isFinite(Date.parse(replayCase.latestCustomer.createdAt)) ? Date.parse(replayCase.latestCustomer.createdAt) : Date.now()
+    now: Number.isFinite(Date.parse(replayCase.latestCustomer.createdAt))
+      ? Date.parse(replayCase.latestCustomer.createdAt)
+      : Date.now()
   });
-  const decision = outcome.decision;
   return {
     case: replayCase,
-    decision,
+    state: outcome.state,
+    decision: outcome.decision,
+    events: outcome.events,
     evaluatedAt: new Date().toISOString()
   };
 }
@@ -94,9 +110,9 @@ async function readResults() {
 
 async function recordResult(payload = {}) {
   const replayCase = normalizedCase(payload.case || {});
-  const verdict = ['pass', 'gap', 'skip'].includes(String(payload.verdict || ''))
+  const verdict = ['pass', 'gap', 'skip', 'unreviewed'].includes(String(payload.verdict || ''))
     ? String(payload.verdict)
-    : 'skip';
+    : 'unreviewed';
   const decision = payload.decision && typeof payload.decision === 'object'
     ? clone(payload.decision)
     : {};
@@ -104,6 +120,8 @@ async function recordResult(payload = {}) {
     id: `replay_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     caseId: replayCase.id,
     chatId: replayCase.chatId,
+    chatTurnIndex: replayCase.chatTurnIndex,
+    chatTurnCount: replayCase.chatTurnCount,
     source: replayCase.source,
     verdict,
     customerText: replayCase.customerText,
@@ -116,13 +134,17 @@ async function recordResult(payload = {}) {
       reply: compact(decision.reply || '', 3200),
       reason: compact(decision.reason || '', 1200),
       confidence: Number(decision.confidence || 0) || 0,
-      model: String(decision.model || '')
+      model: String(decision.model || ''),
+      usage: decision.usage && typeof decision.usage === 'object' ? clone(decision.usage) : {},
+      promptChars: Number(decision.promptChars || 0) || 0,
+      diagnostic: decision.diagnostic && typeof decision.diagnostic === 'object' ? clone(decision.diagnostic) : null
     },
+    batch: payload.batch && typeof payload.batch === 'object' ? clone(payload.batch) : null,
     note: compact(payload.note || '', 1600),
     createdAt: new Date().toISOString()
   };
   const current = await readResults();
-  const next = [item, ...current].slice(0, MAX_RESULTS);
+  const next = [item, ...current.filter(existing => existing?.caseId !== item.caseId)].slice(0, MAX_RESULTS);
   await chrome.storage.local.set({ [RESULTS_KEY]: next });
   return item;
 }
@@ -132,7 +154,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!Object.values(TYPES).includes(type)) return false;
 
   const action = type === TYPES.EVALUATE
-    ? evaluateReplayCase(message?.payload?.case || {})
+    ? evaluateReplayCase(message?.payload || {})
     : type === TYPES.RECORD
       ? recordResult(message?.payload || {})
       : type === TYPES.RESULTS
