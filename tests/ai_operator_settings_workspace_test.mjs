@@ -43,11 +43,14 @@ for (const label of ['Решительность', 'Любопытство', 'И
 assert.match(lab, /AI_OPERATOR_LAB_REPEAT/, 'Manual Lab must be able to repeat the same pre-turn state');
 assert.match(lab, /AI_OPERATOR_LAB_SNAPSHOT/, 'Manual Lab must save experiment snapshots');
 assert.match(lab, /Экспорт слепков/, 'Manual Lab must export experiment snapshots');
-assert.match(lab, /BILLING: OFF/, 'Manual Lab must make unavailable live Billing explicit');
-assert.match(lab, /USERSIDE: OFF/, 'Manual Lab must make unavailable UserSide explicit');
-assert.match(lab, /NETWORK: OFF/, 'Manual Lab must make unavailable network tools explicit');
+assert.match(lab, /BILLING: \$\{caps\.billing \? 'ON' : 'OFF'\}/, 'Manual Lab must render Billing capability from runtime state');
+assert.match(lab, /USERSIDE: \$\{caps\.userside \? 'ON' : 'OFF'\}/, 'Manual Lab must render UserSide capability from runtime state');
+assert.match(lab, /NETWORK: \$\{caps\.network \? 'ON' : 'OFF'\}/, 'Manual Lab must render network capability from runtime state');
+assert.match(lab, /READ-tools/, 'Manual Lab diagnostics must expose executed read tools');
+assert.match(lab, /Подтверждено tools/, 'Manual Lab diagnostics must expose verified tool evidence');
 assert.match(lab, /Нужны live-данные/, 'Manual Lab diagnostics must separate subscriber data needs from KB gaps');
 assert.match(lab, /Пересчитать последний ход/, 'Manual Lab must expose live retuning workflow');
+assert.match(lab, /UserSide-контекст не выдаётся за свежий глобальный поиск/, 'Manual Lab must disclose UserSide freshness limitations');
 assert.match(labCss, /\.ai-lab-sliders/, 'behavior controls must have dedicated layout');
 assert.match(labCss, /\.ai-lab-comparison-grid/, 'A/B answers must have dedicated comparison layout');
 assert.match(labCss, /\.ai-lab-diagnostic-row/, 'live diagnostics must have dedicated visual rows');
