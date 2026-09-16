@@ -58,6 +58,50 @@ function normalizedCase(raw = {}) {
   };
 }
 
+function isEmptyAiResponseError(error) {
+  return /Groq returned an empty response/i.test(String(error?.message || error || ''));
+}
+
+function emptyAiResponseOutcome(error) {
+  const message = compact(error?.message || error || 'AI returned an empty response', 900);
+  return {
+    probe: null,
+    knowledge: {
+      skipped: true,
+      skipReason: 'ai_no_response',
+      usedArticles: [],
+      relevantInternalKnowledge: [],
+      howItApplies: '',
+      alreadyEnough: [],
+      mustNotAssume: [],
+      hypotheses: [],
+      knowledgeGaps: []
+    },
+    candidates: [],
+    decision: {
+      action: 'ai_no_response',
+      domain: 'understanding',
+      intent: 'analysis_unavailable',
+      tool: '',
+      toolArgs: {},
+      reply: 'AI не дал ответа на этот кейс. Кейс пропущен, Replay продолжает со следующего.',
+      reason: message,
+      confidence: 0,
+      language: '',
+      diagnostic: {
+        code: 'AI_NO_RESPONSE',
+        message,
+        recoverable: true,
+        skippedCase: true
+      },
+      model: '',
+      usage: {},
+      rateLimit: {},
+      promptChars: 0
+    }
+  };
+}
+
 async function evaluateReplayCase(payload = {}) {
   const rawCase = payload?.case && typeof payload.case === 'object' ? payload.case : payload;
   const replayCase = normalizedCase(rawCase);
@@ -72,14 +116,23 @@ async function evaluateReplayCase(payload = {}) {
 
   // Experimental mode: understand the human first, then softly consult the SIMNET encyclopedia.
   // The old deterministic regulators remain in the repository but are deliberately bypassed here.
-  const outcome = await planAutonomousTurn({
-    transcript: replayCase.transcript,
-    latestCustomer: replayCase.latestCustomer,
-    meterContext: {
-      scope: `knowledge-probe:${replayCase.chatId}:${replayCase.id}`,
-      turnId: `knowledge-probe:${replayCase.id}:${Date.now()}`
-    }
-  });
+  let outcome;
+  try {
+    outcome = await planAutonomousTurn({
+      transcript: replayCase.transcript,
+      latestCustomer: replayCase.latestCustomer,
+      meterContext: {
+        scope: `knowledge-probe:${replayCase.chatId}:${replayCase.id}`,
+        turnId: `knowledge-probe:${replayCase.id}:${Date.now()}`
+      }
+    });
+  } catch (error) {
+    // An empty completion is a model/runtime miss, not a reason to destroy a long Replay batch.
+    // Keep the miss visible as a dedicated result so it is not silently hidden, preserve chat state,
+    // and let the harness advance to the next case. Configuration/auth failures still bubble normally.
+    if (!isEmptyAiResponseError(error)) throw error;
+    outcome = emptyAiResponseOutcome(error);
+  }
 
   return {
     case: replayCase,
