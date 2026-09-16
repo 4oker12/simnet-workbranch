@@ -1,5 +1,6 @@
 import { interpretOperatorTurn as planAutonomousTurn } from './groq-planner.js';
 import { runFactTurn } from './fact-runtime.js';
+import { explicitContractFromText } from './dialogue-state.js';
 
 const OPERATOR_CONFIG_KEY = 'simnet_ai_operator_runtime_v1';
 const FEEDBACK_KEY = 'simnet_ai_operator_feedback_v1';
@@ -57,6 +58,25 @@ function normalizedCase(raw = {}) {
   };
 }
 
+function seedReplayIdentity(initialState = {}, transcript = []) {
+  const state = clone(initialState) || {};
+  if (String(state.confirmedCaseId || '').trim()) return state;
+
+  const messages = Array.isArray(transcript) ? transcript : [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const item = messages[index];
+    if (item?.role !== 'customer') continue;
+    const contract = explicitContractFromText(item?.text || '');
+    if (!contract) continue;
+    const caseId = `replay-contract:${contract}`;
+    state.confirmedCaseId = caseId;
+    state.confirmedSubscriber = { caseId, contract };
+    state.pendingCandidate = null;
+    return state;
+  }
+  return state;
+}
+
 async function readOperatorContext() {
   const stored = await chrome.storage.local.get([OPERATOR_CONFIG_KEY, FEEDBACK_KEY]);
   const config = stored?.[OPERATOR_CONFIG_KEY];
@@ -73,9 +93,12 @@ async function evaluateReplayCase(payload = {}) {
   if (!replayCase.customerText || !replayCase.transcript.length) {
     throw new Error('Replay case does not contain a customer turn.');
   }
-  const initialState = payload?.state && typeof payload.state === 'object' && !Array.isArray(payload.state)
+  const suppliedState = payload?.state && typeof payload.state === 'object' && !Array.isArray(payload.state)
     ? clone(payload.state)
     : {};
+  // Starting a batch at an arbitrary case may land in the middle of a chat. Seed identity from the
+  // already visible customer history so Replay does not forget a contract that appeared earlier.
+  const initialState = seedReplayIdentity(suppliedState, replayCase.transcript);
   const { config } = await readOperatorContext();
   const outcome = await runFactTurn({
     text: replayCase.latestCustomer.text,
