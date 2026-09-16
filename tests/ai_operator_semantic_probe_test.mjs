@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   AI_OPERATOR_GENERATION_MODEL_POOL,
+  AI_OPERATOR_KNOWLEDGE_MODES,
   AI_OPERATOR_PROMPT_GUARD_MODEL,
   buildKnowledgeReflectionMessages,
   buildSubscriberIntentProbeMessages,
@@ -23,15 +24,17 @@ test('semantic probe asks what the subscriber wants without deterministic intent
   });
   const prompt = messages.map(item => item.content).join('\n');
   assert.match(prompt, /общение с человеком/i);
-  assert.match(prompt, /Чего человек хочет добиться/i);
+  assert.match(prompt, /чего человек хочет добиться/i);
   assert.match(prompt, /непосредственно предыдущую реплику оператора/i);
   assert.match(prompt, /Я не знаю\)/);
   assert.match(prompt, /что действительно следует из разговора/i);
+  assert.match(prompt, /unresolved_requests/i);
+  assert.match(prompt, /служебные кнопки\/пункты меню сами по себе не означают смену реальной темы/i);
   assert.doesNotMatch(prompt, /balance\.amount|tariff\.upgrade|customer\.lookup|recurring_charge\.amount/);
   assert.doesNotMatch(prompt, /would_need_to_know|assumptions/);
 });
 
-test('semantic layer decides whether encyclopedia is useful without phrase routing', () => {
+test('semantic layer decides whether encyclopedia is useful and exposes explicit lab modes', () => {
   const messages = buildSubscriberIntentProbeMessages({
     transcript: [
       { role: 'agent', text: 'Будь ласка, вкажіть Ваш номер договору' },
@@ -48,9 +51,11 @@ test('semantic layer decides whether encyclopedia is useful without phrase routi
   assert.equal(shouldReadKnowledge({ knowledgeNeed: 'maybe' }), true);
   assert.equal(shouldReadKnowledge({ knowledgeNeed: 'needed' }), true);
   assert.equal(shouldReadKnowledge({}), true, 'missing gate must fail open and preserve encyclopedia access');
+  assert.deepEqual(AI_OPERATOR_KNOWLEDGE_MODES, ['off', 'auto', 'on']);
 
   const source = fs.readFileSync(new URL('../src/features/ai-operator/semantic-probe.js', import.meta.url), 'utf8');
-  assert.match(source, /if \(shouldReadKnowledge\(probe\)\)/);
+  assert.match(source, /mode === 'on' \|\| \(mode === 'auto' && shouldReadKnowledge\(probe\)\)/);
+  assert.match(source, /knowledge_mode_off/);
   assert.match(source, /semantic_gate_none/);
   assert.match(source, /knowledgeMessages = \[\]/);
 });
@@ -90,7 +95,7 @@ test('soft retrieval offers relevant articles but does not return a forced actio
   assert.ok(neighbors.some(article => article.id === 'technical.no-internet'));
 });
 
-test('knowledge reflection treats encyclopedia as optional reference and separates hypotheses', () => {
+test('knowledge reflection treats encyclopedia as optional reference and rejects generic industry-policy invention', () => {
   const candidates = searchKnowledgeLibrary('Я оплатил, дайте интернет', { limit: 4 });
   const messages = buildKnowledgeReflectionMessages({
     probe: {
@@ -103,8 +108,10 @@ test('knowledge reflection treats encyclopedia as optional reference and separat
   const prompt = messages.map(item => item.content).join('\n');
   assert.match(prompt, /справочник, а не сценарий/i);
   assert.match(prompt, /customer_claim/i);
-  assert.match(prompt, /гипотезы допустимы/i);
+  assert.match(prompt, /гипотеза допустима только если у неё есть конкретное основание/i);
+  assert.match(prompt, /не добавляй «типичную практику отрасли»/i);
   assert.match(prompt, /не перечисляй всё/i);
+  assert.match(prompt, /knowledge_gaps — только пробел внутренней энциклопедии/i);
   assert.doesNotMatch(prompt, /обязательно вызови|обязан вызвать/i);
 });
 
@@ -126,6 +133,22 @@ test('unknown company policy stays an explicit encyclopedia gap instead of becom
   assert.match(prompt, /knowledge_gaps/);
   assert.match(prompt, /не превращай слова клиента.*в правило компании/i);
   assert.match(prompt, /не записывай туда номер договора, адрес, модель роутера, баланс/i);
+});
+
+test('subscriber reply path keeps behavior tunable while truth rules stay invariant', () => {
+  const source = fs.readFileSync(new URL('../src/features/ai-operator/semantic-probe.js', import.meta.url), 'utf8');
+  assert.match(source, /export async function generateSubscriberReply/);
+  assert.match(source, /НЕИЗМЕНЯЕМЫЕ правила достоверности/i);
+  assert.match(source, /customer_claim.*не являются подтверждёнными фактами системы/i);
+  assert.match(source, /internal_knowledge\.enabled=false/i);
+  assert.match(source, /не добавляй «обычную практику отрасли»/i);
+  assert.match(source, /subscriber_data_needed/);
+  assert.match(source, /behavior_effects/);
+  assert.match(source, /Решительность \$\{profile\.confidenceStyle\}/);
+  assert.match(source, /Любопытство \$\{profile\.curiosity\}/);
+  assert.match(source, /Инициативность \$\{profile\.initiative\}/);
+  assert.match(source, /Скепсис \$\{profile\.skepticism\}/);
+  assert.match(source, /Краткость \$\{profile\.brevity\}/);
 });
 
 test('Replay knowledge experiment bypasses deterministic regulator files', () => {
