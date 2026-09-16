@@ -11,6 +11,13 @@ export function isSubscriberLogin(value) {
   return /^abon\s*\d{3,12}$/i.test(text(value, 80));
 }
 
+export function canonicalLabContract(value) {
+  const compact = text(value, 80).replace(/\s+/g, '').toLowerCase();
+  const abon = compact.match(/^abon(\d{3,12})$/i);
+  if (abon) return abon[1];
+  return /^\d{3,12}$/.test(compact) ? compact : '';
+}
+
 export function normalizeLabLookupDecision(decision = {}) {
   const next = clone(decision) || {};
   if (String(next.tool || '') !== 'customer.lookup') return next;
@@ -18,14 +25,17 @@ export function normalizeLabLookupDecision(decision = {}) {
   const args = next.toolArgs && typeof next.toolArgs === 'object' && !Array.isArray(next.toolArgs)
     ? { ...next.toolArgs }
     : {};
-  const mistakenContract = text(args.contract, 80);
-  if (!isSubscriberLogin(mistakenContract)) {
-    next.toolArgs = args;
-    return next;
+
+  const contract = canonicalLabContract(args.contract)
+    || canonicalLabContract(args.login)
+    || canonicalLabContract(args.query);
+
+  if (contract) {
+    args.contract = contract;
+    if (canonicalLabContract(args.login)) delete args.login;
+    if (canonicalLabContract(args.query)) delete args.query;
   }
 
-  delete args.contract;
-  if (!args.query) args.query = mistakenContract.replace(/\s+/g, '');
   next.toolArgs = args;
   return next;
 }
