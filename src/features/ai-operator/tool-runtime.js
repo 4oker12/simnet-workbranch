@@ -59,8 +59,9 @@ function firstDefined(...values) {
 }
 
 function normalizeContract(value) {
-  const source = String(value == null ? '' : value).trim();
-  return /^\d{1,12}$/.test(source) ? source : '';
+  const source = String(value == null ? '' : value).trim().replace(/\s/g, '');
+  const abon = source.match(/^abon(\d{3,12})$/i)?.[1] || '';
+  return abon || (/^\d{3,12}$/.test(source) ? source : '');
 }
 
 function normalizeAddress(value) {
@@ -155,7 +156,7 @@ function caseSummary(caseId, caseData = {}, snapshot = null) {
 
 function candidateMatchScore(summary, query = {}) {
   let score = 0;
-  const contract = normalizeContract(query.contract);
+  const contract = normalizeContract(query.contract) || normalizeContract(query.login);
   const address = normalizeAddress(query.address);
   const ip = normalizeIp(query.ip);
   const raw = text(query.query, 300);
@@ -163,19 +164,14 @@ function candidateMatchScore(summary, query = {}) {
   const rawIp = normalizeIp(raw);
   const rawAddress = normalizeAddress(raw);
 
-  const candidateContract = normalizeContract(summary.contract);
+  const candidateContract = normalizeContract(summary.contract) || normalizeContract(summary.login);
   const candidateAddress = normalizeAddress(summary.address);
   const candidateIp = normalizeIp(summary.ip);
 
-  const soughtLogin = text(query.login || (/^abon\s*\d{3,12}$/i.test(raw) ? raw : ''), 80).replace(/\s/g, '').toLowerCase();
-  const soughtContract = contract || (/^\d{3,12}$/.test(raw) ? rawContract : '');
+  const soughtContract = contract || rawContract;
   const soughtIp = ip || rawIp;
-  const soughtAddress = address || (!soughtContract && !soughtLogin && !soughtIp ? rawAddress : '');
+  const soughtAddress = address || (!soughtContract && !soughtIp ? rawAddress : '');
 
-  if (soughtLogin) {
-    if (String(summary.login || '').toLowerCase() === soughtLogin) score += 100;
-    else return 0;
-  }
   if (soughtContract) {
     if (candidateContract === soughtContract) score += 100;
     else return 0;
@@ -214,9 +210,11 @@ function result(tool, ok, code, data = {}, warnings = [], statePatch = {}) {
 async function lookupCustomer(toolArgs = {}) {
   const [{ key, state }, snapshots] = await Promise.all([loadWorkbenchState(), loadBillingSnapshots()]);
   const entries = Object.entries(state?.cases || {});
+  const explicitContract = normalizeContract(toolArgs.contract)
+    || normalizeContract(toolArgs.login)
+    || normalizeContract(toolArgs.query);
   const hasQuery = Boolean(
-    normalizeContract(toolArgs.contract)
-    || text(toolArgs.login, 80)
+    explicitContract
     || normalizeAddress(toolArgs.address)
     || normalizeIp(toolArgs.ip)
     || text(toolArgs.query, 300)
@@ -260,6 +258,19 @@ async function lookupCustomer(toolArgs = {}) {
   }
 
   const candidate = top[0].summary;
+  if (explicitContract) {
+    return result('customer.lookup', true, 'OK', {
+      count: 1,
+      candidate,
+      requiresConfirmation: false,
+      source: key
+    }, [], {
+      pendingCandidate: null,
+      confirmedCaseId: String(candidate.caseId),
+      confirmedSubscriber: candidate
+    });
+  }
+
   return result('customer.lookup', true, 'OK', {
     count: 1,
     candidate,
