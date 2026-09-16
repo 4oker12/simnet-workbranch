@@ -4,6 +4,34 @@ import { FACT_RECIPES } from './fact-catalog.js';
 export const QUESTION_PAIRS = Object.freeze([...Object.keys(FACT_RECIPES),
   'contract.info', 'network.info', 'payment.instructions', 'static_ip.info', 'static_ip.change', 'service.change', 'unknown.info']);
 
+function canonicalContract(value) {
+  const source = String(value == null ? '' : value).trim().replace(/\s/g, '');
+  const abon = source.match(/^abon(\d{3,12})$/i)?.[1] || '';
+  return abon || (/^\d{3,12}$/.test(source) ? source : '');
+}
+
+export function explicitContractFromText(value = '') {
+  const source = String(value == null ? '' : value).replace(/\u00a0/g, ' ');
+  const abon = source.match(/\babon\s*[-:#№]?\s*(\d{3,12})\b/i)?.[1] || '';
+  if (abon) return abon;
+
+  // Labels are intentionally multilingual/colloquial: HelpCrunch users often type transliterated "dogovir".
+  const labelled = source.match(/(?:\b(?:договор|договір|договіром|договора|договору|дог\.?|contract|account|login|логин|dogovir|dogovor)\b)\s*(?:№|#|:|-)?\s*(?:abon\s*)?(\d{3,12})\b/iu)?.[1] || '';
+  if (labelled) return labelled;
+
+  const clean = source.trim();
+  if (/^\d{3,12}$/.test(clean)) return clean;
+
+  // A standalone numeric line at the end of a normal message is a common way subscribers append the contract.
+  // Keep long phone-like values out unless the line was explicitly labelled above.
+  const lines = source.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index];
+    if (/^\d{3,8}$/.test(line)) return line;
+  }
+  return '';
+}
+
 export function normalizeInterpretation(raw = {}) {
   const questions = (Array.isArray(raw.questions) ? raw.questions : []).slice(0, 4).map(q => ({
     entity: String(q?.entity || ''), relation: String(q?.relation || ''),
@@ -11,10 +39,8 @@ export function normalizeInterpretation(raw = {}) {
     year: Number.isInteger(q?.year) && q.year >= 2000 && q.year <= 2100 ? q.year : null
   })).filter(q => QUESTION_PAIRS.includes(`${q.entity}.${q.relation}`));
   const ids = raw.ids && typeof raw.ids === 'object' ? raw.ids : {};
-  const login = String(ids.login || '').replace(/\s/g, '').toLowerCase();
-  const contract = String(ids.contract || '').trim();
-  const loginContract = login.match(/^abon(\d{3,12})$/i)?.[1] || '';
-  const contractFromAbon = contract.match(/^abon\s*(\d{3,12})$/i)?.[1] || '';
+  const loginContract = canonicalContract(ids.login);
+  const contract = canonicalContract(ids.contract);
   return {
     questions, language: raw.language === 'uk' ? 'uk' : 'ru',
     speechAct: ['new', 'follow_up', 'confirm', 'deny', 'correct', 'request_human'].includes(raw.speechAct) ? raw.speechAct : 'new',
@@ -22,9 +48,8 @@ export function normalizeInterpretation(raw = {}) {
     refresh: ['finance', 'network', 'all'].includes(raw.refresh) ? raw.refresh : '',
     // In SIMNET abonNNN and NNN identify the same subscriber contract. Canonicalize both to contract.
     ids: loginContract ? { contract: loginContract }
-      : /^\d{3,12}$/.test(contract) ? { contract }
-        : contractFromAbon ? { contract: contractFromAbon }
-          : typeof ids.address === 'string' && ids.address.trim() ? { address: ids.address.trim().slice(0, 260) } : {}
+      : contract ? { contract }
+        : typeof ids.address === 'string' && ids.address.trim() ? { address: ids.address.trim().slice(0, 260) } : {}
   };
 }
 
@@ -44,8 +69,17 @@ export function newConversationState(raw = {}) {
 export function localDialogueControl(text, state) {
   const clean = String(text || '').trim();
   const confirmation = basicConfirmationValue(clean);
-  if (confirmation !== null) return { questions: [], ids: {}, language: state.language,
+
+  // "да/так" can answer an operator's previous diagnostic question. Only short-circuit it when
+  // we are actually waiting for identity confirmation; otherwise NLU must resolve it from dialogue context.
+  if (confirmation !== null && state.pendingCandidate) return { questions: [], ids: {}, language: state.language,
     speechAct: confirmation ? 'confirm' : 'deny', confirmation, refresh: '' };
+
+  // Pure courtesy/closure must not restart identification or the previous business flow.
+  if (/^(?:дякую|спасибо|спасибі|благодарю|добре,?\s*дякую|ок(?:ей)?,?\s*дякую|вже\s+є,?\s*дякую)[!.)\s]*$/iu.test(clean)) {
+    return { questions: [], ids: {}, language: state.language, speechAct: 'confirm', confirmation: true, refresh: '' };
+  }
+
   if (/^(?:а\s+)?(?:следующий|наступний)[?!.,\s]*$/iu.test(clean) && state.topic.length === 1 &&
     ['recurring_charge', 'tariff'].includes(state.topic[0].entity)) {
     return { questions: [{ ...state.topic[0], period: 'next' }], ids: {}, language: state.language, speechAct: 'follow_up', refresh: '' };
@@ -53,16 +87,23 @@ export function localDialogueControl(text, state) {
   if (/^(?:ну\s+)?(?:так\s+)?(?:сколько|скільки)[?!.,\s]*$/iu.test(clean) && state.topic.length === 1 && state.topic[0].relation === 'amount') {
     return { questions: state.topic, ids: {}, language: state.language, speechAct: 'follow_up', refresh: '' };
   }
+  if (/^(?:я\s+)?(?:не\s+знаю|не\s+знаю\s*[)!.]*|не\s+відомо|не\s+знаю\s+який)[)!.\s]*$/iu.test(clean) && state.topic.length) {
+    return { questions: state.topic, ids: {}, language: state.language, speechAct: 'follow_up', refresh: '' };
+  }
   return null;
 }
 
-export function lookupFromText(ids, text) {
-  // An LLM cannot supply an identifier which the customer never supplied.
+export function lookupFromText(ids = {}, text = '') {
+  // The LLM may miss an identifier, but it may never invent one. Re-read the literal customer text here.
+  const deterministicContract = explicitContractFromText(text);
+  if (deterministicContract) return { contract: deterministicContract };
+
   const source = String(text || '').toLowerCase().replace(/\s/g, '');
-  if (ids.contract) {
+  const modelContract = canonicalContract(ids.contract || ids.login);
+  if (modelContract) {
     const explicitContracts = source.match(/\d{3,12}/g) || [];
-    if (explicitContracts.includes(ids.contract)) return { contract: ids.contract };
+    if (explicitContracts.includes(modelContract)) return { contract: modelContract };
   }
-  if (ids.address && source.includes(ids.address.toLowerCase().replace(/\s/g, ''))) return { address: ids.address };
+  if (ids.address && source.includes(String(ids.address).toLowerCase().replace(/\s/g, ''))) return { address: String(ids.address).trim().slice(0, 260) };
   return null;
 }
