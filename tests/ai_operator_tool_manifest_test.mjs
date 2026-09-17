@@ -41,7 +41,7 @@ test('planner receives the manifest and an explicit goal -> Billing identity -> 
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.billing, true);
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.userside, true);
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.network, true);
-  assert.equal(planner.version, 4);
+  assert.equal(planner.version, 8);
   assert.equal(planner.tools.length, REQUIRED_TOOLS.length);
   assert.equal(planner.identityPolicy.primarySystem, 'Billing');
   assert.equal(planner.identityPolicy.primaryTool, 'customer.lookup');
@@ -51,9 +51,22 @@ test('planner receives the manifest and an explicit goal -> Billing identity -> 
   assert.match(planner.instruction, /точного имени инструмента/i);
   assert.match(planner.instruction, /billing\.balance и billing\.tariff.*один и тот же.*table\.tbg1\.nav3\.width100/i);
   assert.match(planner.instruction, /network\.session.*ранним рекомендуемым инструментом/i);
+  assert.match(planner.instruction, /authoritative/i);
+  assert.match(planner.semanticFrameRule, /Первый semantic understanding.*authoritative/i);
   assert.match(planner.planningRule, /Цель клиента.*Billing customer\.lookup.*неизвестный факт.*tool.*результат tool/i);
   assert.match(planner.successRule, /ok=true/i);
   assert.match(planner.successRule, /ok=false/i);
+});
+
+test('planner keeps full runtime manifest but serializes a compact prompt-safe view', () => {
+  const planner = AI_OPERATOR_SOFT_TOOL_CAPABILITIES.toolPlanner;
+  assert.ok(planner.tools.every(tool => Array.isArray(tool.answers) && tool.answers.length >= 2));
+  const serialized = JSON.stringify(AI_OPERATOR_SOFT_TOOL_CAPABILITIES);
+  const parsed = JSON.parse(serialized);
+  assert.equal(parsed.toolPlanner.version, 8);
+  assert.deepEqual(parsed.toolPlanner.tools.map(tool => tool.name), REQUIRED_TOOLS);
+  assert.ok(parsed.toolPlanner.tools.every(tool => !('answers' in tool) && !('returns' in tool) && !('limitations' in tool)));
+  assert.ok(serialized.length < 12000, `serialized reply capability context is too large: ${serialized.length}`);
 });
 
 test('customer.lookup is the default primary subscriber search and UserSide is post-identification', () => {
