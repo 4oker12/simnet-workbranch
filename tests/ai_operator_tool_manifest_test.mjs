@@ -36,17 +36,34 @@ test('tool manifest explains what each tool establishes, answers, returns and wh
   }
 });
 
-test('planner receives the manifest and an explicit goal -> fact -> tool -> result contract', () => {
+test('planner receives the manifest and an explicit goal -> Billing identity -> fact -> tool -> result contract', () => {
   const planner = AI_OPERATOR_SOFT_TOOL_CAPABILITIES.toolPlanner;
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.billing, true);
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.userside, true);
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.network, true);
-  assert.equal(planner.version, 1);
+  assert.equal(planner.version, 2);
   assert.equal(planner.tools.length, REQUIRED_TOOLS.length);
+  assert.equal(planner.identityPolicy.primarySystem, 'Billing');
+  assert.equal(planner.identityPolicy.primaryTool, 'customer.lookup');
+  assert.match(planner.identityPolicy.rule, /первый и основной поиск.*Billing customer\.lookup/i);
+  assert.match(planner.instruction, /ПЕРВЫМ действием используй Billing customer\.lookup/i);
+  assert.match(planner.instruction, /UserSide не используй как основной первичный поиск/i);
   assert.match(planner.instruction, /точного имени инструмента/i);
-  assert.match(planner.planningRule, /Цель клиента.*неизвестный факт.*tool.*результат tool/i);
+  assert.match(planner.planningRule, /Цель клиента.*Billing customer\.lookup.*неизвестный факт.*tool.*результат tool/i);
   assert.match(planner.successRule, /ok=true/i);
   assert.match(planner.successRule, /ok=false/i);
+});
+
+test('customer.lookup is the default primary subscriber search and UserSide is post-identification', () => {
+  const lookup = AI_OPERATOR_SOFT_TOOL_CATALOG.find(item => item.name === 'customer.lookup');
+  const userside = AI_OPERATOR_SOFT_TOOL_CATALOG.find(item => item.name === 'userside.snapshot');
+  assert.ok(lookup);
+  assert.ok(userside);
+  assert.equal(lookup.system, 'Billing');
+  assert.equal(lookup.mode, 'billing-live-read-only');
+  assert.ok(lookup.recommendedWhen.some(item => /ПЕРВЫЙ и основной поиск.*Billing/i.test(item)));
+  assert.ok(userside.requires.some(item => /через Billing customer\.lookup/i.test(item)));
+  assert.ok(userside.limitations.some(item => /не использовать UserSide как основной первичный поиск/i.test(item)));
 });
 
 test('network.session is explicitly documented as useful for no-internet diagnosis but not fresh Juniper live read', () => {
