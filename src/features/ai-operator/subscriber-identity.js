@@ -36,7 +36,7 @@ function labeledTextIdentity(source) {
   const after = genericLogin(afterLabel || '');
   if (after) return after;
 
-  const beforeLabel = normalized.match(new RegExp(`\\b([A-Za-z][A-Za-z0-9._-]{2,63})\\b\\s*(?:[-—:=]\\s*)?(?:(?:это|це)\\s+)?(?:(?:и\\s+есть|і\\s+є)\\s+)?${CONTRACT_WORD}\\b`, 'i'))?.[1];
+  const beforeLabel = normalized.match(new RegExp(`\\b([A-Za-z][A-Za-z0-9._-]{2,63})\\b\\s*(?:[-—:=]\\s*)?(?:(?:это|це)\\s+)?(?:(?:и\\s+есть|і\\s+є)\\s+)?(?:(?:мой|мій)\\s+)?${CONTRACT_WORD}\\b`, 'i'))?.[1];
   const before = genericLogin(beforeLabel || '');
   if (before) return before;
 
