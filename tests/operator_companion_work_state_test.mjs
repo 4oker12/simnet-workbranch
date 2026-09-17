@@ -26,6 +26,10 @@ turn = prepareCompanionWorkTurn(state, 'кстати, расскажи шутк�
 state = turn.state;
 assert.equal(turn.activeEpisode?.id, firstEpisodeId, 'casual interlude must not destroy current work context');
 
+turn = prepareCompanionWorkTurn(state, 'да ну это всё смешно', { nowMs: 4500 });
+state = turn.state;
+assert.equal(turn.activeEpisode?.id, firstEpisodeId, 'ordinary casual use of «всё» must not close the work episode');
+
 state = applyCompanionToolResult(state, firstEpisodeId, {
   tool: 'billing.balance', ok: true, code: 'OK', observedAt: '2026-09-18T00:00:00.000Z',
   data: { accountBalance: '125.00' },
