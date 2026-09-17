@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 
 import {
   executeInformationNeeds,
@@ -94,6 +95,18 @@ test('text identifier explicitly labeled as contract is searched through Billing
   assert.equal(result.trace[0].args.login, 'boxing');
 });
 
+test('possessive text identifier labeled as contract is accepted as Billing search key', () => {
+  assert.deepEqual(
+    extractIdentityHints([{ role: 'customer', text: 'Sota мой договор' }], {}),
+    { login: 'sota' }
+  );
+  assert.deepEqual(
+    extractIdentityHints([{ role: 'customer', text: 'Sota — это мой договор' }], {}),
+    { login: 'sota' }
+  );
+  assert.equal(classifyStandaloneBillingLogin('Sota'), 'sota');
+});
+
 test('clarification that text token is the contract keeps the same identifier', () => {
   assert.deepEqual(
     extractIdentityHints([
@@ -102,6 +115,13 @@ test('clarification that text token is the contract keeps the same identifier', 
     ], {}),
     { login: 'boxing' }
   );
+});
+
+test('generic text lookup preserves Billing native listuser name search formula', () => {
+  const source = fs.readFileSync(new URL('../src/features/ai-operator/billing-login-live.js', import.meta.url), 'utf8');
+  assert.match(source, /a:\s*'listuser',\s*f:\s*'n',\s*name:\s*requestedLogin/);
+  assert.doesNotMatch(source, /what_search:\s*'login'/);
+  assert.doesNotMatch(source, /actualLogin\s*&&\s*actualLogin\s*!==/);
 });
 
 test('existing abon login behavior remains explicit login identity', () => {
