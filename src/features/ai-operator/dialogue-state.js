@@ -1,5 +1,6 @@
 import { basicConfirmationValue } from './basic-case-router.js';
 import { FACT_RECIPES } from './fact-catalog.js';
+import { extractStandaloneSubscriberIdentity, identityToolArgs } from './subscriber-identity.js';
 
 export const QUESTION_PAIRS = Object.freeze([...Object.keys(FACT_RECIPES),
   'contract.info', 'network.info', 'payment.instructions', 'static_ip.info', 'static_ip.change', 'service.change',
@@ -42,15 +43,17 @@ export function normalizeInterpretation(raw = {}) {
   const ids = raw.ids && typeof raw.ids === 'object' ? raw.ids : {};
   const loginContract = canonicalContract(ids.login);
   const contract = canonicalContract(ids.contract);
+  const freeLogin = String(ids.login || '').trim();
   return {
     questions, language: raw.language === 'uk' ? 'uk' : 'ru',
     speechAct: ['new', 'follow_up', 'confirm', 'deny', 'correct', 'request_human'].includes(raw.speechAct) ? raw.speechAct : 'new',
     confirmation: raw.confirmation === true ? true : raw.confirmation === false ? false : null,
     refresh: ['finance', 'network', 'all'].includes(raw.refresh) ? raw.refresh : '',
-    // In SIMNET abonNNN and NNN identify the same subscriber contract. Canonicalize both to contract.
+    // In SIMNET abonNNN and NNN identify the same subscriber contract. Free-text login is preserved as supplied.
     ids: loginContract ? { contract: loginContract }
       : contract ? { contract }
-        : typeof ids.address === 'string' && ids.address.trim() ? { address: ids.address.trim().slice(0, 260) } : {}
+        : freeLogin && /^[A-Za-z][A-Za-z0-9._-]{2,63}$/.test(freeLogin) ? { login: freeLogin }
+          : typeof ids.address === 'string' && ids.address.trim() ? { address: ids.address.trim().slice(0, 260) } : {}
   };
 }
 
@@ -96,7 +99,11 @@ export function localDialogueControl(text, state) {
 }
 
 export function lookupFromText(ids = {}, text = '') {
-  // The LLM may miss an identifier, but it may never invent one. Re-read the literal customer text here.
+  // One deterministic parser is shared by Lab and legacy/fact-runtime paths. Literal user text wins over LLM guesses.
+  const literalIdentity = identityToolArgs(extractStandaloneSubscriberIdentity([{ role: 'customer', text }]));
+  if (Object.keys(literalIdentity).length) return literalIdentity;
+
+  // Retain the older numeric/address safety net for compatibility with historical replay data.
   const deterministicContract = explicitContractFromText(text);
   if (deterministicContract) return { contract: deterministicContract };
 
@@ -105,6 +112,10 @@ export function lookupFromText(ids = {}, text = '') {
   if (modelContract) {
     const explicitContracts = source.match(/\d{3,12}/g) || [];
     if (explicitContracts.includes(modelContract)) return { contract: modelContract };
+  }
+  const modelLogin = String(ids.login || '').trim();
+  if (modelLogin && /^[A-Za-z][A-Za-z0-9._-]{2,63}$/.test(modelLogin) && source.includes(modelLogin.toLowerCase())) {
+    return { login: modelLogin };
   }
   if (ids.address && source.includes(String(ids.address).toLowerCase().replace(/\s/g, ''))) return { address: String(ids.address).trim().slice(0, 260) };
   return null;
