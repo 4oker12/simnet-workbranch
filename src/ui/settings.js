@@ -5,11 +5,12 @@ const DEFAULT_MODELS = Object.freeze([
   'qwen/qwen3.8-27b',
   'openai/gpt-oss-20b'
 ]);
+const DEFAULT_CHAT_MODEL = DEFAULT_MODELS[0];
 const GROQ_MODELS_URL = 'https://api.groq.com/openai/v1/models';
 
-// Эти старые/служебные панели больше не являются частью рабочего UI настроек.
-// Runtime-код, который переиспользуется Lab/Replay, здесь намеренно не удаляется.
-for (const panel of ['chat-model', 'operator', 'call-analysis', 'profiles']) {
+// Старые/служебные панели больше не являются частью рабочего UI настроек.
+// Выбор модели сохраняем: он нужен для реального A/B и диагностики model-specific ошибок.
+for (const panel of ['operator', 'call-analysis', 'profiles']) {
   document.querySelector(`[data-accordion-group="settings"][data-accordion-panel="${panel}"]`)?.remove();
 }
 document.querySelector('[data-accordion-group="lab"][data-accordion-panel="decisions"]')?.remove();
@@ -20,12 +21,25 @@ const testKeyButton = document.getElementById('testKey');
 const removeKeyButton = document.getElementById('removeKey');
 const keyBadge = document.getElementById('keyBadge');
 const keyStatus = document.getElementById('keyStatus');
+const chatModel = document.getElementById('chatModel');
+const saveChatModelButton = document.getElementById('saveChatModel');
 const versionNode = document.getElementById('version');
 
 if (versionNode) versionNode.textContent = `v${chrome.runtime.getManifest().version}`;
 
 const keyPanelDescription = document.querySelector('[data-accordion-panel="api"] .settings-panel-title p');
 if (keyPanelDescription) keyPanelDescription.textContent = 'Ключ для AI-напарника, AI Lab, Replay и остальных AI-функций Workbench.';
+
+const modelPanel = document.querySelector('[data-accordion-panel="chat-model"]');
+if (modelPanel) {
+  modelPanel.classList.add('settings-panel-compact-model');
+  const kicker = modelPanel.querySelector('.settings-panel-kicker');
+  const title = modelPanel.querySelector('h2');
+  const description = modelPanel.querySelector('.settings-panel-title p');
+  if (kicker) kicker.textContent = 'Сервис';
+  if (title) title.textContent = 'Модель AI';
+  if (description) description.textContent = 'Оставлено для A/B и диагностики различий Qwen / GPT-OSS.';
+}
 
 function short(value, max = 220) {
   const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
@@ -50,16 +64,22 @@ async function writeConfig(patch = {}) {
 }
 
 function render(config = {}) {
-  if (!keyBadge || !keyStatus || !keyInput) return;
-  const configured = Boolean(String(config.groqApiKey || '').trim());
-  keyBadge.textContent = configured ? 'Ключ настроен' : 'Не настроен';
-  keyBadge.className = configured ? 'badge ok' : 'badge';
-  keyStatus.textContent = configured
-    ? 'Groq key сохранён локально. Можно проверить доступность API без запуска AI.'
-    : 'Ключ ещё не сохранён.';
-  keyStatus.className = configured ? 'status ok' : 'status';
-  keyInput.value = '';
-  keyInput.placeholder = configured ? 'Новый ключ для замены текущего' : 'gsk_…';
+  if (keyBadge && keyStatus && keyInput) {
+    const configured = Boolean(String(config.groqApiKey || '').trim());
+    keyBadge.textContent = configured ? 'Ключ настроен' : 'Не настроен';
+    keyBadge.className = configured ? 'badge ok' : 'badge';
+    keyStatus.textContent = configured
+      ? 'Groq key сохранён локально. Можно проверить доступность API без запуска AI.'
+      : 'Ключ ещё не сохранён.';
+    keyStatus.className = configured ? 'status ok' : 'status';
+    keyInput.value = '';
+    keyInput.placeholder = configured ? 'Новый ключ для замены текущего' : 'gsk_…';
+  }
+
+  if (chatModel) {
+    const selected = String(config.chatModel || config.model || DEFAULT_CHAT_MODEL);
+    chatModel.value = DEFAULT_MODELS.includes(selected) ? selected : DEFAULT_CHAT_MODEL;
+  }
 }
 
 async function currentOrTypedKey() {
@@ -149,6 +169,19 @@ removeKeyButton?.addEventListener('click', async () => {
   next.updatedAt = new Date().toISOString();
   await chrome.storage.local.set({ [AI_RUNTIME_CONFIG_KEY]: next });
   render(next);
+});
+
+saveChatModelButton?.addEventListener('click', async () => {
+  const selected = String(chatModel?.value || DEFAULT_CHAT_MODEL);
+  if (!DEFAULT_MODELS.includes(selected)) return;
+  saveChatModelButton.disabled = true;
+  try {
+    await writeConfig({ chatModel: selected });
+    saveChatModelButton.textContent = 'Сохранено';
+    window.setTimeout(() => { saveChatModelButton.textContent = 'Сохранить модель'; }, 1200);
+  } finally {
+    saveChatModelButton.disabled = false;
+  }
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
