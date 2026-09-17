@@ -58,7 +58,7 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
 
   const [live, base] = await Promise.all([
     readBillingSummaryLive({ billingId: id, refresh: Boolean(toolArgs.refresh), maxAgeMs: toolArgs.maxAgeMs || 30000 }),
-    core.executeOperatorTool({ tool: name, toolArgs, labState })
+    core.executeOperatorTool({ tool: name, toolArgs: { ...toolArgs, refresh: false }, labState })
   ]);
 
   if (!live?.ok) {
