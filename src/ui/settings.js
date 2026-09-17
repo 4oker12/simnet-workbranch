@@ -8,13 +8,6 @@ const DEFAULT_MODELS = Object.freeze([
 const DEFAULT_CHAT_MODEL = DEFAULT_MODELS[0];
 const GROQ_MODELS_URL = 'https://api.groq.com/openai/v1/models';
 
-// Старые/служебные панели больше не являются частью рабочего UI настроек.
-// Выбор модели сохраняем: он нужен для реального A/B и диагностики model-specific ошибок.
-for (const panel of ['operator', 'call-analysis', 'profiles']) {
-  document.querySelector(`[data-accordion-group="settings"][data-accordion-panel="${panel}"]`)?.remove();
-}
-document.querySelector('[data-accordion-group="lab"][data-accordion-panel="decisions"]')?.remove();
-
 const keyInput = document.getElementById('groqApiKey');
 const saveKeyButton = document.getElementById('saveKey');
 const testKeyButton = document.getElementById('testKey');
@@ -26,20 +19,6 @@ const saveChatModelButton = document.getElementById('saveChatModel');
 const versionNode = document.getElementById('version');
 
 if (versionNode) versionNode.textContent = `v${chrome.runtime.getManifest().version}`;
-
-const keyPanelDescription = document.querySelector('[data-accordion-panel="api"] .settings-panel-title p');
-if (keyPanelDescription) keyPanelDescription.textContent = 'Ключ для AI-напарника, AI Lab, Replay и остальных AI-функций Workbench.';
-
-const modelPanel = document.querySelector('[data-accordion-panel="chat-model"]');
-if (modelPanel) {
-  modelPanel.classList.add('settings-panel-compact-model');
-  const kicker = modelPanel.querySelector('.settings-panel-kicker');
-  const title = modelPanel.querySelector('h2');
-  const description = modelPanel.querySelector('.settings-panel-title p');
-  if (kicker) kicker.textContent = 'Сервис';
-  if (title) title.textContent = 'Модель AI';
-  if (description) description.textContent = 'Оставлено для A/B и диагностики различий Qwen / GPT-OSS.';
-}
 
 function short(value, max = 220) {
   const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
@@ -193,10 +172,4 @@ readConfig().then(render).catch(error => {
   if (!keyStatus) return;
   keyStatus.textContent = `Не удалось прочитать настройки: ${short(error?.message || error)}`;
   keyStatus.className = 'status bad';
-});
-
-// Отдельный модуль визуализирует последний AI-ход как линейную цепочку
-// и не вмешивается в runtime/решения агента.
-void import('./ai-operator-lab-trace.js').catch(error => {
-  console.warn('[AI Lab trace] load failed', error);
 });
