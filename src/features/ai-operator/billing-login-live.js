@@ -17,8 +17,9 @@ function clean(value, max = 500) {
 }
 
 export function classifyStandaloneBillingLogin(value) {
-  const login = clean(value, 80).replace(/\s+/g, '').toLowerCase();
-  if (!login || EXCLUDED_LOGIN_WORDS.has(login)) return '';
+  const login = clean(value, 80).replace(/\s+/g, '');
+  const normalized = login.toLowerCase();
+  if (!login || EXCLUDED_LOGIN_WORDS.has(normalized)) return '';
   return LOGIN_RE.test(login) ? login : '';
 }
 
@@ -88,8 +89,7 @@ async function executeLoginSearch(tabId, login) {
       if (!uu) uu = compact(document.querySelector('input[name="uu"]')?.value || '', 80);
       if (!pp) return { ok: false, code: 'BILLING_SESSION_REQUIRED' };
 
-      // Billing's native free-text subscriber search is exactly: a=listuser&f=n&name=<value>.
-      // Do not force what_search here: textual identifiers such as "Sota" are valid input for name=.
+      // Native Billing free-text search. Preserve the exact subscriber-supplied casing in name=.
       const searchUrl = makeUrl({ pp, ...(uu ? { uu } : {}), a: 'listuser', f: 'n', name: requestedLogin });
       const searchPage = await fetchDoc(searchUrl);
       if (!searchPage.ok) return { ok: false, code: 'BILLING_SEARCH_FAILED', status: searchPage.status };
@@ -118,11 +118,11 @@ async function executeLoginSearch(tabId, login) {
         try {
           const page = await fetchDoc(makeUrl({ pp, ...(uu ? { uu } : {}), a: 'user', id: billingId }));
           if (!page.ok || authPage(page.doc)) continue;
-          const actualLogin = input(page.doc, 'name').toLowerCase();
+          const actualLogin = input(page.doc, 'name');
           candidates.push({
             billingId,
             contract: input(page.doc, 'contract'),
-            login: actualLogin || String(requestedLogin || '').toLowerCase(),
+            login: actualLogin || String(requestedLogin || ''),
             fullName: input(page.doc, 'fio'),
             address: '',
             ip: input(page.doc, 'ip'),
