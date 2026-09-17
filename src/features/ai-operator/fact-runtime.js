@@ -14,7 +14,9 @@ export async function runFactTurn({ text, state: previous = {}, transcript = [],
   catch (error) {
     const details = interpretationErrorDetails(error);
     await emit('interpretation_error', details);
-    const reply = state.language === 'uk' ? 'Не вдалося розібрати повідомлення через помилку AI-інтерпретатора. Спробуйте ще раз.' : 'Не удалось разобрать сообщение из-за ошибки AI-интерпретатора. Попробуйте ещё раз.';
+    const reply = state.language === 'uk'
+      ? 'Зараз не виходить коректно опрацювати ваш запит. Спробуйте, будь ласка, ще раз.'
+      : 'Сейчас не получается корректно обработать ваш запрос. Попробуйте, пожалуйста, ещё раз.';
     return { state, events, decision: { action: 'ask', reply, intent: 'interpretation_unavailable', reason: details.message, diagnostic: details, model: 'fact-runtime' } };
   }
   tick();
@@ -98,17 +100,33 @@ export async function runFactTurn({ text, state: previous = {}, transcript = [],
     return result;
   }
   const lookup = lookupFromText(interpretation.ids, text);
-  if (lookup && (!state.confirmedCaseId || interpretation.speechAct === 'correct' || (lookup.contract && lookup.contract !== state.confirmedSubscriber?.contract) || (lookup.address && lookup.address !== state.confirmedSubscriber?.address))) {
+  const currentLogin = String(state.confirmedSubscriber?.login || '').trim().toLowerCase();
+  const requestedLogin = String(lookup?.login || '').trim().toLowerCase();
+  const currentIp = String(state.confirmedSubscriber?.ip || '').trim();
+  if (lookup && (
+    !state.confirmedCaseId ||
+    interpretation.speechAct === 'correct' ||
+    (lookup.contract && lookup.contract !== state.confirmedSubscriber?.contract) ||
+    (requestedLogin && requestedLogin !== currentLogin) ||
+    (lookup.ip && String(lookup.ip).trim() !== currentIp) ||
+    (lookup.address && lookup.address !== state.confirmedSubscriber?.address)
+  )) {
     await read('customer.lookup', lookup);
     if (pendingRead) {
-      // Replay is intentionally isolated from live Billing. Still remember an explicit contract so later
+      // Replay is intentionally isolated from live Billing. Remember any explicit strong identifier so later
       // turns of the same historical chat do not repeatedly ask for an identifier already supplied.
-      if (replay && lookup.contract) {
-        const replayCaseId = `replay-contract:${lookup.contract}`;
+      if (replay && (lookup.contract || lookup.login || lookup.ip)) {
+        const replayKey = lookup.contract || lookup.login || lookup.ip;
+        const replayCaseId = `replay-identity:${String(replayKey).toLowerCase()}`;
         state.facts = {}; state.reads = {}; state.derived = [];
         state.pendingCandidate = null;
         state.confirmedCaseId = replayCaseId;
-        state.confirmedSubscriber = { caseId: replayCaseId, contract: lookup.contract };
+        state.confirmedSubscriber = {
+          caseId: replayCaseId,
+          ...(lookup.contract ? { contract: lookup.contract } : {}),
+          ...(lookup.login ? { login: lookup.login } : {}),
+          ...(lookup.ip ? { ip: lookup.ip } : {})
+        };
       }
       return finish();
     }
@@ -122,7 +140,7 @@ export async function runFactTurn({ text, state: previous = {}, transcript = [],
   const questions = state.topic.length ? state.topic : [{ entity: 'unknown', relation: 'info', period: 'current' }];
   const nonPersonal = new Set(['payment.instructions', 'network.info', 'tariff.upgrade', 'tariff.downgrade', 'tariff.change', 'equipment.compatibility']);
   const personal = questions.some(q => !['static_ip', 'unknown'].includes(q.entity) && !nonPersonal.has(`${q.entity}.${q.relation}`));
-  if (personal && !state.confirmedCaseId) { lines.push(say('Подскажите номер договора или полный адрес подключения.', 'Підкажіть номер договору або повну адресу підключення.')); action = 'ask'; return finish(); }
+  if (personal && !state.confirmedCaseId) { lines.push(say('Подскажите номер договора, логин или полный адрес подключения.', 'Підкажіть номер договору, логін або повну адресу підключення.')); action = 'ask'; return finish(); }
   const values = () => Object.fromEntries(Object.keys(FACT_CATALOG).map(name => [name, readFact(state.facts, name, state.confirmedCaseId, now)?.value]).filter(([, v]) => v !== undefined));
   async function ensure(names) {
     const sources = [...new Set(names.filter(name => !readFact(state.facts, name, state.confirmedCaseId, now)).map(name => FACT_CATALOG[name]?.source).filter(Boolean))];
