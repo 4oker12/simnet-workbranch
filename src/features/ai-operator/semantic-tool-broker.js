@@ -108,15 +108,17 @@ function compactPlannerTool(tool = {}) {
 const previousPlanner = impl.AI_OPERATOR_SOFT_TOOL_CAPABILITIES.toolPlanner || {};
 const TOOL_PLANNER = Object.freeze({
   ...previousPlanner,
-  version: 8,
+  version: 9,
   semanticFrameRule: 'Первый semantic understanding текущего хода является authoritative semantic frame. Knowledge, Billing, UserSide, Network и PON могут только добавить/проверить факты для уже понятого запроса. Последующие стадии не должны заново переопределять, о чём спросил клиент, если новый пользовательский текст не создал реальную неоднозначность.',
-  instruction: `${String(previousPlanner.instruction || '')} billing.balance и billing.tariff читают один и тот же основной Billing DOM-блок table.tbg1.nav3.width100; если нужны оба набора фактов, считай это одним общим main-summary источником, а не двумя независимыми системами. При жалобе «нет интернета» после Billing-идентификации и проверки базового состояния услуги network.session является ранним рекомендуемым инструментом: он делает fresh-read агрегированной сессионной страницы Billing stat.pl a=252 и помогает быстро установить наличие/статус сессии, IP/MAC, время старта, последнее событие, ROUTER/VENDOR и VLAN. Отдельная реплика, содержащая договор или login, включая явно подписанный текстовый идентификатор вроде «Boxing договір», является идентификацией: сначала привяжи кейс через Billing customer.lookup и сохраняй эту привязку для следующих реплик. Если в более поздней реплике клиент явно сообщает ДРУГОЙ договор/login/IP/адрес, это переключение абонента: старую active-привязку нельзя использовать для новых персональных данных; сначала заново выполни Billing customer.lookup, и только успешный lookup устанавливает новый active subscriber. Внутренняя энциклопедия и live-tools имеют разные роли: общие правила/условия из KB можно и нужно сообщать без идентификации; идентификация требуется только для персональных live-фактов. Перед фразой «не хватает данных», «не знаю» или повторным вопросом клиенту обязательно проверь, не отвечает ли уже использованная внутренняя статья на общую часть вопроса. Первый semantic understanding текущего хода — authoritative: KB/tools добавляют факты к этому смыслу, а не запускают повторное переосмысление вопроса.`,
+  replyStyleRule: 'Отвечай как живой оператор человеку в чате: сначала прямой ответ на вопрос, обычно 1–3 коротких предложения. Источники, названия статей, внутренние стадии, формулировки «по внутренней/подтверждённой информации», пересказ справочника и канцелярит клиенту не показывай. Объяснение добавляй только если оно реально помогает ответу.',
+  instruction: `${String(previousPlanner.instruction || '')} billing.balance и billing.tariff читают один и тот же основной Billing DOM-блок table.tbg1.nav3.width100; если нужны оба набора фактов, считай это одним общим main-summary источником, а не двумя независимыми системами. При жалобе «нет интернета» после Billing-идентификации и проверки базового состояния услуги network.session является ранним рекомендуемым инструментом: он делает fresh-read агрегированной сессионной страницы Billing stat.pl a=252 и помогает быстро установить наличие/статус сессии, IP/MAC, время старта, последнее событие, ROUTER/VENDOR и VLAN. Отдельная реплика, содержащая договор или login, включая явно подписанный текстовый идентификатор вроде «Boxing договір», является идентификацией: сначала привяжи кейс через Billing customer.lookup и сохраняй эту привязку для следующих реплик. Если в более поздней реплике клиент явно сообщает ДРУГОЙ договор/login/IP/адрес, это переключение абонента: старую active-привязку нельзя использовать для новых персональных данных; сначала заново выполни Billing customer.lookup, и только успешный lookup устанавливает новый active subscriber. Внутренняя энциклопедия и live-tools имеют разные роли: общие правила/условия из KB можно и нужно сообщать без идентификации; идентификация требуется только для персональных live-фактов. Перед фразой «не хватает данных», «не знаю» или повторным вопросом клиенту обязательно проверь, не отвечает ли уже использованная внутренняя статья на общую часть вопроса. Первый semantic understanding текущего хода — authoritative: KB/tools добавляют факты к этому смыслу, а не запускают повторное переосмысление вопроса. Финальный ответ — обычная человеческая реплика оператора, а не отчёт о том, что система проверила.`,
   tools: TOOL_CATALOG,
   toJSON() {
     return {
       version: this.version,
       identityPolicy: this.identityPolicy,
       semanticFrameRule: this.semanticFrameRule,
+      replyStyleRule: this.replyStyleRule,
       successRule: this.successRule,
       planningRule: this.planningRule,
       tools: TOOL_CATALOG.map(compactPlannerTool)
@@ -304,7 +306,7 @@ function speedToMbps(value, unit) {
   return /гбит|gbit|gbps/i.test(String(unit || '')) ? numeric * 1000 : numeric;
 }
 
-function formatSpeed(mbps, uk = false) {
+function formatSpeed(mbps) {
   if (!Number.isFinite(mbps)) return '';
   if (mbps >= 1000 && Number.isInteger(mbps / 1000)) return `${mbps / 1000} Гбит/с`;
   return `${Math.round(mbps)} Мбит/с`;
@@ -328,20 +330,14 @@ function knowledgeSpeedCeilingReply(analysis = {}, evidence = []) {
   if (!values.length) return '';
   const max = Math.max(...values);
   const uk = String(analysis?.probe?.language || '').toLowerCase() === 'uk';
-  const maxText = formatSpeed(max, uk);
+  const maxText = formatSpeed(max);
   if (Number.isFinite(threshold) && max <= threshold) {
-    return uk
-      ? `За підтвердженою тарифною лінійкою в базі максимальна вказана швидкість — ${maxText}; тарифу вище цього рівня в цих даних немає.`
-      : `По подтверждённой тарифной линейке в базе максимальная указанная скорость — ${maxText}; тарифа выше этого уровня в этих данных нет.`;
+    return uk ? `Ні, зараз максимум — ${maxText}.` : `Нет, сейчас максимум — ${maxText}.`;
   }
   if (Number.isFinite(threshold) && max > threshold) {
-    return uk
-      ? `Так. У підтвердженій тарифній лінійці є швидкість до ${maxText}.`
-      : `Да. В подтверждённой тарифной линейке есть скорость до ${maxText}.`;
+    return uk ? `Так, є швидкість до ${maxText}.` : `Да, есть скорость до ${maxText}.`;
   }
-  return uk
-    ? `Максимальна швидкість, яку бачу в підтвердженій тарифній інформації, — ${maxText}.`
-    : `Максимальная скорость, которую вижу в подтверждённой тарифной информации, — ${maxText}.`;
+  return uk ? `Зараз максимум — ${maxText}.` : `Сейчас максимум — ${maxText}.`;
 }
 
 export function knowledgeConsultationFallbackReply(analysis = {}, transcript = []) {
@@ -358,14 +354,9 @@ export function knowledgeConsultationFallbackReply(analysis = {}, transcript = [
   const relevant = (Array.isArray(analysis?.knowledge?.relevantInternalKnowledge) ? analysis.knowledge.relevantInternalKnowledge : [])
     .map(item => String(item || '').replace(/\s+/g, ' ').trim())
     .filter(Boolean)
-    .slice(0, 2);
-  if (relevant.length) {
-    const uk = String(analysis?.probe?.language || '').toLowerCase() === 'uk';
-    return `${uk ? 'За підтвердженою інформацією SIMNET' : 'По подтверждённой информации SIMNET'}: ${relevant.join(' ')}`.slice(0, 900).trim();
-  }
+    .slice(0, 1);
+  if (relevant.length) return relevant[0].slice(0, 600).trim();
 
-  // Never dump raw encyclopedia paragraphs into the subscriber bubble. If the semantic answer
-  // cannot be reconstructed safely from selected evidence, keep the normal customer-facing fallback.
   return '';
 }
 
