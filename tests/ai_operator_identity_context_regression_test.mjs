@@ -143,3 +143,91 @@ test('ordinary natural-language standalone words are not treated as subscriber l
   assert.equal(classifyStandaloneBillingLogin('internet'), '');
   assert.deepEqual(extractIdentityHints([{ role: 'customer', text: 'internet' }], {}), {});
 });
+
+test('new explicit login rebinds an already confirmed subscriber before any subscriber reads', async () => {
+  const calls = [];
+  const result = await executeInformationNeeds({
+    needs: [],
+    transcript: [
+      { role: 'customer', text: 'Sota\nдоговор\nчто по балансу?' },
+      { role: 'agent', text: 'Ответ по первому абоненту' },
+      { role: 'customer', text: 'tipalas\nдоговор\nчто по балансу?' }
+    ],
+    analysis: { probe: { whatUserWants: 'Узнать баланс нового договора' } },
+    labState: {
+      confirmedCaseId: 'billing-live:111',
+      confirmedSubscriber: { billingId: '111', contract: '11111', login: 'Sota' },
+      pendingCandidate: null,
+      facts: { oldSubscriberFact: true },
+      reads: { oldSubscriberRead: true },
+      invalidatedAt: 0
+    },
+    execute: async ({ tool, toolArgs, labState }) => {
+      calls.push({ tool, toolArgs, labState });
+      assert.equal(tool, 'customer.lookup');
+      assert.deepEqual(toolArgs, { login: 'tipalas' });
+      assert.equal(labState.confirmedCaseId, '');
+      assert.equal(labState.confirmedSubscriber, null);
+      assert.equal(labState.pendingCandidate, null);
+      assert.deepEqual(labState.facts, {});
+      assert.deepEqual(labState.reads, {});
+      assert.ok(labState.invalidatedAt > 0);
+      return {
+        ok: true,
+        tool,
+        code: 'OK',
+        observedAt: '2026-09-17T12:00:00.000Z',
+        data: {
+          candidate: { billingId: '222', contract: '22222', login: 'tipalas' },
+          source: 'billing-live-read-only'
+        },
+        warnings: [],
+        statePatch: {
+          confirmedCaseId: 'billing-live:222',
+          confirmedSubscriber: { billingId: '222', contract: '22222', login: 'tipalas' }
+        }
+      };
+    }
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(result.labState.confirmedCaseId, 'billing-live:222');
+  assert.equal(result.labState.confirmedSubscriber.login, 'tipalas');
+  assert.equal(result.trace[0].args.login, 'tipalas');
+  assert.match(result.trace[0].requestedBy.why, /новый идентификатор/i);
+});
+
+test('failed lookup for a new explicit identity cannot fall back to the previous subscriber', async () => {
+  const result = await executeInformationNeeds({
+    needs: [],
+    transcript: [
+      { role: 'customer', text: 'Sota\nдоговор' },
+      { role: 'customer', text: 'tipalas\nдоговор\nчто по балансу?' }
+    ],
+    analysis: { probe: { whatUserWants: 'Узнать баланс нового договора' } },
+    labState: {
+      confirmedCaseId: 'billing-live:111',
+      confirmedSubscriber: { billingId: '111', contract: '11111', login: 'Sota' },
+      pendingCandidate: null
+    },
+    execute: async ({ tool, toolArgs, labState }) => {
+      assert.equal(tool, 'customer.lookup');
+      assert.deepEqual(toolArgs, { login: 'tipalas' });
+      assert.equal(labState.confirmedCaseId, '');
+      return {
+        ok: false,
+        tool,
+        code: 'NOT_FOUND',
+        observedAt: '2026-09-17T12:01:00.000Z',
+        data: { source: 'billing-live-read-only' },
+        warnings: [],
+        statePatch: {}
+      };
+    }
+  });
+
+  assert.equal(result.labState.confirmedCaseId, '');
+  assert.equal(result.labState.confirmedSubscriber, null);
+  assert.equal(result.trace.length, 1);
+  assert.equal(result.trace[0].code, 'NOT_FOUND');
+});
