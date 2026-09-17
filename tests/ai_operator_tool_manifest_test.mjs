@@ -41,7 +41,7 @@ test('planner receives the manifest and an explicit goal -> Billing identity -> 
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.billing, true);
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.userside, true);
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.network, true);
-  assert.equal(planner.version, 8);
+  assert.equal(planner.version, 9);
   assert.equal(planner.tools.length, REQUIRED_TOOLS.length);
   assert.equal(planner.identityPolicy.primarySystem, 'Billing');
   assert.equal(planner.identityPolicy.primaryTool, 'customer.lookup');
@@ -53,6 +53,9 @@ test('planner receives the manifest and an explicit goal -> Billing identity -> 
   assert.match(planner.instruction, /network\.session.*ранним рекомендуемым инструментом/i);
   assert.match(planner.instruction, /authoritative/i);
   assert.match(planner.semanticFrameRule, /Первый semantic understanding.*authoritative/i);
+  assert.match(planner.replyStyleRule, /живой оператор/i);
+  assert.match(planner.replyStyleRule, /1–3 коротких предложения/i);
+  assert.match(planner.replyStyleRule, /не показывай/i);
   assert.match(planner.planningRule, /Цель клиента.*Billing customer\.lookup.*неизвестный факт.*tool.*результат tool/i);
   assert.match(planner.successRule, /ok=true/i);
   assert.match(planner.successRule, /ok=false/i);
@@ -63,7 +66,8 @@ test('planner keeps full runtime manifest but serializes a compact prompt-safe v
   assert.ok(planner.tools.every(tool => Array.isArray(tool.answers) && tool.answers.length >= 2));
   const serialized = JSON.stringify(AI_OPERATOR_SOFT_TOOL_CAPABILITIES);
   const parsed = JSON.parse(serialized);
-  assert.equal(parsed.toolPlanner.version, 8);
+  assert.equal(parsed.toolPlanner.version, 9);
+  assert.match(parsed.toolPlanner.replyStyleRule, /живой оператор/i);
   assert.deepEqual(parsed.toolPlanner.tools.map(tool => tool.name), REQUIRED_TOOLS);
   assert.ok(parsed.toolPlanner.tools.every(tool => !('answers' in tool) && !('returns' in tool) && !('limitations' in tool)));
   assert.ok(serialized.length < 12000, `serialized reply capability context is too large: ${serialized.length}`);
@@ -76,7 +80,7 @@ test('customer.lookup is the default primary subscriber search and UserSide is p
   assert.ok(userside);
   assert.equal(lookup.system, 'Billing');
   assert.equal(lookup.mode, 'billing-live-read-only');
-  assert.ok(lookup.recommendedWhen.some(item => /ПЕРВЫЙ и основной поиск.*Billing/i.test(item)));
+  assert.ok(lookup.recommendedWhen.some(item => /ПЕРВЫМ? и основной поиск.*Billing/i.test(item)) || lookup.recommendedWhen.some(item => /ПЕРВЫЙ и основной поиск.*Billing/i.test(item)));
   assert.ok(userside.requires.some(item => /через Billing customer\.lookup/i.test(item)));
   assert.ok(userside.limitations.some(item => /не использовать UserSide как основной первичный поиск/i.test(item)));
 });
