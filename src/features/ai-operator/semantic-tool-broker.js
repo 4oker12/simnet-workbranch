@@ -96,12 +96,32 @@ const TOOL_CATALOG = Object.freeze(
   })
 );
 
+function compactPlannerTool(tool = {}) {
+  return {
+    name: String(tool.name || ''),
+    system: String(tool.system || ''),
+    establishes: String(tool.establishes || '').slice(0, 260),
+    recommendedWhen: (Array.isArray(tool.recommendedWhen) ? tool.recommendedWhen : []).slice(0, 2).map(item => String(item).slice(0, 220))
+  };
+}
+
 const previousPlanner = impl.AI_OPERATOR_SOFT_TOOL_CAPABILITIES.toolPlanner || {};
 const TOOL_PLANNER = Object.freeze({
   ...previousPlanner,
-  version: 7,
-  instruction: `${String(previousPlanner.instruction || '')} billing.balance и billing.tariff читают один и тот же основной Billing DOM-блок table.tbg1.nav3.width100; если нужны оба набора фактов, считай это одним общим main-summary источником, а не двумя независимыми системами. При жалобе «нет интернета» после Billing-идентификации и проверки базового состояния услуги network.session является ранним рекомендуемым инструментом: он делает fresh-read агрегированной сессионной страницы Billing stat.pl a=252 и помогает быстро установить наличие/статус сессии, IP/MAC, время старта, последнее событие, ROUTER/VENDOR и VLAN. Отдельная реплика, содержащая договор или login, включая явно подписанный текстовый идентификатор вроде «Boxing договір», является идентификацией: сначала привяжи кейс через Billing customer.lookup и сохраняй эту привязку для следующих реплик. Если в более поздней реплике клиент явно сообщает ДРУГОЙ договор/login/IP/адрес, это переключение абонента: старую active-привязку нельзя использовать для новых персональных данных; сначала заново выполни Billing customer.lookup, и только успешный lookup устанавливает новый active subscriber. Внутренняя энциклопедия и live-tools имеют разные роли: общие правила/условия из KB можно и нужно сообщать без идентификации; идентификация требуется только для персональных live-фактов. Перед фразой «не хватает данных», «не знаю» или повторным вопросом клиенту обязательно проверь, не отвечает ли уже использованная внутренняя статья на общую часть вопроса.`,
-  tools: TOOL_CATALOG
+  version: 8,
+  semanticFrameRule: 'Первый semantic understanding текущего хода является authoritative semantic frame. Knowledge, Billing, UserSide, Network и PON могут только добавить/проверить факты для уже понятого запроса. Последующие стадии не должны заново переопределять, о чём спросил клиент, если новый пользовательский текст не создал реальную неоднозначность.',
+  instruction: `${String(previousPlanner.instruction || '')} billing.balance и billing.tariff читают один и тот же основной Billing DOM-блок table.tbg1.nav3.width100; если нужны оба набора фактов, считай это одним общим main-summary источником, а не двумя независимыми системами. При жалобе «нет интернета» после Billing-идентификации и проверки базового состояния услуги network.session является ранним рекомендуемым инструментом: он делает fresh-read агрегированной сессионной страницы Billing stat.pl a=252 и помогает быстро установить наличие/статус сессии, IP/MAC, время старта, последнее событие, ROUTER/VENDOR и VLAN. Отдельная реплика, содержащая договор или login, включая явно подписанный текстовый идентификатор вроде «Boxing договір», является идентификацией: сначала привяжи кейс через Billing customer.lookup и сохраняй эту привязку для следующих реплик. Если в более поздней реплике клиент явно сообщает ДРУГОЙ договор/login/IP/адрес, это переключение абонента: старую active-привязку нельзя использовать для новых персональных данных; сначала заново выполни Billing customer.lookup, и только успешный lookup устанавливает новый active subscriber. Внутренняя энциклопедия и live-tools имеют разные роли: общие правила/условия из KB можно и нужно сообщать без идентификации; идентификация требуется только для персональных live-фактов. Перед фразой «не хватает данных», «не знаю» или повторным вопросом клиенту обязательно проверь, не отвечает ли уже использованная внутренняя статья на общую часть вопроса. Первый semantic understanding текущего хода — authoritative: KB/tools добавляют факты к этому смыслу, а не запускают повторное переосмысление вопроса.`,
+  tools: TOOL_CATALOG,
+  toJSON() {
+    return {
+      version: this.version,
+      identityPolicy: this.identityPolicy,
+      semanticFrameRule: this.semanticFrameRule,
+      successRule: this.successRule,
+      planningRule: this.planningRule,
+      tools: TOOL_CATALOG.map(compactPlannerTool)
+    };
+  }
 });
 
 export const AI_OPERATOR_SOFT_TOOL_CAPABILITIES = Object.freeze({
@@ -268,12 +288,60 @@ function mergeTrace(first = [], second = []) {
   return [...(Array.isArray(first) ? first : []), ...(Array.isArray(second) ? second : [])];
 }
 
-function knowledgeParagraphs(textValue) {
-  return String(textValue || '')
-    .replace(/\r\n?/g, '\n')
-    .split(/\n\s*\n/)
-    .map(item => item.replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
+function fallbackSemanticText(analysis = {}) {
+  return [
+    analysis?.probe?.whatUserWants,
+    analysis?.probe?.latestMessageMeans,
+    analysis?.probe?.underlyingGoal,
+    ...(Array.isArray(analysis?.probe?.unresolvedRequests) ? analysis.probe.unresolvedRequests : []),
+    ...(Array.isArray(analysis?.probe?.factsSaidByOperator) ? analysis.probe.factsSaidByOperator : [])
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+
+function speedToMbps(value, unit) {
+  const numeric = Number(String(value || '').replace(',', '.'));
+  if (!Number.isFinite(numeric)) return null;
+  return /гбит|gbit|gbps/i.test(String(unit || '')) ? numeric * 1000 : numeric;
+}
+
+function formatSpeed(mbps, uk = false) {
+  if (!Number.isFinite(mbps)) return '';
+  if (mbps >= 1000 && Number.isInteger(mbps / 1000)) return `${mbps / 1000} Гбит/с`;
+  return `${Math.round(mbps)} Мбит/с`;
+}
+
+function knowledgeSpeedCeilingReply(analysis = {}, evidence = []) {
+  const semantic = fallbackSemanticText(analysis);
+  if (!/(?:скорост|швидк)/i.test(semantic) || !/(?:выше|больше|максим|выш[еє]|більш|бiльш|вищ)/i.test(semantic)) return '';
+
+  const thresholdMatch = semantic.match(/(\d+(?:[.,]\d+)?)\s*(гбит(?:\/с)?|gbit(?:\/s)?|gbps|мбит(?:\/с)?|mbit(?:\/s)?|mbps)/i);
+  const threshold = thresholdMatch ? speedToMbps(thresholdMatch[1], thresholdMatch[2]) : null;
+  const values = [];
+  const speedRe = /(\d+(?:[.,]\d+)?)\s*(гбит(?:\/с)?|gbit(?:\/s)?|gbps|мбит(?:\/с)?|mbit(?:\/s)?|mbps)/giu;
+  for (const article of evidence) {
+    const text = `${String(article?.title || '')}\n${String(article?.summary || '')}\n${String(article?.text || '')}`;
+    for (const match of text.matchAll(speedRe)) {
+      const mbps = speedToMbps(match[1], match[2]);
+      if (Number.isFinite(mbps) && mbps > 0) values.push(mbps);
+    }
+  }
+  if (!values.length) return '';
+  const max = Math.max(...values);
+  const uk = String(analysis?.probe?.language || '').toLowerCase() === 'uk';
+  const maxText = formatSpeed(max, uk);
+  if (Number.isFinite(threshold) && max <= threshold) {
+    return uk
+      ? `За підтвердженою тарифною лінійкою в базі максимальна вказана швидкість — ${maxText}; тарифу вище цього рівня в цих даних немає.`
+      : `По подтверждённой тарифной линейке в базе максимальная указанная скорость — ${maxText}; тарифа выше этого уровня в этих данных нет.`;
+  }
+  if (Number.isFinite(threshold) && max > threshold) {
+    return uk
+      ? `Так. У підтвердженій тарифній лінійці є швидкість до ${maxText}.`
+      : `Да. В подтверждённой тарифной линейке есть скорость до ${maxText}.`;
+  }
+  return uk
+    ? `Максимальна швидкість, яку бачу в підтвердженій тарифній інформації, — ${maxText}.`
+    : `Максимальная скорость, которую вижу в подтверждённой тарифной информации, — ${maxText}.`;
 }
 
 export function knowledgeConsultationFallbackReply(analysis = {}, transcript = []) {
@@ -281,20 +349,24 @@ export function knowledgeConsultationFallbackReply(analysis = {}, transcript = [
   if (!evidence.length) return '';
 
   const identityKnown = Object.keys(extractIdentityHints(transcript, analysis)).length > 0;
-  const selected = evidence
-    .filter(article => !(identityKnown && String(article?.id || '') === 'billing.identification'))
-    .slice(0, 3);
-  const parts = [];
-  for (const article of selected) {
-    for (const paragraph of knowledgeParagraphs(article?.text).slice(0, 2)) {
-      const compact = paragraph.length > 430 ? `${paragraph.slice(0, 429)}…` : paragraph;
-      if (compact && !parts.includes(compact)) parts.push(compact);
-      if (parts.length >= 5) break;
-    }
-    if (parts.length >= 5) break;
+  const selected = evidence.filter(article => !(identityKnown && String(article?.id || '') === 'billing.identification')).slice(0, 4);
+  if (!selected.length) return '';
+
+  const speedAnswer = knowledgeSpeedCeilingReply(analysis, selected);
+  if (speedAnswer) return speedAnswer;
+
+  const relevant = (Array.isArray(analysis?.knowledge?.relevantInternalKnowledge) ? analysis.knowledge.relevantInternalKnowledge : [])
+    .map(item => String(item || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(0, 2);
+  if (relevant.length) {
+    const uk = String(analysis?.probe?.language || '').toLowerCase() === 'uk';
+    return `${uk ? 'За підтвердженою інформацією SIMNET' : 'По подтверждённой информации SIMNET'}: ${relevant.join(' ')}`.slice(0, 900).trim();
   }
-  if (!parts.length) return '';
-  return `По внутренней информации SIMNET: ${parts.join(' ')}`.slice(0, 1800).trim();
+
+  // Never dump raw encyclopedia paragraphs into the subscriber bubble. If the semantic answer
+  // cannot be reconstructed safely from selected evidence, keep the normal customer-facing fallback.
+  return '';
 }
 
 export function extractIdentityHints(transcript = [], analysis = {}) {
