@@ -2,6 +2,7 @@
 
 import * as core from './live-tool-runtime-core.js';
 import { readNetworkSessionLive } from './network-live-search.js';
+import { readBillingSummaryLive } from './billing-summary-live.js';
 
 const LIVE_CASE_PREFIX = 'billing-live:';
 
@@ -38,6 +39,95 @@ function billingIdFromLab(labState = {}) {
   const caseId = String(labState?.confirmedCaseId || '');
   if (caseId.startsWith(LIVE_CASE_PREFIX)) return caseId.slice(LIVE_CASE_PREFIX.length).replace(/\D+/g, '').slice(0, 12);
   return '';
+}
+function mergePresent(base = {}, overlay = {}) {
+  const merged = { ...(base && typeof base === 'object' && !Array.isArray(base) ? base : {}) };
+  for (const [key, value] of Object.entries(overlay && typeof overlay === 'object' && !Array.isArray(overlay) ? overlay : {})) {
+    if (value === null || value === undefined || value === '') continue;
+    merged[key] = value;
+  }
+  return merged;
+}
+
+async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
+  if (!String(labState?.confirmedCaseId || '').trim()) {
+    return core.executeOperatorTool({ tool: name, toolArgs, labState });
+  }
+  const id = billingIdFromLab(labState);
+  if (!id) return core.executeOperatorTool({ tool: name, toolArgs, labState });
+
+  const [live, base] = await Promise.all([
+    readBillingSummaryLive({ billingId: id, refresh: Boolean(toolArgs.refresh), maxAgeMs: toolArgs.maxAgeMs || 30000 }),
+    core.executeOperatorTool({ tool: name, toolArgs, labState })
+  ]);
+
+  if (!live?.ok) {
+    if (base?.ok) {
+      return {
+        ...base,
+        warnings: [
+          ...(Array.isArray(base.warnings) ? base.warnings : []),
+          `Billing main-summary table read недоступен (${String(live?.code || 'unknown')}); использован Billing snapshot fallback.`
+        ]
+      };
+    }
+    return result(name, false, String(live?.code || base?.code || 'BILLING_SUMMARY_READ_FAILED'), {
+      message: 'Не удалось прочитать основной финансово-тарифный блок Billing.',
+      source: 'billing-main-summary-live-read-only',
+      billingId: id
+    });
+  }
+
+  const service = live.data?.service || {};
+  const finance = live.data?.finance || {};
+  const network = live.data?.network || {};
+  const evidence = live.data?.evidence || {};
+  const baseData = base?.data || {};
+
+  if (name === 'billing.balance') {
+    const mergedFinance = mergePresent(baseData, finance);
+    const hasFinance = [
+      mergedFinance.accountBalance,
+      mergedFinance.balanceAfterTariff,
+      mergedFinance.balanceWithoutTemporary,
+      mergedFinance.temporaryPayment,
+      mergedFinance.price,
+      mergedFinance.totalDue
+    ].some(value => value !== '' && value !== null && value !== undefined);
+    if (!hasFinance) return result(name, false, 'DATA_NOT_AVAILABLE', { source: 'billing-main-summary-live-read-only', evidence });
+    return result(name, true, 'OK', {
+      ...mergedFinance,
+      currentTariff: service.currentTariff || baseData.currentTariff || '',
+      accessState: baseData.accessState || '',
+      serviceState: baseData.serviceState || '',
+      trafficIncomingBytes: network.trafficIncomingBytes || '',
+      trafficOutgoingBytes: network.trafficOutgoingBytes || '',
+      source: 'billing-main-summary-live-read-only',
+      evidence,
+      cache: live.cache || ''
+    });
+  }
+
+  if (name === 'billing.tariff') {
+    const currentTariff = service.currentTariff || baseData.currentTariff || '';
+    if (!currentTariff && !baseData.nextTariff) return result(name, false, 'DATA_NOT_AVAILABLE', { source: 'billing-main-summary-live-read-only', evidence });
+    return result(name, true, 'OK', {
+      ...baseData,
+      currentTariff,
+      tariffId: service.tariffId || '',
+      tariffDisplay: service.tariffDisplay || '',
+      price: finance.price ?? baseData.price ?? '',
+      totalDue: finance.totalDue ?? baseData.totalDue ?? '',
+      balanceAfterTariff: finance.balanceAfterTariff ?? '',
+      trafficIncomingBytes: network.trafficIncomingBytes || '',
+      trafficOutgoingBytes: network.trafficOutgoingBytes || '',
+      source: 'billing-main-summary-live-read-only',
+      evidence,
+      cache: live.cache || ''
+    });
+  }
+
+  return core.executeOperatorTool({ tool: name, toolArgs, labState });
 }
 
 async function executeNetworkSessionTool(name, toolArgs = {}, labState = {}) {
@@ -81,6 +171,9 @@ async function executeNetworkSessionTool(name, toolArgs = {}, labState = {}) {
 
 export async function executeOperatorTool({ tool, toolArgs = {}, labState = {} } = {}) {
   const name = String(tool || '').trim();
+  if (name === 'billing.balance' || name === 'billing.tariff') {
+    return executeBillingSummaryTool(name, toolArgs, labState);
+  }
   if (name === 'network.session' || name === 'network.last_session') {
     return executeNetworkSessionTool(name, toolArgs, labState);
   }
