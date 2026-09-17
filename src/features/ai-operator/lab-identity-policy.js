@@ -8,11 +8,11 @@ function text(value, max = 500) {
 }
 
 export function isSubscriberLogin(value) {
-  return /^abon\s*\d{3,12}$/i.test(text(value, 80));
+  return /^[A-Za-z][A-Za-z0-9._-]{2,63}$/.test(text(value, 80).replace(/\s+/g, ''));
 }
 
 export function canonicalLabContract(value) {
-  const compact = text(value, 80).replace(/\s+/g, '').toLowerCase();
+  const compact = text(value, 80).replace(/\s+/g, '');
   const abon = compact.match(/^abon(\d{3,12})$/i);
   if (abon) return abon[1];
   return /^\d{3,12}$/.test(compact) ? compact : '';
@@ -34,6 +34,16 @@ export function normalizeLabLookupDecision(decision = {}) {
     args.contract = contract;
     if (canonicalLabContract(args.login)) delete args.login;
     if (canonicalLabContract(args.query)) delete args.query;
+  } else {
+    const explicitLogin = text(args.login, 80).replace(/\s+/g, '');
+    const queryLogin = text(args.query, 80).replace(/\s+/g, '');
+    if (isSubscriberLogin(explicitLogin)) {
+      args.login = explicitLogin;
+      delete args.query;
+    } else if (isSubscriberLogin(queryLogin)) {
+      args.login = queryLogin;
+      delete args.query;
+    }
   }
 
   next.toolArgs = args;
