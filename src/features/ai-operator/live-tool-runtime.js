@@ -3,6 +3,7 @@
 import * as core from './live-tool-runtime-core.js';
 import { readNetworkSessionLive } from './network-live-search.js';
 import { readBillingSummaryLive } from './billing-summary-live.js';
+import { classifyStandaloneBillingLogin, searchBillingLoginLive } from './billing-login-live.js';
 
 const LIVE_CASE_PREFIX = 'billing-live:';
 
@@ -47,6 +48,60 @@ function mergePresent(base = {}, overlay = {}) {
     merged[key] = value;
   }
   return merged;
+}
+function liveLookupCandidate(candidate = {}) {
+  const billingId = String(candidate.billingId || '').replace(/\D+/g, '').slice(0, 12);
+  return {
+    caseId: billingId ? `${LIVE_CASE_PREFIX}${billingId}` : '',
+    billingId,
+    contract: text(candidate.contract, 80),
+    login: text(candidate.login, 80).toLowerCase(),
+    address: text(candidate.address, 260),
+    fullName: text(candidate.fullName, 180),
+    ip: text(candidate.ip, 80),
+    customerId: text(candidate.customerId, 40),
+    connectionFamily: text(candidate.connectionFamily, 80)
+  };
+}
+
+async function executeGenericLoginLookup(toolArgs = {}) {
+  const login = classifyStandaloneBillingLogin(toolArgs.login);
+  const live = await searchBillingLoginLive({ login });
+  if (!live?.ok) {
+    return result('customer.lookup', false, String(live?.code || 'BILLING_SEARCH_FAILED'), {
+      message: 'Не удалось выполнить поиск login в Billing.',
+      source: 'billing-live-read-only',
+      searchMode: 'login'
+    });
+  }
+  const candidates = (Array.isArray(live.candidates) ? live.candidates : []).map(liveLookupCandidate).filter(item => item.caseId);
+  if (!candidates.length) {
+    return result('customer.lookup', false, 'NOT_FOUND', {
+      message: 'Абонент не найден штатным поиском Billing по login.',
+      source: 'billing-live-read-only',
+      searchMode: 'login'
+    });
+  }
+  if (candidates.length !== 1) {
+    return result('customer.lookup', false, 'AMBIGUOUS_IDENTITY', {
+      count: candidates.length,
+      candidates,
+      source: 'billing-live-read-only',
+      searchMode: 'login'
+    }, ['Нужно уточнить login/договор, чтобы выбрать конкретного абонента.']);
+  }
+  const candidate = candidates[0];
+  return result('customer.lookup', true, 'OK', {
+    count: 1,
+    candidate,
+    requiresConfirmation: false,
+    source: 'billing-live-read-only',
+    searchMode: 'login'
+  }, [], {
+    pendingCandidate: null,
+    confirmedCaseId: candidate.caseId,
+    confirmedSubscriber: candidate
+  });
 }
 
 async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
@@ -171,6 +226,10 @@ async function executeNetworkSessionTool(name, toolArgs = {}, labState = {}) {
 
 export async function executeOperatorTool({ tool, toolArgs = {}, labState = {} } = {}) {
   const name = String(tool || '').trim();
+  const genericLogin = name === 'customer.lookup' ? classifyStandaloneBillingLogin(toolArgs.login) : '';
+  if (genericLogin && !/^abon\d{3,12}$/i.test(genericLogin)) {
+    return executeGenericLoginLookup({ ...toolArgs, login: genericLogin });
+  }
   if (name === 'billing.balance' || name === 'billing.tariff') {
     return executeBillingSummaryTool(name, toolArgs, labState);
   }
