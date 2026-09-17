@@ -6,6 +6,10 @@ const BILLING_TAB_URLS = Object.freeze([
 ]);
 
 const LOGIN_RE = /^(?=.{3,64}$)(?=.*[A-Za-z])[A-Za-z][A-Za-z0-9._-]*$/;
+const EXCLUDED_LOGIN_WORDS = new Set([
+  'internet', 'wifi', 'wi-fi', 'router', 'balance', 'tariff', 'speed',
+  'help', 'hello', 'privet', 'test', 'online', 'offline'
+]);
 
 function clean(value, max = 500) {
   const normalized = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
@@ -14,6 +18,7 @@ function clean(value, max = 500) {
 
 export function classifyStandaloneBillingLogin(value) {
   const login = clean(value, 80).replace(/\s+/g, '').toLowerCase();
+  if (!login || EXCLUDED_LOGIN_WORDS.has(login)) return '';
   return LOGIN_RE.test(login) ? login : '';
 }
 
@@ -83,33 +88,37 @@ async function executeLoginSearch(tabId, login) {
       if (!uu) uu = compact(document.querySelector('input[name="uu"]')?.value || '', 80);
       if (!pp) return { ok: false, code: 'BILLING_SESSION_REQUIRED' };
 
-      const searchUrl = makeUrl({ pp, ...(uu ? { uu } : {}), a: 'listuser', f: 'n', what_search: 'login', name: requestedLogin });
+      // Billing's native free-text subscriber search is exactly: a=listuser&f=n&name=<value>.
+      // Do not force what_search here: textual identifiers such as "Sota" are valid input for name=.
+      const searchUrl = makeUrl({ pp, ...(uu ? { uu } : {}), a: 'listuser', f: 'n', name: requestedLogin });
       const searchPage = await fetchDoc(searchUrl);
       if (!searchPage.ok) return { ok: false, code: 'BILLING_SEARCH_FAILED', status: searchPage.status };
       if (authPage(searchPage.doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED' };
 
-      const ids = new Set();
+      const ids = new Map();
+      const addCandidate = (id, rowText = '') => {
+        const normalizedId = String(id || '').replace(/\D+/g, '').slice(0, 12);
+        if (!normalizedId) return;
+        if (!ids.has(normalizedId)) ids.set(normalizedId, compact(rowText, 800));
+      };
       if (String(searchPage.url.searchParams.get('a') || '').toLowerCase() === 'user') {
-        const id = String(searchPage.url.searchParams.get('id') || '').replace(/\D+/g, '').slice(0, 12);
-        if (id) ids.add(id);
+        addCandidate(searchPage.url.searchParams.get('id') || '', searchPage.doc.body?.textContent || '');
       }
       for (const link of searchPage.doc.querySelectorAll('a[href]')) {
         try {
           const target = new URL(link.getAttribute('href') || '', searchPage.url);
           if (String(target.searchParams.get('a') || '').toLowerCase() !== 'user') continue;
-          const id = String(target.searchParams.get('id') || '').replace(/\D+/g, '').slice(0, 12);
-          if (id) ids.add(id);
+          addCandidate(target.searchParams.get('id') || '', link.closest('tr')?.textContent || link.textContent || '');
         } catch {}
       }
 
       if (!ids.size) return { ok: true, code: 'NOT_FOUND', candidates: [] };
       const candidates = [];
-      for (const billingId of [...ids].slice(0, 8)) {
+      for (const billingId of [...ids.keys()].slice(0, 8)) {
         try {
           const page = await fetchDoc(makeUrl({ pp, ...(uu ? { uu } : {}), a: 'user', id: billingId }));
           if (!page.ok || authPage(page.doc)) continue;
           const actualLogin = input(page.doc, 'name').toLowerCase();
-          if (actualLogin && actualLogin !== String(requestedLogin || '').toLowerCase()) continue;
           candidates.push({
             billingId,
             contract: input(page.doc, 'contract'),
@@ -117,7 +126,8 @@ async function executeLoginSearch(tabId, login) {
             fullName: input(page.doc, 'fio'),
             address: '',
             ip: input(page.doc, 'ip'),
-            connectionFamily: ''
+            connectionFamily: '',
+            resultText: ids.get(billingId) || ''
           });
         } catch {}
       }
