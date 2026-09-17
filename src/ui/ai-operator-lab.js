@@ -282,11 +282,56 @@
     costNode.textContent = `Расход API · ход ≈ ${usd(cost.turn?.usd)} · диалог ≈ ${usd(cost.session?.usd)} · вызовов ${number(cost.session?.calls)}`;
   }
 
+  function knowledgeTraceState(event = {}) {
+    if (event.type !== 'semantic_analysis') return '';
+    if (!event.knowledgeUsed) return 'KB SKIP';
+    const articles = Array.isArray(event.articles) ? event.articles.filter(Boolean) : [];
+    return articles.length ? `KB HIT · ${articles.join(', ')}` : 'KB MISS';
+  }
+  function eventTone(event = {}) {
+    if (event.type === 'semantic_analysis') {
+      if (!event.knowledgeUsed) return 'trace-kb-skip';
+      return Array.isArray(event.articles) && event.articles.length ? 'trace-kb-hit' : 'trace-kb-miss';
+    }
+    if (event.type === 'tool_execution') {
+      if (event.tool === 'customer.lookup' && event.requestedBy?.system === 'identity') return event.ok ? 'trace-identity' : 'trace-tool-error';
+      return event.ok ? 'trace-tool-ok' : 'trace-tool-error';
+    }
+    if (event.type === 'experiment_result') {
+      return (Array.isArray(event.variants) ? event.variants : []).some(item => item?.degraded) ? 'trace-warning' : 'trace-internal';
+    }
+    if (event.type === 'turn_degraded') return 'trace-warning';
+    return 'trace-internal';
+  }
+  function importantEventNote(event = {}) {
+    if (event.type === 'semantic_analysis') {
+      const articles = Array.isArray(event.articles) ? event.articles.filter(Boolean) : [];
+      if (!event.knowledgeUsed) return 'Энциклопедия не открывалась на этом ходе.';
+      if (!articles.length) return 'Энциклопедия была проверена, но релевантная подтверждённая статья не найдена.';
+      return `Энциклопедия использована: ${articles.join(', ')}.`;
+    }
+    if (event.type === 'tool_execution') {
+      const identity = event.tool === 'customer.lookup' && event.requestedBy?.system === 'identity';
+      if (identity) return event.ok ? 'Абонент успешно найден и привязан через Billing.' : `Не удалось привязать абонента: ${event.code || 'ошибка'}.`;
+      return event.ok ? `Инструмент ${event.tool || '—'} вернул подтверждённые данные.` : `Инструмент ${event.tool || '—'} завершился ошибкой ${event.code || 'unknown'}.`;
+    }
+    if (event.type === 'experiment_result' && (Array.isArray(event.variants) ? event.variants : []).some(item => item?.degraded)) {
+      return 'Ход завершился через fallback/degraded-ветку. Раскрой JSON для деталей.';
+    }
+    if (event.type === 'turn_degraded') return 'Сработал аварийный fallback. Техническая причина находится в JSON ниже.';
+    return '';
+  }
   function eventSummary(event = {}) {
-    if (event.type === 'semantic_analysis') return `SEMANTIC · ${Math.round(number(event.confidence) * 100)}% · KB ${event.knowledgeMode || '—'}${event.knowledgeUsed ? ' used' : ''}`;
-    if (event.type === 'tool_execution') return `TOOL · ${event.tool || '—'} · ${event.code || '—'}${event.ok ? ' ✓' : ''}`;
-    if (event.type === 'experiment_result') return `RESULT · ${event.mode || '—'} · ${number(event.toolCalls)} tool · ${number(event.totalTokens)} tok · ${number(event.elapsedMs)} ms`;
-    if (event.type === 'turn_degraded') return 'DEGRADED FALLBACK';
+    if (event.type === 'semantic_analysis') return `SEMANTIC · ${Math.round(number(event.confidence) * 100)}% · ${knowledgeTraceState(event)}`;
+    if (event.type === 'tool_execution') {
+      const identity = event.tool === 'customer.lookup' && event.requestedBy?.system === 'identity';
+      return `${identity ? 'IDENTITY' : 'TOOL'} · ${event.tool || '—'} · ${event.code || '—'}${event.ok ? ' ✓' : ''}`;
+    }
+    if (event.type === 'experiment_result') {
+      const degraded = (Array.isArray(event.variants) ? event.variants : []).some(item => item?.degraded);
+      return `${degraded ? 'FALLBACK' : 'RESULT'} · ${event.mode || '—'} · ${number(event.toolCalls)} tool · ${number(event.totalTokens)} tok · ${number(event.elapsedMs)} ms`;
+    }
+    if (event.type === 'turn_degraded') return 'FALLBACK · DEGRADED';
     if (event.type === 'profile_change') return 'PROFILE CHANGED';
     if (event.type === 'repeat_turn') return 'REPEAT LAST TURN';
     if (event.type === 'snapshot') return 'SNAPSHOT';
@@ -298,10 +343,13 @@
     const useful = (Array.isArray(events) ? events : []).filter(event => event?.type !== 'customer_message').slice(-50).reverse();
     if (!useful.length) { eventsNode.append(create('div', 'ai-lab-log-empty', 'Событий эксперимента пока нет.')); return; }
     for (const event of useful) {
-      const item = document.createElement('details'); item.className = `ai-lab-event ${event.type || ''}`;
+      const item = document.createElement('details'); item.className = `ai-lab-event ${event.type || ''} ${eventTone(event)}`;
       const summary = document.createElement('summary'); summary.textContent = eventSummary(event);
+      item.append(summary);
+      const note = importantEventNote(event);
+      if (note) item.append(create('div', 'ai-lab-event-note', note));
       const payload = { ...event }; delete payload.id; delete payload.type;
-      item.append(summary, create('pre', '', json(payload))); eventsNode.append(item);
+      item.append(create('pre', '', json(payload))); eventsNode.append(item);
     }
   }
 
