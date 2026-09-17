@@ -80,31 +80,38 @@ test('text identifier explicitly labeled as contract is searched through Billing
     { role: 'customer', text: 'Boxing договір\nхочу на гигабит' }
   ];
 
-  assert.deepEqual(extractIdentityHints(transcript, {}), { login: 'boxing' });
-  assert.equal(classifyStandaloneBillingLogin('boxing'), 'boxing');
+  assert.deepEqual(extractIdentityHints(transcript, {}), { login: 'Boxing' });
+  assert.equal(classifyStandaloneBillingLogin('Boxing'), 'Boxing');
 
   const result = await executeInformationNeeds({
     needs: [],
     transcript,
     analysis: { probe: { whatUserWants: 'Перейти на гигабит' } },
     labState: {},
-    execute: successfulLookup({ login: 'boxing' })
+    execute: successfulLookup({ login: 'Boxing' })
   });
 
   assert.equal(result.labState.confirmedCaseId, 'billing-live:50845');
-  assert.equal(result.trace[0].args.login, 'boxing');
+  assert.equal(result.trace[0].args.login, 'Boxing');
 });
 
 test('possessive text identifier labeled as contract is accepted as Billing search key', () => {
   assert.deepEqual(
     extractIdentityHints([{ role: 'customer', text: 'Sota мой договор' }], {}),
-    { login: 'sota' }
+    { login: 'Sota' }
   );
   assert.deepEqual(
     extractIdentityHints([{ role: 'customer', text: 'Sota — это мой договор' }], {}),
-    { login: 'sota' }
+    { login: 'Sota' }
   );
-  assert.equal(classifyStandaloneBillingLogin('Sota'), 'sota');
+  assert.equal(classifyStandaloneBillingLogin('Sota'), 'Sota');
+});
+
+test('multiline text identifier labeled as contract is accepted before a customer question', () => {
+  assert.deepEqual(
+    extractIdentityHints([{ role: 'customer', text: 'Talala\nдоговор\nче по балансу у меня вообще? и на гиг можно перейти?' }], {}),
+    { login: 'Talala' }
+  );
 });
 
 test('clarification that text token is the contract keeps the same identifier', () => {
@@ -113,14 +120,15 @@ test('clarification that text token is the contract keeps the same identifier', 
       { role: 'customer', text: 'Boxing договір\nхочу на гигабит' },
       { role: 'customer', text: 'Boxing - це і є договір' }
     ], {}),
-    { login: 'boxing' }
+    { login: 'Boxing' }
   );
 });
 
-test('generic text lookup preserves Billing native listuser name search formula', () => {
+test('generic text lookup preserves Billing native listuser name search formula and casing', () => {
   const source = fs.readFileSync(new URL('../src/features/ai-operator/billing-login-live.js', import.meta.url), 'utf8');
   assert.match(source, /a:\s*'listuser',\s*f:\s*'n',\s*name:\s*requestedLogin/);
   assert.doesNotMatch(source, /what_search:\s*'login'/);
+  assert.doesNotMatch(source, /requestedLogin\.toLowerCase\(\)/);
   assert.doesNotMatch(source, /actualLogin\s*&&\s*actualLogin\s*!==/);
 });
 
