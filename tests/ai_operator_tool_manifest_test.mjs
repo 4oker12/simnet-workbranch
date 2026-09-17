@@ -41,7 +41,7 @@ test('planner receives the manifest and an explicit goal -> Billing identity -> 
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.billing, true);
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.userside, true);
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.network, true);
-  assert.equal(planner.version, 2);
+  assert.equal(planner.version, 3);
   assert.equal(planner.tools.length, REQUIRED_TOOLS.length);
   assert.equal(planner.identityPolicy.primarySystem, 'Billing');
   assert.equal(planner.identityPolicy.primaryTool, 'customer.lookup');
@@ -49,6 +49,7 @@ test('planner receives the manifest and an explicit goal -> Billing identity -> 
   assert.match(planner.instruction, /ПЕРВЫМ действием используй Billing customer\.lookup/i);
   assert.match(planner.instruction, /UserSide не используй как основной первичный поиск/i);
   assert.match(planner.instruction, /точного имени инструмента/i);
+  assert.match(planner.instruction, /network\.session.*ранним рекомендуемым инструментом/i);
   assert.match(planner.planningRule, /Цель клиента.*Billing customer\.lookup.*неизвестный факт.*tool.*результат tool/i);
   assert.match(planner.successRule, /ok=true/i);
   assert.match(planner.successRule, /ok=false/i);
@@ -66,14 +67,19 @@ test('customer.lookup is the default primary subscriber search and UserSide is p
   assert.ok(userside.limitations.some(item => /не использовать UserSide как основной первичный поиск/i.test(item)));
 });
 
-test('network.session is explicitly documented as useful for no-internet diagnosis but not fresh Juniper live read', () => {
+test('network.session uses fresh Billing stat.pl a=252 and keeps Workbench only as fallback', () => {
   const tool = AI_OPERATOR_SOFT_TOOL_CATALOG.find(item => item.name === 'network.session');
   assert.ok(tool);
-  assert.equal(tool.implementation, 'implemented_limited');
-  assert.equal(tool.mode, 'workbench-case-read-only');
+  assert.equal(tool.implementation, 'implemented');
+  assert.equal(tool.mode, 'billing-stat-live-read-only + workbench-fallback');
+  assert.match(tool.endpoint, /stat\.pl.*a=252/i);
+  assert.match(tool.evidenceSource, /Billing stat\.pl a=252/i);
   assert.ok(tool.recommendedWhen.some(item => /нет интернета/i.test(item)));
-  assert.ok(tool.answers.some(item => /BRAS-сесси/i.test(item)));
-  assert.ok(tool.limitations.some(item => /не выдавать.*свежий.*Juniper/i.test(item)));
+  assert.ok(tool.answers.some(item => /сесси/i.test(item)));
+  assert.ok(tool.returns.includes('router'));
+  assert.ok(tool.returns.includes('vendor'));
+  assert.ok(tool.returns.includes('vlan'));
+  assert.ok(tool.limitations.some(item => /Workbench fallback/i.test(item)));
 });
 
 test('exact tool names placed in subscriber_data_needed.field route to the intended executor', () => {
