@@ -25,12 +25,7 @@
     outage_by_customer: 'outage.by_customer'
   });
 
-  const objectSchema = properties => ({
-    type: 'object',
-    properties,
-    additionalProperties: false
-  });
-
+  const objectSchema = properties => ({ type: 'object', properties, additionalProperties: false });
   const readOptions = objectSchema({
     refresh: { type: 'boolean', description: 'Запросить свежие данные, если источник это поддерживает.' },
     maxAgeMs: { type: 'integer', minimum: 0, maximum: 300000, description: 'Допустимый возраст кэша в миллисекундах.' }
@@ -51,10 +46,7 @@
     ['pon_onu', 'Прочитать состояние ONU/ONT подтвержденного PON-абонента.', readOptions],
     ['pon_signal', 'Прочитать оптические уровни сигнала подтвержденного PON-абонента.', readOptions],
     ['outage_by_customer', 'Проверить доступные признаки аварии по подтвержденному абоненту.', readOptions]
-  ].map(([name, description, parameters]) => ({
-    type: 'function',
-    function: { name, description, parameters }
-  })));
+  ].map(([name, description, parameters]) => ({ type: 'function', function: { name, description, parameters } })));
 
   const safeJson = value => {
     try { return JSON.parse(value); } catch { return null; }
@@ -104,25 +96,32 @@
     });
   }
 
-  function finalPassPayload(payload, hard = false) {
+  function finalPassPayload(payload) {
     const messages = (Array.isArray(payload.messages) ? payload.messages : []).map(item => {
       if (item?.role !== 'system' || !String(item?.content || '').includes(COMPANION_MARKER)) return item;
       return {
         role: 'system',
-        content: hard
-          ? 'Ты AI-напарник оператора SIMNET. Ответь оператору обычным коротким текстом только по уже переданным фактам. Никаких functions, tool calls, JSON, XML или служебных конструкций.'
-          : 'Ты AI-напарник оператора SIMNET. READ-проверки уже выполнены. Сформулируй короткий нормальный ответ оператору по TOOL EVIDENCE и контексту. Не вызывай functions и не выводи служебный JSON.'
+        content: 'Ты AI-напарник оператора SIMNET. READ-проверки уже выполнены. Ответь оператору обычным коротким текстом только по TOOL EVIDENCE и контексту. Не вызывай functions и не выводи JSON/XML/служебные конструкции.'
       };
     });
-    return applyReasoningCompatibility({
+
+    const next = {
       ...payload,
       messages,
-      tools: [],
-      tool_choice: 'none',
-      parallel_tool_calls: false,
-      disable_tool_validation: false,
-      temperature: hard ? 0 : payload.temperature
-    });
+      temperature: payload.temperature
+    };
+
+    // Critical: on the final synthesis pass do not send tools OR tool_choice.
+    // Some Groq-hosted models can still emit a tool-call token while
+    // tool_choice='none', which the API rejects with HTTP 400 before a normal
+    // answer is returned. Without the tool protocol in this pass, the model is
+    // treated as a normal text generator over already collected evidence.
+    delete next.tools;
+    delete next.tool_choice;
+    delete next.parallel_tool_calls;
+    delete next.disable_tool_validation;
+
+    return applyReasoningCompatibility(next);
   }
 
   function normalizeToolCalls(json) {
@@ -143,11 +142,7 @@
   }
 
   function responseFrom(response, text) {
-    return new Response(text, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers
-    });
+    return new Response(text, { status: response.status, statusText: response.statusText, headers: response.headers });
   }
 
   async function send(input, init, payload) {
@@ -164,13 +159,8 @@
     if (!source || !isCompanionPayload(source)) return nativeFetch(input, init);
 
     const finalPass = isFinalPass(source);
-    let response = await send(input, init, finalPass ? finalPassPayload(source) : firstPassPayload(source));
-    let text = await response.text();
-
-    if (finalPass && !response.ok && /Tool choice is none, but model called a tool/i.test(text)) {
-      response = await send(input, init, finalPassPayload(source, true));
-      text = await response.text();
-    }
+    const response = await send(input, init, finalPass ? finalPassPayload(source) : firstPassPayload(source));
+    const text = await response.text();
 
     if (!response.ok) return responseFrom(response, text);
     const json = safeJson(text);
