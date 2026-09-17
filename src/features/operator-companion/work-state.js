@@ -79,7 +79,7 @@ export function extractCompanionTarget(message = '') {
 export function messageClosesWorkEpisode(message = '') {
   const q = text(message, 500).toLowerCase();
   if (!q) return false;
-  return /(?:вс[её]\s*(?:,?\s*)?(?:с\s+ним|по\s+нему)?\s*(?:закончили|понятно|ясно)?|с\s+ним\s+(?:вс[её]|закончили)|закрывай\s+(?:его|этого|кейс)|забей\s+(?:на\s+него|на\s+этого)?|(?:^|\s)(?:дальше|следующий|наступний)(?:$|[.!?\s]))/iu.test(q);
+  return /^(?:вс[её](?:\s*,?\s*(?:с\s+ним|по\s+нему))?(?:\s+(?:закончили|понятно|ясно))?|с\s+ним\s+(?:вс[её]|закончили)|(?:закрывай|закроем)\s+(?:его|этого|кейс)|забей(?:\s+на\s+(?:него|этого))?|дальше|следующий|наступний)[.!?]*$/iu.test(q);
 }
 
 export function messageReferencesPreviousEpisode(message = '') {
