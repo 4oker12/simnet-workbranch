@@ -9,6 +9,7 @@ const loader = fs.readFileSync(new URL('../src/ui/operator-companion-loader.js',
 const rail = fs.readFileSync(new URL('../src/ui/rail.js', import.meta.url), 'utf8');
 const bootstrap = fs.readFileSync(new URL('../src/content/bootstrap.js', import.meta.url), 'utf8');
 const featureLoader = fs.readFileSync(new URL('../src/infrastructure/feature-loader.js', import.meta.url), 'utf8');
+const legacyControlsGate = fs.readFileSync(new URL('../src/ui/operator-companion-session-controls-disable.js', import.meta.url), 'utf8');
 const backgroundEntry = fs.readFileSync(new URL('../src/background-entry.js', import.meta.url), 'utf8');
 
 assert.doesNotMatch(runtime, /WB\.store\?\.activeCase|currentIdentity\(|caseId::|episodeId/, 'Companion conversation must not be owned by the active CRM Case');
@@ -43,8 +44,12 @@ assert.match(backend, /Никогда не смешивай факты разн�
 assert.match(backend, /Обычная беседа|обычный разговор|обычной беседы/i, 'general conversation must remain valid without creating a case');
 assert.doesNotMatch(backend, /ведёшь обычный живой чат с абонентом/i, 'subscriber-facing Autonomous Operator persona must not leak into Companion');
 
-assert.match(featureLoader, /companion: Object\.freeze\(\[\s*'src\/ui\/operator-companion-content\.js',\s*'src\/ui\/operator-companion-conversation\.js'\s*\]\)/);
-assert.doesNotMatch(featureLoader, /operator-companion-session-controls\.js/, 'manual case session controls must no longer load');
+assert.match(featureLoader, /operator-companion-content\.js/);
+assert.match(featureLoader, /operator-companion-conversation\.js/);
+assert.match(featureLoader, /operator-companion-session-controls-disable\.js/);
+assert.match(featureLoader, /operator-companion-session-controls\.js/, 'legacy session-controls file remains loadable for compatibility');
+assert.match(legacyControlsGate, /__operatorCompanionConversationLoaded/);
+assert.match(legacyControlsGate, /__operatorCompanionSessionControlsLoaded\s*=\s*true/, 'persistent Companion must suppress legacy Start/End controls before they mount');
 assert.match(backgroundEntry, /features\/operator-companion\/background\.js/, 'service worker entry must register Companion backend');
 assert.match(loader, /feature: 'companion'/);
 assert.match(bootstrap, /WB\.operatorCompanion\?\.destroy\?\.\(\)/, 'runtime destroy must tear down a loaded Companion');
