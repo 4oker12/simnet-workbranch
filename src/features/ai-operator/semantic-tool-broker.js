@@ -10,7 +10,7 @@ function updatedBillingTool(tool) {
   if (tool.name === 'customer.lookup') {
     return Object.freeze({
       ...tool,
-      establishes: `${String(tool.establishes || '')} Самостоятельная реплика с номером договора (например 33455) или обычным login (например lacanister) также считается идентификатором и сохраняет привязку для следующего вопроса.`,
+      establishes: `${String(tool.establishes || '')} Самостоятельная реплика с номером договора (например 33455), обычным login (например lacanister) или текстовым идентификатором, явно названным договором (например «Boxing договір»), считается идентификацией и сохраняет привязку для следующего вопроса.`,
       recommendedWhen: [
         ...(Array.isArray(tool.recommendedWhen) ? tool.recommendedWhen : []),
         'Клиент может сначала отдельной репликой прислать договор/login, а следующим сообщением задать вопрос; после успешного Billing lookup последующий вопрос относится к уже подтверждённому кейсу.'
@@ -98,8 +98,8 @@ const TOOL_CATALOG = Object.freeze(
 const previousPlanner = impl.AI_OPERATOR_SOFT_TOOL_CAPABILITIES.toolPlanner || {};
 const TOOL_PLANNER = Object.freeze({
   ...previousPlanner,
-  version: 5,
-  instruction: `${String(previousPlanner.instruction || '')} billing.balance и billing.tariff читают один и тот же основной Billing DOM-блок table.tbg1.nav3.width100; если нужны оба набора фактов, считай это одним общим main-summary источником, а не двумя независимыми системами. При жалобе «нет интернета» после Billing-идентификации и проверки базового состояния услуги network.session является ранним рекомендуемым инструментом: он делает fresh-read агрегированной сессионной страницы Billing stat.pl a=252 и помогает быстро установить наличие/статус сессии, IP/MAC, время старта, последнее событие, ROUTER/VENDOR и VLAN. Отдельная реплика, содержащая только договор или login, является идентификацией: сначала привяжи кейс через Billing customer.lookup и сохраняй эту привязку для следующих реплик.`,
+  version: 6,
+  instruction: `${String(previousPlanner.instruction || '')} billing.balance и billing.tariff читают один и тот же основной Billing DOM-блок table.tbg1.nav3.width100; если нужны оба набора фактов, считай это одним общим main-summary источником, а не двумя независимыми системами. При жалобе «нет интернета» после Billing-идентификации и проверки базового состояния услуги network.session является ранним рекомендуемым инструментом: он делает fresh-read агрегированной сессионной страницы Billing stat.pl a=252 и помогает быстро установить наличие/статус сессии, IP/MAC, время старта, последнее событие, ROUTER/VENDOR и VLAN. Отдельная реплика, содержащая договор или login, включая явно подписанный текстовый идентификатор вроде «Boxing договір», является идентификацией: сначала привяжи кейс через Billing customer.lookup и сохраняй эту привязку для следующих реплик. Внутренняя энциклопедия и live-tools имеют разные роли: общие правила/условия из KB можно и нужно сообщать без идентификации; идентификация требуется только для персональных live-фактов. Перед фразой «не хватает данных», «не знаю» или повторным вопросом клиенту обязательно проверь, не отвечает ли уже использованная внутренняя статья на общую часть вопроса.`,
   tools: TOOL_CATALOG
 });
 
@@ -131,7 +131,7 @@ function traceFromResult(result = {}, identity = {}) {
     requestedBy: {
       system: 'identity',
       field: identity.contract ? 'contract' : 'login',
-      why: 'Клиент передал идентификатор отдельной репликой; первичная привязка выполняется через Billing и сохраняется для следующих сообщений.'
+      why: 'Клиент передал идентификатор; первичная привязка выполняется через Billing и сохраняется для следующих сообщений.'
     },
     args: identityToolArgs(identity),
     ok: Boolean(result?.ok),
@@ -177,6 +177,35 @@ function mergeTrace(first = [], second = []) {
   return [...(Array.isArray(first) ? first : []), ...(Array.isArray(second) ? second : [])];
 }
 
+function knowledgeParagraphs(textValue) {
+  return String(textValue || '')
+    .replace(/\r\n?/g, '\n')
+    .split(/\n\s*\n/)
+    .map(item => item.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+
+export function knowledgeConsultationFallbackReply(analysis = {}, transcript = []) {
+  const evidence = Array.isArray(analysis?.knowledge?.articleEvidence) ? analysis.knowledge.articleEvidence : [];
+  if (!evidence.length) return '';
+
+  const identityKnown = Object.keys(extractIdentityHints(transcript, analysis)).length > 0;
+  const selected = evidence
+    .filter(article => !(identityKnown && String(article?.id || '') === 'billing.identification'))
+    .slice(0, 3);
+  const parts = [];
+  for (const article of selected) {
+    for (const paragraph of knowledgeParagraphs(article?.text).slice(0, 2)) {
+      const compact = paragraph.length > 430 ? `${paragraph.slice(0, 429)}…` : paragraph;
+      if (compact && !parts.includes(compact)) parts.push(compact);
+      if (parts.length >= 5) break;
+    }
+    if (parts.length >= 5) break;
+  }
+  if (!parts.length) return '';
+  return `По внутренней информации SIMNET: ${parts.join(' ')}`.slice(0, 1800).trim();
+}
+
 export function extractIdentityHints(transcript = [], analysis = {}) {
   const standard = impl.extractIdentityHints(transcript, analysis);
   if (standard && Object.keys(standard).length) return standard;
@@ -206,13 +235,23 @@ export async function executeInformationNeeds(options = {}) {
 export const evidenceFallbackReply = impl.evidenceFallbackReply;
 
 export async function groundSubscriberReply(options = {}) {
-  const { transcript = [], analysis = {}, labState = {}, execute } = options;
+  const { transcript = [], analysis = {}, labState = {}, execute, draft = {} } = options;
   const pre = await bootstrapStandaloneIdentity({ transcript, analysis, labState, execute });
   const delegated = await impl.groundSubscriberReply({ ...options, labState: pre.labState });
+  const toolTrace = mergeTrace(pre.trace, delegated?.toolTrace);
+  const toolEvidence = mergeTrace(pre.trace.filter(item => item?.ok), delegated?.toolEvidence);
+  const degraded = Boolean(draft?.degraded || delegated?.degraded);
+  const knowledgeReply = degraded ? knowledgeConsultationFallbackReply(analysis, transcript) : '';
+  const reply = knowledgeReply
+    ? (toolEvidence.length && String(delegated?.reply || '').trim()
+      ? `${knowledgeReply}\n\n${String(delegated.reply).trim()}`
+      : knowledgeReply)
+    : delegated?.reply;
   return {
     ...delegated,
-    toolTrace: mergeTrace(pre.trace, delegated?.toolTrace),
-    toolEvidence: mergeTrace(pre.trace.filter(item => item?.ok), delegated?.toolEvidence),
+    reply,
+    toolTrace,
+    toolEvidence,
     toolState: delegated?.toolState || pre.labState
   };
 }
