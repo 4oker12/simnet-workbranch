@@ -43,6 +43,8 @@ assert.match(backend, /READ-инструменты|READ-инструмент|REA
 assert.match(backend, /Никогда не смешивай факты разных абонентов/, 'target isolation must be part of the model contract');
 assert.match(backend, /Обычная беседа|обычный разговор|обычной беседы/i, 'general conversation must remain valid without creating a case');
 assert.doesNotMatch(backend, /ведёшь обычный живой чат с абонентом/i, 'subscriber-facing Autonomous Operator persona must not leak into Companion');
+assert.match(backend, /reasoning_effort:\s*'(?:low|medium|high)'/, 'Companion must send a Groq-supported reasoning effort');
+assert.doesNotMatch(backend, /reasoning_effort:\s*'none'/, 'Groq rejects reasoning_effort=none for the configured reasoning models');
 
 assert.match(featureLoader, /operator-companion-content\.js/);
 assert.match(featureLoader, /operator-companion-conversation\.js/);
