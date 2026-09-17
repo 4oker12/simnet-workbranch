@@ -10,10 +10,11 @@ function updatedBillingTool(tool) {
   if (tool.name === 'customer.lookup') {
     return Object.freeze({
       ...tool,
-      establishes: `${String(tool.establishes || '')} Самостоятельная реплика с номером договора (например 33455), обычным login (например lacanister) или текстовым идентификатором, явно названным договором (например «Boxing договір»), считается идентификацией и сохраняет привязку для следующего вопроса.`,
+      establishes: `${String(tool.establishes || '')} Самостоятельная реплика с номером договора (например 33455), обычным login (например lacanister) или текстовым идентификатором, явно названным договором (например «Boxing договір»), считается идентификацией и сохраняет привязку для следующего вопроса. Новый явный идентификатор в последующей реплике означает попытку переключения active subscriber и требует нового Billing lookup до любых subscriber-specific READ-tools.`,
       recommendedWhen: [
         ...(Array.isArray(tool.recommendedWhen) ? tool.recommendedWhen : []),
-        'Клиент может сначала отдельной репликой прислать договор/login, а следующим сообщением задать вопрос; после успешного Billing lookup последующий вопрос относится к уже подтверждённому кейсу.'
+        'Клиент может сначала отдельной репликой прислать договор/login, а следующим сообщением задать вопрос; после успешного Billing lookup последующий вопрос относится к уже подтверждённому кейсу.',
+        'Если после уже подтверждённого кейса клиент явно сообщает другой договор/login/IP/адрес, сначала заново выполни customer.lookup и только после успеха переключай active subscriber.'
       ]
     });
   }
@@ -98,8 +99,8 @@ const TOOL_CATALOG = Object.freeze(
 const previousPlanner = impl.AI_OPERATOR_SOFT_TOOL_CAPABILITIES.toolPlanner || {};
 const TOOL_PLANNER = Object.freeze({
   ...previousPlanner,
-  version: 6,
-  instruction: `${String(previousPlanner.instruction || '')} billing.balance и billing.tariff читают один и тот же основной Billing DOM-блок table.tbg1.nav3.width100; если нужны оба набора фактов, считай это одним общим main-summary источником, а не двумя независимыми системами. При жалобе «нет интернета» после Billing-идентификации и проверки базового состояния услуги network.session является ранним рекомендуемым инструментом: он делает fresh-read агрегированной сессионной страницы Billing stat.pl a=252 и помогает быстро установить наличие/статус сессии, IP/MAC, время старта, последнее событие, ROUTER/VENDOR и VLAN. Отдельная реплика, содержащая договор или login, включая явно подписанный текстовый идентификатор вроде «Boxing договір», является идентификацией: сначала привяжи кейс через Billing customer.lookup и сохраняй эту привязку для следующих реплик. Внутренняя энциклопедия и live-tools имеют разные роли: общие правила/условия из KB можно и нужно сообщать без идентификации; идентификация требуется только для персональных live-фактов. Перед фразой «не хватает данных», «не знаю» или повторным вопросом клиенту обязательно проверь, не отвечает ли уже использованная внутренняя статья на общую часть вопроса.`,
+  version: 7,
+  instruction: `${String(previousPlanner.instruction || '')} billing.balance и billing.tariff читают один и тот же основной Billing DOM-блок table.tbg1.nav3.width100; если нужны оба набора фактов, считай это одним общим main-summary источником, а не двумя независимыми системами. При жалобе «нет интернета» после Billing-идентификации и проверки базового состояния услуги network.session является ранним рекомендуемым инструментом: он делает fresh-read агрегированной сессионной страницы Billing stat.pl a=252 и помогает быстро установить наличие/статус сессии, IP/MAC, время старта, последнее событие, ROUTER/VENDOR и VLAN. Отдельная реплика, содержащая договор или login, включая явно подписанный текстовый идентификатор вроде «Boxing договір», является идентификацией: сначала привяжи кейс через Billing customer.lookup и сохраняй эту привязку для следующих реплик. Если в более поздней реплике клиент явно сообщает ДРУГОЙ договор/login/IP/адрес, это переключение абонента: старую active-привязку нельзя использовать для новых персональных данных; сначала заново выполни Billing customer.lookup, и только успешный lookup устанавливает новый active subscriber. Внутренняя энциклопедия и live-tools имеют разные роли: общие правила/условия из KB можно и нужно сообщать без идентификации; идентификация требуется только для персональных live-фактов. Перед фразой «не хватает данных», «не знаю» или повторным вопросом клиенту обязательно проверь, не отвечает ли уже использованная внутренняя статья на общую часть вопроса.`,
   tools: TOOL_CATALOG
 });
 
@@ -125,15 +126,77 @@ function mergeState(state = {}, patch = {}) {
     ...(patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : {})
   };
 }
-function traceFromResult(result = {}, identity = {}) {
+function latestCustomerTurn(transcript = []) {
+  const turns = (Array.isArray(transcript) ? transcript : []).filter(item => item?.role === 'customer' && String(item?.text || '').trim());
+  return turns.length ? turns[turns.length - 1] : null;
+}
+function latestLiteralIdentity(transcript = []) {
+  const latest = latestCustomerTurn(transcript);
+  if (!latest) return {};
+  const generic = identityToolArgs(extractStandaloneSubscriberIdentity([latest]));
+  if (Object.keys(generic).length) return generic;
+  const standard = impl.extractIdentityHints([latest], {});
+  return standard && typeof standard === 'object' && !Array.isArray(standard) ? standard : {};
+}
+function normalizedContract(value) {
+  const source = String(value == null ? '' : value).trim().replace(/\s+/g, '');
+  const abon = source.match(/^abon(\d{3,12})$/i)?.[1] || '';
+  return abon || (/^\d{3,12}$/.test(source) ? source : '');
+}
+function normalizedAddress(value) {
+  return String(value == null ? '' : value).toLowerCase().replace(/[.,;:()№#]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function identityMatchesConfirmed(args = {}, state = {}) {
+  const subscriber = state?.confirmedSubscriber && typeof state.confirmedSubscriber === 'object' ? state.confirmedSubscriber : {};
+  if (args.contract) {
+    const currentContract = normalizedContract(subscriber.contract || subscriber.login);
+    return Boolean(currentContract && currentContract === normalizedContract(args.contract));
+  }
+  if (args.login) {
+    const requested = String(args.login || '').trim();
+    const currentLogin = String(subscriber.login || '').trim();
+    if (requested && currentLogin && requested.toLowerCase() === currentLogin.toLowerCase()) return true;
+    const requestedContract = normalizedContract(requested);
+    const currentContract = normalizedContract(subscriber.contract || currentLogin);
+    return Boolean(requestedContract && currentContract && requestedContract === currentContract);
+  }
+  if (args.ip) {
+    return Boolean(subscriber.ip && String(subscriber.ip).trim() === String(args.ip).trim());
+  }
+  if (args.address) {
+    return Boolean(subscriber.address && normalizedAddress(subscriber.address) === normalizedAddress(args.address));
+  }
+  return false;
+}
+function resetSubscriberBinding(state = {}) {
+  return {
+    ...state,
+    pendingCandidate: null,
+    confirmedCaseId: '',
+    confirmedSubscriber: null,
+    invalidatedAt: Date.now(),
+    facts: {},
+    reads: {}
+  };
+}
+function identityFromArgs(args = {}) {
+  if (args.login) return { login: args.login };
+  if (args.contract) return { contract: args.contract };
+  if (args.ip) return { ip: args.ip };
+  if (args.address) return { address: args.address };
+  return {};
+}
+function traceFromResult(result = {}, identity = {}, isRebind = false) {
   return {
     tool: String(result?.tool || 'customer.lookup'),
     requestedBy: {
       system: 'identity',
-      field: identity.contract ? 'contract' : 'login',
-      why: 'Клиент передал идентификатор; первичная привязка выполняется через Billing и сохраняется для следующих сообщений.'
+      field: identity.contract ? 'contract' : identity.ip ? 'ip' : identity.address ? 'address' : 'login',
+      why: isRebind
+        ? 'Клиент явно передал новый идентификатор; старая active-привязка приостановлена, новый абонент должен быть заново подтверждён через Billing до персональных READ-tools.'
+        : 'Клиент передал идентификатор; первичная привязка выполняется через Billing и сохраняется для следующих сообщений.'
     },
-    args: identityToolArgs(identity),
+    args: identityToolArgs(identity).login || identityToolArgs(identity).contract ? identityToolArgs(identity) : identity,
     ok: Boolean(result?.ok),
     code: String(result?.code || (result?.ok ? 'OK' : 'ERROR')),
     observedAt: String(result?.observedAt || ''),
@@ -144,9 +207,37 @@ function traceFromResult(result = {}, identity = {}) {
 }
 async function bootstrapStandaloneIdentity({ transcript = [], analysis = {}, labState = {}, execute } = {}) {
   const state = mergeState({}, labState);
-  if (typeof execute !== 'function' || String(state.confirmedCaseId || '').trim() || state.pendingCandidate) {
-    return { trace: [], labState: state };
+  if (typeof execute !== 'function') return { trace: [], labState: state };
+
+  const hasConfirmed = Boolean(String(state.confirmedCaseId || '').trim());
+  const hasPending = Boolean(state.pendingCandidate);
+  if (hasConfirmed || hasPending) {
+    const latestArgs = latestLiteralIdentity(transcript);
+    if (!Object.keys(latestArgs).length) return { trace: [], labState: state };
+    if (hasConfirmed && identityMatchesConfirmed(latestArgs, state)) return { trace: [], labState: state };
+
+    const lookupState = resetSubscriberBinding(state);
+    const identity = identityFromArgs(latestArgs);
+    let result;
+    try {
+      result = await execute({ tool: 'customer.lookup', toolArgs: latestArgs, labState: lookupState });
+    } catch (error) {
+      result = {
+        ok: false,
+        tool: 'customer.lookup',
+        code: 'TOOL_EXECUTION_ERROR',
+        observedAt: new Date().toISOString(),
+        data: { message: String(error?.message || error) },
+        warnings: [],
+        statePatch: {}
+      };
+    }
+    return {
+      trace: [traceFromResult(result, identity, true)],
+      labState: mergeState(lookupState, result?.statePatch || {})
+    };
   }
+
   const standard = impl.extractIdentityHints(transcript, analysis);
   if (standard && Object.keys(standard).length) return { trace: [], labState: state };
 
