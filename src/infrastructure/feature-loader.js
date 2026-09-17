@@ -3,7 +3,9 @@
 const FEATURE_SCRIPT_SETS = Object.freeze({
   companion: Object.freeze([
     'src/ui/operator-companion-content.js',
-    'src/ui/operator-companion-conversation.js'
+    'src/ui/operator-companion-conversation.js',
+    'src/ui/operator-companion-session-controls-disable.js',
+    'src/ui/operator-companion-session-controls.js'
   ]),
   call: Object.freeze(['src/ui/call-registration.js']),
   poll: Object.freeze(['src/ui/poll-terminal.js']),
