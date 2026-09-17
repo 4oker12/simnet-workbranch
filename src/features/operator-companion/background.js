@@ -118,7 +118,7 @@ async function requestGroq(messages, maxTokens = 900) {
   try {
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST', headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: config.model, temperature: 0.25, max_completion_tokens: Math.max(250, maxTokens), reasoning_format: 'hidden', reasoning_effort: 'none', messages }),
+      body: JSON.stringify({ model: config.model, temperature: 0.25, max_completion_tokens: Math.max(250, maxTokens), reasoning_format: 'hidden', reasoning_effort: 'low', messages }),
       signal: controller.signal
     });
     const raw = await response.text();
