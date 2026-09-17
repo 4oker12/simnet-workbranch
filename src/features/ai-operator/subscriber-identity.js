@@ -10,6 +10,8 @@ const NON_LOGIN_WORDS = new Set([
   'internet', 'wifi', 'wi-fi', 'router', 'balance', 'tariff', 'speed', 'help', 'hello', 'privet', 'test', 'online', 'offline'
 ]);
 const CONTRACT_WORD = '(?:договор|договір|лицев(?:ой|ий)?\\s*сч[её]т|особов(?:ий|ого)?\\s*рахунок)';
+const LOGIN_WORD = '(?:login|логин|логін)';
+const IDENTITY_WORD = `(?:${CONTRACT_WORD}|${LOGIN_WORD})`;
 
 function customerMessages(transcript = []) {
   return (Array.isArray(transcript) ? transcript : [])
@@ -22,21 +24,22 @@ function standaloneToken(source) {
 }
 
 function genericLogin(value) {
-  const token = standaloneToken(value);
+  const token = standaloneToken(value).replace(/\s+/g, '');
   const lower = token.toLowerCase();
   if (!GENERIC_LOGIN_RE.test(token) || NON_LOGIN_WORDS.has(lower)) return '';
-  return lower;
+  // Billing's native name= search may be case-sensitive. Preserve exactly what the subscriber supplied.
+  return token;
 }
 
 function labeledTextIdentity(source) {
   const normalized = oneLine(source, 500);
   if (!normalized) return '';
 
-  const afterLabel = normalized.match(new RegExp(`${CONTRACT_WORD}\\s*(?:[:#№=\\-—]\\s*)?([A-Za-z][A-Za-z0-9._-]{2,63})`, 'i'))?.[1];
+  const afterLabel = normalized.match(new RegExp(`${IDENTITY_WORD}\\s*(?:[:#№=\\-—]\\s*)?([A-Za-z][A-Za-z0-9._-]{2,63})`, 'i'))?.[1];
   const after = genericLogin(afterLabel || '');
   if (after) return after;
 
-  const beforeLabel = normalized.match(new RegExp(`\\b([A-Za-z][A-Za-z0-9._-]{2,63})\\b\\s*(?:[-—:=]\\s*)?(?:(?:это|це)\\s+)?(?:(?:и\\s+есть|і\\s+є)\\s+)?(?:(?:мой|мій)\\s+)?${CONTRACT_WORD}\\b`, 'i'))?.[1];
+  const beforeLabel = normalized.match(new RegExp(`\\b([A-Za-z][A-Za-z0-9._-]{2,63})\\b\\s*(?:[-—:=]\\s*)?(?:(?:это|це)\\s+)?(?:(?:и\\s+есть|і\\s+є)\\s+)?(?:(?:мой|мій)\\s+)?${IDENTITY_WORD}\\b`, 'i'))?.[1];
   const before = genericLogin(beforeLabel || '');
   if (before) return before;
 
@@ -50,7 +53,7 @@ export function extractStandaloneSubscriberIdentity(transcript = []) {
     if (!source) continue;
 
     const abon = source.match(/\b(abon\d{3,12})\b/i)?.[1];
-    if (abon) return { login: abon.toLowerCase(), sourceTurn: index, confidence: 'explicit-login' };
+    if (abon) return { login: abon, sourceTurn: index, confidence: 'explicit-login' };
 
     const explicitContract = source.match(new RegExp(`${CONTRACT_WORD}[^\\d]{0,30}(\\d{3,12})`, 'i'))?.[1];
     if (explicitContract) return { contract: explicitContract, sourceTurn: index, confidence: 'explicit-contract' };
@@ -65,16 +68,16 @@ export function extractStandaloneSubscriberIdentity(transcript = []) {
       return { contract: token, sourceTurn: index, confidence: 'standalone-contract' };
     }
 
-    const lower = genericLogin(token);
-    if (lower) {
-      return { login: lower, sourceTurn: index, confidence: 'standalone-login' };
+    const login = genericLogin(token);
+    if (login) {
+      return { login, sourceTurn: index, confidence: 'standalone-login' };
     }
   }
   return {};
 }
 
 export function identityToolArgs(identity = {}) {
-  if (identity.login) return { login: String(identity.login).toLowerCase() };
+  if (identity.login) return { login: String(identity.login).replace(/\s+/g, '') };
   if (identity.contract) return { contract: String(identity.contract).replace(/\D+/g, '') };
   if (identity.ip) return { ip: String(identity.ip) };
   if (identity.address) return { address: String(identity.address) };
