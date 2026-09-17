@@ -43,6 +43,17 @@ export function companionTargetKey(value = {}) {
   return '';
 }
 
+export function companionTargetsMatch(leftValue = {}, rightValue = {}) {
+  const left = normalizeCompanionTarget(leftValue);
+  const right = normalizeCompanionTarget(rightValue);
+  for (const key of ['billingId', 'contract', 'customerId', 'ip']) {
+    if (left[key] && right[key] && left[key] === right[key]) return true;
+  }
+  if (left.login && right.login && left.login.toLowerCase() === right.login.toLowerCase()) return true;
+  if (left.address && right.address && left.address.toLowerCase() === right.address.toLowerCase()) return true;
+  return false;
+}
+
 export function companionTargetLabel(value = {}) {
   const target = normalizeCompanionTarget(value);
   return target.contract || target.login || target.billingId || target.ip || target.address || target.fullName || 'рабочий эпизод';
@@ -205,6 +216,38 @@ export function activeCompanionEpisode(value = {}) {
   return state.episodes.find(item => item.id === state.activeEpisodeId && item.status === 'active') || null;
 }
 
+export function activateCompanionTarget(value = {}, targetValue = {}, options = {}) {
+  const state = normalizeCompanionWorkState(value);
+  const target = normalizeCompanionTarget(targetValue);
+  const key = companionTargetKey(target);
+  const nowMs = Number(options.nowMs || Date.now());
+  const at = nowIso(nowMs);
+  if (!key) return { state, activeEpisode: activeCompanionEpisode(state), switched: false, reopened: false, created: false };
+
+  const active = state.episodes.find(item => item.id === state.activeEpisodeId && item.status === 'active') || null;
+  let episode = state.episodes.find(item => companionTargetsMatch(item.target, target)) || null;
+  let switched = false;
+  let reopened = false;
+  let created = false;
+
+  if (active && companionTargetsMatch(active.target, target)) {
+    active.target = { ...active.target, ...target };
+    active.updatedAt = at;
+    episode = active;
+  } else if (episode) {
+    switched = Boolean(active && active.id !== episode.id);
+    reopened = episode.status === 'closed';
+    reopenEpisode(state, episode, at);
+    episode.target = { ...episode.target, ...target };
+  } else {
+    switched = Boolean(active);
+    episode = createEpisode(state, target, at, nowMs);
+    created = true;
+  }
+  state.updatedAt = at;
+  return { state, activeEpisode: episode, switched, reopened, created };
+}
+
 export function prepareCompanionWorkTurn(value = {}, message = '', options = {}) {
   const state = normalizeCompanionWorkState(value);
   const nowMs = Number(options.nowMs || Date.now());
@@ -215,10 +258,9 @@ export function prepareCompanionWorkTurn(value = {}, message = '', options = {})
   let closed = false;
 
   if (explicitTarget) {
-    const key = companionTargetKey(explicitTarget);
-    let episode = state.episodes.find(item => companionTargetKey(item.target) === key) || null;
+    let episode = state.episodes.find(item => companionTargetsMatch(item.target, explicitTarget)) || null;
     const active = state.episodes.find(item => item.id === state.activeEpisodeId && item.status === 'active') || null;
-    if (active && companionTargetKey(active.target) === key) {
+    if (active && companionTargetsMatch(active.target, explicitTarget)) {
       active.target = { ...active.target, ...explicitTarget };
       active.updatedAt = at;
       episode = active;
