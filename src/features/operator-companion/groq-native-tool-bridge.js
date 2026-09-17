@@ -60,6 +60,22 @@
     try { return JSON.parse(value); } catch { return null; }
   };
 
+  function modelReasoningEffort(model) {
+    const name = String(model || '').toLowerCase();
+    if (name.includes('qwen/qwen3.6')) return 'none';
+    if (name.includes('qwen/qwen3.8')) return 'low';
+    if (name.includes('openai/gpt-oss-')) return 'low';
+    return '';
+  }
+
+  function applyReasoningCompatibility(payload) {
+    const next = { ...payload };
+    const effort = modelReasoningEffort(next.model);
+    if (effort) next.reasoning_effort = effort;
+    else delete next.reasoning_effort;
+    return next;
+  }
+
   function isCompanionPayload(payload) {
     return Array.isArray(payload?.messages) && payload.messages.some(item =>
       item?.role === 'system' && String(item?.content || '').includes(COMPANION_MARKER));
@@ -78,14 +94,14 @@
     };
     const firstUser = messages.findIndex(item => item?.role === 'user');
     messages.splice(firstUser >= 0 ? firstUser : messages.length, 0, nativeInstruction);
-    return {
+    return applyReasoningCompatibility({
       ...payload,
       messages,
       tools: TOOL_DEFINITIONS,
       tool_choice: 'auto',
       parallel_tool_calls: true,
       disable_tool_validation: false
-    };
+    });
   }
 
   function finalPassPayload(payload, hard = false) {
@@ -98,7 +114,7 @@
           : 'Ты AI-напарник оператора SIMNET. READ-проверки уже выполнены. Сформулируй короткий нормальный ответ оператору по TOOL EVIDENCE и контексту. Не вызывай functions и не выводи служебный JSON.'
       };
     });
-    return {
+    return applyReasoningCompatibility({
       ...payload,
       messages,
       tools: [],
@@ -106,7 +122,7 @@
       parallel_tool_calls: false,
       disable_tool_validation: false,
       temperature: hard ? 0 : payload.temperature
-    };
+    });
   }
 
   function normalizeToolCalls(json) {
