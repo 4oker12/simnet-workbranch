@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { knowledgeConsultationFallbackReply } from '../src/features/ai-operator/semantic-tool-broker.js';
 
-test('knowledge fallback answers the already-understood higher-speed question instead of dumping encyclopedia text', () => {
+test('knowledge fallback answers the already-understood higher-speed question like a human operator', () => {
   const analysis = {
     probe: {
       language: 'ru',
@@ -32,9 +32,6 @@ test('knowledge fallback answers the already-understood higher-speed question in
   };
 
   const reply = knowledgeConsultationFallbackReply(analysis, []);
-  assert.match(reply, /максимальная.*1 Гбит\/с/i);
-  assert.match(reply, /выше этого уровня.*нет/i);
-  assert.doesNotMatch(reply, /По внутренней информации SIMNET/i);
-  assert.doesNotMatch(reply, /100 Мбит\/с.*500 Мбит\/с.*350 грн/i);
-  assert.ok(reply.length < 320, `fallback must stay subscriber-facing and concise: ${reply.length}`);
+  assert.equal(reply, 'Нет, сейчас максимум — 1 Гбит/с.');
+  assert.doesNotMatch(reply, /По внутренней|По подтверждённой|линейк|базе|стать/i);
 });
