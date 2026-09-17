@@ -1,11 +1,22 @@
 'use strict';
 
 import * as impl from './semantic-tool-broker-impl.js';
+import { extractStandaloneSubscriberIdentity, identityToolArgs } from './subscriber-identity.js';
 
 const BILLING_SUMMARY_ENDPOINT = '/cgi-bin/adm/adm.pl?a=user&id=<billingId>';
 const BILLING_SUMMARY_EVIDENCE = 'Единый DOM-блок главной Billing-карточки table.tbg1.nav3.width100; один fresh GET даёт тариф, цену, сумму к оплате, баланс после тарифа и трафик. Повторные billing.balance/billing.tariff в коротком окне используют тот же cached summary snapshot.';
 
 function updatedBillingTool(tool) {
+  if (tool.name === 'customer.lookup') {
+    return Object.freeze({
+      ...tool,
+      establishes: `${String(tool.establishes || '')} Самостоятельная реплика с номером договора (например 33455) или обычным login (например lacanister) также считается идентификатором и сохраняет привязку для следующего вопроса.`,
+      recommendedWhen: [
+        ...(Array.isArray(tool.recommendedWhen) ? tool.recommendedWhen : []),
+        'Клиент может сначала отдельной репликой прислать договор/login, а следующим сообщением задать вопрос; после успешного Billing lookup последующий вопрос относится к уже подтверждённому кейсу.'
+      ]
+    });
+  }
   if (tool.name === 'billing.balance') {
     return Object.freeze({
       ...tool,
@@ -87,8 +98,8 @@ const TOOL_CATALOG = Object.freeze(
 const previousPlanner = impl.AI_OPERATOR_SOFT_TOOL_CAPABILITIES.toolPlanner || {};
 const TOOL_PLANNER = Object.freeze({
   ...previousPlanner,
-  version: 4,
-  instruction: `${String(previousPlanner.instruction || '')} billing.balance и billing.tariff читают один и тот же основной Billing DOM-блок table.tbg1.nav3.width100; если нужны оба набора фактов, считай это одним общим main-summary источником, а не двумя независимыми системами. При жалобе «нет интернета» после Billing-идентификации и проверки базового состояния услуги network.session является ранним рекомендуемым инструментом: он делает fresh-read агрегированной сессионной страницы Billing stat.pl a=252 и помогает быстро установить наличие/статус сессии, IP/MAC, время старта, последнее событие, ROUTER/VENDOR и VLAN.`,
+  version: 5,
+  instruction: `${String(previousPlanner.instruction || '')} billing.balance и billing.tariff читают один и тот же основной Billing DOM-блок table.tbg1.nav3.width100; если нужны оба набора фактов, считай это одним общим main-summary источником, а не двумя независимыми системами. При жалобе «нет интернета» после Billing-идентификации и проверки базового состояния услуги network.session является ранним рекомендуемым инструментом: он делает fresh-read агрегированной сессионной страницы Billing stat.pl a=252 и помогает быстро установить наличие/статус сессии, IP/MAC, время старта, последнее событие, ROUTER/VENDOR и VLAN. Отдельная реплика, содержащая только договор или login, является идентификацией: сначала привяжи кейс через Billing customer.lookup и сохраняй эту привязку для следующих реплик.`,
   tools: TOOL_CATALOG
 });
 
@@ -107,9 +118,101 @@ export const AI_OPERATOR_TOOL_CAPABILITY_DETAILS = Object.freeze({
 });
 
 export const AI_OPERATOR_SOFT_TOOL_CATALOG = TOOL_CATALOG;
-export const extractIdentityHints = impl.extractIdentityHints;
+
+function mergeState(state = {}, patch = {}) {
+  return {
+    ...(state && typeof state === 'object' && !Array.isArray(state) ? state : {}),
+    ...(patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : {})
+  };
+}
+function traceFromResult(result = {}, identity = {}) {
+  return {
+    tool: String(result?.tool || 'customer.lookup'),
+    requestedBy: {
+      system: 'identity',
+      field: identity.contract ? 'contract' : 'login',
+      why: 'Клиент передал идентификатор отдельной репликой; первичная привязка выполняется через Billing и сохраняется для следующих сообщений.'
+    },
+    args: identityToolArgs(identity),
+    ok: Boolean(result?.ok),
+    code: String(result?.code || (result?.ok ? 'OK' : 'ERROR')),
+    observedAt: String(result?.observedAt || ''),
+    source: String(result?.data?.source || result?.tool || ''),
+    data: result?.data || {},
+    warnings: Array.isArray(result?.warnings) ? result.warnings : []
+  };
+}
+async function bootstrapStandaloneIdentity({ transcript = [], analysis = {}, labState = {}, execute } = {}) {
+  const state = mergeState({}, labState);
+  if (typeof execute !== 'function' || String(state.confirmedCaseId || '').trim() || state.pendingCandidate) {
+    return { trace: [], labState: state };
+  }
+  const standard = impl.extractIdentityHints(transcript, analysis);
+  if (standard && Object.keys(standard).length) return { trace: [], labState: state };
+
+  const identity = extractStandaloneSubscriberIdentity(transcript);
+  const args = identityToolArgs(identity);
+  if (!Object.keys(args).length) return { trace: [], labState: state };
+
+  let result;
+  try {
+    result = await execute({ tool: 'customer.lookup', toolArgs: args, labState: state });
+  } catch (error) {
+    result = {
+      ok: false,
+      tool: 'customer.lookup',
+      code: 'TOOL_EXECUTION_ERROR',
+      observedAt: new Date().toISOString(),
+      data: { message: String(error?.message || error) },
+      warnings: [],
+      statePatch: {}
+    };
+  }
+  return {
+    trace: [traceFromResult(result, identity)],
+    labState: mergeState(state, result?.statePatch || {})
+  };
+}
+function mergeTrace(first = [], second = []) {
+  return [...(Array.isArray(first) ? first : []), ...(Array.isArray(second) ? second : [])];
+}
+
+export function extractIdentityHints(transcript = [], analysis = {}) {
+  const standard = impl.extractIdentityHints(transcript, analysis);
+  if (standard && Object.keys(standard).length) return standard;
+  return identityToolArgs(extractStandaloneSubscriberIdentity(transcript));
+}
 export const ensureNonEmptyReply = impl.ensureNonEmptyReply;
 export const mapInformationNeedsToTools = impl.mapInformationNeedsToTools;
-export const executeInformationNeeds = impl.executeInformationNeeds;
+
+export async function executeInformationNeeds(options = {}) {
+  const { transcript = [], analysis = {}, labState = {}, execute } = options;
+  const pre = await bootstrapStandaloneIdentity({ transcript, analysis, labState, execute });
+  if (pre.trace.length && !String(pre.labState.confirmedCaseId || '').trim()) {
+    return {
+      planned: impl.mapInformationNeedsToTools(options.needs || []),
+      trace: pre.trace,
+      labState: pre.labState
+    };
+  }
+  const delegated = await impl.executeInformationNeeds({ ...options, labState: pre.labState });
+  return {
+    ...delegated,
+    trace: mergeTrace(pre.trace, delegated?.trace),
+    labState: delegated?.labState || pre.labState
+  };
+}
+
 export const evidenceFallbackReply = impl.evidenceFallbackReply;
-export const groundSubscriberReply = impl.groundSubscriberReply;
+
+export async function groundSubscriberReply(options = {}) {
+  const { transcript = [], analysis = {}, labState = {}, execute } = options;
+  const pre = await bootstrapStandaloneIdentity({ transcript, analysis, labState, execute });
+  const delegated = await impl.groundSubscriberReply({ ...options, labState: pre.labState });
+  return {
+    ...delegated,
+    toolTrace: mergeTrace(pre.trace, delegated?.toolTrace),
+    toolEvidence: mergeTrace(pre.trace.filter(item => item?.ok), delegated?.toolEvidence),
+    toolState: delegated?.toolState || pre.labState
+  };
+}
