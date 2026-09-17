@@ -50,24 +50,27 @@ sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(bridgeSource, sandbox);
 
-const companionPayload = {
-  model: 'qwen/qwen3.6-27b',
-  messages: [
-    { role: 'system', content: 'Ты — AI-напарник оператора интернет-провайдера SIMNET внутри Workbench.' },
-    { role: 'user', content: 'глянь баланс 241402' }
-  ],
-  reasoning_effort: 'low'
-};
+async function callCompanion(model, reasoning_effort) {
+  const payload = {
+    model,
+    messages: [
+      { role: 'system', content: 'Ты — AI-напарник оператора интернет-провайдера SIMNET внутри Workbench.' },
+      { role: 'user', content: 'глянь баланс 241402' }
+    ],
+    reasoning_effort
+  };
+  const response = await sandbox.fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  return JSON.parse(await response.text());
+}
 
-const response = await sandbox.fetch('https://api.groq.com/openai/v1/chat/completions', {
-  method: 'POST',
-  headers: { 'content-type': 'application/json' },
-  body: JSON.stringify(companionPayload)
-});
-const rewritten = JSON.parse(await response.text());
-
+const rewritten = await callCompanion('qwen/qwen3.6-27b', 'low');
 assert.equal(calls.length, 1);
 assert.equal(calls[0].tool_choice, 'auto', 'first Companion pass must allow native tool selection');
+assert.equal(calls[0].reasoning_effort, 'none', 'qwen3.6 must receive its supported disabled-reasoning value');
 assert.ok(Array.isArray(calls[0].tools) && calls[0].tools.length >= 10, 'Companion must send its READ tool definitions to Groq');
 assert.equal(calls[0].tools.find(row => row.function?.name === 'billing_balance')?.type, 'function');
 assert.match(rewritten.choices[0].message.content, /<wb_tool_request>/);
@@ -75,6 +78,9 @@ assert.match(rewritten.choices[0].message.content, /billing\.balance/,
   'native Groq function name must map back to the canonical Workbench READ tool');
 assert.equal(rewritten.choices[0].message.tool_calls, undefined,
   'legacy Companion orchestrator must receive the normalized bounded request instead of raw tool_calls');
+
+await callCompanion('openai/gpt-oss-120b', 'none');
+assert.equal(calls[1].reasoning_effort, 'low', 'gpt-oss must receive one of low/medium/high');
 
 assert.doesNotMatch(bridgeSource, /firstPassPayload[\s\S]{0,1500}tool_choice:\s*'none'/,
   'the tool-selection pass must never disable tool calls');
