@@ -11,9 +11,161 @@ Evidence contract inherited from the core broker and enforced again by the runti
 - поле reply ОБЯЗАТЕЛЬНО должно быть непустым.
 */
 
-export const AI_OPERATOR_SOFT_TOOL_CAPABILITIES = core.AI_OPERATOR_SOFT_TOOL_CAPABILITIES;
-export const AI_OPERATOR_TOOL_CAPABILITY_DETAILS = core.AI_OPERATOR_TOOL_CAPABILITY_DETAILS;
-export const AI_OPERATOR_SOFT_TOOL_CATALOG = core.AI_OPERATOR_SOFT_TOOL_CATALOG;
+const TOOL_MANIFEST = Object.freeze([
+  Object.freeze({
+    name: 'customer.lookup',
+    system: 'Billing',
+    capability: 'billing',
+    implementation: 'implemented',
+    mode: 'billing-live-read-only',
+    establishes: 'Устанавливает, какой конкретный абонент/договор соответствует переданному login, номеру договора, IP или адресу, и привязывает live-контекст к найденному кейсу.',
+    answers: ['Какой это абонент?', 'Какой договор соответствует abon/login?', 'Какой Billing ID, адрес, IP и тип подключения у найденного абонента?', 'Однозначно ли найден клиент?'],
+    recommendedWhen: ['В начале работы с конкретным абонентом, когда клиент сообщил abon/login, договор, IP или адрес.', 'Перед любыми subscriber-specific READ-tools, если кейс ещё не подтверждён.'],
+    returns: ['billingId', 'contract', 'login', 'address', 'fullName', 'ip', 'connectionFamily', 'requiresConfirmation'],
+    requires: ['Для свежего Billing-поиска нужна открытая авторизованная Billing-сессия; фактическая готовность подтверждается результатом вызова.'],
+    limitations: ['Поиск по адресу может потребовать customer.confirm.', 'ok=false означает, что идентификацию подтвердить не удалось, а не что абонента точно не существует.']
+  }),
+  Object.freeze({
+    name: 'customer.confirm',
+    system: 'Conversation',
+    capability: 'billing',
+    implementation: 'implemented',
+    mode: 'conversation-state',
+    establishes: 'Подтверждает или отклоняет кандидата, которого система нашла неоднозначным способом, обычно по адресу.',
+    answers: ['Это именно тот найденный абонент?', 'Можно ли привязать последующие проверки к этому кандидату?'],
+    recommendedWhen: ['После customer.lookup, если requiresConfirmation=true и клиент подтвердил или отклонил найденное подключение.'],
+    returns: ['confirmedCaseId', 'confirmedSubscriber или сброс pendingCandidate'],
+    requires: ['pendingCandidate в состоянии диалога и явное подтверждение/отрицание клиента.'],
+    limitations: ['Не используется вместо customer.lookup и не придумывает идентификацию самостоятельно.']
+  }),
+  Object.freeze({
+    name: 'customer.snapshot',
+    system: 'Billing',
+    capability: 'billing',
+    implementation: 'implemented',
+    mode: 'billing-live-read-only',
+    establishes: 'Устанавливает текущий доступный Billing-снимок уже подтверждённого абонента: идентификацию, адрес, услугу, финансы, IP и последние прочитанные платежи.',
+    answers: ['Что сейчас показывает карточка Billing?', 'Разрешён ли доступ?', 'Какой статус услуги?', 'Какой тариф, баланс, IP и базовые данные записаны в Billing?'],
+    recommendedWhen: ['Нужен общий Billing-контекст сразу по нескольким полям.', 'После идентификации, если нужно безопасно восстановить ответ при сбое LLM.', 'Когда узкий billing.* tool не покрывает весь требуемый набор фактов.'],
+    returns: ['identity', 'address', 'service', 'finance', 'network', 'payments', 'observedAt/source'],
+    requires: ['Подтверждённый subscriber case.', 'Для refresh нужна доступная Billing-сессия; результат вызова сообщает, удалось ли получить свежие данные.'],
+    limitations: ['Статус «Разрешен/Все ОК» не доказывает фактическую работоспособность интернета.', 'Billing snapshot не заменяет BRAS/Juniper или линию.']
+  }),
+  Object.freeze({
+    name: 'billing.balance',
+    system: 'Billing',
+    capability: 'billing',
+    implementation: 'implemented',
+    mode: 'billing-live-read-only',
+    establishes: 'Устанавливает подтверждённые финансовые поля Billing по текущему абоненту.',
+    answers: ['Какой текущий баланс?', 'Есть ли временный платёж?', 'Что Billing показывает по финансовому состоянию?', 'Какой статус услуги сопутствует финансовой карточке?'],
+    recommendedWhen: ['Клиент спрашивает баланс, долг, оплату, состояние счёта или доступ после финансовой операции.'],
+    returns: ['accountBalance', 'balanceAfterTariff', 'balanceWithoutTemporary', 'temporaryPayment', 'price', 'totalDue', 'accessState', 'serviceState'],
+    requires: ['Подтверждённый subscriber case и доступный Billing snapshot/live read.'],
+    limitations: ['price и totalDue имеют отдельную семантику и не должны автоматически трактоваться как будущая абонплата.', 'Не подтверждает сам факт внешнего платежа, если он не появился в Billing.']
+  }),
+  Object.freeze({
+    name: 'billing.tariff',
+    system: 'Billing',
+    capability: 'billing',
+    implementation: 'implemented',
+    mode: 'billing-live-read-only',
+    establishes: 'Устанавливает текущий и, если есть, следующий тариф вместе с Billing-состоянием услуги.',
+    answers: ['Какой тариф сейчас?', 'Какая тарифная скорость записана в Billing?', 'Есть ли следующий тариф?', 'Когда Billing планирует его применить?', 'Разрешена ли услуга?'],
+    recommendedWhen: ['Вопросы о текущем тарифе, скорости по тарифу, смене тарифа или состоянии услуги, связанном с тарифом.'],
+    returns: ['currentTariff', 'nextTariff', 'nextTariffDelay', 'price', 'totalDue', 'accessState', 'serviceState', 'group'],
+    requires: ['Подтверждённый subscriber case и Billing data.'],
+    limitations: ['Не измеряет фактическую скорость линии.', 'Не выводит точную будущую сумму списания без отдельного подтверждённого расчёта/источника.']
+  }),
+  Object.freeze({
+    name: 'billing.payments',
+    system: 'Billing',
+    capability: 'billing',
+    implementation: 'implemented',
+    mode: 'billing-live-read-only',
+    establishes: 'Устанавливает последние доступные записи истории платежей/списаний в Billing.',
+    answers: ['Виден ли недавний платёж?', 'Когда и на какую сумму Billing зафиксировал операцию?', 'Какие последние начисления/платежи доступны?'],
+    recommendedWhen: ['Клиент говорит «я оплатил», спрашивает, дошёл ли платёж, или нужна история последних операций.'],
+    returns: ['payments[]', 'count'],
+    requires: ['Подтверждённый subscriber case и Billing snapshot с историей платежей.'],
+    limitations: ['Не подтверждает банковскую операцию, которой ещё нет в Billing.', 'Не придумывает время зачисления.']
+  }),
+  Object.freeze({
+    name: 'userside.snapshot',
+    system: 'UserSide',
+    capability: 'userside',
+    implementation: 'implemented',
+    mode: 'userside-live-read-only',
+    establishes: 'Устанавливает свежий технический снимок того же подтверждённого абонента в UserSide: идентификацию, точку подключения, access family и доступные PON/Ethernet данные.',
+    answers: ['Как абонент подключён технически?', 'Какая точка подключения/устройство/порт?', 'Это PON или Ethernet?', 'Какие технические данные есть в UserSide/TMC?'],
+    recommendedWhen: ['Диагностика «нет интернета».', 'Нужно определить ветку PON vs Ethernet.', 'Нужны точка подключения, switch/port или технический контекст перед дальнейшей диагностикой.'],
+    returns: ['identity', 'address', 'network.connectionFamily', 'connection point/device/port', 'pon data', 'observedAt/source'],
+    requires: ['Подтверждённый subscriber case.', 'Для свежего чтения нужна открытая авторизованная вкладка UserSide.'],
+    limitations: ['Если вкладки/сессии UserSide нет, вызов может вернуть USERSIDE_TAB_REQUIRED/USERSIDE_AUTH_REQUIRED.', 'Не считать неудачный read доказательством неисправности линии.']
+  }),
+  Object.freeze({
+    name: 'network.session',
+    system: 'Network',
+    capability: 'network',
+    implementation: 'implemented_limited',
+    mode: 'workbench-case-read-only',
+    establishes: 'Устанавливает последнюю доступную сетевую/BRAS-сессию из Workbench-контекста того же абонента. Помогает понять наличие авторизации и сетевой сессии, но сейчас это НЕ самостоятельный fresh-запрос непосредственно в Juniper.',
+    answers: ['Есть ли доступная текущая/последняя BRAS-сессия?', 'Была ли авторизация?', 'Какой IP/MAC/BRAS/тип авторизации/последнее событие/VLAN доступны в сетевом контексте?', 'Когда стартовала или завершилась известная сессия?'],
+    recommendedWhen: ['«Нет интернета» после идентификации и проверки Billing.', 'Нужно проверить авторизацию, DHCP, IP, MAC, BRAS, VLAN или наличие сетевой сессии.', 'Нужно отделить проблему доступа/авторизации от домашнего Wi‑Fi или приложения.'],
+    returns: ['session status', 'start/stop/last event time', 'BRAS', 'IP', 'MAC', 'authorization type', 'VLAN/traffic when present'],
+    requires: ['Подтверждённый subscriber case и совпадающий накопленный Workbench network context.'],
+    limitations: ['Не выдавать результат за свежий прямой Juniper query.', 'Активная сессия не доказывает исправность Wi‑Fi, роутера или приложений.', 'Отсутствие данных Workbench не доказывает отсутствие сессии на BRAS.']
+  }),
+  Object.freeze({
+    name: 'pon.onu',
+    system: 'UserSide',
+    capability: 'userside',
+    implementation: 'implemented_with_fallback',
+    mode: 'userside-live-read-only + workbench-fallback',
+    establishes: 'Устанавливает доступные ONU/ONT/OLT и портовые данные PON-подключения: идентификаторы ONU, OLT, порт, foundOnOlt и LAN-link сведения, если они доступны.',
+    answers: ['Есть ли ONU/ONT в технических данных?', 'На каком OLT/порту она находится?', 'Найдена ли ONU на OLT?', 'Какой ONU MAC/serial?', 'Что известно о LAN-порту ONU?'],
+    recommendedWhen: ['После подтверждения, что access family = EPON/GPON/PON.', 'При «нет интернета» на PON после базовой проверки Billing/сессии.', 'Когда нужно проверить ONU/OLT/порт вместо Ethernet-switch ветки.'],
+    returns: ['connectionFamily', 'onuSerial', 'onuMac', 'OLT name/IP/deviceId', 'port', 'foundOnOlt', 'ONU LAN port/link/speed'],
+    requires: ['Подтверждённый subscriber case.', 'Для fresh результата желательно доступное UserSide; при недоступности возможен подтверждённый Workbench fallback.'],
+    limitations: ['Для подтверждённого Ethernet возвращает NOT_APPLICABLE.', 'Fallback нельзя выдавать за свежий UserSide/OLT poll.']
+  }),
+  Object.freeze({
+    name: 'pon.signal',
+    system: 'UserSide',
+    capability: 'userside',
+    implementation: 'implemented_with_fallback',
+    mode: 'userside-live-read-only + workbench-fallback',
+    establishes: 'Устанавливает доступные оптические показатели PON-линии и признаки видимости ONU.',
+    answers: ['Какой ONU RX/TX?', 'Какой OLT RX?', 'Видит ли OLT ONU?', 'Есть ли доступный признак LAN-link ONU?'],
+    recommendedWhen: ['Подтверждён PON и требуется оптическая диагностика.', 'Нужно проверить сигнал/затухание/RX/TX/dBm после установления PON-ветки.'],
+    returns: ['rx', 'tx', 'oltRx', 'foundOnOlt', 'onuLanLinkState', 'observedAt/source'],
+    requires: ['Подтверждённый PON subscriber case; для свежих значений желательно доступное UserSide.'],
+    limitations: ['Для Ethernet возвращает NOT_APPLICABLE.', 'Отсутствие свежих показателей не означает автоматически плохой сигнал или offline ONU.']
+  })
+]);
+
+const TOOL_PLANNER = Object.freeze({
+  version: 1,
+  instruction: 'Сначала пойми цель клиента. Затем перечисли, какие конкретные факты ещё неизвестны. Для каждого факта выбери один наиболее подходящий tool из tools. Не проси абстрактную «техническую проверку», если есть конкретный инструмент. В subscriber_data_needed сохраняй system как Billing|UserSide|Network, а field начинай с точного имени инструмента, например «network.session: current/last BRAS session». Поле why должно объяснять, какой вопрос клиента этот вызов помогает закрыть. Если нужный tool implementation=implemented_limited, используй его с учётом limitations и не приписывай ему более свежий источник, чем mode.',
+  successRule: 'Только результат вызова с ok=true подтверждает возвращённые факты. ok=false означает, что проверку выполнить/подтвердить не удалось; это не отрицательный факт.',
+  planningRule: 'Цель клиента → неизвестный факт → подходящий tool → результат tool → вывод/следующая проверка.',
+  tools: TOOL_MANIFEST
+});
+
+export const AI_OPERATOR_SOFT_TOOL_CAPABILITIES = Object.freeze({
+  billing: true,
+  userside: true,
+  network: true,
+  toolPlanner: TOOL_PLANNER
+});
+
+export const AI_OPERATOR_TOOL_CAPABILITY_DETAILS = Object.freeze({
+  ...core.AI_OPERATOR_TOOL_CAPABILITY_DETAILS,
+  toolManifestVersion: TOOL_PLANNER.version,
+  toolCount: TOOL_MANIFEST.length
+});
+
+export const AI_OPERATOR_SOFT_TOOL_CATALOG = TOOL_MANIFEST;
 export const mapInformationNeedsToTools = core.mapInformationNeedsToTools;
 export const extractIdentityHints = core.extractIdentityHints;
 export const ensureNonEmptyReply = core.ensureNonEmptyReply;
