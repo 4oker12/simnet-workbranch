@@ -364,39 +364,121 @@ async function executeExperiment(lab, baseMessages, customer) {
   return experiment;
 }
 
-function recoverTurn(lab, customer, error) {
-  const reply = 'Сейчас не удалось корректно завершить обработку сообщения. Я не буду придумывать данные. Повторите, пожалуйста, этот запрос — контекст диалога сохранён.';
+function recoveryAnalysis(customer = {}) {
+  const customerText = compact(customer?.text || '', 1400);
+  return {
+    probe: {
+      whatUserWants: customerText,
+      latestMessageMeans: customerText,
+      unresolvedRequests: customerText ? [customerText] : [],
+      factsSaidByUser: customerText ? [customerText] : [],
+      language: 'other',
+      confidence: 0
+    },
+    knowledge: { skipped: true, usedArticles: [], articleEvidence: [] },
+    knowledgeMode: 'off',
+    candidates: [],
+    decision: { reply: '', model: '', usage: {}, rateLimit: {} }
+  };
+}
+
+function subscriberFacingRecoveryReply(customer = {}) {
+  const source = compact(customer?.text || '', 1000).toLowerCase();
+  if (/баланс|сч[её]т|рахун|долг|борг/.test(source)) return 'Сейчас не получается проверить данные по вашему счёту. Попробуйте, пожалуйста, отправить запрос ещё раз.';
+  if (/тариф|пакет|скорост|швидк|гиг/.test(source)) return 'Сейчас не получается проверить данные по вашему тарифу. Попробуйте, пожалуйста, отправить запрос ещё раз.';
+  return 'Сейчас не получается проверить данные по вашему обращению. Попробуйте, пожалуйста, отправить запрос ещё раз.';
+}
+
+async function recoverTurn(lab, baseMessages, customer, error) {
   const failure = compact(error?.message || error || 'unknown error', 800);
-  const variant = {
-    label: 'degraded',
-    useKnowledge: false,
-    reply,
+  const transcript = [...(Array.isArray(baseMessages) ? baseMessages : []), customer];
+  const analysis = recoveryAnalysis(customer);
+  const recoveryDraft = {
+    reply: subscriberFacingRecoveryReply(customer),
     subscriberDataNeeded: [],
     unresolvedRequests: [],
     clarificationQuestions: [],
-    verificationNeeded: ['Обработка хода завершилась технической ошибкой.'],
-    nextStepOffered: 'Повторить тот же ход.',
+    verificationNeeded: [],
+    nextStepOffered: '',
     basis: ['dialogue'],
     behaviorEffects: {},
-    toolTrace: [],
-    toolEvidence: [],
-    degraded: true,
-    degradationReason: failure,
+    behavior: {},
     model: '',
-    usage: {}
+    usage: {},
+    rateLimit: {},
+    degraded: true,
+    degradationReason: failure
+  };
+
+  let grounded;
+  try {
+    grounded = await groundSubscriberReply({
+      draft: recoveryDraft,
+      transcript,
+      latestCustomer: customer,
+      analysis,
+      useKnowledge: false,
+      labState: lab.toolState,
+      execute: executeOperatorTool,
+      meterContext: { scope: lab.id, turnId: customer.id, variant: 'degraded' }
+    });
+  } catch (groundError) {
+    grounded = {
+      ...recoveryDraft,
+      reply: subscriberFacingRecoveryReply(customer),
+      toolTrace: [],
+      toolEvidence: [],
+      toolState: lab.toolState,
+      degradationReason: `${failure}; recovery: ${compact(groundError?.message || groundError, 500)}`
+    };
+  }
+
+  lab.toolState = normalizeToolState(grounded.toolState || lab.toolState);
+  const reply = compact(grounded.reply, 2200) || subscriberFacingRecoveryReply(customer);
+  const toolTrace = Array.isArray(grounded.toolTrace) ? grounded.toolTrace : [];
+  const toolEvidence = Array.isArray(grounded.toolEvidence) ? grounded.toolEvidence : toolTrace.filter(item => item?.ok);
+
+  for (const trace of toolTrace) {
+    appendEvent(lab, 'tool_execution', {
+      customerMessageId: customer.id,
+      variant: 'degraded',
+      tool: trace.tool,
+      ok: trace.ok,
+      code: trace.code,
+      source: trace.source,
+      requestedBy: trace.requestedBy,
+      args: trace.args,
+      data: trace.data,
+      warnings: trace.warnings
+    });
+  }
+
+  const variant = {
+    ...recoveryDraft,
+    ...grounded,
+    label: 'degraded',
+    useKnowledge: false,
+    reply,
+    toolTrace: clone(toolTrace),
+    toolEvidence: clone(toolEvidence),
+    degraded: true,
+    degradationReason: compact(grounded.degradationReason || failure, 800)
   };
   lab.lastExperiment = {
     id: id('exp'), at: nowIso(), customerMessageId: customer.id,
     knowledgeMode: lab.knowledgeMode, displayMode: lab.displayMode,
     behavior: clone(lab.behavior), capabilities: { ...CAPABILITIES }, capabilityDetails: { ...CAPABILITY_DETAILS },
-    elapsedMs: 0, analysis: { probe: {}, knowledge: {}, candidates: [] }, variants: [variant], activeVariant: 'degraded', usage: {}, model: '', toolCalls: 0
+    elapsedMs: 0, analysis: analysisForUi(analysis), variants: [variant], activeVariant: 'degraded', usage: {}, model: '', toolCalls: toolTrace.length
   };
   lab.lastDecision = {
-    action: 'degraded_reply', intent: 'unknown', reply, reason: 'Anti-empty fallback после технической ошибки.',
+    action: toolTrace.length ? 'degraded_tool_reply' : 'degraded_reply',
+    intent: customer.text || 'unknown',
+    reply,
+    reason: 'Subscriber-facing fallback; внутренняя причина сбоя остаётся только в diagnostic/trace.',
     confidence: 0, language: 'other', model: '', usage: {}, rateLimit: {},
-    diagnostic: { error: failure, degraded: true }
+    diagnostic: { error: failure, degraded: true, toolCalls: toolTrace.length }
   };
-  appendEvent(lab, 'turn_degraded', { customerMessageId: customer.id, error: failure });
+  appendEvent(lab, 'turn_degraded', { customerMessageId: customer.id, error: failure, toolCalls: toolTrace.length });
   appendMessage(lab, 'agent', reply, { variant: 'degraded' });
 }
 
@@ -411,7 +493,7 @@ async function runTurn(customerText) {
   appendEvent(lab, 'customer_message', { messageId: customer.id, text: incoming });
   await writeLab(lab);
   try { await executeExperiment(lab, baseMessages, customer); }
-  catch (error) { recoverTurn(lab, customer, error); }
+  catch (error) { await recoverTurn(lab, baseMessages, customer, error); }
   return writeLab(lab);
 }
 
@@ -426,7 +508,7 @@ async function repeatLastTurn() {
   appendEvent(lab, 'repeat_turn', { messageId: customer.id, knowledgeMode: lab.knowledgeMode, behavior: clone(lab.behavior) });
   await writeLab(lab);
   try { await executeExperiment(lab, clone(base.messagesBefore), customer); }
-  catch (error) { recoverTurn(lab, customer, error); }
+  catch (error) { await recoverTurn(lab, clone(base.messagesBefore), customer, error); }
   return writeLab(lab);
 }
 
