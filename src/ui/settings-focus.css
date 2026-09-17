@@ -1,0 +1,43 @@
+/* Focused settings workspace: access + compact model service control + AI Lab. */
+.settings-panel-compact-model > .settings-panel-summary{
+  min-height:0;
+  padding-top:10px;
+  padding-bottom:10px;
+}
+.settings-panel-compact-model .settings-panel-title{
+  display:grid;
+  grid-template-columns:auto auto minmax(0,1fr);
+  align-items:center;
+  gap:8px 12px;
+}
+.settings-panel-compact-model .settings-panel-kicker,
+.settings-panel-compact-model h2,
+.settings-panel-compact-model p{
+  margin:0;
+}
+.settings-panel-compact-model .settings-panel-title p{
+  font-size:10px;
+  line-height:1.35;
+}
+.settings-panel-compact-model .settings-panel-body{
+  display:grid;
+  grid-template-columns:auto minmax(220px,420px) auto;
+  align-items:end;
+  gap:8px 10px;
+  padding-top:10px;
+  padding-bottom:12px;
+}
+.settings-panel-compact-model .field-label{
+  align-self:center;
+  margin:0;
+}
+.settings-panel-compact-model .save-model{
+  margin:0;
+  white-space:nowrap;
+}
+@media(max-width:720px){
+  .settings-panel-compact-model .settings-panel-title,
+  .settings-panel-compact-model .settings-panel-body{
+    grid-template-columns:1fr;
+  }
+}
