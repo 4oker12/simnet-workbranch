@@ -32,10 +32,14 @@ assert.equal(turn.activeEpisode?.id, firstEpisodeId, 'ordinary casual use of «�
 
 state = applyCompanionToolResult(state, firstEpisodeId, {
   tool: 'billing.balance', ok: true, code: 'OK', observedAt: '2026-09-18T00:00:00.000Z',
-  data: { accountBalance: '125.00' },
-  statePatch: { confirmedCaseId: 'billing-live:423525', confirmedSubscriber: { contract: '423525', billingId: '423525' } }
+  data: { accountBalance: '125.00', candidate: { contract: '423525', billingId: '884211' } },
+  statePatch: { confirmedCaseId: 'billing-live:884211', confirmedSubscriber: { contract: '423525', billingId: '884211' } }
 });
 assert.equal(activeCompanionEpisode(state)?.latestByTool?.['billing.balance']?.data?.accountBalance, '125.00');
+assert.equal(activeCompanionEpisode(state)?.target?.billingId, '884211');
+turn = prepareCompanionWorkTurn(state, 'глянь 423525 ещё раз', { nowMs: 4700 });
+state = turn.state;
+assert.equal(turn.activeEpisode?.id, firstEpisodeId, 'identity enrichment must not duplicate the same subscriber episode');
 
 turn = prepareCompanionWorkTurn(state, 'всё, с ним закончили', { nowMs: 5000 });
 state = turn.state;
