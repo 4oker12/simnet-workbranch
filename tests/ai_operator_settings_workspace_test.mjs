@@ -6,15 +6,18 @@ const settingsJs = fs.readFileSync(new URL('../src/ui/settings.js', import.meta.
 const workspace = fs.readFileSync(new URL('../src/ui/settings-accordion.js', import.meta.url), 'utf8');
 const css = fs.readFileSync(new URL('../src/ui/settings.css', import.meta.url), 'utf8');
 const lightCss = fs.readFileSync(new URL('../src/ui/settings-light.css', import.meta.url), 'utf8');
+const focusCss = fs.readFileSync(new URL('../src/ui/settings-focus.css', import.meta.url), 'utf8');
 const lab = fs.readFileSync(new URL('../src/ui/ai-operator-lab.js', import.meta.url), 'utf8');
 const labCss = fs.readFileSync(new URL('../src/ui/ai-operator-lab.css', import.meta.url), 'utf8');
 
 assert.match(html, /data-accordion-group="settings"/, 'settings must use a top-level accordion group');
 assert.match(html, /data-accordion-panel="lab"[^>]*data-accordion-default="true"[^>]*open/, 'AI lab must be the default open settings panel');
 assert.match(html, /data-accordion-group="lab"/, 'lab must have its own nested accordion');
-assert.match(html, /data-accordion-panel="replay"[^>]*data-accordion-default="true"[^>]*open/, 'Replay must be the default open lab section');
+assert.match(html, /data-accordion-panel="manual"[^>]*data-accordion-default="true"[^>]*open/, 'Manual AI Lab must be the default open lab section');
+assert.doesNotMatch(html, /data-accordion-panel="replay"[^>]*data-accordion-default="true"/, 'Replay should not steal initial focus from the live manual trace');
 assert.match(html, /src="settings-accordion\.js"/, 'settings workspace behavior must be loaded');
 assert.match(html, /src="ai-operator-lab-trace\.js"/, 'linear AI decision trace must be loaded explicitly');
+assert.match(html, /href="settings-focus\.css"/, 'focused settings overrides must be loaded explicitly');
 assert.match(html, /id="aiReplayExport"[^>]*>JSON</, 'full Replay JSON export must remain available');
 assert.match(html, /id="aiReplayExportCsv"[^>]*>Таблица CSV</, 'Replay must expose a review-table export');
 assert.match(html, /1 · Запуск/, 'Replay workspace must separate run controls');
@@ -37,6 +40,8 @@ assert.match(html, /Для A\/B и диагностики различий Qwen 
 assert.match(settingsJs, /saveChatModelButton/);
 assert.match(settingsJs, /chatModel:/);
 assert.doesNotMatch(settingsJs, /querySelector\(`\[data-accordion-group="settings"\]/, 'settings JS must not hide removed panels after page load');
+assert.match(focusCss, /\.settings-panel-compact-model/);
+assert.match(focusCss, /grid-template-columns:auto minmax\(220px,420px\) auto/);
 
 assert.match(workspace, /simnet_settings_accordion_v1/, 'open accordion state must persist');
 assert.match(workspace, /sibling !== panel && sibling\.open/, 'opening one section must close peers in the same accordion');
