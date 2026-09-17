@@ -74,6 +74,36 @@ test('standalone ordinary login is remembered across turns and searched through 
   assert.equal(result.trace[0].args.login, 'lacanister');
 });
 
+test('text identifier explicitly labeled as contract is searched through Billing', async () => {
+  const transcript = [
+    { role: 'customer', text: 'Boxing договір\nхочу на гигабит' }
+  ];
+
+  assert.deepEqual(extractIdentityHints(transcript, {}), { login: 'boxing' });
+  assert.equal(classifyStandaloneBillingLogin('boxing'), 'boxing');
+
+  const result = await executeInformationNeeds({
+    needs: [],
+    transcript,
+    analysis: { probe: { whatUserWants: 'Перейти на гигабит' } },
+    labState: {},
+    execute: successfulLookup({ login: 'boxing' })
+  });
+
+  assert.equal(result.labState.confirmedCaseId, 'billing-live:50845');
+  assert.equal(result.trace[0].args.login, 'boxing');
+});
+
+test('clarification that text token is the contract keeps the same identifier', () => {
+  assert.deepEqual(
+    extractIdentityHints([
+      { role: 'customer', text: 'Boxing договір\nхочу на гигабит' },
+      { role: 'customer', text: 'Boxing - це і є договір' }
+    ], {}),
+    { login: 'boxing' }
+  );
+});
+
 test('existing abon login behavior remains explicit login identity', () => {
   assert.deepEqual(
     extractIdentityHints([{ role: 'customer', text: 'abon23422' }], {}),
