@@ -41,7 +41,7 @@ test('planner receives the manifest and an explicit goal -> Billing identity -> 
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.billing, true);
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.userside, true);
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.network, true);
-  assert.equal(planner.version, 3);
+  assert.equal(planner.version, 4);
   assert.equal(planner.tools.length, REQUIRED_TOOLS.length);
   assert.equal(planner.identityPolicy.primarySystem, 'Billing');
   assert.equal(planner.identityPolicy.primaryTool, 'customer.lookup');
@@ -49,6 +49,7 @@ test('planner receives the manifest and an explicit goal -> Billing identity -> 
   assert.match(planner.instruction, /ПЕРВЫМ действием используй Billing customer\.lookup/i);
   assert.match(planner.instruction, /UserSide не используй как основной первичный поиск/i);
   assert.match(planner.instruction, /точного имени инструмента/i);
+  assert.match(planner.instruction, /billing\.balance и billing\.tariff.*один и тот же.*table\.tbg1\.nav3\.width100/i);
   assert.match(planner.instruction, /network\.session.*ранним рекомендуемым инструментом/i);
   assert.match(planner.planningRule, /Цель клиента.*Billing customer\.lookup.*неизвестный факт.*tool.*результат tool/i);
   assert.match(planner.successRule, /ok=true/i);
@@ -65,6 +66,20 @@ test('customer.lookup is the default primary subscriber search and UserSide is p
   assert.ok(lookup.recommendedWhen.some(item => /ПЕРВЫЙ и основной поиск.*Billing/i.test(item)));
   assert.ok(userside.requires.some(item => /через Billing customer\.lookup/i.test(item)));
   assert.ok(userside.limitations.some(item => /не использовать UserSide как основной первичный поиск/i.test(item)));
+});
+
+test('billing balance and tariff share the same main Billing DOM evidence source', () => {
+  const balance = AI_OPERATOR_SOFT_TOOL_CATALOG.find(item => item.name === 'billing.balance');
+  const tariff = AI_OPERATOR_SOFT_TOOL_CATALOG.find(item => item.name === 'billing.tariff');
+  assert.ok(balance);
+  assert.ok(tariff);
+  assert.equal(balance.endpoint, '/cgi-bin/adm/adm.pl?a=user&id=<billingId>');
+  assert.equal(tariff.endpoint, balance.endpoint);
+  assert.match(balance.evidenceSource, /table\.tbg1\.nav3\.width100/i);
+  assert.match(tariff.evidenceSource, /table\.tbg1\.nav3\.width100/i);
+  assert.match(balance.evidenceSource, /один fresh GET/i);
+  assert.match(tariff.recommendedWhen.join(' '), /общий main-summary snapshot/i);
+  assert.ok(balance.limitations.some(item => /balanceAfterTariff.*не.*accountBalance/i.test(item)));
 });
 
 test('network.session uses fresh Billing stat.pl a=252 and keeps Workbench only as fallback', () => {
