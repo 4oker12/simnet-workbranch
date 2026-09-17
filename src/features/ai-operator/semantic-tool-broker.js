@@ -16,7 +16,7 @@ const TOOL_MANIFEST = Object.freeze([
     name: 'customer.lookup', system: 'Billing', capability: 'billing', implementation: 'implemented', mode: 'billing-live-read-only',
     establishes: 'Устанавливает, какой конкретный абонент/договор соответствует переданному login, номеру договора, IP или адресу, и привязывает live-контекст к найденному кейсу.',
     answers: ['Какой это абонент?', 'Какой договор соответствует abon/login?', 'Какой Billing ID, адрес, IP и тип подключения у найденного абонента?', 'Однозначно ли найден клиент?'],
-    recommendedWhen: ['В начале работы с конкретным абонентом, когда клиент сообщил abon/login, договор, IP или адрес.', 'Перед subscriber-specific READ-tools, если кейс ещё не подтверждён.'],
+    recommendedWhen: ['По умолчанию это ПЕРВЫЙ и основной поиск конкретного абонента: если клиент сообщил abon/login, договор, IP или адрес, сначала ищи его через Billing.', 'Перед subscriber-specific READ-tools, если кейс ещё не подтверждён.'],
     returns: ['billingId', 'contract', 'login', 'address', 'fullName', 'ip', 'connectionFamily', 'requiresConfirmation'],
     requires: ['Для свежего Billing-поиска нужна открытая авторизованная Billing-сессия; фактическая готовность подтверждается результатом вызова.'],
     limitations: ['Поиск по адресу может потребовать customer.confirm.', 'ok=false означает, что идентификацию подтвердить не удалось, а не что абонента точно не существует.']
@@ -68,12 +68,12 @@ const TOOL_MANIFEST = Object.freeze([
   }),
   Object.freeze({
     name: 'userside.snapshot', system: 'UserSide', capability: 'userside', implementation: 'implemented', mode: 'userside-live-read-only',
-    establishes: 'Устанавливает свежий технический снимок того же подтверждённого абонента в UserSide: идентификацию, точку подключения, access family и доступные PON/Ethernet данные.',
+    establishes: 'Устанавливает свежий технический снимок того же уже идентифицированного абонента в UserSide: точку подключения, access family и доступные PON/Ethernet данные.',
     answers: ['Как абонент подключён технически?', 'Какая точка подключения/устройство/порт?', 'Это PON или Ethernet?', 'Какие технические данные есть в UserSide/TMC?'],
-    recommendedWhen: ['Диагностика «нет интернета».', 'Нужно определить ветку PON vs Ethernet.', 'Нужны точка подключения, switch/port или технический контекст перед дальнейшей диагностикой.'],
+    recommendedWhen: ['После первичной идентификации абонента через Billing нужна техническая диагностика.', 'Диагностика «нет интернета».', 'Нужно определить ветку PON vs Ethernet.', 'Нужны точка подключения, switch/port или технический контекст перед дальнейшей диагностикой.'],
     returns: ['identity', 'address', 'network.connectionFamily', 'connection point/device/port', 'pon data', 'observedAt/source'],
-    requires: ['Подтверждённый subscriber case.', 'Для свежего чтения нужна открытая авторизованная вкладка UserSide.'],
-    limitations: ['Если вкладки/сессии UserSide нет, вызов может вернуть USERSIDE_TAB_REQUIRED/USERSIDE_AUTH_REQUIRED.', 'Не считать неудачный read доказательством неисправности линии.']
+    requires: ['Подтверждённый subscriber case, полученный по умолчанию через Billing customer.lookup.', 'Для свежего чтения нужна открытая авторизованная вкладка UserSide.'],
+    limitations: ['Не использовать UserSide как основной первичный поиск абонента, если Billing доступен.', 'Если вкладки/сессии UserSide нет, вызов может вернуть USERSIDE_TAB_REQUIRED/USERSIDE_AUTH_REQUIRED.', 'Не считать неудачный read доказательством неисправности линии.']
   }),
   Object.freeze({
     name: 'network.session', system: 'Network', capability: 'network', implementation: 'implemented_limited', mode: 'workbench-case-read-only',
@@ -106,15 +106,20 @@ const TOOL_MANIFEST = Object.freeze([
 
 const TOOL_NAMES = new Set(TOOL_MANIFEST.map(item => item.name));
 const TOOL_PLANNER = Object.freeze({
-  version: 1,
-  instruction: 'Сначала пойми цель клиента. Затем перечисли, какие конкретные факты ещё неизвестны. Для каждого факта выбери один наиболее подходящий tool из tools. Не проси абстрактную «техническую проверку», если есть конкретный инструмент. В subscriber_data_needed сохраняй system как Billing|UserSide|Network, а field начинай с точного имени инструмента, например «network.session: current/last BRAS session». Поле why должно объяснять, какой вопрос клиента этот вызов помогает закрыть. Явно выбранное имя tool имеет приоритет над эвристикой по словам.',
+  version: 2,
+  identityPolicy: Object.freeze({
+    primarySystem: 'Billing',
+    primaryTool: 'customer.lookup',
+    rule: 'По умолчанию первый и основной поиск конкретного абонента выполняется через Billing customer.lookup. UserSide, Network и PON-инструменты применяются после привязки подтверждённого subscriber case и не заменяют первичную Billing-идентификацию.'
+  }),
+  instruction: 'Сначала пойми цель клиента. Если для задачи нужен конкретный абонент и кейс ещё не подтверждён, ПЕРВЫМ действием используй Billing customer.lookup по известному abon/login, договору, IP или адресу. UserSide не используй как основной первичный поиск, когда Billing доступен. После Billing-идентификации перечисли, какие конкретные факты ещё неизвестны. Для каждого факта выбери один наиболее подходящий tool из tools. Не проси абстрактную «техническую проверку», если есть конкретный инструмент. В subscriber_data_needed сохраняй system как Billing|UserSide|Network, а field начинай с точного имени инструмента, например «network.session: current/last BRAS session». Поле why должно объяснять, какой вопрос клиента этот вызов помогает закрыть. Явно выбранное имя tool имеет приоритет над эвристикой по словам.',
   successRule: 'Только результат вызова с ok=true подтверждает возвращённые факты. ok=false означает, что проверку выполнить/подтвердить не удалось; это не отрицательный факт.',
-  planningRule: 'Цель клиента → неизвестный факт → подходящий tool → результат tool → вывод/следующая проверка.',
+  planningRule: 'Цель клиента → Billing customer.lookup/подтверждённый case → неизвестный факт → подходящий tool → результат tool → вывод/следующая проверка.',
   tools: TOOL_MANIFEST
 });
 
 export const AI_OPERATOR_SOFT_TOOL_CAPABILITIES = Object.freeze({ billing: true, userside: true, network: true, toolPlanner: TOOL_PLANNER });
-export const AI_OPERATOR_TOOL_CAPABILITY_DETAILS = Object.freeze({ ...core.AI_OPERATOR_TOOL_CAPABILITY_DETAILS, toolManifestVersion: TOOL_PLANNER.version, toolCount: TOOL_MANIFEST.length });
+export const AI_OPERATOR_TOOL_CAPABILITY_DETAILS = Object.freeze({ ...core.AI_OPERATOR_TOOL_CAPABILITY_DETAILS, toolManifestVersion: TOOL_PLANNER.version, toolCount: TOOL_MANIFEST.length, primarySubscriberLookup: 'Billing/customer.lookup' });
 export const AI_OPERATOR_SOFT_TOOL_CATALOG = TOOL_MANIFEST;
 export const extractIdentityHints = core.extractIdentityHints;
 export const ensureNonEmptyReply = core.ensureNonEmptyReply;
@@ -191,7 +196,7 @@ async function bootstrapExplicitIdentity({ transcript = [], analysis = {}, labSt
 
   const lookup = await runDirectTool({
     execute, tool: 'customer.lookup', toolArgs: identity, labState: state,
-    requestedBy: { system: 'identity', field: Object.keys(identity)[0], why: 'Явный идентификатор абонента привязывает live-контекст независимо от LLM-черновика.' }
+    requestedBy: { system: 'identity', field: Object.keys(identity)[0], why: 'Первичный и основной поиск абонента выполняется через Billing customer.lookup; явный идентификатор привязывает live-контекст независимо от LLM-черновика.' }
   });
   state = lookup.labState;
   trace.push(lookup.trace);
