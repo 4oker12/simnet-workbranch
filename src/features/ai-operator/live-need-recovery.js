@@ -60,7 +60,7 @@ function derivedNeedsForRequest(request = '') {
   if (/баланс|рахун|сч[её]т|задолж|заборг|долг|сколько.*(?:платить|оплатить)|скільки.*(?:платити|сплатити)|сумм.*(?:к\s+оплат|до\s+сплат)|сума.*(?:до\s+сплат)/i.test(text)) {
     add('billing.balance', 'Billing', 'Запрос зависит от текущих финансовых данных конкретного абонента.');
   }
-  if (/тариф|пакет|тарифн.*скорост|тарифн.*швидк|какой.*скорост|яка.*швидк/i.test(text)) {
+  if (/текущ.*тариф|поточн.*тариф|какой.*тариф|який.*тариф|мой.*тариф|мій.*тариф|тариф.*(?:абон|договор|договір)|пакет.*(?:абон|договор|договір)|тарифн.*скорост|тарифн.*швидк|какой.*скорост|яка.*швидк/i.test(text)) {
     add('billing.tariff', 'Billing', 'Запрос зависит от текущего тарифа конкретного абонента.');
   }
   if (/плат[её]ж|платіж|пополн|поповнен|зачисл|зарахув|истори.*оплат|істор.*оплат/i.test(text)) {
@@ -91,7 +91,7 @@ export function recoverLiveDataNeeds({ analysis = {}, draft = {} } = {}) {
   const liveNeed = line(analysis?.probe?.liveDataNeed || analysis?.probe?.live_data_need, 20).toLowerCase();
   const requests = requestList(analysis);
   const derived = requests.flatMap(derivedNeedsForRequest);
-  const recoveryAllowed = liveNeed === 'needed' || Boolean(draft?.degraded && derived.length);
+  const recoveryAllowed = liveNeed === 'needed' || derived.length > 0;
   if (!recoveryAllowed) return existing;
 
   const merged = [];
@@ -117,4 +117,4 @@ export function recoverLiveDataNeeds({ analysis = {}, draft = {} } = {}) {
   return merged.slice(0, 6);
 }
 
-export const LIVE_NEED_RECOVERY_VERSION = 2;
+export const LIVE_NEED_RECOVERY_VERSION = 3;
