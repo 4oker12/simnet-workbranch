@@ -3,6 +3,7 @@
 import * as core from './live-tool-runtime-core.js';
 import { readNetworkSessionLive } from './network-live-search.js';
 import { readBillingMainLive } from './billing-main-live.js';
+import { readBillingTechnicalLive } from './billing-technical-live.js';
 import { billingBalanceView, billingTariffView, hasBillingMainData, normalizeBillingMainSnapshot } from './billing-main-snapshot.js';
 import { classifyStandaloneBillingLogin, searchBillingLoginLive } from './billing-login-live.js';
 import { readBuildingSnapshot } from './building-snapshot-tool.js';
@@ -88,6 +89,11 @@ async function executeBillingMainSnapshot(toolName, toolArgs = {}, labState = {}
   if (!String(labState?.confirmedCaseId || '').trim()) {
     return core.executeOperatorTool({ tool: compatibilityTool, toolArgs, labState });
   }
+  // Keep the mature refresh adapter for customer.snapshot: it owns sparse-field timestamps
+  // and must never relabel stale storage as a fresh observation.
+  if (toolName === 'customer.snapshot' && toolArgs.refresh) {
+    return core.executeOperatorTool({ tool: 'customer.snapshot', toolArgs, labState });
+  }
   const id = billingIdFromLab(labState);
   if (!id) return core.executeOperatorTool({ tool: compatibilityTool, toolArgs, labState });
 
@@ -102,13 +108,13 @@ async function executeBillingMainSnapshot(toolName, toolArgs = {}, labState = {}
   ]);
 
   if (!live?.ok) {
-    if (base?.ok) {
+    if (base?.ok && !toolArgs.forceRefresh) {
       return result(toolName, true, 'OK', base.data || {}, [
         ...(Array.isArray(base.warnings) ? base.warnings : []),
         `Billing main read недоступен (${String(live?.code || 'unknown')}); использован накопленный Billing snapshot.`
       ]);
     }
-    return result(toolName, false, String(live?.code || base?.code || 'BILLING_MAIN_READ_FAILED'), {
+    return result(toolName, false, toolArgs.refresh || toolArgs.forceRefresh ? 'FRESH_DATA_UNAVAILABLE' : String(live?.code || base?.code || 'BILLING_MAIN_READ_FAILED'), {
       message: 'Не удалось прочитать основную карточку Billing.', source: 'billing-main-live-read-only', billingId: id
     });
   }
@@ -137,15 +143,34 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
       ? result(name, true, 'OK', view, canonical.warnings || [])
       : result(name, false, 'DATA_NOT_AVAILABLE', { source: snapshot.source, evidence: snapshot.evidence });
   }
-
   if (name === 'billing.tariff') {
     const view = billingTariffView(snapshot);
     return view.currentTariff || view.nextTariff
       ? result(name, true, 'OK', view, canonical.warnings || [])
       : result(name, false, 'DATA_NOT_AVAILABLE', { source: snapshot.source, evidence: snapshot.evidence });
   }
-
   return canonical;
+}
+
+async function executeBillingTechnicalTool(name, toolArgs = {}, labState = {}) {
+  if (!String(labState?.confirmedCaseId || '').trim()) return result(name, false, 'IDENTITY_REQUIRED', {});
+  const id = billingIdFromLab(labState);
+  if (!id) return result(name, false, 'BILLING_ID_REQUIRED', {});
+  const live = await readBillingTechnicalLive({ billingId: id, refresh: Boolean(toolArgs.refresh), maxAgeMs: toolArgs.maxAgeMs || 900000 });
+  if (live?.ok) return result(name, true, 'OK', { ...(live.data || {}), source: live.source, observedAt: live.observedAt || nowIso(), cache: live.cache || '' });
+
+  const fallback = await core.executeOperatorTool({ tool: 'customer.snapshot', toolArgs: { refresh: false }, labState });
+  const technical = fallback?.data?.technical;
+  if (technical && Object.values(technical).some(value => value !== '' && value !== null && value !== undefined)) {
+    return result(name, true, 'OK', {
+      technical,
+      evidence: fallback.data?.evidence || {},
+      source: 'billing-snapshot-fallback'
+    }, [`Fresh Billing technical read недоступен (${String(live?.code || 'unknown')}); использован накопленный technical snapshot.`]);
+  }
+  return result(name, false, String(live?.code || 'BILLING_TECHNICAL_READ_FAILED'), {
+    message: 'Не удалось прочитать технические данные Billing.', source: 'billing-technical-live-read-only', billingId: id
+  });
 }
 
 async function executeNetworkSessionTool(name, toolArgs = {}, labState = {}) {
@@ -153,9 +178,7 @@ async function executeNetworkSessionTool(name, toolArgs = {}, labState = {}) {
   const billingId = billingIdFromLab(labState);
   if (billingId) {
     const live = await readNetworkSessionLive({ billingId });
-    if (live?.ok) {
-      return result(name, true, 'OK', { ...(live.data || {}), source: 'billing-stat-live-read-only', observedAt: live.observedAt || nowIso() });
-    }
+    if (live?.ok) return result(name, true, 'OK', { ...(live.data || {}), source: 'billing-stat-live-read-only', observedAt: live.observedAt || nowIso() });
     const fallback = await core.executeOperatorTool({ tool: name, toolArgs, labState });
     if (fallback?.ok) {
       return { ...fallback, warnings: [
@@ -177,6 +200,7 @@ export async function executeOperatorTool({ tool, toolArgs = {}, labState = {} }
   if (name === 'building.snapshot') return readBuildingSnapshot({ toolArgs, labState });
   if (name === 'customer.snapshot' || name === 'billing.main') return executeBillingMainSnapshot(name, toolArgs, labState);
   if (name === 'billing.balance' || name === 'billing.tariff') return executeBillingSummaryTool(name, toolArgs, labState);
+  if (name === 'billing.technical') return executeBillingTechnicalTool(name, toolArgs, labState);
   if (name === 'network.session' || name === 'network.last_session') return executeNetworkSessionTool(name, toolArgs, labState);
   return core.executeOperatorTool({ tool: name, toolArgs, labState });
 }
