@@ -1,6 +1,7 @@
 'use strict';
 
 import * as core from './semantic-tool-broker-core.js';
+import { recoverLiveDataNeeds } from './live-need-recovery.js';
 
 /*
 Evidence contract inherited from the core broker and enforced again by the runtime fallback:
@@ -76,6 +77,15 @@ const TOOL_MANIFEST = Object.freeze([
     limitations: ['Не использовать UserSide как основной первичный поиск абонента, если Billing доступен.', 'Если вкладки/сессии UserSide нет, вызов может вернуть USERSIDE_TAB_REQUIRED/USERSIDE_AUTH_REQUIRED.', 'Не считать неудачный read доказательством неисправности линии.']
   }),
   Object.freeze({
+    name: 'building.snapshot', system: 'UserSide', capability: 'userside', implementation: 'implemented', mode: 'userside-building-snapshot-local',
+    establishes: 'Устанавливает всю сохранённую рабочую карточку конкретного здания по адресу: GPON, собственника, заметки, рабочую заметку, УК/ОСББ, ключи, этажи, подъезды, квартиры, проникновение, менеджера, КТВ и другие реально присутствующие поля.',
+    answers: ['Есть ли по этому дому GPON/оптическое покрытие?', 'Что вообще известно про этот дом в UserSide?', 'Кто собственник/УК/ОСББ, какие есть заметки и ключи?', 'Сколько этажей/подъездов/квартир и какие другие поля заполнены в карточке?'],
+    recommendedWhen: ['Вопрос относится к дому/зданию или покрытию по адресу, а не к текущему сигналу конкретной ONU.', 'Нужно проверить GPON по дому, собственника, ключи, заметки, УК/ОСББ или другие поля карточки здания.'],
+    returns: ['buildingId', 'address', 'url', 'fields', 'fieldList', 'snapshotGeneratedAt', 'snapshotComplete', 'source'],
+    requires: ['Известны улица и номер дома напрямую или через адрес подтверждённого абонента.', 'В chrome.storage.local существует simnet_crm_building_snapshot_v1.'],
+    limitations: ['Это сохранённый snapshot, а не автоматический live refresh карточки /building/{id}.', 'NOT_FOUND/BUILDING_SNAPSHOT_MISSING не доказывает отсутствие GPON/покрытия.', 'При нескольких совпадениях возвращает AMBIGUOUS_BUILDING и не выбирает дом наугад.']
+  }),
+  Object.freeze({
     name: 'network.session', system: 'Network', capability: 'network', implementation: 'implemented_limited', mode: 'workbench-case-read-only',
     establishes: 'Устанавливает последнюю доступную сетевую/BRAS-сессию из Workbench-контекста того же абонента. Помогает понять наличие авторизации и сетевой сессии, но сейчас это НЕ самостоятельный fresh-запрос непосредственно в Juniper.',
     answers: ['Есть ли доступная текущая/последняя BRAS-сессия?', 'Была ли авторизация?', 'Какой IP/MAC/BRAS/тип авторизации/последнее событие/VLAN доступны в сетевом контексте?', 'Когда стартовала или завершилась известная сессия?'],
@@ -112,7 +122,7 @@ const TOOL_PLANNER = Object.freeze({
     primaryTool: 'customer.lookup',
     rule: 'По умолчанию первый и основной поиск конкретного абонента выполняется через Billing customer.lookup. UserSide, Network и PON-инструменты применяются после привязки подтверждённого subscriber case и не заменяют первичную Billing-идентификацию.'
   }),
-  instruction: 'Сначала пойми цель клиента. Если для задачи нужен конкретный абонент и кейс ещё не подтверждён, ПЕРВЫМ действием используй Billing customer.lookup по известному abon/login, договору, IP или адресу. UserSide не используй как основной первичный поиск, когда Billing доступен. После Billing-идентификации перечисли, какие конкретные факты ещё неизвестны. Для каждого факта выбери один наиболее подходящий tool из tools. Не проси абстрактную «техническую проверку», если есть конкретный инструмент. В subscriber_data_needed сохраняй system как Billing|UserSide|Network, а field начинай с точного имени инструмента, например «network.session: current/last BRAS session». Поле why должно объяснять, какой вопрос клиента этот вызов помогает закрыть. Явно выбранное имя tool имеет приоритет над эвристикой по словам.',
+  instruction: 'Сначала пойми цель клиента. Если для задачи нужен конкретный абонент и кейс ещё не подтверждён, ПЕРВЫМ действием используй Billing customer.lookup по известному abon/login, договору, IP или адресу. UserSide не используй как основной первичный поиск, когда Billing доступен. После Billing-идентификации перечисли, какие конкретные факты ещё неизвестны. Для каждого факта выбери один наиболее подходящий tool из tools. Не проси абстрактную «техническую проверку», если есть конкретный инструмент. Для вопроса о доме, здании, покрытии GPON по адресу, собственнике, ключах или заметках выбирай building.snapshot; pon.signal предназначен только для текущих RX/TX/dBm конкретной PON-линии абонента. В subscriber_data_needed сохраняй system как Billing|UserSide|Network, а field начинай с точного имени инструмента, например «network.session: current/last BRAS session». Поле why должно объяснять, какой вопрос клиента этот вызов помогает закрыть. Явно выбранное имя tool имеет приоритет над эвристикой по словам.',
   successRule: 'Только результат вызова с ok=true подтверждает возвращённые факты. ok=false означает, что проверку выполнить/подтвердить не удалось; это не отрицательный факт.',
   planningRule: 'Цель клиента → Billing customer.lookup/подтверждённый case → неизвестный факт → подходящий tool → результат tool → вывод/следующая проверка.',
   tools: TOOL_MANIFEST
@@ -124,7 +134,7 @@ export const AI_OPERATOR_SOFT_TOOL_CATALOG = TOOL_MANIFEST;
 export const extractIdentityHints = core.extractIdentityHints;
 export const ensureNonEmptyReply = core.ensureNonEmptyReply;
 
-const TECHNICAL_TOOLS = new Set(['userside.snapshot', 'network.session', 'pon.onu', 'pon.signal']);
+const TECHNICAL_TOOLS = new Set(['userside.snapshot', 'building.snapshot', 'network.session', 'pon.onu', 'pon.signal']);
 
 function oneLine(value, max = 500) {
   const normalized = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
@@ -280,7 +290,7 @@ export function evidenceFallbackReply(analysis = {}, toolTrace = []) {
 export async function groundSubscriberReply(options = {}) {
   const { draft = {}, transcript = [], analysis = {}, labState = {}, execute, coreGround = core.groundSubscriberReply, ...rest } = options;
   if (typeof execute !== 'function') throw new Error('Soft tool broker requires execute(tool)');
-  const needs = Array.isArray(draft?.subscriberDataNeeded) ? draft.subscriberDataNeeded : [];
+  const needs = recoverLiveDataNeeds({ analysis, draft });
   const routedDraft = { ...draft, subscriberDataNeeded: routeNeedsForCore(needs) };
   const pre = await bootstrapExplicitIdentity({ transcript, analysis, labState, execute, includeSnapshot: Boolean(draft?.degraded && needs.length === 0) });
   const result = await coreGround({ ...rest, draft: routedDraft, transcript, analysis, labState: pre.labState, execute });

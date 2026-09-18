@@ -14,6 +14,7 @@ const REQUIRED_TOOLS = [
   'billing.tariff',
   'billing.payments',
   'userside.snapshot',
+  'building.snapshot',
   'network.session',
   'pon.onu',
   'pon.signal'
@@ -112,6 +113,25 @@ test('network.session uses fresh Billing stat.pl a=252 and keeps Workbench only 
   assert.ok(tool.returns.includes('vendor'));
   assert.ok(tool.returns.includes('vlan'));
   assert.ok(tool.limitations.some(item => /Workbench fallback/i.test(item)));
+});
+
+test('building.snapshot is a distinct building-card tool, not a PON signal tool', () => {
+  const building = AI_OPERATOR_SOFT_TOOL_CATALOG.find(item => item.name === 'building.snapshot');
+  assert.ok(building);
+  assert.equal(building.mode, 'userside-building-snapshot-local');
+  assert.ok(building.answers.some(item => /GPON.*дом|оптическое покрытие/i.test(item)));
+  assert.ok(building.recommendedWhen.some(item => /дому|зданию|покрытию/i.test(item)));
+  assert.ok(building.limitations.some(item => /NOT_FOUND.*не доказывает/i.test(item)));
+
+  const buildingPlan = mapInformationNeedsToTools([
+    { system: 'UserSide', field: 'building.snapshot: GPON coverage по дому', why: 'Проверить оптику по адресу.' }
+  ]);
+  assert.deepEqual(buildingPlan.map(item => item.tool), ['building.snapshot']);
+
+  const signalPlan = mapInformationNeedsToTools([
+    { system: 'UserSide', field: 'pon.signal: RX/TX/dBm', why: 'Проверить текущий оптический сигнал ONU.' }
+  ]);
+  assert.deepEqual(signalPlan.map(item => item.tool), ['pon.signal']);
 });
 
 test('exact tool names placed in subscriber_data_needed.field route to the intended executor', () => {

@@ -161,16 +161,18 @@ test('Replay knowledge experiment bypasses deterministic regulator files', () =>
   assert.match(source, /knowledgeProbe/);
 });
 
-test('semantic experiment rotates generation models and invokes Llama Prompt Guard separately', () => {
+test('semantic experiment rotates supported generation models and invokes Llama Prompt Guard separately', () => {
   assert.equal(AI_OPERATOR_PROMPT_GUARD_MODEL, 'meta-llama/llama-prompt-guard-2-86m');
   assert.deepEqual(AI_OPERATOR_GENERATION_MODEL_POOL, [
     'qwen/qwen3.8-27b',
-    'qwen/qwen3.6-27b',
     'openai/gpt-oss-120b',
     'openai/gpt-oss-20b'
   ]);
+  assert.equal(AI_OPERATOR_GENERATION_MODEL_POOL.includes('qwen/qwen3.6-27b'), false, 'retired Groq model must never be retried after a live 404');
 
   const source = fs.readFileSync(new URL('../src/features/ai-operator/semantic-probe.js', import.meta.url), 'utf8');
+  assert.match(source, /RETIRED_MODELS = new Set\(\['qwen\/qwen3\.6-27b'\]\)/);
+  assert.match(source, /!RETIRED_MODELS\.has\(model\)/);
   assert.match(source, /runPromptGuard\(latestCustomer, runtime, meterContext\)/);
   assert.match(source, /if \(Number\(response\.status\) === 429\) markRateLimited/);
   assert.match(source, /for \(const model of modelsForRuntime\(runtime\)\)/);

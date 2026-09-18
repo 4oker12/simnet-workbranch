@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   guardFuturePaymentDecision,
   hasConfirmedFutureAmount,
+  hasDerivableFutureAmount,
   isFuturePaymentQuestion
 } from '../src/features/ai-operator/finance-safety-policy.js';
 
@@ -23,9 +24,10 @@ const redirectedToolDecision = guardFuturePaymentDecision({
 });
 assert.equal(redirectedToolDecision.action, 'tool_required');
 assert.equal(redirectedToolDecision.intent, 'future_payment');
-assert.equal(redirectedToolDecision.tool, 'billing.future_payment', 'LLM may interpret the wording, but verified future money must go through the deterministic calculator');
+assert.equal(redirectedToolDecision.tool, 'billing.future_payment', 'when the planner already requests a future-payment READ, route it to the compatible deterministic calculator');
 assert.deepEqual(redirectedToolDecision.toolArgs.horizon, { kind: 'next_month', year: null });
 assert.equal(redirectedToolDecision.toolArgs.query, 'так сколько на следующий заплатить надо?');
+assert.match(redirectedToolDecision.reason, /not required when already confirmed facts are sufficient/i);
 
 const paidUntilDecision = {
   action: 'tool_required',
@@ -73,9 +75,75 @@ const guarded = guardFuturePaymentDecision({
 });
 assert.equal(guarded.intent, 'future_payment_unconfirmed');
 assert.match(guarded.reply, /не вернул отдельный расчёт следующего начисления/i);
-assert.match(guarded.reply, /99\s*грн/i, 'known current tariff price may be explained as current evidence');
+assert.match(guarded.reply, /99\s*грн/i, 'known current tariff price remains valid evidence');
 assert.doesNotMatch(guarded.reply, /449/, 'current totalDue must not leak into an unsupported future-payment answer');
 assert.doesNotMatch(guarded.reply, /остаток прошлых начислений/i, 'unsupported debt explanation must be removed');
+
+const derivedDecision = {
+  action: 'reply',
+  intent: 'future_payment',
+  language: 'ru',
+  tool: '',
+  toolArgs: {},
+  reply: 'Осталось три месяца: 250 грн × 3 = 750 грн.',
+  reason: 'derived from current recurring tariff and remaining months',
+  confidence: 0.98
+};
+const derivedToolResults = [
+  {
+    tool: 'billing.tariff',
+    ok: true,
+    code: 'OK',
+    data: {
+      currentTariff: 'Безліміт 250',
+      price: 250,
+      nextTariff: ''
+    }
+  }
+];
+assert.equal(hasDerivableFutureAmount({
+  customerText: 'сколько надо оплатить до конца 2026?',
+  decision: derivedDecision,
+  toolResults: derivedToolResults,
+  now: new Date('2026-09-18T12:00:00Z')
+}), true, '250 × 3 = 750 is a valid derivation from confirmed facts, not a fabricated live fact');
+assert.equal(
+  guardFuturePaymentDecision({
+    customerText: 'сколько надо оплатить до конца 2026?',
+    decision: derivedDecision,
+    toolResults: derivedToolResults,
+    now: new Date('2026-09-18T12:00:00Z')
+  }),
+  derivedDecision,
+  'reason-first must preserve a future amount that is ordinary arithmetic over confirmed facts'
+);
+
+const changedTariffResults = [
+  {
+    tool: 'billing.tariff',
+    ok: true,
+    code: 'OK',
+    data: {
+      currentTariff: 'Безліміт 250',
+      price: 250,
+      nextTariff: 'Безліміт 349'
+    }
+  }
+];
+assert.equal(hasDerivableFutureAmount({
+  customerText: 'сколько надо оплатить до конца 2026?',
+  decision: derivedDecision,
+  toolResults: changedTariffResults,
+  now: new Date('2026-09-18T12:00:00Z')
+}), false, 'a confirmed future tariff change is a real blocker because the old recurring price no longer proves the future amount');
+const changedTariffGuarded = guardFuturePaymentDecision({
+  customerText: 'сколько надо оплатить до конца 2026?',
+  decision: derivedDecision,
+  toolResults: changedTariffResults,
+  now: new Date('2026-09-18T12:00:00Z')
+});
+assert.equal(changedTariffGuarded.intent, 'future_payment_unconfirmed');
+assert.doesNotMatch(changedTariffGuarded.reply, /750/, 'confirmed future tariff change must block the old-price projection');
 
 assert.equal(hasConfirmedFutureAmount([
   { tool: 'billing.next_charge', ok: true, data: { amount: 449 } }
