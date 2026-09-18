@@ -4,6 +4,7 @@ import { recordApiUsage } from './api-cost.js';
 import { AI_CONFIG, readAiRuntimeConfig } from '../../config/ai-config.js';
 import { AI_OPERATOR_GENERATION_MODEL_POOL } from './semantic-probe.js';
 import { autonomousOperatorSystemMessages } from './instructions/autonomous-operator-instruction.generated.js';
+import { behaviorInstruction } from './lab-behavior-profile.js';
 
 export const AI_OPERATOR_SOFT_TOOL_CAPABILITIES = Object.freeze({ billing: true, userside: true, network: true });
 
@@ -346,11 +347,19 @@ export function ensureNonEmptyReply(reply, analysis = {}, toolTrace = []) {
 function synthesisMessages({ transcript = [], latestCustomer = {}, analysis = {}, draft = {}, toolTrace = [], useKnowledge = true } = {}) {
   const dialogue = (Array.isArray(transcript) ? transcript : []).slice(-14).map(item => ({ role: item?.role === 'customer' ? 'customer' : 'operator', text: block(item?.text, 700) })).filter(item => item.text);
   const evidence = toolTrace.map(item => ({ tool: item.tool, ok: item.ok, code: item.code, observed_at: item.observedAt, source: item.source, data: item.data, warnings: item.warnings }));
+  const profile = draft?.behavior && typeof draft.behavior === 'object' && !Array.isArray(draft.behavior) ? draft.behavior : {};
   const stageInstruction = `ЭТАП: TOOL EVIDENCE SYNTHESIS.
 
 READ-only проверки уже выполнены. Сформируй естественный полезный ответ на исходный вопрос абонента, используя dialogue, internal_knowledge, draft и tool_evidence как evidence.
 
 Сначала рассуждай по уже имеющимся фактам. Если их достаточно для прямого логического, арифметического, технического или семантического вывода, дай этот вывод. Не создавай новые требования к данным из-за гипотетического исключения или сценария «а вдруг».
+
+ПОВЕДЕНИЕ ОТВЕТА:
+${behaviorInstruction(profile)}
+- Это именно стиль и полезная глубина подачи; факты и правила достоверности от него не меняются.
+- Отвечай как живой оператор человеку, а не как интерфейс Billing или технический лог.
+- Не копируй названия внутренних полей, raw-ключи и интерфейсные ярлыки вроде accountBalance, serviceState, accessState, totalDue, «Разрешен», «Все ОК» сами по себе. Переводи данные в обычный человеческий смысл и упоминай только то, что реально отвечает на вопрос.
+- Не перечисляй соседние поля только потому, что они пришли одним snapshot.
 
 Правила источников:
 - tool_evidence с ok=true подтверждает только реально возвращённые поля;
@@ -386,6 +395,7 @@ READ-only проверки уже выполнены. Сформируй ест�
         internal_knowledge: useKnowledge ? compactObject(analysis?.knowledge || {}) : { skipped: true },
         draft_reply: block(draft?.reply, 1800),
         draft_data_needs: normalizeDataNeeds(draft?.subscriberDataNeeded),
+        behavior_profile: profile,
         tool_evidence: evidence
       })
     }
