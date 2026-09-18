@@ -1,0 +1,217 @@
+import { analyzeSubscriberIntent } from './semantic-probe.js';
+
+// Keep the replay planner contract stable while this branch experiments with a freer interpreter.
+// In knowledge_probe mode the planner is the semantic+encyclopedia pipeline, not the legacy fact runtime.
+const planAutonomousTurn = analyzeSubscriberIntent;
+
+const RESULTS_KEY = 'simnet_ai_operator_replay_results_v1';
+const MAX_RESULTS = 1000;
+
+const TYPES = Object.freeze({
+  EVALUATE: 'AI_OPERATOR_REPLAY_EVALUATE',
+  RECORD: 'AI_OPERATOR_REPLAY_RECORD',
+  RESULTS: 'AI_OPERATOR_REPLAY_RESULTS',
+  CLEAR: 'AI_OPERATOR_REPLAY_CLEAR'
+});
+
+function compact(value, max = 4000) {
+  const text = String(value == null ? '' : value)
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function clone(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function normalizedCase(raw = {}) {
+  const transcript = Array.isArray(raw.transcript)
+    ? raw.transcript.slice(-120).map(item => ({
+        id: Number(item?.id || 0) || 0,
+        role: item?.role === 'customer' ? 'customer' : 'agent',
+        text: compact(item?.text || '', 2200),
+        createdAt: String(item?.createdAt || '')
+      })).filter(item => item.text)
+    : [];
+  const latest = raw.latestCustomer && typeof raw.latestCustomer === 'object'
+    ? raw.latestCustomer
+    : transcript.filter(item => item.role === 'customer').at(-1) || {};
+  return {
+    id: compact(raw.id || '', 180),
+    chatId: Number(raw.chatId || raw?.chat?.id || 0) || 0,
+    chatTurnIndex: Number(raw.chatTurnIndex || 0) || 0,
+    chatTurnCount: Number(raw.chatTurnCount || 0) || 0,
+    chat: raw.chat && typeof raw.chat === 'object' ? clone(raw.chat) : {},
+    customer: raw.customer && typeof raw.customer === 'object' ? clone(raw.customer) : {},
+    transcript,
+    latestCustomer: {
+      id: Number(latest?.id || 0) || 0,
+      text: compact(latest?.text || raw.customerText || '', 2200),
+      createdAt: String(latest?.createdAt || '')
+    },
+    customerText: compact(raw.customerText || latest?.text || '', 2200),
+    referenceReply: compact(raw.referenceReply || '', 3200),
+    source: compact(raw.source || 'HelpCrunch export', 240)
+  };
+}
+
+function isEmptyAiResponseError(error) {
+  return /Groq returned an empty response/i.test(String(error?.message || error || ''));
+}
+
+function emptyAiResponseOutcome(error) {
+  const message = compact(error?.message || error || 'AI returned an empty response', 900);
+  return {
+    probe: null,
+    knowledge: {
+      skipped: true,
+      skipReason: 'ai_no_response',
+      usedArticles: [],
+      relevantInternalKnowledge: [],
+      howItApplies: '',
+      alreadyEnough: [],
+      mustNotAssume: [],
+      hypotheses: [],
+      knowledgeGaps: []
+    },
+    candidates: [],
+    decision: {
+      action: 'ai_no_response',
+      domain: 'understanding',
+      intent: 'analysis_unavailable',
+      tool: '',
+      toolArgs: {},
+      reply: 'AI не дал ответа на этот кейс. Кейс пропущен, Replay продолжает со следующего.',
+      reason: message,
+      confidence: 0,
+      language: '',
+      diagnostic: {
+        code: 'AI_NO_RESPONSE',
+        message,
+        recoverable: true,
+        skippedCase: true
+      },
+      model: '',
+      usage: {},
+      rateLimit: {},
+      promptChars: 0
+    }
+  };
+}
+
+async function evaluateReplayCase(payload = {}) {
+  const rawCase = payload?.case && typeof payload.case === 'object' ? payload.case : payload;
+  const replayCase = normalizedCase(rawCase);
+  if (!replayCase.customerText || !replayCase.transcript.length) {
+    throw new Error('Replay case does not contain a customer turn.');
+  }
+  // Preserve cross-turn state transport expected by the Replay harness. The current semantic/knowledge
+  // experiment derives conversational context from the transcript and deliberately does not mutate it.
+  const replayState = payload?.state && typeof payload.state === 'object' && !Array.isArray(payload.state)
+    ? clone(payload.state)
+    : {};
+
+  // Experimental mode: understand the human first, then softly consult the SIMNET encyclopedia.
+  // The old deterministic regulators remain in the repository but are deliberately bypassed here.
+  let outcome;
+  try {
+    outcome = await planAutonomousTurn({
+      transcript: replayCase.transcript,
+      latestCustomer: replayCase.latestCustomer,
+      meterContext: {
+        scope: `knowledge-probe:${replayCase.chatId}:${replayCase.id}`,
+        turnId: `knowledge-probe:${replayCase.id}:${Date.now()}`
+      }
+    });
+  } catch (error) {
+    // An empty completion is a model/runtime miss, not a reason to destroy a long Replay batch.
+    // Keep the miss visible as a dedicated result so it is not silently hidden, preserve chat state,
+    // and let the harness advance to the next case. Configuration/auth failures still bubble normally.
+    if (!isEmptyAiResponseError(error)) throw error;
+    outcome = emptyAiResponseOutcome(error);
+  }
+
+  return {
+    case: replayCase,
+    state: replayState,
+    decision: outcome.decision,
+    events: [],
+    semanticProbe: outcome.probe,
+    knowledgeProbe: outcome.knowledge,
+    knowledgeCandidates: outcome.candidates,
+    mode: 'knowledge_probe',
+    evaluatedAt: new Date().toISOString()
+  };
+}
+
+async function readResults() {
+  const raw = (await chrome.storage.local.get(RESULTS_KEY))?.[RESULTS_KEY];
+  return Array.isArray(raw) ? raw : [];
+}
+
+async function recordResult(payload = {}) {
+  const replayCase = normalizedCase(payload.case || {});
+  const verdict = ['pass', 'gap', 'skip', 'unreviewed'].includes(String(payload.verdict || ''))
+    ? String(payload.verdict)
+    : 'unreviewed';
+  const decision = payload.decision && typeof payload.decision === 'object'
+    ? clone(payload.decision)
+    : {};
+  const item = {
+    id: `replay_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    caseId: replayCase.id,
+    chatId: replayCase.chatId,
+    chatTurnIndex: replayCase.chatTurnIndex,
+    chatTurnCount: replayCase.chatTurnCount,
+    source: replayCase.source,
+    verdict,
+    customerText: replayCase.customerText,
+    referenceReply: replayCase.referenceReply,
+    mode: 'knowledge_probe',
+    decision: {
+      action: String(decision.action || ''),
+      domain: String(decision.domain || ''),
+      intent: String(decision.intent || ''),
+      tool: String(decision.tool || ''),
+      reply: compact(decision.reply || '', 5200),
+      reason: compact(decision.reason || '', 1400),
+      confidence: Number(decision.confidence || 0) || 0,
+      model: String(decision.model || ''),
+      usage: decision.usage && typeof decision.usage === 'object' ? clone(decision.usage) : {},
+      promptChars: Number(decision.promptChars || 0) || 0,
+      diagnostic: decision.diagnostic && typeof decision.diagnostic === 'object' ? clone(decision.diagnostic) : null
+    },
+    batch: payload.batch && typeof payload.batch === 'object' ? clone(payload.batch) : null,
+    note: compact(payload.note || '', 1600),
+    createdAt: new Date().toISOString()
+  };
+  const current = await readResults();
+  const next = [item, ...current.filter(existing => existing?.caseId !== item.caseId)].slice(0, MAX_RESULTS);
+  await chrome.storage.local.set({ [RESULTS_KEY]: next });
+  return item;
+}
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  const type = String(message?.type || '');
+  if (!Object.values(TYPES).includes(type)) return false;
+
+  const action = type === TYPES.EVALUATE
+    ? evaluateReplayCase(message?.payload || {})
+    : type === TYPES.RECORD
+      ? recordResult(message?.payload || {})
+      : type === TYPES.RESULTS
+        ? readResults()
+        : chrome.storage.local.remove(RESULTS_KEY).then(() => ({ cleared: true }));
+
+  void action.then(
+    data => sendResponse({ success: true, data }),
+    error => sendResponse({ success: false, error: compact(error?.message || error || 'Replay error', 1000) })
+  );
+  return true;
+});
+
+export const AI_OPERATOR_REPLAY_MESSAGE_TYPES = TYPES;
+export const AI_OPERATOR_REPLAY_RESULTS_KEY = RESULTS_KEY;

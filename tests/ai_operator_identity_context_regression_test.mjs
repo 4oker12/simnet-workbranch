@@ -1,0 +1,233 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+
+import {
+  executeInformationNeeds,
+  extractIdentityHints
+} from '../src/features/ai-operator/semantic-tool-broker.js';
+import { classifyStandaloneBillingLogin } from '../src/features/ai-operator/billing-login-live.js';
+
+function successfulLookup(expected) {
+  return async ({ tool, toolArgs }) => {
+    assert.equal(tool, 'customer.lookup');
+    assert.deepEqual(toolArgs, expected);
+    const identity = expected.contract
+      ? { contract: expected.contract, login: `abon${expected.contract}` }
+      : { contract: '99999', login: expected.login };
+    return {
+      ok: true,
+      tool,
+      code: 'OK',
+      observedAt: '2026-09-17T00:00:00.000Z',
+      data: {
+        candidate: { billingId: '50845', ...identity },
+        source: 'billing-live-read-only'
+      },
+      warnings: [],
+      statePatch: {
+        confirmedCaseId: 'billing-live:50845',
+        confirmedSubscriber: { billingId: '50845', ...identity }
+      }
+    };
+  };
+}
+
+test('standalone numeric message is remembered as contract for the next customer question', async () => {
+  const transcript = [
+    { role: 'customer', text: '33455' },
+    { role: 'customer', text: 'почему у меня нет интернета?' }
+  ];
+
+  assert.deepEqual(extractIdentityHints(transcript, {}), { contract: '33455' });
+
+  const result = await executeInformationNeeds({
+    needs: [],
+    transcript,
+    analysis: { probe: { whatUserWants: 'Понять, почему нет интернета' } },
+    labState: {},
+    execute: successfulLookup({ contract: '33455' })
+  });
+
+  assert.equal(result.labState.confirmedCaseId, 'billing-live:50845');
+  assert.equal(result.trace[0].tool, 'customer.lookup');
+  assert.equal(result.trace[0].args.contract, '33455');
+});
+
+test('standalone ordinary login is remembered across turns and searched through Billing', async () => {
+  const transcript = [
+    { role: 'customer', text: 'lacanister' },
+    { role: 'customer', text: 'какой у меня тариф?' }
+  ];
+
+  assert.deepEqual(extractIdentityHints(transcript, {}), { login: 'lacanister' });
+  assert.equal(classifyStandaloneBillingLogin('lacanister'), 'lacanister');
+
+  const result = await executeInformationNeeds({
+    needs: [],
+    transcript,
+    analysis: { probe: { whatUserWants: 'Узнать текущий тариф' } },
+    labState: {},
+    execute: successfulLookup({ login: 'lacanister' })
+  });
+
+  assert.equal(result.labState.confirmedCaseId, 'billing-live:50845');
+  assert.equal(result.trace[0].args.login, 'lacanister');
+});
+
+test('text identifier explicitly labeled as contract is searched through Billing', async () => {
+  const transcript = [
+    { role: 'customer', text: 'Boxing договір\nхочу на гигабит' }
+  ];
+
+  assert.deepEqual(extractIdentityHints(transcript, {}), { login: 'Boxing' });
+  assert.equal(classifyStandaloneBillingLogin('Boxing'), 'Boxing');
+
+  const result = await executeInformationNeeds({
+    needs: [],
+    transcript,
+    analysis: { probe: { whatUserWants: 'Перейти на гигабит' } },
+    labState: {},
+    execute: successfulLookup({ login: 'Boxing' })
+  });
+
+  assert.equal(result.labState.confirmedCaseId, 'billing-live:50845');
+  assert.equal(result.trace[0].args.login, 'Boxing');
+});
+
+test('possessive text identifier labeled as contract is accepted as Billing search key', () => {
+  assert.deepEqual(
+    extractIdentityHints([{ role: 'customer', text: 'Sota мой договор' }], {}),
+    { login: 'Sota' }
+  );
+  assert.deepEqual(
+    extractIdentityHints([{ role: 'customer', text: 'Sota — это мой договор' }], {}),
+    { login: 'Sota' }
+  );
+  assert.equal(classifyStandaloneBillingLogin('Sota'), 'Sota');
+});
+
+test('multiline text identifier labeled as contract is accepted before a customer question', () => {
+  assert.deepEqual(
+    extractIdentityHints([{ role: 'customer', text: 'Talala\nдоговор\nче по балансу у меня вообще? и на гиг можно перейти?' }], {}),
+    { login: 'Talala' }
+  );
+});
+
+test('clarification that text token is the contract keeps the same identifier', () => {
+  assert.deepEqual(
+    extractIdentityHints([
+      { role: 'customer', text: 'Boxing договір\nхочу на гигабит' },
+      { role: 'customer', text: 'Boxing - це і є договір' }
+    ], {}),
+    { login: 'Boxing' }
+  );
+});
+
+test('generic text lookup preserves Billing native listuser name search formula and casing', () => {
+  const source = fs.readFileSync(new URL('../src/features/ai-operator/billing-login-live.js', import.meta.url), 'utf8');
+  assert.match(source, /a:\s*'listuser',\s*f:\s*'n',\s*name:\s*requestedLogin/);
+  assert.doesNotMatch(source, /what_search:\s*'login'/);
+  assert.doesNotMatch(source, /requestedLogin\.toLowerCase\(\)/);
+  assert.doesNotMatch(source, /actualLogin\s*&&\s*actualLogin\s*!==/);
+});
+
+test('existing abon login behavior remains explicit login identity', () => {
+  assert.deepEqual(
+    extractIdentityHints([{ role: 'customer', text: 'abon23422' }], {}),
+    { login: 'abon23422' }
+  );
+});
+
+test('ordinary natural-language standalone words are not treated as subscriber login', () => {
+  assert.equal(classifyStandaloneBillingLogin('internet'), '');
+  assert.deepEqual(extractIdentityHints([{ role: 'customer', text: 'internet' }], {}), {});
+});
+
+test('new explicit login rebinds an already confirmed subscriber before any subscriber reads', async () => {
+  const calls = [];
+  const result = await executeInformationNeeds({
+    needs: [],
+    transcript: [
+      { role: 'customer', text: 'Sota\nдоговор\nчто по балансу?' },
+      { role: 'agent', text: 'Ответ по первому абоненту' },
+      { role: 'customer', text: 'tipalas\nдоговор\nчто по балансу?' }
+    ],
+    analysis: { probe: { whatUserWants: 'Узнать баланс нового договора' } },
+    labState: {
+      confirmedCaseId: 'billing-live:111',
+      confirmedSubscriber: { billingId: '111', contract: '11111', login: 'Sota' },
+      pendingCandidate: null,
+      facts: { oldSubscriberFact: true },
+      reads: { oldSubscriberRead: true },
+      invalidatedAt: 0
+    },
+    execute: async ({ tool, toolArgs, labState }) => {
+      calls.push({ tool, toolArgs, labState });
+      assert.equal(tool, 'customer.lookup');
+      assert.deepEqual(toolArgs, { login: 'tipalas' });
+      assert.equal(labState.confirmedCaseId, '');
+      assert.equal(labState.confirmedSubscriber, null);
+      assert.equal(labState.pendingCandidate, null);
+      assert.deepEqual(labState.facts, {});
+      assert.deepEqual(labState.reads, {});
+      assert.ok(labState.invalidatedAt > 0);
+      return {
+        ok: true,
+        tool,
+        code: 'OK',
+        observedAt: '2026-09-17T12:00:00.000Z',
+        data: {
+          candidate: { billingId: '222', contract: '22222', login: 'tipalas' },
+          source: 'billing-live-read-only'
+        },
+        warnings: [],
+        statePatch: {
+          confirmedCaseId: 'billing-live:222',
+          confirmedSubscriber: { billingId: '222', contract: '22222', login: 'tipalas' }
+        }
+      };
+    }
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(result.labState.confirmedCaseId, 'billing-live:222');
+  assert.equal(result.labState.confirmedSubscriber.login, 'tipalas');
+  assert.equal(result.trace[0].args.login, 'tipalas');
+  assert.match(result.trace[0].requestedBy.why, /новый идентификатор/i);
+});
+
+test('failed lookup for a new explicit identity cannot fall back to the previous subscriber', async () => {
+  const result = await executeInformationNeeds({
+    needs: [],
+    transcript: [
+      { role: 'customer', text: 'Sota\nдоговор' },
+      { role: 'customer', text: 'tipalas\nдоговор\nчто по балансу?' }
+    ],
+    analysis: { probe: { whatUserWants: 'Узнать баланс нового договора' } },
+    labState: {
+      confirmedCaseId: 'billing-live:111',
+      confirmedSubscriber: { billingId: '111', contract: '11111', login: 'Sota' },
+      pendingCandidate: null
+    },
+    execute: async ({ tool, toolArgs, labState }) => {
+      assert.equal(tool, 'customer.lookup');
+      assert.deepEqual(toolArgs, { login: 'tipalas' });
+      assert.equal(labState.confirmedCaseId, '');
+      return {
+        ok: false,
+        tool,
+        code: 'NOT_FOUND',
+        observedAt: '2026-09-17T12:01:00.000Z',
+        data: { source: 'billing-live-read-only' },
+        warnings: [],
+        statePatch: {}
+      };
+    }
+  });
+
+  assert.equal(result.labState.confirmedCaseId, '');
+  assert.equal(result.labState.confirmedSubscriber, null);
+  assert.equal(result.trace.length, 1);
+  assert.equal(result.trace[0].code, 'NOT_FOUND');
+});
