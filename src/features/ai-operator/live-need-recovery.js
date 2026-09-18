@@ -43,7 +43,7 @@ function derivedNeedsForRequest(request = '') {
 
   // Availability/coverage is a building fact, not an ONU signal measurement.
   const accessTechnology = /оптик|fiber|gpon|epon|\bpon\b/i.test(text);
-  const availability = /подключ|підключ|можно|можна|возмож|можлив|доступн|доступн[а-яіїєґ]*|покрыт|покрит|coverage/i.test(text);
+  const availability = /подключ|підключ|можно|можна|возмож|можлив|доступн|покрыт|покрит|coverage/i.test(text);
   if (accessTechnology && availability) {
     add('building.snapshot', 'UserSide', 'Нужно проверить доступность технологии по уже известному адресу абонента/дома.');
     return needs;
@@ -77,6 +77,9 @@ function derivedNeedsForRequest(request = '') {
   if (/точк.*подключ|точк.*підключ|коммут|ethernet|userside|user\s*side|тмц|tmc/i.test(text)) {
     add('userside.snapshot', 'UserSide', 'Нужен технический снимок конкретного подключения в UserSide.');
   }
+  if (/по\s+договор|за\s+договор|данн.*договор|дані.*договор|карточк.*абон|картк.*абон/i.test(text)) {
+    add('customer.snapshot', 'Billing', 'Нужны текущие данные карточки уже идентифицированного договора.');
+  }
 
   return needs;
 }
@@ -86,9 +89,11 @@ export function recoverLiveDataNeeds({ analysis = {}, draft = {} } = {}) {
     .map(normalizeNeed)
     .filter(item => item.system || item.field || item.why);
   const liveNeed = line(analysis?.probe?.liveDataNeed || analysis?.probe?.live_data_need, 20).toLowerCase();
-  if (liveNeed !== 'needed') return existing;
+  const requests = requestList(analysis);
+  const derived = requests.flatMap(derivedNeedsForRequest);
+  const recoveryAllowed = liveNeed === 'needed' || Boolean(draft?.degraded && derived.length);
+  if (!recoveryAllowed) return existing;
 
-  const derived = requestList(analysis).flatMap(derivedNeedsForRequest);
   const merged = [];
   const seen = new Set();
   for (const need of [...existing, ...derived]) {
@@ -99,8 +104,8 @@ export function recoverLiveDataNeeds({ analysis = {}, draft = {} } = {}) {
     merged.push(normalized);
   }
 
-  if (!merged.length) {
-    const request = requestList(analysis)[0] || 'текущие данные абонента';
+  if (!merged.length && liveNeed === 'needed') {
+    const request = requests[0] || 'текущие данные абонента';
     merged.push(explicitNeed(
       'customer.snapshot',
       'Billing',
@@ -112,4 +117,4 @@ export function recoverLiveDataNeeds({ analysis = {}, draft = {} } = {}) {
   return merged.slice(0, 6);
 }
 
-export const LIVE_NEED_RECOVERY_VERSION = 1;
+export const LIVE_NEED_RECOVERY_VERSION = 2;
