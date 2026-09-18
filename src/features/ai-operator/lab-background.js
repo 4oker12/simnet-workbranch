@@ -1,5 +1,6 @@
 import { apiCostSummary, saveApiPrice } from './api-cost.js';
 import { analyzeSubscriberIntent, generateSubscriberReply, generateCleanModelReply } from './semantic-probe.js';
+import { normalizeLabBehavior } from './lab-behavior-profile.js';
 import { executeOperatorTool } from './live-tool-runtime.js';
 import {
   AI_OPERATOR_SOFT_TOOL_CAPABILITIES,
@@ -43,21 +44,8 @@ function compact(value, max = 1200) {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-function clamp(value, fallback) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.max(0, Math.min(100, Math.round(parsed))) : fallback;
-}
-
 function normalizeBehavior(value = {}) {
-  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-  return {
-    confidenceStyle: clamp(source.confidenceStyle, 45),
-    curiosity: clamp(source.curiosity, 55),
-    initiative: clamp(source.initiative, 50),
-    skepticism: clamp(source.skepticism, 75),
-    brevity: clamp(source.brevity, 65),
-    maxFollowUpQuestions: Math.max(1, Math.min(3, Math.round(Number(source.maxFollowUpQuestions || 2))))
-  };
+  return normalizeLabBehavior(value);
 }
 
 function normalizeKnowledgeMode(value) {
@@ -92,7 +80,7 @@ function normalizeToolState(value = {}) {
 
 function emptyLab() {
   return {
-    version: 4,
+    version: 5,
     id: id('lab'),
     messages: [],
     events: [],
@@ -115,7 +103,7 @@ function emptyLab() {
 function normalizeLab(raw = {}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return emptyLab();
   return {
-    version: 4,
+    version: 5,
     id: String(raw.id || id('lab')),
     messages: (Array.isArray(raw.messages) ? raw.messages : []).slice(-MAX_MESSAGES).map(normalizeMessage),
     events: (Array.isArray(raw.events) ? raw.events : []).slice(-MAX_EVENTS),
