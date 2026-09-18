@@ -3,31 +3,65 @@
 function present(value) {
   return value !== null && value !== undefined && value !== '';
 }
+function object(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
 
 export function mergePresent(base = {}, overlay = {}) {
-  const merged = base && typeof base === 'object' && !Array.isArray(base) ? { ...base } : {};
-  for (const [key, value] of Object.entries(overlay && typeof overlay === 'object' && !Array.isArray(overlay) ? overlay : {})) {
+  const merged = { ...object(base) };
+  for (const [key, value] of Object.entries(object(overlay))) {
     if (!present(value)) continue;
     merged[key] = value;
   }
   return merged;
 }
 
+function mergeSection(base = {}, live = {}, { emptyIsValue = [] } = {}) {
+  const merged = mergePresent(base, live);
+  for (const key of emptyIsValue) {
+    if (Object.hasOwn(object(live), key) && live[key] !== null && live[key] !== undefined) merged[key] = live[key];
+  }
+  return merged;
+}
+
+function fieldTimes({ base = {}, live = {}, baseEvidence = {}, observedAt = '' } = {}) {
+  const times = { ...object(baseEvidence.fieldObservedAt) };
+  const baseObservedAt = String(baseEvidence.billingSnapshotObservedAt || baseEvidence.observedAt || '');
+  for (const section of ['identity', 'service', 'finance', 'network']) {
+    for (const key of Object.keys(object(base[section]))) {
+      const path = `${section}.${key}`;
+      if (!times[path] && baseObservedAt) times[path] = baseObservedAt;
+    }
+    for (const [key, value] of Object.entries(object(live[section]))) {
+      const path = `${section}.${key}`;
+      const emptyIsConfirmed = section === 'service' && key === 'nextTariff' && value === '';
+      if ((present(value) || emptyIsConfirmed) && observedAt) times[path] = observedAt;
+    }
+  }
+  return times;
+}
+
 export function normalizeBillingMainSnapshot({ billingId = '', liveData = {}, baseData = {}, observedAt = '', cache = '' } = {}) {
-  const live = liveData && typeof liveData === 'object' ? liveData : {};
-  const base = baseData && typeof baseData === 'object' ? baseData : {};
+  const live = object(liveData);
+  const base = object(baseData);
   const evidence = mergePresent(base.evidence, live.evidence);
-  if (observedAt) evidence.observedAt = observedAt;
+  if (observedAt) {
+    evidence.observedAt = observedAt;
+    evidence.billingSnapshotObservedAt = observedAt;
+  }
+  evidence.fieldObservedAt = fieldTimes({ base, live, baseEvidence: object(base.evidence), observedAt });
+
   const identity = mergePresent(mergePresent(base.identity, live.identity), { billingId });
+  const service = mergeSection(base.service, live.service, { emptyIsValue: ['nextTariff'] });
   const payments = Array.isArray(live.payments)
     ? live.payments.slice(0, 6)
     : Array.isArray(base.payments) ? base.payments.slice(0, 6) : [];
 
   return {
     identity,
-    service: mergePresent(base.service, live.service),
-    finance: mergePresent(base.finance, live.finance),
-    network: mergePresent(base.network, live.network),
+    service,
+    finance: mergeSection(base.finance, live.finance),
+    network: mergeSection(base.network, live.network),
     technical: mergePresent({}, base.technical),
     address: mergePresent({}, base.address),
     contacts: mergePresent({}, base.contacts),
