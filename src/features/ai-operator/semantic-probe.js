@@ -12,6 +12,7 @@ const PROMPT_GUARD_MODEL = 'meta-llama/llama-prompt-guard-2-86m';
 const MODEL_COOLDOWNS = new Map();
 const KNOWLEDGE_NEEDS = new Set(['none', 'maybe', 'needed']);
 const KNOWLEDGE_MODES = new Set(['off', 'auto', 'on']);
+const JSON_REPAIR_TOKENS = 1400;
 
 function oneLine(value, max = 1000) {
   const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
@@ -33,7 +34,8 @@ function parseJsonObject(value) {
   const first = text.indexOf('{');
   const last = text.lastIndexOf('}');
   if (first < 0 || last <= first) throw new Error('Semantic probe: model did not return JSON');
-  return JSON.parse(text.slice(first, last + 1));
+  try { return JSON.parse(text.slice(first, last + 1)); }
+  catch { throw new Error('Semantic probe: model did not return valid JSON'); }
 }
 
 function numberHeader(headers, name) {
@@ -90,7 +92,7 @@ function modelsForRuntime(runtime = {}) {
 
 async function requestModel(messages, apiKey, model, meterContext = {}, {
   jsonMode = true,
-  maxTokens = 900,
+  maxTokens = JSON_REPAIR_TOKENS,
   temperature = 0.15
 } = {}) {
   let reportedUsage = null;
@@ -120,9 +122,16 @@ async function requestModel(messages, apiKey, model, meterContext = {}, {
       throw error;
     }
     MODEL_COOLDOWNS.delete(model);
-    const answer = data?.choices?.[0]?.message?.content;
+    const choice = data?.choices?.[0] || {};
+    const answer = choice?.message?.content;
     if (!answer) throw new Error('Semantic probe: Groq returned an empty response');
-    return { answer: String(answer), model: reportedModel, usage: data?.usage || {}, rateLimit };
+    return {
+      answer: String(answer),
+      model: reportedModel,
+      usage: data?.usage || {},
+      rateLimit,
+      finishReason: oneLine(choice?.finish_reason || '', 80)
+    };
   } catch (error) {
     if (controller.signal.aborted) throw new Error('Semantic probe: Groq request timeout');
     throw error;
@@ -132,18 +141,72 @@ async function requestModel(messages, apiKey, model, meterContext = {}, {
   }
 }
 
+function invalidJsonError(response = {}, attempt = '') {
+  const error = new Error('Semantic probe: model did not return JSON');
+  error.code = 'INVALID_MODEL_JSON';
+  error.model = oneLine(response?.model || '', 120);
+  error.finishReason = oneLine(response?.finishReason || '', 80);
+  error.rawExcerpt = block(response?.answer || '', 900);
+  error.attempt = attempt;
+  return error;
+}
+
+function validateJsonResponse(response, attempt = '') {
+  try {
+    return { ...response, parsed: parseJsonObject(response?.answer), attempt };
+  } catch {
+    throw invalidJsonError(response, attempt);
+  }
+}
+
+function repairMessages(messages, response = {}) {
+  return [
+    ...messages,
+    { role: 'assistant', content: block(response?.answer || '', 2200) },
+    {
+      role: 'user',
+      content: 'Предыдущий ответ не является завершённым валидным JSON. Исправь только формат: верни один полный JSON-объект по исходной схеме, без markdown, пояснений и текста до/после JSON.'
+    }
+  ];
+}
+
 async function requestJsonWithFallback(messages, runtime, meterContext = {}, requestOptions = {}) {
   const failures = [];
+  const baseMaxTokens = Math.max(Number(requestOptions.maxTokens || 0), JSON_REPAIR_TOKENS);
   for (const model of modelsForRuntime(runtime)) {
+    let firstResponse = null;
     try {
-      return await requestModel(messages, runtime.groqApiKey, model, meterContext, { jsonMode: true, ...requestOptions });
+      firstResponse = await requestModel(messages, runtime.groqApiKey, model, meterContext, {
+        jsonMode: true,
+        ...requestOptions,
+        maxTokens: baseMaxTokens
+      });
+      try {
+        return validateJsonResponse(firstResponse, 'json');
+      } catch (invalidError) {
+        failures.push(invalidError);
+        try {
+          const repaired = await requestModel(repairMessages(messages, firstResponse), runtime.groqApiKey, model, {
+            ...meterContext,
+            stage: `${meterContext.stage || 'json'}_repair`
+          }, { jsonMode: true, maxTokens: baseMaxTokens, temperature: 0 });
+          return validateJsonResponse(repaired, 'repair');
+        } catch (repairError) {
+          failures.push(repairError);
+        }
+      }
     } catch (error) {
       failures.push(error);
       const status = Number(error?.status || 0);
       const generation400 = status === 400 && /generate json|validate json|failed_generation/i.test(String(error?.message || ''));
       if (generation400) {
         try {
-          return await requestModel(messages, runtime.groqApiKey, model, meterContext, { jsonMode: false, ...requestOptions });
+          const plain = await requestModel(messages, runtime.groqApiKey, model, meterContext, {
+            jsonMode: false,
+            ...requestOptions,
+            maxTokens: baseMaxTokens
+          });
+          return validateJsonResponse(plain, 'plain_json_fallback');
         } catch (retryError) {
           failures.push(retryError);
         }
@@ -151,7 +214,12 @@ async function requestJsonWithFallback(messages, runtime, meterContext = {}, req
       if ([401, 403].includes(status)) break;
     }
   }
-  throw failures.at(-1) || new Error('Semantic probe failed');
+  const last = failures.at(-1) || new Error('Semantic probe failed');
+  if (last?.code === 'INVALID_MODEL_JSON') {
+    const suffix = [last.model && `model=${last.model}`, last.finishReason && `finish=${last.finishReason}`].filter(Boolean).join(', ');
+    last.message = `Semantic probe: model did not return JSON${suffix ? ` (${suffix})` : ''}`;
+  }
+  throw last;
 }
 
 async function runPromptGuard(latestCustomer = {}, runtime = {}, meterContext = {}) {
@@ -400,8 +468,8 @@ export async function analyzeSubscriberIntent({ transcript = [], latestCustomer 
 
   const guard = await runPromptGuard(latestCustomer, runtime, meterContext);
   const semanticMessages = buildSubscriberIntentProbeMessages({ transcript, latestCustomer });
-  const semanticResponse = await requestJsonWithFallback(semanticMessages, runtime, { ...meterContext, stage: 'understanding' });
-  const probe = normalizeProbe(parseJsonObject(semanticResponse.answer));
+  const semanticResponse = await requestJsonWithFallback(semanticMessages, runtime, { ...meterContext, stage: 'understanding' }, { maxTokens: JSON_REPAIR_TOKENS });
+  const probe = normalizeProbe(semanticResponse.parsed || parseJsonObject(semanticResponse.answer));
 
   let candidateArticles = [];
   let knowledgeMessages = [];
@@ -413,8 +481,8 @@ export async function analyzeSubscriberIntent({ transcript = [], latestCustomer 
     const query = knowledgeQueryFromUnderstanding({ probe, transcript, latestCustomer });
     candidateArticles = searchKnowledgeLibrary(query, { limit: 6, minScore: 1 });
     knowledgeMessages = buildKnowledgeReflectionMessages({ probe, candidateArticles });
-    knowledgeResponse = await requestJsonWithFallback(knowledgeMessages, runtime, { ...meterContext, stage: 'knowledge' });
-    knowledge = normalizeKnowledgeReflection(parseJsonObject(knowledgeResponse.answer), candidateArticles);
+    knowledgeResponse = await requestJsonWithFallback(knowledgeMessages, runtime, { ...meterContext, stage: 'knowledge' }, { maxTokens: JSON_REPAIR_TOKENS });
+    knowledge = normalizeKnowledgeReflection(knowledgeResponse.parsed || parseJsonObject(knowledgeResponse.answer), candidateArticles);
   }
 
   const totalUsage = usageTotal(guard, semanticResponse, knowledgeResponse);
@@ -449,7 +517,12 @@ export async function analyzeSubscriberIntent({ transcript = [], latestCustomer 
       model: [guard.model, semanticResponse.model, knowledgeResponse?.model].filter(Boolean).join(' → '),
       usage: totalUsage,
       rateLimit: knowledgeResponse?.rateLimit || semanticResponse.rateLimit || guard.rateLimit || {},
-      promptChars
+      promptChars,
+      semanticDiagnostics: {
+        model: semanticResponse.model || '',
+        finishReason: semanticResponse.finishReason || '',
+        repaired: semanticResponse.attempt === 'repair'
+      }
     }
   };
 }
@@ -487,6 +560,26 @@ function normalizeBehaviorEffects(value = {}) {
   };
 }
 
+function normalizeRelevanceItems(value, maxItems = 12) {
+  return (Array.isArray(value) ? value : []).map(item => ({
+    fact: oneLine(item?.fact || item?.value || '', 420),
+    source: oneLine(item?.source || '', 160),
+    reason: oneLine(item?.reason || '', 420)
+  })).filter(item => item.fact || item.reason).slice(0, maxItems);
+}
+
+function normalizeAnswerRelevance(value = {}, fallbackRequest = '') {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const completeness = oneLine(source.completeness || 'unknown', 20).toLowerCase();
+  return {
+    request: oneLine(source.request || fallbackRequest || '', 500),
+    kept: normalizeRelevanceItems(source.kept),
+    dropped: normalizeRelevanceItems(source.dropped),
+    completeness: ['complete', 'partial', 'unknown'].includes(completeness) ? completeness : 'unknown',
+    conclusion: oneLine(source.conclusion || '', 700)
+  };
+}
+
 function answerPayload(analysis = {}, useKnowledge = true) {
   const probe = analysis?.probe || {};
   const knowledge = useKnowledge ? (analysis?.knowledge || {}) : skippedKnowledge(probe, 'answer_variant_without_knowledge');
@@ -503,25 +596,8 @@ function answerPayload(analysis = {}, useKnowledge = true) {
   };
 }
 
-export async function generateSubscriberReply({
-  transcript = [],
-  latestCustomer = {},
-  analysis = {},
-  useKnowledge = true,
-  behavior = {},
-  capabilities = { billing: false, userside: false, network: false },
-  meterContext = {}
-} = {}) {
-  const runtime = await readAiRuntimeConfig();
-  const apiKey = String(runtime.groqApiKey || '').trim();
-  if (!apiKey) throw new Error('Groq API key is not configured');
-  const profile = behaviorProfile(behavior);
-  const dialogue = transcriptForProbe(transcript);
-  const grounded = answerPayload(analysis, useKnowledge);
-  const messages = [
-    {
-      role: 'system',
-      content: `Ты формируешь ответ абоненту как оператор интернет-провайдера SIMNET. Это лабораторный режим: нужно показать, как будущий оператор ответил бы сейчас, но нельзя изображать выполненную проверку, которой не было.
+function replySchemaPrompt(profile, capabilities) {
+  return `Ты формируешь ответ абоненту как оператор интернет-провайдера SIMNET. Это лабораторный режим: нужно показать, как будущий оператор ответил бы сейчас, но нельзя изображать выполненную проверку, которой не было.
 
 Главное — естественный полезный ответ человеку на языке разговора. Не показывай внутренние JSON-поля, названия стадий AI, chain-of-thought или скрытые рассуждения.
 
@@ -534,6 +610,14 @@ export async function generateSubscriberReply({
 - если для точного ответа нужны live-данные конкретного абонента, явно не придумывай их. Сформулируй, что именно нужно проверить/уточнить. Если это блокирует полноценный ответ, допустимо кратко сказать, что в текущем лабораторном режиме live-данные не подключены;
 - не добавляй «обычную практику отрасли» как замену отсутствующему правилу SIMNET;
 - не теряй незакрытый вопрос клиента только потому, что в конце сообщения есть «спасибо», «уже работает» или другая социальная реплика.
+
+ANSWER RELEVANCE GATE — обязательный фильтр перед reply:
+1. Возьми главный текущий unresolved request / what_user_wants.
+2. Для каждого доступного факта спроси: «Этот факт прямо помогает ответить на текущий вопрос или выполнить просьбу?»
+3. Если нет — не показывай факт клиенту, даже если он подтверждён и уже есть в Billing/KB.
+4. Для сравнительного запроса применяй условие сравнения. Например, при запросе «дешевле» варианты с большей или равной ценой не являются ответом и не должны перечисляться как варианты понижения.
+5. Если источник не гарантирует полный перечень возможных вариантов, не делай абсолютный вывод «такого нет». Формулируй границу: «в доступных подтверждённых данных не найдено» и при необходимости укажи, что ещё следует проверить.
+6. Не выгружай адрес, тип подключения, статус услуги, трафик, баланс, более дорогие тарифы и другие соседние данные только потому, что они пришли вместе с нужным полем.
 
 Поведенческий профиль 0–100 влияет на МАНЕРУ и выбор полезного следующего шага, но никогда не ослабляет правила правдивости:
 - Решительность ${profile.confidenceStyle}: чем выше, тем прямее формулируй рабочий вывод при достаточных основаниях; при низком значении чаще обозначай неопределённость.
@@ -553,6 +637,13 @@ Capabilities сейчас: Billing=${capabilities.billing ? 'ON' : 'OFF'}, UserS
   "verification_needed":["что требует проверки перед утверждением"],
   "next_step_offered":"какой следующий шаг предложен; пусто если нет",
   "basis":["dialogue","knowledge:article.id"],
+  "answer_relevance":{
+    "request":"какой конкретно вопрос/просьбу сейчас закрываем",
+    "kept":[{"fact":"факт, который идёт в ответ","source":"dialogue|knowledge:...|tool:...","reason":"почему он прямо отвечает на запрос"}],
+    "dropped":[{"fact":"доступный, но неиспользованный факт","source":"...","reason":"почему он не отвечает на текущий запрос"}],
+    "completeness":"complete|partial|unknown",
+    "conclusion":"короткий вывод после фильтра"
+  },
   "behavior_effects":{
     "directness":"как профиль повлиял на прямоту ответа",
     "clarification":"почему задано/не задано уточнение",
@@ -560,8 +651,26 @@ Capabilities сейчас: Billing=${capabilities.billing ? 'ON' : 'OFF'}, UserS
     "initiative":"почему предложен/не предложен следующий шаг",
     "brevity":"как выбран объём"
   }
-}`
-    },
+}`;
+}
+
+export async function generateSubscriberReply({
+  transcript = [],
+  latestCustomer = {},
+  analysis = {},
+  useKnowledge = true,
+  behavior = {},
+  capabilities = { billing: false, userside: false, network: false },
+  meterContext = {}
+} = {}) {
+  const runtime = await readAiRuntimeConfig();
+  const apiKey = String(runtime.groqApiKey || '').trim();
+  if (!apiKey) throw new Error('Groq API key is not configured');
+  const profile = behaviorProfile(behavior);
+  const dialogue = transcriptForProbe(transcript);
+  const grounded = answerPayload(analysis, useKnowledge);
+  const messages = [
+    { role: 'system', content: replySchemaPrompt(profile, capabilities) },
     {
       role: 'user',
       content: JSON.stringify({
@@ -573,10 +682,11 @@ Capabilities сейчас: Billing=${capabilities.billing ? 'ON' : 'OFF'}, UserS
       })
     }
   ];
-  const response = await requestJsonWithFallback(messages, runtime, { ...meterContext, stage: useKnowledge ? 'reply_with_knowledge' : 'reply_without_knowledge' }, { maxTokens: 700, temperature: 0.2 });
-  const raw = parseJsonObject(response.answer);
+  const response = await requestJsonWithFallback(messages, runtime, { ...meterContext, stage: useKnowledge ? 'reply_with_knowledge' : 'reply_without_knowledge' }, { maxTokens: 1000, temperature: 0.2 });
+  const raw = response.parsed || parseJsonObject(response.answer);
   const reply = block(raw?.reply || '', 2200);
   if (!reply) throw new Error('Semantic reply: model returned an empty reply');
+  const fallbackRequest = analysis?.probe?.unresolvedRequests?.[0] || analysis?.probe?.whatUserWants || '';
   return {
     reply,
     subscriberDataNeeded: normalizeDataNeeds(raw?.subscriber_data_needed),
@@ -585,11 +695,67 @@ Capabilities сейчас: Billing=${capabilities.billing ? 'ON' : 'OFF'}, UserS
     verificationNeeded: stringList(raw?.verification_needed, 8, 360),
     nextStepOffered: oneLine(raw?.next_step_offered || '', 500),
     basis: stringList(raw?.basis, 10, 160),
+    answerRelevance: normalizeAnswerRelevance(raw?.answer_relevance, fallbackRequest),
     behaviorEffects: normalizeBehaviorEffects(raw?.behavior_effects),
     behavior: profile,
     model: response.model,
     usage: response.usage || {},
-    rateLimit: response.rateLimit || {}
+    rateLimit: response.rateLimit || {},
+    finishReason: response.finishReason || ''
+  };
+}
+
+export async function generateCleanModelReply({
+  transcript = [],
+  latestCustomer = {},
+  behavior = {},
+  meterContext = {}
+} = {}) {
+  const runtime = await readAiRuntimeConfig();
+  const apiKey = String(runtime.groqApiKey || '').trim();
+  if (!apiKey) throw new Error('Groq API key is not configured');
+  const profile = behaviorProfile(behavior);
+  const dialogue = transcriptForProbe(transcript);
+  const messages = [
+    {
+      role: 'system',
+      content: `Ты оператор первой линии обычного интернет-провайдера и отвечаешь человеку в живом чате. У тебя НЕТ внутренней базы SIMNET, НЕТ Billing/UserSide/сетевых tools, НЕТ списка тарифов, цен, внутренних процедур и специальных правил компании. Не притворяйся, что знаешь их.
+
+Пойми реплику по смыслу и ответь естественно. Можно использовать только сам диалог и общие знания о работе интернет-провайдера. Если вопрос требует конкретных внутренних данных компании или данных конкретного договора, честно обозначь, чего именно не хватает, без выдумывания.
+
+Не показывай внутренние рассуждения. Ответ обычно 1–3 коротких предложения. Краткость=${profile.brevity}, инициативность=${profile.initiative}, любопытство=${profile.curiosity}.
+
+Верни только JSON:
+{
+  "reply":"ответ человеку",
+  "unresolved_requests":["что осталось незакрыто"],
+  "clarification_questions":["вопросы, реально заданные в reply"],
+  "verification_needed":["какие внутренние данные потребовались бы"],
+  "answer_relevance":{"request":"что спросили","kept":[{"fact":"что использовано из диалога","source":"dialogue","reason":"почему релевантно"}],"dropped":[],"completeness":"complete|partial|unknown","conclusion":"короткий вывод"}
+}`
+    },
+    { role: 'user', content: JSON.stringify({ dialogue, latest_customer_message: block(latestCustomer?.text || '', 1200) }) }
+  ];
+  const response = await requestJsonWithFallback(messages, runtime, { ...meterContext, stage: 'clean_model_reply' }, { maxTokens: 900, temperature: 0.25 });
+  const raw = response.parsed || parseJsonObject(response.answer);
+  const reply = block(raw?.reply || '', 2200);
+  if (!reply) throw new Error('Clean model reply: model returned an empty reply');
+  return {
+    reply,
+    subscriberDataNeeded: [],
+    unresolvedRequests: stringList(raw?.unresolved_requests, 8, 420),
+    clarificationQuestions: stringList(raw?.clarification_questions, profile.maxFollowUpQuestions, 360),
+    verificationNeeded: stringList(raw?.verification_needed, 8, 360),
+    nextStepOffered: '',
+    basis: ['dialogue', 'clean-model'],
+    answerRelevance: normalizeAnswerRelevance(raw?.answer_relevance, latestCustomer?.text || ''),
+    behaviorEffects: {},
+    behavior: profile,
+    model: response.model,
+    usage: response.usage || {},
+    rateLimit: response.rateLimit || {},
+    finishReason: response.finishReason || '',
+    cleanModel: true
   };
 }
 
