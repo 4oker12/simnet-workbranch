@@ -18,7 +18,7 @@ test('canonical autonomous instruction generated artifact exactly matches MD sou
   assert.equal(AUTONOMOUS_OPERATOR_INSTRUCTION_SHA256, expectedHash, 'instruction hash must identify exact canonical content');
   assert.deepEqual(AUTONOMOUS_OPERATOR_INSTRUCTION_META, {
     name: 'AUTONOMOUS_OPERATOR',
-    version: 1,
+    version: 2,
     hash: expectedHash
   });
 });
@@ -33,6 +33,16 @@ test('canonical instruction protects model reasoning without allowing invented l
   assert.match(md, /UNKNOWN != NO/i);
   assert.match(md, /ok=false.*NOT_FOUND.*DATA_NOT_AVAILABLE.*не превращаются автоматически в `NO`/is);
   assert.match(md, /Предыдущий ответ AI не является новым источником истины/i);
+});
+
+test('reason-first is a global invariant rather than a finance-specific exception', () => {
+  assert.match(md, /KNOWN FACTS → REASON FIRST/i);
+  assert.match(md, /READ MORE ONLY WHEN NECESSARY/i);
+  assert.match(md, /логическим, арифметическим, техническим или семантическим выводом/i);
+  assert.match(md, /Не запрашивай новые данные только потому, что теоретически может существовать неизвестное исключение/i);
+  assert.match(md, /Гипотетическая скидка, особое условие, редкий сценарий, возможная неисправность.*не являются причиной блокировать прямой вывод/is);
+  assert.match(md, /Новый READ или уточняющий вопрос нужен только тогда, когда отсутствует конкретный факт/i);
+  assert.match(md, /Эти примеры иллюстрируют общий принцип и не являются отдельными сценариями/i);
 });
 
 test('central instruction stays a protected system message separate from local stage work', () => {
