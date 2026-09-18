@@ -1,20 +1,21 @@
 // SIMNET source semantics live here, not in the language model's prompt.
 // Durations are cache policy, not claims about CRM update frequency.
-const billing = (path, type = 'text') => ({ source: 'customer.snapshot', path, type, ttlMs: 120000 });
+const billingMain = (path, type = 'text') => ({ source: 'billing.main', path, type, ttlMs: 120000 });
+const billingTechnical = (path, type = 'text') => ({ source: 'billing.technical', path, type, ttlMs: 900000 });
 export const FACT_CATALOG = Object.freeze({
-  accountBalance: billing('finance.accountBalance', 'money'),
-  monthlyTotal: billing('finance.totalDue', 'money'),
-  balanceAfterCurrentPeriod: billing('finance.balanceAfterTariff', 'money'),
-  currentTariff: billing('service.currentTariff'),
-  nextTariff: billing('service.nextTariff', 'optionalText'),
-  nextTariffPrice: billing('service.nextTariffPrice', 'money'),
-  activeServicesTotal: billing('service.activeServicesTotal', 'money'),
-  group: billing('service.group'),
-  accessState: billing('service.accessState'),
-  serviceState: billing('service.serviceState'),
-  startDay: billing('service.startDay', 'number'),
-  accessTechnology: billing('service.connectionFamily'),
-  nextChargeAt: billing('finance.nextChargeAt'),
+  accountBalance: billingMain('finance.accountBalance', 'money'),
+  monthlyTotal: billingMain('finance.totalDue', 'money'),
+  balanceAfterCurrentPeriod: billingMain('finance.balanceAfterTariff', 'money'),
+  currentTariff: billingMain('service.currentTariff'),
+  nextTariff: billingMain('service.nextTariff', 'optionalText'),
+  nextTariffPrice: billingMain('service.nextTariffPrice', 'money'),
+  activeServicesTotal: billingMain('service.activeServicesTotal', 'money'),
+  group: billingMain('service.group'),
+  accessState: billingMain('service.accessState'),
+  serviceState: billingMain('service.serviceState'),
+  startDay: billingMain('service.startDay', 'number'),
+  accessTechnology: billingTechnical('technical.technology'),
+  nextChargeAt: billingMain('finance.nextChargeAt'),
   payments: { source: 'billing.payments', path: 'payments', type: 'array', ttlMs: 120000 },
   sessionStatus: { source: 'network.session', path: 'status', type: 'text', ttlMs: 45000 },
   onuStatus: { source: 'pon.onu', path: 'status', type: 'text', ttlMs: 60000 }
@@ -67,8 +68,8 @@ export function ingestFacts(store, result, caseId, now, invalidatedAt = 0) {
   if (!result?.ok || !caseId) return store;
   const data = result.data || {};
   // A cached adapter read does not make the observation newer.
-  const timestamp = result.tool === 'customer.snapshot' && data.evidence
-    ? data.evidence.observedAt || data.evidence.billingSnapshotObservedAt || ''
+  const timestamp = ['customer.snapshot', 'billing.main'].includes(result.tool) && data.evidence
+    ? data.evidence.observedAt || data.evidence.billingSnapshotObservedAt || data.observedAt || ''
     : data.observedAt ?? result.observedAt;
   const sourceObservedAt = Date.parse(timestamp || '');
   for (const [name, spec] of Object.entries(FACT_CATALOG)) {
