@@ -343,18 +343,63 @@ export function ensureNonEmptyReply(reply, analysis = {}, toolTrace = []) {
   return block(reply, 2200) || fallbackFromAnalysis(analysis, toolTrace);
 }
 
+function pickData(data = {}, keys = []) {
+  const source = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  const output = {};
+  for (const key of keys) {
+    if (source[key] !== undefined && source[key] !== null && source[key] !== '') output[key] = compactObject(source[key]);
+  }
+  return output;
+}
+
+function synthesisEvidenceData(item = {}) {
+  const data = item?.data && typeof item.data === 'object' && !Array.isArray(item.data) ? item.data : {};
+  if (item?.tool === 'customer.lookup') {
+    const candidate = data.candidate && typeof data.candidate === 'object' ? data.candidate : {};
+    return {
+      ...pickData(data, ['count', 'requiresConfirmation', 'searchMode']),
+      ...(Object.keys(candidate).length ? { candidate: pickData(candidate, ['caseId', 'billingId', 'contract', 'login', 'address', 'ip']) } : {})
+    };
+  }
+  if (item?.tool === 'billing.balance') {
+    return pickData(data, [
+      'accountBalance', 'balanceAfterTariff', 'balanceWithoutTemporary', 'temporaryPayment',
+      'price', 'priceSemantics', 'totalDue', 'totalDueSemantics', 'currentTariff'
+    ]);
+  }
+  if (item?.tool === 'billing.tariff') {
+    return pickData(data, [
+      'currentTariff', 'tariffDisplay', 'tariffId', 'nextTariff', 'nextTariffDelay',
+      'price', 'priceSemantics', 'totalDue', 'totalDueSemantics', 'group'
+    ]);
+  }
+  if (item?.tool === 'billing.payments') return pickData(data, ['payments', 'count']);
+  if (item?.tool === 'customer.confirm') return pickData(data, ['confirmedCaseId', 'confirmedSubscriber', 'confirmed']);
+  return compactObject(data);
+}
+
 function synthesisMessages({ transcript = [], latestCustomer = {}, analysis = {}, draft = {}, toolTrace = [], useKnowledge = true } = {}) {
   const dialogue = (Array.isArray(transcript) ? transcript : []).slice(-14).map(item => ({ role: item?.role === 'customer' ? 'customer' : 'operator', text: block(item?.text, 700) })).filter(item => item.text);
-  const evidence = toolTrace.map(item => ({ tool: item.tool, ok: item.ok, code: item.code, observed_at: item.observedAt, source: item.source, data: item.data, warnings: item.warnings }));
+  const evidence = toolTrace.map(item => ({
+    tool: item.tool,
+    requested_by: compactObject(item.requestedBy || {}),
+    ok: item.ok,
+    code: item.code,
+    observed_at: item.observedAt,
+    source: item.source,
+    data: synthesisEvidenceData(item),
+    warnings: item.warnings
+  }));
   const stageInstruction = `ЭТАП: TOOL EVIDENCE SYNTHESIS.
 
-READ-only проверки уже выполнены. Сформируй естественный полезный ответ на исходный вопрос абонента, используя dialogue, internal_knowledge, draft и tool_evidence как evidence.
+READ-only проверки уже выполнены. Сформируй естественный полезный ответ на исходный вопрос абонента, используя dialogue, internal_knowledge и tool_evidence как evidence. draft_reply может быть пустым: для live-запросов это нормально, потому что ответ специально не генерируется до получения фактов.
 
 Сначала рассуждай по уже имеющимся фактам. Если их достаточно для прямого логического, арифметического, технического или семантического вывода, дай этот вывод. Не создавай новые требования к данным из-за гипотетического исключения или сценария «а вдруг».
 
 Правила источников:
 - tool_evidence с ok=true подтверждает только реально возвращённые поля;
-- source=billing-live-read-only — свежая READ-проверка Billing;
+- requested_by показывает, ради какого факта был сделан READ; соседние возвращённые поля не обязаны попадать в ответ;
+- source=billing-live-read-only и source=billing-main-live-read-only — свежая READ-проверка Billing;
 - source=userside-live-read-only — свежая READ-проверка UserSide;
 - source=userside-building-snapshot-local — сохранённая карточка здания; учитывай snapshotGeneratedAt/snapshotComplete;
 - ok=false означает только «проверить не удалось/нет данных в этом источнике», а не отрицательный факт;
@@ -362,6 +407,7 @@ READ-only проверки уже выполнены. Сформируй ест�
 - слова клиента/оператора не превращай в системный факт;
 - конкретные внутренние тарифы/правила SIMNET бери из переданного internal_knowledge/live evidence, а общие знания используй для их интерпретации;
 - subscriber_data_needed оставляй только для конкретного факта, без которого действительно нельзя закрыть существенную часть запроса;
+- отвечай только на текущий запрос: не перечисляй договор, access/service state, тип подключения или другие соседние поля только потому, что tool их вернул;
 - не теряй исходный вопрос клиента;
 - reply обязан быть непустым.
 
@@ -410,13 +456,14 @@ export async function groundSubscriberReply({ draft = {}, transcript = [], lates
   const needs = normalizeDataNeeds(draft?.subscriberDataNeeded);
   const cycle = await executeInformationNeeds({ needs, transcript, analysis, labState, execute });
   const hasToolActivity = cycle.trace.length > 0;
-  const safeDraft = ensureNonEmptyReply(draft?.reply, analysis, cycle.trace);
+  const rawDraftReply = block(draft?.reply, 2200);
+  const safeDraft = ensureNonEmptyReply(rawDraftReply, analysis, cycle.trace);
   if (!hasToolActivity) {
     return { ...draft, reply: safeDraft, subscriberDataNeeded: needs, toolTrace: [], toolEvidence: [], degraded: Boolean(draft?.degraded), degradationReason: oneLine(draft?.degradationReason, 500), toolState: cycle.labState };
   }
   try {
     const response = await requestSynthesis(
-      synthesisMessages({ transcript, latestCustomer, analysis, draft: { ...draft, reply: safeDraft }, toolTrace: cycle.trace, useKnowledge }),
+      synthesisMessages({ transcript, latestCustomer, analysis, draft: { ...draft, reply: rawDraftReply }, toolTrace: cycle.trace, useKnowledge }),
       { ...meterContext, stage: 'tool_synthesis' }
     );
     const normalized = normalizeSynthesis(parseJsonObject(response.answer), draft);
