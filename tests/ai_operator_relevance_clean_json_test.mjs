@@ -144,7 +144,8 @@ test('Lab exposes CLEAN MODEL and records the relevance filter in the ordered tr
   assert.match(background, /answer_relevance/);
   assert.match(ui, /clean: 'CLEAN MODEL'/);
   assert.match(ui, /MODEL: CLEAN/);
-  assert.match(ui, /без SIMNET KB, tool manifest и live READ-tools/);
+  assert.match(ui, /CLEAN MODEL · без внутреннего контекста SIMNET/);
+  assert.match(ui, /Энциклопедия, Billing\/UserSide\/Network tools, tool manifest и специальные правила SIMNET не передаются модели/);
 
   const facts = trace.indexOf("'ФАКТЫ'");
   const filter = trace.indexOf("'ФИЛЬТР ОТВЕТА'");
