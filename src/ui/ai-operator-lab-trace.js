@@ -4,7 +4,7 @@
   const TRACE_ID = 'aiLabLinearTrace';
   const STYLE_ID = 'aiLabLinearTraceStyle';
   const TOOL_HINT_RE = /\b(customer\.lookup|customer\.confirm|customer\.snapshot|billing\.balance|billing\.tariff|billing\.payments|userside\.snapshot|network\.session|pon\.onu|pon\.signal)\b/i;
-  const IMPORTANT_JSON_KEYS = new Set(['field', 'why', 'tool', 'ok', 'code', 'source', 'data', 'requestedBy', 'system']);
+  const IMPORTANT_JSON_KEYS = new Set(['field', 'why', 'tool', 'ok', 'code', 'source', 'data', 'requestedBy', 'system', 'request', 'kept', 'dropped', 'completeness', 'conclusion']);
   const FACT_KEYS = new Set([
     'billingId', 'contract', 'login', 'address', 'fullName', 'connectionFamily',
     'accountBalance', 'balanceAfterTariff', 'balanceWithoutTemporary', 'temporaryPayment', 'price', 'totalDue',
@@ -66,12 +66,15 @@
       .ai-trace-body{min-width:0;color:#243044;font-size:10px;line-height:1.5}.ai-trace-body b{color:#172033}.ai-trace-body .muted{color:#7b8798}
       .ai-trace-step.intent .ai-trace-index{background:#ede9fe;color:#6d28d9}.ai-trace-step.need .ai-trace-index{background:#e0f2fe;color:#0369a1}
       .ai-trace-step.tool .ai-trace-index{background:#dbeafe;color:#1d4ed8}.ai-trace-step.fact .ai-trace-index{background:#dcfce7;color:#166534}
-      .ai-trace-step.verify .ai-trace-index{background:#fef3c7;color:#92400e}.ai-trace-step.answer .ai-trace-index{background:#fbe7ef;color:#8c1646}
+      .ai-trace-step.relevance .ai-trace-index{background:#fce7f3;color:#9d174d}.ai-trace-step.verify .ai-trace-index{background:#fef3c7;color:#92400e}.ai-trace-step.answer .ai-trace-index{background:#fbe7ef;color:#8c1646}
       .ai-trace-line{margin:1px 0}.ai-trace-chip{display:inline-block;margin:2px 4px 2px 0;padding:2px 5px;border-radius:6px;background:#f2f5f8;color:#475569;font:700 9px ui-monospace,monospace}
       .ai-trace-chip.ok{background:#ecfdf3;color:#067647}.ai-trace-chip.bad{background:#fff1f1;color:#b42318}.ai-trace-chip.warn{background:#fff7e6;color:#9a6700}
       .ai-trace-mismatch{margin-top:5px;padding:6px 8px;border:1px solid #f7b4b4;border-radius:7px;background:#fff5f5;color:#b42318;font:800 9px/1.4 ui-monospace,monospace}
       .ai-trace-tools{display:grid;gap:5px}.ai-trace-tool{padding:6px 8px;border:1px solid #dbe4ef;border-radius:8px;background:#f8fbff}
       .ai-trace-tool-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.ai-trace-tool-head strong{font:800 10px ui-monospace,monospace}
+      .ai-trace-filter{display:grid;gap:6px}.ai-trace-filter-group{padding:6px 8px;border-radius:8px;border:1px solid #e6ebf1;background:#fafbfc}
+      .ai-trace-filter-group.keep{border-color:#b7e3c6;background:#f4fbf6}.ai-trace-filter-group.drop{border-color:#f4c9c9;background:#fff8f8}
+      .ai-trace-filter-item{margin:3px 0}.ai-trace-filter-reason{color:#64748b;margin-left:4px}
       .ai-trace-raw{margin-top:5px}.ai-trace-raw>summary{cursor:pointer;color:#64748b;font:700 9px ui-monospace,monospace}
       .ai-trace-json{margin:5px 0 0;padding:7px 8px;max-height:280px;overflow:auto;border:1px solid #e6ebf1;border-radius:7px;background:#fbfcfd;font:9px/1.45 ui-monospace,monospace;white-space:pre-wrap;word-break:break-word}
       .ai-trace-json-line{display:block}.ai-trace-json-line.key-intent{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#fff4db;color:#8a4b00;font-weight:800}
@@ -79,6 +82,7 @@
       .ai-trace-json-line.key-status{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#ecfdf3;color:#067647;font-weight:800}
       .ai-trace-json-line.key-source{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#f3e8ff;color:#6b21a8;font-weight:800}
       .ai-trace-json-line.key-data{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#f0f9ff;color:#075985;font-weight:800}
+      .ai-trace-json-line.key-relevance{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#fdf2f8;color:#9d174d;font-weight:800}
       .ai-trace-history-label{margin:10px 0 5px;color:#8a95a5;font:800 8px ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase}
       @media(max-width:760px){.ai-trace-step{grid-template-columns:26px 88px minmax(0,1fr)}}
     `;
@@ -100,6 +104,7 @@
         else if (key === 'ok' || key === 'code') span.classList.add('key-status');
         else if (key === 'source') span.classList.add('key-source');
         else if (key === 'data') span.classList.add('key-data');
+        else span.classList.add('key-relevance');
       }
       pre.append(span, document.createTextNode('\n'));
     }
@@ -123,9 +128,14 @@
     return wrap;
   }
 
-  function contextLines(state = {}, probe = {}) {
+  function contextLines(state = {}, probe = {}, experiment = {}) {
     const subscriber = state?.toolState?.confirmedSubscriber || {};
     const result = [];
+    if (experiment?.knowledgeMode === 'clean') {
+      result.push('CLEAN MODEL: без SIMNET KB, tool manifest и live READ-tools.');
+      if (probe.refersTo) result.push(`Связь с диалогом: ${probe.refersTo}`);
+      return result;
+    }
     if (subscriber.contract) result.push(`Договор: ${subscriber.contract}`);
     if (subscriber.login) result.push(`Login: ${subscriber.login}`);
     if (subscriber.address) result.push(`Адрес: ${subscriber.address}`);
@@ -219,6 +229,56 @@
     return wrap;
   }
 
+  function relevanceNode(variant = {}) {
+    const relevance = variant?.answerRelevance || {};
+    const gate = variant?.relevanceGate || null;
+    const wrap = create('div', 'ai-trace-filter');
+    if (relevance.request) {
+      const request = create('div', 'ai-trace-line');
+      request.append(create('b', '', 'Запрос: '), document.createTextNode(relevance.request));
+      wrap.append(request);
+    }
+
+    const kept = Array.isArray(relevance.kept) ? relevance.kept : [];
+    const dropped = Array.isArray(relevance.dropped) ? relevance.dropped : [];
+
+    if (kept.length) {
+      const group = create('div', 'ai-trace-filter-group keep');
+      group.append(create('b', '', `ИСПОЛЬЗОВАНО (${kept.length})`));
+      for (const item of kept) {
+        const row = create('div', 'ai-trace-filter-item');
+        row.append(create('span', 'ai-trace-chip ok', 'KEEP'), document.createTextNode(` ${short(item?.fact || '', 300)}`));
+        if (item?.source) row.append(create('span', 'ai-trace-chip', item.source));
+        if (item?.reason) row.append(create('span', 'ai-trace-filter-reason', `— ${short(item.reason, 320)}`));
+        group.append(row);
+      }
+      wrap.append(group);
+    }
+
+    if (dropped.length) {
+      const group = create('div', 'ai-trace-filter-group drop');
+      group.append(create('b', '', `ОТБРОШЕНО (${dropped.length})`));
+      for (const item of dropped) {
+        const row = create('div', 'ai-trace-filter-item');
+        row.append(create('span', 'ai-trace-chip bad', 'DROP'), document.createTextNode(` ${short(item?.fact || '', 300)}`));
+        if (item?.source) row.append(create('span', 'ai-trace-chip', item.source));
+        if (item?.reason) row.append(create('span', 'ai-trace-filter-reason', `— ${short(item.reason, 320)}`));
+        group.append(row);
+      }
+      wrap.append(group);
+    }
+
+    if (!kept.length && !dropped.length) {
+      const reason = gate?.reason || (gate?.degraded ? gate?.error : 'Модель не вернула детализацию kept/dropped.');
+      wrap.append(create('div', 'ai-trace-line muted', `Детализация фильтра отсутствует${reason ? `: ${short(reason, 320)}` : '.'}`));
+    }
+
+    if (relevance.completeness) wrap.append(create('span', `ai-trace-chip ${relevance.completeness === 'complete' ? 'ok' : 'warn'}`, `Полнота: ${relevance.completeness}`));
+    if (relevance.conclusion) wrap.append(create('div', 'ai-trace-line', `Вывод фильтра: ${relevance.conclusion}`));
+    wrap.append(jsonBlock({ answerRelevance: relevance, gate }));
+    return wrap;
+  }
+
   function verifyNode(variant = {}, toolTrace = []) {
     const wrap = create('div');
     const warnings = [];
@@ -242,6 +302,7 @@
     const okTools = toolTrace.filter(item => item?.ok).length;
     const failedTools = toolTrace.length - okTools;
     const unresolved = asArray(variant?.unresolvedRequests).length + asArray(variant?.verificationNeeded).length;
+    const relevanceConclusion = short(variant?.answerRelevance?.conclusion || '', 360);
     if (variant?.degraded) {
       wrap.append(create('span', 'ai-trace-chip bad', 'DEGRADED'));
       if (variant?.degradationReason) wrap.append(document.createTextNode(` ${short(variant.degradationReason, 360)}`));
@@ -251,6 +312,7 @@
     } else {
       wrap.append(create('span', 'ai-trace-chip ok', toolTrace.length ? `Подтверждено tools: ${okTools}/${toolTrace.length}` : 'Live-проверки не требовались'));
     }
+    if (relevanceConclusion) wrap.append(create('div', 'ai-trace-line', `По релевантности: ${relevanceConclusion}`));
     const next = short(variant?.nextStepOffered || '', 260);
     if (next) wrap.append(create('div', 'ai-trace-line', `Следующий шаг: ${next}`));
     return wrap;
@@ -271,7 +333,7 @@
     root.id = TRACE_ID;
     const head = create('div', 'ai-trace-head');
     head.append(create('strong', '', 'ЦЕПОЧКА ПОСЛЕДНЕГО ХОДА'));
-    head.append(create('span', '', `${Math.round(Number(probe?.confidence || 0) * 100)}% semantic · ${toolTrace.length} tool · ${Number(experiment?.elapsedMs || 0)} ms`));
+    head.append(create('span', '', `${experiment?.knowledgeMode === 'clean' ? 'CLEAN · ' : ''}${Math.round(Number(probe?.confidence || 0) * 100)}% semantic · ${toolTrace.length} tool · ${Number(experiment?.elapsedMs || 0)} ms`));
     root.append(head);
 
     const list = create('div', 'ai-trace-list');
@@ -287,11 +349,12 @@
       latestMessageMeans: probe?.latestMessageMeans || '',
       underlyingGoal: probe?.underlyingGoal || '',
       refersTo: probe?.refersTo || '',
-      confidence: probe?.confidence || 0
+      confidence: probe?.confidence || 0,
+      semanticDiagnostics: experiment?.analysis?.semanticDiagnostics || {}
     }));
     list.append(step(index++, 'ПОНЯЛ', understood, 'intent'));
 
-    const context = contextLines(state, probe);
+    const context = contextLines(state, probe, experiment);
     const kbArticles = asArray(knowledge?.usedArticles).map(item => typeof item === 'string' ? item : item?.id).filter(Boolean);
     if (kbArticles.length) context.push(`KB: ${kbArticles.join(', ')}`);
     if (context.length) list.append(step(index++, 'КОНТЕКСТ', lines(context), 'intent'));
@@ -305,6 +368,10 @@
       list.append(step(index++, 'ФАКТЫ', factsNode(toolTrace), 'fact'));
     }
 
+    if (variant?.answerRelevance || variant?.relevanceGate) {
+      list.append(step(index++, 'ФИЛЬТР ОТВЕТА', relevanceNode(variant), 'relevance'));
+    }
+
     list.append(step(index++, 'ПРОВЕРКА', verifyNode(variant, toolTrace), 'verify'));
     list.append(step(index++, 'ВЫВОД', conclusionNode(variant, toolTrace), 'verify'));
 
@@ -315,7 +382,8 @@
       clarificationQuestions: variant?.clarificationQuestions || [],
       nextStepOffered: variant?.nextStepOffered || '',
       degraded: Boolean(variant?.degraded),
-      degradationReason: variant?.degradationReason || ''
+      degradationReason: variant?.degradationReason || '',
+      answerRelevance: variant?.answerRelevance || null
     }));
     list.append(step(index++, 'ОТВЕТ', answer, 'answer'));
 
