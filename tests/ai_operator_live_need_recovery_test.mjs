@@ -64,6 +64,14 @@ test('general tariff definition does not become a subscriber tariff READ', () =>
   assert.deepEqual(needs, []);
 });
 
+test('general balance definition does not become a subscriber Billing READ', () => {
+  const needs = recoverLiveDataNeeds({
+    analysis: { probe: { unresolvedRequests: ['что такое баланс на счете и как он работает?'] } },
+    draft: { subscriberDataNeeded: [], degraded: false }
+  });
+  assert.deepEqual(needs, []);
+});
+
 test('future payment recovers tariff evidence instead of payment-history lookup', () => {
   const needs = recoverLiveDataNeeds({
     analysis: { probe: { unresolvedRequests: ['сколько платить в следующем месяце?'] } },
