@@ -16,6 +16,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Autonomous AI reasoning regression
+        shell: bash
+        run: |
+          node --test \
+            tests/ai_operator_live_need_semantic_first_test.mjs \
+            tests/ai_operator_evidence_first_orchestration_test.mjs \
+            tests/ai_operator_confirmed_facts_recovery_test.mjs \
+            tests/ai_operator_final_synthesis_boundary_test.mjs \
+            tests/ai_operator_live_recovery_contract_test.mjs \
+            tests/ai_operator_understanding_evidence_plan_test.mjs
       - name: Run npm test
         shell: bash
         run: |
