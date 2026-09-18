@@ -1,6 +1,7 @@
 import { recordApiUsage } from './api-cost.js';
 import { AI_CONFIG, readAiRuntimeConfig } from '../../config/ai-config.js';
 import { AI_OPERATOR_GENERATION_MODEL_POOL } from './semantic-probe.js';
+import { autonomousOperatorSystemMessages } from './instructions/autonomous-operator-instruction.generated.js';
 
 function oneLine(value, max = 600) {
   const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
@@ -134,6 +135,12 @@ function evidencePayload(toolTrace = []) {
   }));
 }
 
+function looksLikeDegradedFallback(reply = '') {
+  const text = oneLine(reply, 2200).toLowerCase();
+  if (!text) return true;
+  return /(?:не удалось (?:получить подтвержд[её]нные данные|сформировать|корректно сформировать)|попробуйте(?:, пожалуйста,)? (?:отправить запрос|повторить)|не буду придумывать ответ)/iu.test(text);
+}
+
 export async function applyAnswerRelevanceGate({
   reply = '',
   analysis = {},
@@ -152,8 +159,9 @@ export async function applyAnswerRelevanceGate({
     text: block(item?.text || '', 600)
   }));
   const toolEvidence = evidencePayload(toolTrace);
+  const degradedFallback = looksLikeDegradedFallback(reply);
 
-  if (!request || (!toolEvidence.length && knowledge?.skipped)) {
+  if (!request || (!toolEvidence.length && knowledge?.skipped && !degradedFallback)) {
     return {
       reply: block(reply, 2200),
       answerRelevance: {
@@ -167,35 +175,43 @@ export async function applyAnswerRelevanceGate({
     };
   }
 
-  const messages = [
-    {
-      role: 'system',
-      content: `Ты выполняешь ПОСЛЕДНИЙ фильтр ответа оператора интернет-провайдера. Ты НЕ диагностируешь заново и НЕ ищешь новые факты. Перед тобой уже понятый запрос, подтверждённые внутренние знания, результаты READ-tools и черновой ответ.
+  const stageInstruction = `ЭТАП: ANSWER RELEVANCE + DEGRADED RECOVERY.
 
-Твоя задача — убрать из ответа всё, что не отвечает на текущий вопрос.
+Ты выполняешь последний фильтр ответа Autonomous AI Operator. Главная задача — сохранить прямой ответ на текущий вопрос и убрать действительно нерелевантное. Ты не переопределяешь фундаментальные правила знания из canonical instruction.
 
-ANSWER RELEVANCE GATE:
+КРИТИЧЕСКАЯ ГРАНИЦА:
+- Общеизвестные знания модели разрешены. Отсутствие статьи в SIMNET KB, tool-result или snapshot НЕ означает отсутствие знания и НЕ является причиной удалять общеизвестное объяснение.
+- Common knowledge может относиться к любой области, а не только к сетям: технической, математической, логической, бытовой, языковой, физической, географической и т.д.
+- Проверенное evidence обязательно для конкретных внутренних/live/SIMNET-фактов: текущего баланса/тарифа/сессии/ONU/покрытия конкретного адреса, актуальных цен/акций, внутренних правил или выполненных действий.
+- Не выдавай общую отраслевую практику за правило SIMNET. Но не превращай отсутствие правила SIMNET в запрет на независимый общеизвестный ответ.
+- Если draft_reply является аварийной заглушкой вида «не удалось получить подтверждённые данные / попробуйте повторить», а сам текущий вопрос можно достоверно закрыть общеизвестным знанием без SIMNET/live-фактов, исправь ложный отказ и дай нормальный короткий ответ из common knowledge.
+- Если вопрос действительно требует неизвестного SIMNET/live-факта, не придумывай его: сохрани честную границу UNKNOWN или необходимость проверки.
+
+ANSWER RELEVANCE:
 - Сначала зафиксируй request: какой конкретно вопрос/просьбу клиента сейчас нужно закрыть.
-- Каждый доступный факт либо kept, либо dropped. kept — только если факт прямо нужен для ответа. dropped — если он просто оказался рядом в snapshot/статье/tool result, но не помогает ответить.
+- Каждый доступный релевантный элемент может быть kept или dropped. Источник kept может быть dialogue, common_knowledge, reasoning, knowledge:... или tool:....
+- kept — только если элемент прямо нужен для ответа. dropped — если он просто оказался рядом и не помогает ответить.
 - Наличие факта в Billing/KB НЕ означает, что его надо сообщить.
-- Не добавляй в reply факты из dropped.
-- При сравнении соблюдай условие запроса. Если клиент просит БОЛЕЕ ДЕШЁВЫЙ вариант, более дорогие или равные по цене варианты не являются ответом и не должны перечисляться как варианты понижения. Аналогично для «быстрее», «меньше», «раньше» и других сравнений.
-- Не подменяй вопрос соседним: «хочу дешевле» не означает «расскажите текущий тариф, статус услуги, тип подключения и все тарифы».
-- Если подтверждённые источники не гарантируют исчерпывающий список, не говори категорично «вариантов нет». Граница должна быть видна: «в доступных подтверждённых данных не найдено» / «нужно проверить специальные условия».
-- Не выдумывай факты, цены, тарифы, результаты tools или правила.
+- Не добавляй в reply нерелевантные dropped-факты.
+- При сравнении соблюдай условие запроса. Если клиент просит БОЛЕЕ ДЕШЁВЫЙ вариант, более дорогие или равные по цене варианты не являются ответом. Аналогично для «быстрее», «меньше», «раньше» и других сравнений.
+- Не подменяй вопрос соседним.
+- Если внутренние источники не гарантируют исчерпывающий список внутренних вариантов, не говори категорично, что внутренних вариантов нет.
+- Не выдумывай live-факты, цены, тарифы, результаты tools или внутренние правила SIMNET.
 - Сохрани естественный человеческий ответ, обычно 1–3 предложения.
 - Не показывай клиенту названия tools, KB, JSON или внутреннюю механику.
 
 Верни только JSON:
 {
-  "reply":"финальный ответ клиенту после фильтра",
+  "reply":"финальный ответ клиенту после фильтра/восстановления",
   "request":"что именно клиент спрашивает сейчас",
-  "kept":[{"fact":"использованный факт","source":"dialogue|knowledge:...|tool:...","reason":"почему он нужен для ответа"}],
-  "dropped":[{"fact":"доступный, но отброшенный факт","source":"...","reason":"почему он не отвечает на запрос"}],
+  "kept":[{"fact":"использованный факт или общеизвестное знание","source":"dialogue|common_knowledge|reasoning|knowledge:...|tool:...","reason":"почему он нужен для ответа"}],
+  "dropped":[{"fact":"доступный, но отброшенный элемент","source":"...","reason":"почему он не отвечает на запрос"}],
   "completeness":"complete|partial|unknown",
   "conclusion":"короткий операционный вывод после фильтра"
-}`
-    },
+}`;
+
+  const messages = [
+    ...autonomousOperatorSystemMessages(stageInstruction),
     {
       role: 'user',
       content: JSON.stringify({
@@ -209,6 +225,7 @@ ANSWER RELEVANCE GATE:
           gaps: knowledge?.knowledgeGaps || []
         }, 5) : { skipped: true },
         tool_evidence: toolEvidence,
+        degraded_fallback: degradedFallback,
         draft_reply: block(reply, 1800)
       })
     }
