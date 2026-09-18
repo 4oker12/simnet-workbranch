@@ -26,7 +26,9 @@ function averageLegacy(values = [], fallback = 3) {
 
 export function normalizeLabBehavior(value = {}) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-  const hasNewProfile = ['naturalness', 'depth', 'initiative'].some(key => source[key] != null);
+  const legacyKeys = ['confidenceStyle', 'curiosity', 'skepticism', 'brevity', 'maxFollowUpQuestions'];
+  const hasLegacyProfile = legacyKeys.some(key => source[key] != null);
+  const hasNewProfile = !hasLegacyProfile && ['naturalness', 'depth'].some(key => source[key] != null);
 
   if (hasNewProfile) {
     return {
@@ -36,13 +38,17 @@ export function normalizeLabBehavior(value = {}) {
     };
   }
 
-  // v1 Lab migration. These values are translated once on read and are never
-  // written back as active controls again.
-  return {
-    naturalness: averageLegacy([source.confidenceStyle, source.brevity], DEFAULT_LAB_BEHAVIOR.naturalness),
-    depth: averageLegacy([source.curiosity, source.skepticism], DEFAULT_LAB_BEHAVIOR.depth),
-    initiative: legacyLevel(source.initiative, DEFAULT_LAB_BEHAVIOR.initiative)
-  };
+  // v1 Lab migration. `initiative` existed in both schemas, therefore legacy-only
+  // keys decide the shape before the shared initiative field is interpreted.
+  if (hasLegacyProfile) {
+    return {
+      naturalness: averageLegacy([source.confidenceStyle, source.brevity], DEFAULT_LAB_BEHAVIOR.naturalness),
+      depth: averageLegacy([source.curiosity, source.skepticism], DEFAULT_LAB_BEHAVIOR.depth),
+      initiative: legacyLevel(source.initiative, DEFAULT_LAB_BEHAVIOR.initiative)
+    };
+  }
+
+  return { ...DEFAULT_LAB_BEHAVIOR };
 }
 
 export function behaviorInstruction(profile = {}) {
