@@ -109,7 +109,7 @@ function compactPlannerTool(tool = {}) {
 const previousPlanner = impl.AI_OPERATOR_SOFT_TOOL_CAPABILITIES.toolPlanner || {};
 const TOOL_PLANNER = Object.freeze({
   ...previousPlanner,
-  version: 9,
+  version: 10,
   semanticFrameRule: 'Первый semantic understanding текущего хода является authoritative semantic frame. Knowledge, Billing, UserSide, Network и PON могут только добавить/проверить факты для уже понятого запроса. Последующие стадии не должны заново переопределять, о чём спросил клиент, если новый пользовательский текст не создал реальную неоднозначность.',
   replyStyleRule: 'Отвечай как живой оператор человеку в чате: сначала прямой ответ на вопрос, обычно 1–3 коротких предложения. Источники, названия статей, внутренние стадии, формулировки «по внутренней/подтверждённой информации», пересказ справочника и канцелярит клиенту не показывай. Объяснение добавляй только если оно реально помогает ответу.',
   instruction: `${String(previousPlanner.instruction || '')} billing.balance и billing.tariff читают один и тот же основной Billing DOM-блок table.tbg1.nav3.width100; если нужны оба набора фактов, считай это одним общим main-summary источником, а не двумя независимыми системами. При жалобе «нет интернета» после Billing-идентификации и проверки базового состояния услуги network.session является ранним рекомендуемым инструментом: он делает fresh-read агрегированной сессионной страницы Billing stat.pl a=252 и помогает быстро установить наличие/статус сессии, IP/MAC, время старта, последнее событие, ROUTER/VENDOR и VLAN. Отдельная реплика, содержащая договор или login, включая явно подписанный текстовый идентификатор вроде «Boxing договір», является идентификацией: сначала привяжи кейс через Billing customer.lookup и сохраняй эту привязку для следующих реплик. Если в более поздней реплике клиент явно сообщает ДРУГОЙ договор/login/IP/адрес, это переключение абонента: старую active-привязку нельзя использовать для новых персональных данных; сначала заново выполни Billing customer.lookup, и только успешный lookup устанавливает новый active subscriber. Внутренняя энциклопедия и live-tools имеют разные роли: общие правила/условия из KB можно и нужно сообщать без идентификации; идентификация требуется только для персональных live-фактов. Перед фразой «не хватает данных», «не знаю» или повторным вопросом клиенту обязательно проверь, не отвечает ли уже использованная внутренняя статья на общую часть вопроса. Первый semantic understanding текущего хода — authoritative: KB/tools добавляют факты к этому смыслу, а не запускают повторное переосмысление вопроса. Финальный ответ — обычная человеческая реплика оператора, а не отчёт о том, что система проверила.`,
@@ -397,19 +397,31 @@ function mergeUsage(primary = {}, secondary = {}) {
   };
 }
 
+function nonIdentityTrace(toolTrace = []) {
+  return (Array.isArray(toolTrace) ? toolTrace : []).filter(item => !['customer.lookup', 'customer.confirm'].includes(String(item?.tool || '')));
+}
+
+function allRequestedLiveFactsConfirmed(toolTrace = []) {
+  const requested = nonIdentityTrace(toolTrace);
+  return requested.length > 0 && requested.every(item => item?.ok);
+}
+
 export async function groundSubscriberReply(options = {}) {
   const { transcript = [], analysis = {}, labState = {}, execute, draft = {} } = options;
   const pre = await bootstrapStandaloneIdentity({ transcript, analysis, labState, execute });
   const delegated = await impl.groundSubscriberReply({ ...options, labState: pre.labState });
   const toolTrace = mergeTrace(pre.trace, delegated?.toolTrace);
   const toolEvidence = mergeTrace(pre.trace.filter(item => item?.ok), delegated?.toolEvidence);
-  const degraded = Boolean(draft?.degraded || delegated?.degraded);
-  const knowledgeReply = degraded ? knowledgeConsultationFallbackReply(analysis, transcript) : '';
-  const preliminaryReply = knowledgeReply
-    ? (toolEvidence.length && String(delegated?.reply || '').trim()
-      ? `${knowledgeReply}\n\n${String(delegated.reply).trim()}`
-      : knowledgeReply)
-    : delegated?.reply;
+  const generationDegraded = Boolean(draft?.degraded || delegated?.degraded);
+  const hasLiveToolActivity = toolTrace.length > 0;
+
+  // KB reflection may help a purely knowledge-based degraded turn, but it must
+  // never be auto-prepended once live READs are part of the turn. Tool evidence
+  // and KB have different roles; internal reflection is not subscriber copy.
+  const knowledgeReply = generationDegraded && !hasLiveToolActivity
+    ? knowledgeConsultationFallbackReply(analysis, transcript)
+    : '';
+  const preliminaryReply = knowledgeReply || delegated?.reply;
 
   const relevance = await applyAnswerRelevanceGate({
     reply: preliminaryReply,
@@ -421,6 +433,12 @@ export async function groundSubscriberReply(options = {}) {
     meterContext: options.meterContext || {}
   });
 
+  const recoveredFromGenerationFailure = Boolean(
+    generationDegraded
+    && relevance?.gate?.reason === 'deterministic_confirmed_facts_recovery'
+    && allRequestedLiveFactsConfirmed(toolTrace)
+  );
+
   return {
     ...delegated,
     reply: relevance.reply || preliminaryReply,
@@ -429,6 +447,11 @@ export async function groundSubscriberReply(options = {}) {
     usage: mergeUsage(delegated?.usage || {}, relevance?.gate?.usage || {}),
     toolTrace,
     toolEvidence,
+    degraded: recoveredFromGenerationFailure ? false : Boolean(delegated?.degraded || draft?.degraded),
+    degradationReason: recoveredFromGenerationFailure ? '' : String(delegated?.degradationReason || draft?.degradationReason || ''),
+    recoveredFromGenerationFailure,
+    generationDegraded,
+    generationDegradationReason: generationDegraded ? String(delegated?.degradationReason || draft?.degradationReason || '') : '',
     toolState: delegated?.toolState || pre.labState
   };
 }
