@@ -20,12 +20,13 @@ export const AI_OPERATOR_SOFT_TOOL_CATALOG = Object.freeze([
   { name: 'billing.tariff', source: 'Billing', purpose: 'Прочитать текущий/следующий тариф и состояние услуги.' },
   { name: 'billing.payments', source: 'Billing', purpose: 'Прочитать последние доступные платежи.' },
   { name: 'userside.snapshot', source: 'UserSide', purpose: 'Найти того же подтверждённого абонента в UserSide и прочитать live технический снимок.' },
+  { name: 'building.snapshot', source: 'UserSide building index', purpose: 'Прочитать всю рабочую карточку здания по известному адресу: GPON, собственник, заметки, ключи, УК/ОСББ, этажи, подъезды и другие поля.' },
   { name: 'network.session', source: 'Juniper/BRAS', purpose: 'Прочитать последнюю доступную сетевую сессию из Workbench-кейса того же абонента.' },
   { name: 'pon.onu', source: 'UserSide/PON', purpose: 'Прочитать live ONU/OLT/порт данные; при недоступности использовать подтверждённый Workbench fallback.' },
   { name: 'pon.signal', source: 'UserSide/PON', purpose: 'Прочитать live оптические показатели ONU; при недоступности использовать подтверждённый Workbench fallback.' }
 ]);
 
-const ACCOUNT_TOOLS = new Set(['customer.snapshot', 'billing.balance', 'billing.tariff', 'billing.payments', 'userside.snapshot', 'network.session', 'pon.onu', 'pon.signal']);
+const ACCOUNT_TOOLS = new Set(['customer.snapshot', 'billing.balance', 'billing.tariff', 'billing.payments', 'userside.snapshot', 'building.snapshot', 'network.session', 'pon.onu', 'pon.signal']);
 const SYNTHESIS_COOLDOWNS = new Map();
 
 function oneLine(value, max = 500) {
@@ -169,6 +170,10 @@ function needText(need = {}) {
 function toolForNeed(need = {}) {
   const text = needText(need);
   const system = oneLine(need.system, 80).toLowerCase();
+  if (/building\.snapshot/.test(text)) return 'building.snapshot';
+  const buildingContext = /дом|будин|здан|адрес|покрыт|coverage|собственник|owner|ключ|замет|прим[еі]чан|working[_ ]?note|ук|осбб|building/.test(text);
+  const buildingFact = /gpon|epon|оптик|покрыт|coverage|собственник|owner|ключ|замет|прим[еі]чан|working[_ ]?note|ук|осбб|этаж|поверх|подъезд|під.?їзд|квартир|penetration|менеджер|ktv|ктв/.test(text);
+  if (buildingContext && buildingFact) return 'building.snapshot';
   if (/баланс|balance|рахун|финанс|заборг|долг|списан/.test(text)) return 'billing.balance';
   if (/плат[её]ж|оплат|payment|пополн/.test(text)) return 'billing.payments';
   if (/тариф|пакет|абонплат|скорост|speed/.test(text) && !/сесс|линк|порт/.test(text)) return 'billing.tariff';
@@ -339,7 +344,7 @@ function synthesisMessages({ transcript = [], latestCustomer = {}, analysis = {}
   return [
     {
       role: 'system',
-      content: `Ты завершаешь ответ абоненту SIMNET после READ-only проверок. До этого AI свободно понял диалог и при необходимости запросил данные. Инструменты — источники доказательств, а не сценарий мышления.\n\nСобери естественный полезный ответ на языке разговора. Не показывай JSON, названия внутренних стадий, chain-of-thought или внутреннюю механику.\n\nПравила достоверности:\n- tool_evidence с ok=true можно использовать только в пределах реально возвращённых полей;\n- source=billing-live-read-only означает свежую READ-проверку Billing через текущую авторизованную вкладку;\n- source=userside-live-read-only означает свежую READ-проверку UserSide через текущую авторизованную вкладку;\n- ok=false означает «проверить не удалось/данных нет в этом источнике», а НЕ доказательство отрицательного факта;\n- Workbench/Network fallback не выдавай за свежий Juniper/UserSide запрос, если источник так не говорит;\n- слова клиента/оператора не превращай в системный факт;\n- внутренние тарифы/правила SIMNET утверждай только из переданного internal_knowledge;\n- если данных недостаточно, задай минимальное уточнение или честно скажи, что именно не удалось подтвердить;\n- не теряй исходный вопрос клиента;\n- поле reply ОБЯЗАТЕЛЬНО должно быть непустым.\n\nВерни только JSON:\n{\n  "reply":"готовый непустой ответ абоненту",\n  "subscriber_data_needed":[{"system":"Billing|UserSide|Network","field":"что ещё нужно","why":"зачем"}],\n  "unresolved_requests":["что осталось незакрытым"],\n  "clarification_questions":["вопросы реально заданные в reply"],\n  "verification_needed":["что всё ещё нельзя утверждать"],\n  "next_step_offered":"следующий шаг или пусто",\n  "basis":["dialogue","knowledge:...","tool:..."]\n}`
+      content: `Ты завершаешь ответ абоненту SIMNET после READ-only проверок. До этого AI свободно понял диалог и при необходимости запросил данные. Инструменты — источники доказательств, а не сценарий мышления.\n\nСобери естественный полезный ответ на языке разговора. Не показывай JSON, названия внутренних стадий, chain-of-thought или внутреннюю механику.\n\nПравила достоверности:\n- tool_evidence с ok=true можно использовать только в пределах реально возвращённых полей;\n- source=billing-live-read-only означает свежую READ-проверку Billing через текущую авторизованную вкладку;\n- source=userside-live-read-only означает свежую READ-проверку UserSide через текущую авторизованную вкладку;\n- source=userside-building-snapshot-local означает чтение сохранённой рабочей карточки здания UserSide; используй только реально присутствующие поля и учитывай snapshotGeneratedAt/snapshotComplete;\n- ok=false означает «проверить не удалось/данных нет в этом источнике», а НЕ доказательство отрицательного факта;\n- Workbench/Network fallback не выдавай за свежий Juniper/UserSide запрос, если источник так не говорит;\n- слова клиента/оператора не превращай в системный факт;\n- внутренние тарифы/правила SIMNET утверждай только из переданного internal_knowledge;\n- если данных недостаточно, задай минимальное уточнение или честно скажи, что именно не удалось подтвердить;\n- не теряй исходный вопрос клиента;\n- поле reply ОБЯЗАТЕЛЬНО должно быть непустым.\n\nВерни только JSON:\n{\n  "reply":"готовый непустой ответ абоненту",\n  "subscriber_data_needed":[{"system":"Billing|UserSide|Network","field":"что ещё нужно","why":"зачем"}],\n  "unresolved_requests":["что осталось незакрытым"],\n  "clarification_questions":["вопросы реально заданные в reply"],\n  "verification_needed":["что всё ещё нельзя утверждать"],\n  "next_step_offered":"следующий шаг или пусто",\n  "basis":["dialogue","knowledge:...","tool:..."]\n}`
     },
     {
       role: 'user',
