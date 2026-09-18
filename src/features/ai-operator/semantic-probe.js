@@ -5,10 +5,10 @@ import { autonomousOperatorSystemMessages } from './instructions/autonomous-oper
 
 const GENERATION_FALLBACK_MODELS = Object.freeze([
   'qwen/qwen3.8-27b',
-  'qwen/qwen3.6-27b',
   'openai/gpt-oss-120b',
   'openai/gpt-oss-20b'
 ]);
+const RETIRED_MODELS = new Set(['qwen/qwen3.6-27b']);
 const PROMPT_GUARD_MODEL = 'meta-llama/llama-prompt-guard-2-86m';
 const MODEL_COOLDOWNS = new Map();
 const KNOWLEDGE_NEEDS = new Set(['none', 'maybe', 'needed']);
@@ -49,7 +49,7 @@ function rateLimitFromHeaders(headers) {
     limitTokens: numberHeader(headers, 'x-ratelimit-limit-tokens'),
     remainingTokens: numberHeader(headers, 'x-ratelimit-remaining-tokens'),
     resetTokens: oneLine(headers?.get?.('x-ratelimit-reset-tokens') || '', 80),
-    remainingRequests: numberHeader(headers, 'x-ratelimit-remaining-requests'),
+    remainingRequests: numberHeader(headers?.get?.('x-ratelimit-remaining-requests') || 0),
     retryAfter: oneLine(headers?.get?.('retry-after') || '', 80)
   };
 }
@@ -86,7 +86,7 @@ function isCoolingDown(model) {
 function modelsForRuntime(runtime = {}) {
   const preferred = String(runtime.chatModel || AI_CONFIG.model || '').trim();
   const all = [preferred, ...GENERATION_FALLBACK_MODELS]
-    .filter((model, index, list) => model && model !== PROMPT_GUARD_MODEL && list.indexOf(model) === index);
+    .filter((model, index, list) => model && !RETIRED_MODELS.has(model) && model !== PROMPT_GUARD_MODEL && list.indexOf(model) === index);
   const ready = all.filter(model => !isCoolingDown(model));
   return ready.length ? ready : all;
 }
@@ -723,7 +723,7 @@ export async function generateCleanModelReply({
       role: 'system',
       content: `Ты оператор первой линии обычного интернет-провайдера и отвечаешь человеку в живом чате. У тебя НЕТ внутренней базы SIMNET, НЕТ Billing/UserSide/сетевых tools, НЕТ списка тарифов, цен, внутренних процедур и специальных правил компании. Не притворяйся, что знаешь их.
 
-Пойми реплику по смыслу и ответь естественно. Можно использовать только сам диалог и общие знания о работе интернет-провайдера. Если вопрос требует конкретных внутренних данных компании или данных конкретного договора, честно обозначь, чего именно не хватает, без выдумывания.
+Пойми реплику по смыслу и ответь естественно. Можно использовать сам диалог и устойчивые общеизвестные знания модели из любых областей, если они не требуют актуальной проверки. Нельзя выдавать такие знания за конкретный внутренний факт SIMNET, текущее состояние договора/абонента или другой live/current факт. Если вопрос требует конкретных внутренних или текущих данных, честно обозначь, чего именно не хватает, без выдумывания.
 
 Не показывай внутренние рассуждения. Ответ обычно 1–3 коротких предложения. Краткость=${profile.brevity}, инициативность=${profile.initiative}, любопытство=${profile.curiosity}.
 
@@ -733,7 +733,7 @@ export async function generateCleanModelReply({
   "unresolved_requests":["что осталось незакрыто"],
   "clarification_questions":["вопросы, реально заданные в reply"],
   "verification_needed":["какие внутренние данные потребовались бы"],
-  "answer_relevance":{"request":"что спросили","kept":[{"fact":"что использовано из диалога","source":"dialogue","reason":"почему релевантно"}],"dropped":[],"completeness":"complete|partial|unknown","conclusion":"короткий вывод"}
+  "answer_relevance":{"request":"что спросили","kept":[{"fact":"что использовано из диалога или общеизвестного знания","source":"dialogue|common_knowledge","reason":"почему релевантно"}],"dropped":[],"completeness":"complete|partial|unknown","conclusion":"короткий вывод"}
 }`
     },
     { role: 'user', content: JSON.stringify({ dialogue, latest_customer_message: block(latestCustomer?.text || '', 1200) }) }
