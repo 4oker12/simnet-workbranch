@@ -147,6 +147,26 @@ function neutralGenerationFailure(probe = {}) {
     : 'Сейчас не удалось сформировать ответ. Попробуйте, пожалуйста, повторить запрос.';
 }
 
+function gateReason({ degradedFallback = false, toolTrace = [], probe = {}, knowledge = {}, request = '' } = {}) {
+  if (degradedFallback) return 'degraded_reply';
+  if ((Array.isArray(toolTrace) ? toolTrace : []).some(item => item && !item.ok)) return 'tool_failure';
+  if (Array.isArray(probe?.ambiguities) && probe.ambiguities.length) return 'semantic_ambiguity';
+  if (!knowledge?.skipped && Array.isArray(knowledge?.knowledgeGaps) && knowledge.knowledgeGaps.length) return 'knowledge_gap';
+
+  const semanticText = [
+    request,
+    probe?.whatUserWants,
+    probe?.latestMessageMeans,
+    ...(Array.isArray(probe?.unresolvedRequests) ? probe.unresolvedRequests : [])
+  ].map(value => oneLine(value, 500)).join(' ').toLowerCase();
+
+  // These are cases where a final verification pass still pays for itself:
+  // debt/payment semantics, period attribution and comparative/absolute conclusions.
+  if (/долж|долг|задолж|борг|к\s+оплат|списал|списан|проплачен|оплачен|за\s+какой\s+месяц|за\s+який\s+місяц|хватает\s+ли|вистачає\s+чи|до\s+конца|до\s+кінця|следующ(?:ий|его)\s+месяц|наступн(?:ий|ого)\s+місяц/iu.test(semanticText)) return 'finance_semantics';
+  if (/дешев|дороже|дорожче|быстр|швидш|меньше|менше|больше|більше|раньше|раніше|позже|пізніше|лучше|краще|вариантов\s+нет|варіантів\s+немає/iu.test(semanticText)) return 'comparison_or_absolute_claim';
+  return '';
+}
+
 export async function applyAnswerRelevanceGate({
   reply = '',
   analysis = {},
@@ -181,6 +201,21 @@ export async function applyAnswerRelevanceGate({
     };
   }
 
+  const reason = gateReason({ degradedFallback, toolTrace, probe, knowledge, request });
+  if (!reason) {
+    return {
+      reply: block(reply, 2200),
+      answerRelevance: {
+        request: oneLine(request, 500),
+        kept: [],
+        dropped: [],
+        completeness: 'complete',
+        conclusion: 'Healthy synthesis accepted without an extra LLM relevance pass.'
+      },
+      gate: { skipped: true, reason: 'healthy_synthesis_fast_path' }
+    };
+  }
+
   const stageInstruction = `ЭТАП: ANSWER RELEVANCE + DEGRADED RECOVERY.
 
 Ты выполняешь последний фильтр ответа Autonomous AI Operator. Главная задача — сохранить прямой ответ на текущий вопрос и убрать действительно нерелевантное. Ты не переопределяешь фундаментальные правила знания из canonical instruction.
@@ -205,6 +240,7 @@ ANSWER RELEVANCE:
 - Не выдумывай live-факты, цены, тарифы, результаты tools или внутренние правила SIMNET.
 - Сохрани естественный человеческий ответ, обычно 1–3 предложения.
 - Не показывай клиенту названия tools, KB, JSON или внутреннюю механику.
+- Не копируй названия полей и интерфейсные ярлыки Billing/UserSide в ответ. Переводи системные значения в обычный человеческий смысл и упоминай только то, что отвечает на вопрос.
 
 Верни только JSON:
 {
@@ -221,6 +257,7 @@ ANSWER RELEVANCE:
     {
       role: 'user',
       content: JSON.stringify({
+        trigger_reason: reason,
         request,
         understanding: compactObject(probe, 4),
         recent_dialogue: recentDialogue,
@@ -242,7 +279,7 @@ ANSWER RELEVANCE:
     const normalized = normalizeGate(response.parsed, reply, request);
     return {
       ...normalized,
-      gate: { skipped: false, model: response.model || '', usage: response.usage || {}, finishReason: response.finishReason || '', degraded: false }
+      gate: { skipped: false, reason, model: response.model || '', usage: response.usage || {}, finishReason: response.finishReason || '', degraded: false }
     };
   } catch (error) {
     return {
@@ -254,7 +291,7 @@ ANSWER RELEVANCE:
         completeness: 'unknown',
         conclusion: ''
       },
-      gate: { skipped: false, degraded: true, error: oneLine(error?.message || error, 500) }
+      gate: { skipped: false, reason, degraded: true, error: oneLine(error?.message || error, 500) }
     };
   }
 }
