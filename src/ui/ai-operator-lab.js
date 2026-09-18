@@ -32,11 +32,9 @@
     analysis: 'Только разбор'
   };
   const SLIDERS = [
-    ['confidenceStyle', 'Решительность', 'Насколько прямо формулировать рабочий вывод при достаточных основаниях.'],
-    ['curiosity', 'Любопытство', 'Насколько активно замечать реально мешающие пробелы и задавать уточнения.'],
-    ['initiative', 'Инициативность', 'Насколько охотно предлагать следующий разумный шаг после прямого ответа.'],
-    ['skepticism', 'Скепсис к фактам', 'Насколько строго отделять слова клиента от подтверждённых данных.'],
-    ['brevity', 'Краткость', 'Насколько сжимать ответ, не теряя необходимое.']
+    ['naturalness', 'Naturalness', '1 — сухо и служебно; 5 — естественно и по-человечески, без лишней болтовни.'],
+    ['depth', 'Depth', '1 — только необходимый ответ; 5 — полезное объяснение и контекст, когда они действительно помогают.'],
+    ['initiative', 'Initiative', '1 — только ответ на вопрос; 5 — уместно предложить следующий полезный шаг.']
   ];
 
   function short(value, max = 300) {
@@ -100,14 +98,10 @@
       const row = create('label', 'ai-lab-slider'); row.title = help;
       const label = create('span', 'ai-lab-slider-label');
       label.append(create('b', '', labelText), create('small', '', help));
-      const range = create('input'); range.type = 'range'; range.min = '0'; range.max = '100'; range.step = '5'; range.dataset.behaviorKey = key;
+      const range = create('input'); range.type = 'range'; range.min = '1'; range.max = '5'; range.step = '1'; range.dataset.behaviorKey = key;
       const out = create('output', 'ai-lab-slider-value', '—');
       row.append(label, range, out); sliders.append(row); sliderInputs[key] = range; sliderValues[key] = out;
     }
-    const followRow = create('label', 'ai-lab-followups'); followRow.append(create('span', '', 'Макс. уточнений за ход'));
-    const followSelect = create('select');
-    for (const value of [1, 2, 3]) { const option = create('option', '', String(value)); option.value = String(value); followSelect.append(option); }
-    followRow.append(followSelect); sliders.append(followRow);
 
     const actions = create('div', 'actions ai-lab-experiment-actions');
     const repeat = create('button', 'secondary', '↻ Пересчитать последний ход'); repeat.type = 'button';
@@ -122,14 +116,13 @@
     root.append(head, modes, sliders, actions, comparison, diagnostics);
     identityNode.insertAdjacentElement('beforebegin', root);
 
-    controls = { root, capability, sliderInputs, sliderValues, followSelect, repeat, snapshot, exportSnapshots, snapshotState, comparison, diagnostics, diagnosticsBody: diagnostics.querySelector('.ai-lab-diagnostics-body') };
+    controls = { root, capability, sliderInputs, sliderValues, repeat, snapshot, exportSnapshots, snapshotState, comparison, diagnostics, diagnosticsBody: diagnostics.querySelector('.ai-lab-diagnostics-body') };
     root.querySelectorAll('[data-knowledge-mode]').forEach(button => button.addEventListener('click', () => void saveConfig({ knowledgeMode: button.dataset.knowledgeMode })));
     root.querySelectorAll('[data-display-mode]').forEach(button => button.addEventListener('click', () => void saveConfig({ displayMode: button.dataset.displayMode })));
     Object.values(sliderInputs).forEach(range => {
       range.addEventListener('input', () => { sliderValues[range.dataset.behaviorKey].textContent = range.value; });
       range.addEventListener('change', () => void saveBehavior());
     });
-    followSelect.addEventListener('change', () => void saveBehavior());
     repeat.addEventListener('click', () => void repeatLast());
     snapshot.addEventListener('click', () => void takeSnapshot());
     exportSnapshots.addEventListener('click', () => exportSnapshotFile());
@@ -146,7 +139,7 @@
   async function saveBehavior() {
     const ui = ensureControls(); const behavior = {};
     for (const [key, range] of Object.entries(ui.sliderInputs)) behavior[key] = Number(range.value);
-    behavior.maxFollowUpQuestions = Number(ui.followSelect.value); await saveConfig({ behavior });
+    await saveConfig({ behavior });
   }
 
   function renderControlState(state = {}) {
@@ -154,9 +147,8 @@
     ui.root.querySelectorAll('[data-knowledge-mode]').forEach(button => button.classList.toggle('active', button.dataset.knowledgeMode === mode));
     ui.root.querySelectorAll('[data-display-mode]').forEach(button => button.classList.toggle('active', button.dataset.displayMode === (state.displayMode || 'answer_analysis')));
     for (const [key, range] of Object.entries(ui.sliderInputs)) {
-      const value = Number(state.behavior?.[key] ?? 50); range.value = String(value); ui.sliderValues[key].textContent = String(value);
+      const value = Number(state.behavior?.[key] ?? 3); range.value = String(value); ui.sliderValues[key].textContent = String(value);
     }
-    ui.followSelect.value = String(state.behavior?.maxFollowUpQuestions || 2);
     ui.capability.replaceChildren();
     const clean = mode === 'clean';
     const caps = clean ? { billing: false, userside: false, network: false } : (state.capabilities || {});
