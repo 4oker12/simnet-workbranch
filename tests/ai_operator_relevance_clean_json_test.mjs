@@ -118,18 +118,46 @@ test('clean model path has no SIMNET tool manifest and cannot request live tools
   assert.equal(result.answerRelevance.completeness, 'partial');
 });
 
-test('answer relevance gate explicitly drops adjacent facts and rejects pricier downgrade candidates', () => {
-  const gate = fs.readFileSync(new URL('../src/features/ai-operator/answer-relevance-gate.js', import.meta.url), 'utf8');
+test('answer relevance boundary is deterministic, uses zero API calls and strips auto-injected KB prefix', async () => {
+  const gateSource = fs.readFileSync(new URL('../src/features/ai-operator/answer-relevance-gate.js', import.meta.url), 'utf8');
   const broker = fs.readFileSync(new URL('../src/features/ai-operator/semantic-tool-broker.js', import.meta.url), 'utf8');
 
-  assert.match(gate, /Каждый доступный факт либо kept, либо dropped/i);
-  assert.match(gate, /БОЛЕЕ ДЕШЁВЫЙ/);
-  assert.match(gate, /более дорогие или равные по цене варианты не являются ответом/i);
-  assert.match(gate, /не подменяй вопрос соседним/i);
-  assert.match(gate, /не говори категорично «вариантов нет»/i);
+  assert.doesNotMatch(gateSource, /fetch\s*\(/);
+  assert.doesNotMatch(gateSource, /readAiRuntimeConfig|AI_OPERATOR_GENERATION_MODEL_POOL|recordApiUsage/);
+  assert.match(gateSource, /deterministic_local_relevance_boundary/);
+  assert.match(gateSource, /Internal KB text is evidence\/context, not client-facing copy/i);
   assert.match(broker, /applyAnswerRelevanceGate/);
   assert.match(broker, /answerRelevance: relevance\.answerRelevance/);
   assert.match(broker, /relevanceGate: relevance\.gate/);
+
+  let fetchCalls = 0;
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    throw new Error('relevance boundary must not call network');
+  };
+
+  const gate = await import(`../src/features/ai-operator/answer-relevance-gate.js?local-boundary=${Date.now()}`);
+  const internalPrefix = 'balance field is accountBalance; other related fields are internal Billing semantics';
+  const result = await gate.applyAnswerRelevanceGate({
+    reply: `${internalPrefix}\n\nБаланс — 800 грн.`,
+    latestCustomer: { text: 'шо по балансу' },
+    analysis: {
+      probe: { whatUserWants: 'Узнать текущий баланс' },
+      knowledge: { relevantInternalKnowledge: [internalPrefix] }
+    },
+    toolTrace: [{
+      tool: 'billing.balance',
+      ok: true,
+      code: 'OK',
+      requestedBy: { field: 'текущий баланс', why: 'Ответить на вопрос о балансе' }
+    }]
+  });
+
+  assert.equal(fetchCalls, 0);
+  assert.equal(result.reply, 'Баланс — 800 грн.');
+  assert.equal(result.gate.reason, 'deterministic_local_relevance_boundary');
+  assert.deepEqual(result.gate.usage, { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+  assert.equal(result.answerRelevance.completeness, 'complete');
 });
 
 test('Lab exposes CLEAN MODEL and records the relevance filter in the ordered trace', () => {
