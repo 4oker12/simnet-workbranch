@@ -62,9 +62,14 @@ assert.match(lab, /A\/B сравнение/, 'Manual Lab must expose A/B compari
 assert.match(lab, /Только ответ/, 'Manual Lab must expose answer-only view');
 assert.match(lab, /Ответ \+ разбор/, 'Manual Lab must expose answer plus diagnostics view');
 assert.match(lab, /Только разбор/, 'Manual Lab must expose analysis-only view');
-for (const label of ['Решительность', 'Любопытство', 'Инициативность', 'Скепсис к фактам', 'Краткость']) {
+for (const label of ['Naturalness', 'Depth', 'Initiative']) {
   assert.match(lab, new RegExp(label), `Manual Lab must expose ${label} behavior control`);
 }
+for (const removed of ['Решительность', 'Любопытство', 'Скепсис к фактам', 'Краткость', 'Макс. уточнений']) {
+  assert.doesNotMatch(lab, new RegExp(removed), `removed behavior control ${removed} must not reappear`);
+}
+assert.match(lab, /range\.min = '1'/, 'behavior controls must start at level 1');
+assert.match(lab, /range\.max = '5'/, 'behavior controls must stop at level 5');
 assert.match(lab, /AI_OPERATOR_LAB_REPEAT/, 'Manual Lab must be able to repeat the same pre-turn state');
 assert.match(lab, /AI_OPERATOR_LAB_SNAPSHOT/, 'Manual Lab must save experiment snapshots');
 assert.match(lab, /Экспорт слепков/, 'Manual Lab must export experiment snapshots');
