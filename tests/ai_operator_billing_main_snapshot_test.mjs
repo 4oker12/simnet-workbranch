@@ -9,9 +9,14 @@ test('canonical Billing main snapshot merges one fresh read over stored context'
     cache: 'miss',
     baseData: {
       identity: { billingId: '49378', login: 'old-login', contract: '493782' },
+      service: { nextTariff: 'СТАРЫЙ ЗАПЛАНИРОВАННЫЙ' },
       technical: { technologyHint: 'GPON' },
       address: { street: 'вул. Білицька' },
-      payments: [{ date: 'old', description: 'old', amount: '1' }]
+      payments: [{ date: 'old', description: 'old', amount: '1' }],
+      evidence: {
+        observedAt: '2026-09-18T19:00:00.000Z',
+        fieldObservedAt: { 'identity.contract': '2026-09-18T19:00:00.000Z' }
+      }
     },
     liveData: {
       identity: { billingId: '49378', login: 'abon493782', fullName: 'Грицак Володимир Юрійович' },
@@ -33,11 +38,15 @@ test('canonical Billing main snapshot merges one fresh read over stored context'
   assert.equal(snapshot.identity.login, 'abon493782');
   assert.equal(snapshot.identity.contract, '493782');
   assert.equal(snapshot.service.currentTariff, 'BIZ 800 (20/100) - 2025');
+  assert.equal(snapshot.service.nextTariff, '', 'fresh empty selected next tariff clears an old scheduled tariff');
   assert.equal(snapshot.finance.accountBalance, 1900);
   assert.equal(snapshot.technical.technologyHint, 'GPON');
   assert.equal(snapshot.address.street, 'вул. Білицька');
   assert.equal(snapshot.payments[0].amount, '-800 грн.');
   assert.equal(snapshot.evidence.observedAt, '2026-09-18T20:30:00.000Z');
+  assert.equal(snapshot.evidence.fieldObservedAt['identity.contract'], '2026-09-18T19:00:00.000Z', 'field absent from live data keeps old age');
+  assert.equal(snapshot.evidence.fieldObservedAt['finance.accountBalance'], '2026-09-18T20:30:00.000Z');
+  assert.equal(snapshot.evidence.fieldObservedAt['service.nextTariff'], '2026-09-18T20:30:00.000Z');
 });
 
 test('balance and tariff are views of the same canonical Billing main snapshot', () => {
