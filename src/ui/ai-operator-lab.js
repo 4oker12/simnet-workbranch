@@ -23,7 +23,8 @@
     off: 'Без энциклопедии',
     auto: 'Авто',
     on: 'С энциклопедией',
-    ab: 'A/B сравнение'
+    ab: 'A/B сравнение',
+    clean: 'CLEAN MODEL'
   };
   const DISPLAY_LABELS = {
     answer: 'Только ответ',
@@ -56,7 +57,7 @@
   }
   function fileStamp(value = Date.now()) {
     const date = new Date(value); const pad = n => String(n).padStart(2, '0');
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1,)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
   }
   function setStatus(message, kind = '') {
     statusNode.textContent = String(message || '');
@@ -157,9 +158,10 @@
     }
     ui.followSelect.value = String(state.behavior?.maxFollowUpQuestions || 2);
     ui.capability.replaceChildren();
-    const caps = state.capabilities || {};
+    const clean = mode === 'clean';
+    const caps = clean ? { billing: false, userside: false, network: false } : (state.capabilities || {});
     const badges = [
-      [`KB: ${String(mode).toUpperCase()}`, mode === 'off' ? 'off' : 'on'],
+      [clean ? 'MODEL: CLEAN' : `KB: ${String(mode).toUpperCase()}`, clean ? 'off' : (mode === 'off' ? 'off' : 'on')],
       [`BILLING: ${caps.billing ? 'ON' : 'OFF'}`, caps.billing ? 'on' : 'off'],
       [`USERSIDE: ${caps.userside ? 'ON' : 'OFF'}`, caps.userside ? 'on' : 'off'],
       [`NETWORK: ${caps.network ? 'ON' : 'OFF'}`, caps.network ? 'on' : 'off']
@@ -202,6 +204,7 @@
 
     const probe = exp.analysis?.probe || {}; const knowledge = exp.analysis?.knowledge || {}; const variant = activeVariant(exp);
     const toolTrace = Array.isArray(variant?.toolTrace) ? variant.toolTrace : [];
+    const relevance = variant?.answerRelevance || {};
     const rows = [
       diagnosticRow('Понял', probe.whatUserWants),
       diagnosticRow('Последняя реплика', probe.latestMessageMeans),
@@ -215,6 +218,10 @@
       diagnosticRow('Нужны live-данные', (variant?.subscriberDataNeeded || []).map(item => `${item.system}${item.field ? ` → ${item.field}` : ''}${item.why ? `: ${item.why}` : ''}`), 'live'),
       diagnosticRow('READ-tools', toolTrace.map(item => `${item.tool} → ${item.code}${item.source ? ` [${item.source}]` : ''}`), 'live'),
       diagnosticRow('Подтверждено tools', toolTrace.filter(item => item.ok).map(item => item.tool), 'live'),
+      diagnosticRow('Фильтр ответа · запрос', relevance.request),
+      diagnosticRow('Фильтр ответа · использовано', (relevance.kept || []).map(item => `${item.fact}${item.reason ? ` — ${item.reason}` : ''}`), 'live'),
+      diagnosticRow('Фильтр ответа · отброшено', (relevance.dropped || []).map(item => `${item.fact}${item.reason ? ` — ${item.reason}` : ''}`), 'warn'),
+      diagnosticRow('Фильтр ответа · вывод', relevance.conclusion),
       diagnosticRow('Проверить перед утверждением', variant?.verificationNeeded, 'warn'),
       diagnosticRow('Уточнения', variant?.clarificationQuestions),
       diagnosticRow('Следующий шаг', variant?.nextStepOffered),
@@ -230,6 +237,11 @@
       details.append(create('summary', '', `Данные READ-tools (${toolTrace.length})`), create('pre', '', json(toolTrace)));
       ui.diagnosticsBody.append(details);
     }
+    if (variant?.answerRelevance) {
+      const details = create('details', 'ai-lab-behavior-effects');
+      details.append(create('summary', '', 'Answer relevance gate'), create('pre', '', json({ answerRelevance: variant.answerRelevance, gate: variant.relevanceGate || null })));
+      ui.diagnosticsBody.append(details);
+    }
     const effects = variant?.behaviorEffects || {};
     const effectValues = [effects.directness, effects.clarification, effects.verification, effects.initiative, effects.brevity].filter(Boolean);
     if (effectValues.length) {
@@ -241,6 +253,13 @@
 
   function renderCapabilities(state = {}) {
     identityNode.replaceChildren(); identityNode.className = 'ai-lab-identity experiment';
+    if (state.knowledgeMode === 'clean') {
+      identityNode.append(
+        create('strong', '', 'CLEAN MODEL · без внутреннего контекста SIMNET'),
+        create('span', '', 'Только диалог + базовая роль оператора ISP. Энциклопедия, Billing/UserSide/Network tools, tool manifest и специальные правила SIMNET не передаются модели.')
+      );
+      return;
+    }
     const details = state.capabilityDetails || {};
     identityNode.append(
       create('strong', '', 'Сейчас тестируем разговор + знания + READ-tools'),
@@ -257,7 +276,10 @@
     }
     for (const message of messages) {
       const role = message?.role === 'agent' ? 'agent' : 'customer'; const row = create('div', `ai-lab-message ${role}`);
-      const variant = message?.variant === 'with_knowledge' ? ' · KB' : message?.variant === 'without_knowledge' ? ' · без KB' : message?.variant === 'degraded' ? ' · fallback' : '';
+      const variant = message?.variant === 'with_knowledge' ? ' · KB'
+        : message?.variant === 'without_knowledge' ? ' · без KB'
+          : message?.variant === 'clean_model' ? ' · CLEAN'
+            : message?.variant === 'degraded' ? ' · fallback' : '';
       row.append(create('div', 'ai-lab-message-label', role === 'agent' ? `AI оператор${variant}` : 'Ты · абонент'), create('div', 'ai-lab-message-bubble', message?.text || ''));
       transcriptNode.append(row);
     }
@@ -284,15 +306,18 @@
 
   function knowledgeTraceState(event = {}) {
     if (event.type !== 'semantic_analysis') return '';
+    if (event.cleanModel) return 'CLEAN MODEL';
     if (!event.knowledgeUsed) return 'KB SKIP';
     const articles = Array.isArray(event.articles) ? event.articles.filter(Boolean) : [];
     return articles.length ? `KB HIT · ${articles.join(', ')}` : 'KB MISS';
   }
   function eventTone(event = {}) {
     if (event.type === 'semantic_analysis') {
+      if (event.cleanModel) return 'trace-kb-skip';
       if (!event.knowledgeUsed) return 'trace-kb-skip';
       return Array.isArray(event.articles) && event.articles.length ? 'trace-kb-hit' : 'trace-kb-miss';
     }
+    if (event.type === 'answer_relevance') return 'trace-internal';
     if (event.type === 'tool_execution') {
       if (event.tool === 'customer.lookup' && event.requestedBy?.system === 'identity') return event.ok ? 'trace-identity' : 'trace-tool-error';
       return event.ok ? 'trace-tool-ok' : 'trace-tool-error';
@@ -305,10 +330,16 @@
   }
   function importantEventNote(event = {}) {
     if (event.type === 'semantic_analysis') {
+      if (event.cleanModel) return 'CLEAN MODEL: внутренняя энциклопедия и READ-tools не передавались.';
       const articles = Array.isArray(event.articles) ? event.articles.filter(Boolean) : [];
       if (!event.knowledgeUsed) return 'Энциклопедия не открывалась на этом ходе.';
       if (!articles.length) return 'Энциклопедия была проверена, но релевантная подтверждённая статья не найдена.';
       return `Энциклопедия использована: ${articles.join(', ')}.`;
+    }
+    if (event.type === 'answer_relevance') {
+      const kept = Array.isArray(event.answerRelevance?.kept) ? event.answerRelevance.kept.length : 0;
+      const dropped = Array.isArray(event.answerRelevance?.dropped) ? event.answerRelevance.dropped.length : 0;
+      return `Финальный relevance-фильтр: использовано ${kept}, отброшено ${dropped}.`;
     }
     if (event.type === 'tool_execution') {
       const identity = event.tool === 'customer.lookup' && event.requestedBy?.system === 'identity';
@@ -323,6 +354,11 @@
   }
   function eventSummary(event = {}) {
     if (event.type === 'semantic_analysis') return `SEMANTIC · ${Math.round(number(event.confidence) * 100)}% · ${knowledgeTraceState(event)}`;
+    if (event.type === 'answer_relevance') {
+      const kept = Array.isArray(event.answerRelevance?.kept) ? event.answerRelevance.kept.length : 0;
+      const dropped = Array.isArray(event.answerRelevance?.dropped) ? event.answerRelevance.dropped.length : 0;
+      return `RELEVANCE · KEEP ${kept} · DROP ${dropped}`;
+    }
     if (event.type === 'tool_execution') {
       const identity = event.tool === 'customer.lookup' && event.requestedBy?.system === 'identity';
       return `${identity ? 'IDENTITY' : 'TOOL'} · ${event.tool || '—'} · ${event.code || '—'}${event.ok ? ' ✓' : ''}`;
@@ -357,7 +393,7 @@
     latestState = state && typeof state === 'object' ? state : {};
     renderControlState(latestState); renderCapabilities(latestState); renderMessages(latestState.messages || []); renderExperiment(latestState); renderUsage(latestState); renderCost(latestState); renderEvents(latestState.events || []);
     const last = latestState.lastDecision || {};
-    setStatus(last.action ? `Последний ход: ${last.action} · KB ${String(latestState.knowledgeMode || 'auto').toUpperCase()} · tools ${number(latestState.lastExperiment?.toolCalls)}${last.model ? ` · ${short(last.model, 110)}` : ''}` : 'Готово. Пиши как абонент и наблюдай, что AI понял, какие данные запросил и чем подтвердил ответ.', last.action ? 'ok' : '');
+    setStatus(last.action ? `Последний ход: ${last.action} · MODE ${String(latestState.knowledgeMode || 'auto').toUpperCase()} · tools ${number(latestState.lastExperiment?.toolCalls)}${last.model ? ` · ${short(last.model, 110)}` : ''}` : 'Готово. Пиши как абонент и наблюдай, что AI понял, какие данные запросил и чем подтвердил ответ.', last.action ? 'ok' : '');
   }
   function setBusy(value) {
     busy = Boolean(value); sendButton.disabled = busy; resetButton.disabled = busy; input.disabled = busy;
@@ -367,13 +403,16 @@
   async function refresh() { const state = await runtime('AI_OPERATOR_LAB_GET'); render(state || {}); return state; }
   async function send() {
     const message = String(input.value || '').trim(); if (!message) return;
-    setBusy(true); setStatus('AI разбирает контекст; при необходимости читает Billing/UserSide/Network и формирует ответ…'); input.value = '';
+    setBusy(true);
+    const clean = latestState?.knowledgeMode === 'clean';
+    setStatus(clean ? 'CLEAN MODEL отвечает только по диалогу и общим знаниям ISP — без SIMNET KB/tools…' : 'AI разбирает контекст; при необходимости читает Billing/UserSide/Network и формирует ответ…');
+    input.value = '';
     try { render(await runtime('AI_OPERATOR_LAB_SEND', { text: message })); }
     catch (error) { input.value = message; setStatus(short(error?.message || error, 600), 'bad'); }
     finally { setBusy(false); input.focus(); }
   }
   async function repeatLast() {
-    setBusy(true); setStatus('Пересчитываю тот же ход и повторяю READ-проверки при необходимости…');
+    setBusy(true); setStatus(latestState?.knowledgeMode === 'clean' ? 'Повторяю тот же ход в CLEAN MODEL…' : 'Пересчитываю тот же ход и повторяю READ-проверки при необходимости…');
     try { render(await runtime('AI_OPERATOR_LAB_REPEAT')); setStatus('Последний ход пересчитан на том же pre-turn контексте.', 'ok'); }
     catch (error) { setStatus(short(error?.message || error, 600), 'bad'); }
     finally { setBusy(false); }

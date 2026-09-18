@@ -1,5 +1,5 @@
 import { apiCostSummary, saveApiPrice } from './api-cost.js';
-import { analyzeSubscriberIntent, generateSubscriberReply } from './semantic-probe.js';
+import { analyzeSubscriberIntent, generateSubscriberReply, generateCleanModelReply } from './semantic-probe.js';
 import { executeOperatorTool } from './live-tool-runtime.js';
 import {
   AI_OPERATOR_SOFT_TOOL_CAPABILITIES,
@@ -12,10 +12,11 @@ const LAB_KEY = 'simnet_ai_operator_lab_v1';
 const MAX_MESSAGES = 60;
 const MAX_EVENTS = 140;
 const MAX_SNAPSHOTS = 40;
-const KNOWLEDGE_MODES = new Set(['off', 'auto', 'on', 'ab']);
+const KNOWLEDGE_MODES = new Set(['off', 'auto', 'on', 'ab', 'clean']);
 const DISPLAY_MODES = new Set(['answer', 'answer_analysis', 'analysis']);
 const CAPABILITIES = AI_OPERATOR_SOFT_TOOL_CAPABILITIES;
 const CAPABILITY_DETAILS = AI_OPERATOR_TOOL_CAPABILITY_DETAILS;
+const CLEAN_CAPABILITIES = Object.freeze({ billing: false, userside: false, network: false });
 
 const TYPES = Object.freeze({
   GET: 'AI_OPERATOR_LAB_GET',
@@ -91,7 +92,7 @@ function normalizeToolState(value = {}) {
 
 function emptyLab() {
   return {
-    version: 3,
+    version: 4,
     id: id('lab'),
     messages: [],
     events: [],
@@ -114,7 +115,7 @@ function emptyLab() {
 function normalizeLab(raw = {}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return emptyLab();
   return {
-    version: 3,
+    version: 4,
     id: String(raw.id || id('lab')),
     messages: (Array.isArray(raw.messages) ? raw.messages : []).slice(-MAX_MESSAGES).map(normalizeMessage),
     events: (Array.isArray(raw.events) ? raw.events : []).slice(-MAX_EVENTS),
@@ -178,7 +179,8 @@ function analysisForUi(analysis = {}) {
     candidates: clone(analysis.candidates || []),
     readable: String(analysis.decision?.reply || ''),
     model: String(analysis.decision?.model || ''),
-    usage: clone(analysis.decision?.usage || {})
+    usage: clone(analysis.decision?.usage || {}),
+    semanticDiagnostics: clone(analysis.decision?.semanticDiagnostics || {})
   };
 }
 
@@ -196,8 +198,51 @@ function fallbackDraft(analysis, error) {
     model: '',
     usage: {},
     rateLimit: {},
+    answerRelevance: null,
+    relevanceGate: null,
     degraded: true,
     degradationReason: compact(error?.message || error, 600)
+  };
+}
+
+function cleanAnalysis(customer = {}, draft = {}) {
+  const request = compact(draft?.answerRelevance?.request || customer?.text || '', 500);
+  return {
+    probe: {
+      language: 'other',
+      whatUserWants: request,
+      latestMessageMeans: request,
+      refersTo: '',
+      underlyingGoal: '',
+      factsSaidByUser: customer?.text ? [compact(customer.text, 700)] : [],
+      factsSaidByOperator: [],
+      unresolvedRequests: clone(draft?.unresolvedRequests || (request ? [request] : [])),
+      ambiguities: [],
+      knowledgeNeed: 'none',
+      knowledgeReason: 'CLEAN MODEL: внутренняя база и специальные правила провайдера намеренно не передаются.',
+      confidence: 0
+    },
+    knowledge: {
+      skipped: true,
+      skipReason: 'clean_model',
+      usedArticles: [],
+      articleEvidence: [],
+      relevantInternalKnowledge: [],
+      howItApplies: '',
+      alreadyEnough: request ? [request] : [],
+      mustNotAssume: [],
+      hypotheses: [],
+      knowledgeGaps: []
+    },
+    knowledgeMode: 'clean',
+    candidates: [],
+    decision: {
+      reply: 'CLEAN MODEL: только диалог + базовая роль оператора ISP; без SIMNET KB, tool manifest и live READ-tools.',
+      model: draft?.model || '',
+      usage: clone(draft?.usage || {}),
+      rateLimit: clone(draft?.rateLimit || {}),
+      semanticDiagnostics: { cleanModel: true, specialContextInjected: false }
+    }
   };
 }
 
@@ -245,29 +290,73 @@ async function replyVariant({ lab, transcript, customer, analysis, useKnowledge,
     });
   }
 
+  appendEvent(lab, 'answer_relevance', {
+    customerMessageId: customer.id,
+    variant: label,
+    answerRelevance: clone(result.answerRelevance || draft?.answerRelevance || null),
+    gate: clone(result.relevanceGate || null)
+  });
+
   return { label, useKnowledge, ...result };
+}
+
+async function cleanVariant({ lab, transcript, customer }) {
+  const draft = await generateCleanModelReply({
+    transcript,
+    latestCustomer: customer,
+    behavior: lab.behavior,
+    meterContext: { scope: lab.id, turnId: customer.id, variant: 'clean_model' }
+  });
+  const variant = {
+    label: 'clean_model',
+    useKnowledge: false,
+    ...draft,
+    subscriberDataNeeded: [],
+    toolTrace: [],
+    toolEvidence: [],
+    relevanceGate: { skipped: true, reason: 'clean_model_has_no_grounded_sources' }
+  };
+  appendEvent(lab, 'answer_relevance', {
+    customerMessageId: customer.id,
+    variant: 'clean_model',
+    answerRelevance: clone(variant.answerRelevance || null),
+    gate: clone(variant.relevanceGate)
+  });
+  return variant;
 }
 
 async function executeExperiment(lab, baseMessages, customer) {
   const startedAt = performance.now();
   const requestedMode = normalizeKnowledgeMode(lab.knowledgeMode);
   const transcript = [...baseMessages, customer];
-  const analysisMode = requestedMode === 'ab' ? 'on' : requestedMode;
-  const analysis = await analyzeSubscriberIntent({
-    transcript,
-    latestCustomer: customer,
-    knowledgeMode: analysisMode,
-    meterContext: { scope: lab.id, turnId: customer.id }
-  });
-
   const variants = [];
   const answerRequired = lab.displayMode !== 'analysis' || requestedMode === 'ab';
-  if (answerRequired && requestedMode === 'ab') {
-    variants.push(await replyVariant({ lab, transcript, customer, analysis, useKnowledge: false, label: 'without_knowledge' }));
-    variants.push(await replyVariant({ lab, transcript, customer, analysis, useKnowledge: true, label: 'with_knowledge' }));
-  } else if (answerRequired) {
-    const useKnowledge = requestedMode === 'on' || (requestedMode === 'auto' && !analysis.knowledge?.skipped);
-    variants.push(await replyVariant({ lab, transcript, customer, analysis, useKnowledge, label: useKnowledge ? 'with_knowledge' : 'without_knowledge' }));
+  let analysis;
+
+  if (requestedMode === 'clean') {
+    if (answerRequired) {
+      const variant = await cleanVariant({ lab, transcript, customer });
+      variants.push(variant);
+      analysis = cleanAnalysis(customer, variant);
+    } else {
+      analysis = cleanAnalysis(customer, {});
+    }
+  } else {
+    const analysisMode = requestedMode === 'ab' ? 'on' : requestedMode;
+    analysis = await analyzeSubscriberIntent({
+      transcript,
+      latestCustomer: customer,
+      knowledgeMode: analysisMode,
+      meterContext: { scope: lab.id, turnId: customer.id }
+    });
+
+    if (answerRequired && requestedMode === 'ab') {
+      variants.push(await replyVariant({ lab, transcript, customer, analysis, useKnowledge: false, label: 'without_knowledge' }));
+      variants.push(await replyVariant({ lab, transcript, customer, analysis, useKnowledge: true, label: 'with_knowledge' }));
+    } else if (answerRequired) {
+      const useKnowledge = requestedMode === 'on' || (requestedMode === 'auto' && !analysis.knowledge?.skipped);
+      variants.push(await replyVariant({ lab, transcript, customer, analysis, useKnowledge, label: useKnowledge ? 'with_knowledge' : 'without_knowledge' }));
+    }
   }
 
   const activeVariant = requestedMode === 'ab'
@@ -279,6 +368,10 @@ async function executeExperiment(lab, baseMessages, customer) {
   const totalUsage = usageTotal(analysis.decision?.usage, ...variants.map(item => item.usage));
   const model = [analysis.decision?.model, ...variants.map(item => item.model)].filter(Boolean).join(' → ');
   const toolCalls = variants.reduce((sum, item) => sum + Number(item.toolTrace?.length || 0), 0);
+  const experimentCapabilities = requestedMode === 'clean' ? CLEAN_CAPABILITIES : CAPABILITIES;
+  const experimentDetails = requestedMode === 'clean'
+    ? { mode: 'clean-model', billing: 'OFF', userside: 'OFF', network: 'OFF', toolManifestVersion: 'none', toolCount: 0 }
+    : CAPABILITY_DETAILS;
 
   const experiment = {
     id: id('exp'),
@@ -287,8 +380,8 @@ async function executeExperiment(lab, baseMessages, customer) {
     knowledgeMode: requestedMode,
     displayMode: lab.displayMode,
     behavior: clone(lab.behavior),
-    capabilities: { ...CAPABILITIES },
-    capabilityDetails: { ...CAPABILITY_DETAILS },
+    capabilities: { ...experimentCapabilities },
+    capabilityDetails: { ...experimentDetails },
     elapsedMs,
     analysis: analysisForUi(analysis),
     variants: clone(variants),
@@ -300,10 +393,14 @@ async function executeExperiment(lab, baseMessages, customer) {
 
   lab.lastExperiment = experiment;
   lab.lastDecision = {
-    action: variants.length ? (toolCalls ? 'semantic_tool_reply' : 'semantic_reply') : 'semantic_analysis',
+    action: requestedMode === 'clean'
+      ? (variants.length ? 'clean_model_reply' : 'clean_model_analysis')
+      : (variants.length ? (toolCalls ? 'semantic_tool_reply' : 'semantic_reply') : 'semantic_analysis'),
     intent: analysis.probe?.whatUserWants || 'unknown',
     reply: activeVariant?.reply || '',
-    reason: `Manual Lab: свободное понимание → KB при необходимости → мягкие READ-tools при необходимости → ответ. fact-runtime не участвует.`,
+    reason: requestedMode === 'clean'
+      ? 'Manual Lab CLEAN MODEL: только диалог + базовая роль ISP; без SIMNET KB, tool manifest и READ-tools.'
+      : 'Manual Lab: свободное понимание → KB при необходимости → мягкие READ-tools при необходимости → relevance gate → ответ. fact-runtime не участвует.',
     confidence: Number(analysis.probe?.confidence || 0),
     language: analysis.probe?.language || 'other',
     model,
@@ -312,11 +409,13 @@ async function executeExperiment(lab, baseMessages, customer) {
     diagnostic: {
       knowledgeMode: requestedMode,
       displayMode: lab.displayMode,
+      cleanModel: requestedMode === 'clean',
       behavior: clone(lab.behavior),
-      capabilities: { ...CAPABILITIES },
-      capabilityDetails: { ...CAPABILITY_DETAILS },
+      capabilities: { ...experimentCapabilities },
+      capabilityDetails: { ...experimentDetails },
       elapsedMs,
       understanding: clone(analysis.probe || {}),
+      semanticDiagnostics: clone(analysis.decision?.semanticDiagnostics || {}),
       knowledge: clone(analysis.knowledge || {}),
       variants: clone(variants.map(item => ({
         label: item.label,
@@ -326,6 +425,8 @@ async function executeExperiment(lab, baseMessages, customer) {
         verificationNeeded: item.verificationNeeded,
         nextStepOffered: item.nextStepOffered,
         basis: item.basis,
+        answerRelevance: item.answerRelevance || null,
+        relevanceGate: item.relevanceGate || null,
         behaviorEffects: item.behaviorEffects,
         toolTrace: item.toolTrace,
         degraded: Boolean(item.degraded),
@@ -341,9 +442,10 @@ async function executeExperiment(lab, baseMessages, customer) {
     knowledgeMode: requestedMode,
     confidence: analysis.probe?.confidence || 0,
     knowledgeNeed: analysis.probe?.knowledgeNeed || '',
-    knowledgeUsed: !analysis.knowledge?.skipped,
-    articles: (analysis.knowledge?.usedArticles || []).map(item => item.id),
-    unresolvedRequests: analysis.probe?.unresolvedRequests || []
+    knowledgeUsed: requestedMode === 'clean' ? false : !analysis.knowledge?.skipped,
+    articles: requestedMode === 'clean' ? [] : (analysis.knowledge?.usedArticles || []).map(item => item.id),
+    unresolvedRequests: analysis.probe?.unresolvedRequests || [],
+    cleanModel: requestedMode === 'clean'
   });
   appendEvent(lab, 'experiment_result', {
     experimentId: experiment.id,
@@ -360,7 +462,7 @@ async function executeExperiment(lab, baseMessages, customer) {
     totalTokens: Number(totalUsage.total_tokens || 0)
   });
 
-  if (activeVariant?.reply) appendMessage(lab, 'agent', activeVariant.reply, { variant: activeVariant.label });
+  if (activeVariant?.reply && lab.displayMode !== 'analysis') appendMessage(lab, 'agent', activeVariant.reply, { variant: activeVariant.label });
   return experiment;
 }
 
@@ -389,8 +491,54 @@ function subscriberFacingRecoveryReply(customer = {}) {
   return 'Сейчас не получается проверить данные по вашему обращению. Попробуйте, пожалуйста, отправить запрос ещё раз.';
 }
 
+async function recoverCleanTurn(lab, customer, failure) {
+  const reply = subscriberFacingRecoveryReply(customer);
+  const analysis = cleanAnalysis(customer, {});
+  const variant = {
+    label: 'clean_model',
+    useKnowledge: false,
+    reply,
+    subscriberDataNeeded: [],
+    unresolvedRequests: [compact(customer?.text || '', 500)].filter(Boolean),
+    clarificationQuestions: [],
+    verificationNeeded: [],
+    nextStepOffered: '',
+    basis: ['dialogue', 'clean-model'],
+    answerRelevance: null,
+    relevanceGate: { skipped: true, reason: 'clean_model_error' },
+    behaviorEffects: {},
+    behavior: clone(lab.behavior),
+    model: '',
+    usage: {},
+    rateLimit: {},
+    toolTrace: [],
+    toolEvidence: [],
+    degraded: true,
+    degradationReason: failure
+  };
+  lab.lastExperiment = {
+    id: id('exp'), at: nowIso(), customerMessageId: customer.id,
+    knowledgeMode: 'clean', displayMode: lab.displayMode,
+    behavior: clone(lab.behavior), capabilities: { ...CLEAN_CAPABILITIES },
+    capabilityDetails: { mode: 'clean-model', billing: 'OFF', userside: 'OFF', network: 'OFF', toolCount: 0 },
+    elapsedMs: 0, analysis: analysisForUi(analysis), variants: [variant], activeVariant: 'clean_model', usage: {}, model: '', toolCalls: 0
+  };
+  lab.lastDecision = {
+    action: 'clean_model_degraded', intent: customer.text || 'unknown', reply,
+    reason: 'CLEAN MODEL fallback; SIMNET KB/tools remain disabled.', confidence: 0, language: 'other', model: '', usage: {}, rateLimit: {},
+    diagnostic: { error: failure, degraded: true, cleanModel: true, toolCalls: 0 }
+  };
+  appendEvent(lab, 'turn_degraded', { customerMessageId: customer.id, error: failure, toolCalls: 0, cleanModel: true });
+  if (lab.displayMode !== 'analysis') appendMessage(lab, 'agent', reply, { variant: 'clean_model' });
+}
+
 async function recoverTurn(lab, baseMessages, customer, error) {
   const failure = compact(error?.message || error || 'unknown error', 800);
+  if (normalizeKnowledgeMode(lab.knowledgeMode) === 'clean') {
+    await recoverCleanTurn(lab, customer, failure);
+    return;
+  }
+
   const transcript = [...(Array.isArray(baseMessages) ? baseMessages : []), customer];
   const analysis = recoveryAnalysis(customer);
   const recoveryDraft = {
@@ -476,7 +624,7 @@ async function recoverTurn(lab, baseMessages, customer, error) {
     reply,
     reason: 'Subscriber-facing fallback; внутренняя причина сбоя остаётся только в diagnostic/trace.',
     confidence: 0, language: 'other', model: '', usage: {}, rateLimit: {},
-    diagnostic: { error: failure, degraded: true, toolCalls: toolTrace.length }
+    diagnostic: { error: failure, degraded: true, toolCalls: toolTrace.length, answerRelevance: grounded.answerRelevance || null, relevanceGate: grounded.relevanceGate || null }
   };
   appendEvent(lab, 'turn_degraded', { customerMessageId: customer.id, error: failure, toolCalls: toolTrace.length });
   appendMessage(lab, 'agent', reply, { variant: 'degraded' });
