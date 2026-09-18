@@ -77,7 +77,7 @@ function derivedNeedsForRequest(request = '') {
   if (/точк.*подключ|точк.*підключ|коммут|ethernet|userside|user\s*side|тмц|tmc/i.test(text)) {
     add('userside.snapshot', 'UserSide', 'Нужен технический снимок конкретного подключения в UserSide.');
   }
-  if (/по\s+договор|за\s+договор|данн.*договор|дані.*договор|карточк.*абон|картк.*абон/i.test(text)) {
+  if (!needs.length && /по\s+договор|за\s+договор|данн.*договор|дані.*договор|карточк.*абон|картк.*абон/i.test(text)) {
     add('customer.snapshot', 'Billing', 'Нужны текущие данные карточки уже идентифицированного договора.');
   }
 
@@ -117,4 +117,4 @@ export function recoverLiveDataNeeds({ analysis = {}, draft = {} } = {}) {
   return merged.slice(0, 6);
 }
 
-export const LIVE_NEED_RECOVERY_VERSION = 3;
+export const LIVE_NEED_RECOVERY_VERSION = 4;
