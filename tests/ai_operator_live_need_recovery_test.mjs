@@ -31,6 +31,14 @@ test('degraded balance turn still recovers Billing read without LLM draft', () =
   assert.deepEqual(tools(needs), ['billing.balance']);
 });
 
+test('focused balance read suppresses redundant generic customer snapshot', () => {
+  const needs = recoverLiveDataNeeds({
+    analysis: { probe: { unresolvedRequests: ['по договору гляньте, что по балансу?'] } },
+    draft: { subscriberDataNeeded: [], degraded: true }
+  });
+  assert.deepEqual(tools(needs), ['billing.balance']);
+});
+
 test('fiber availability routes to building snapshot, not ONU signal', () => {
   const needs = recoverLiveDataNeeds({
     analysis: { probe: { unresolvedRequests: ['можно мне подключить оптику?'] } },
