@@ -23,6 +23,18 @@
     return Math.round(n(value)).toLocaleString('ru-RU');
   }
 
+  function totalTokens(usage = {}) {
+    return n(usage.total_tokens) || n(usage.input_tokens) + n(usage.output_tokens) || n(usage.input) + n(usage.output);
+  }
+
+  function inputTokens(usage = {}) {
+    return n(usage.input_tokens) || n(usage.input);
+  }
+
+  function outputTokens(usage = {}) {
+    return n(usage.output_tokens) || n(usage.output);
+  }
+
   function shortModel(value) {
     return String(value || '')
       .replace(/^openai\//, '')
@@ -35,9 +47,12 @@
     const byModel = state?.apiCost?.turn?.by_model;
     if (byModel && typeof byModel === 'object' && !Array.isArray(byModel)) {
       const models = Object.entries(byModel)
-        .filter(([, usage]) => n(usage?.calls) || n(usage?.total_tokens))
-        .sort((a, b) => n(b[1]?.total_tokens) - n(a[1]?.total_tokens))
-        .map(([model, usage]) => `${shortModel(model)} · ${fmt(usage?.total_tokens)} ток.`);
+        .filter(([, usage]) => n(usage?.calls) || totalTokens(usage))
+        .sort((a, b) => totalTokens(b[1]) - totalTokens(a[1]))
+        .map(([model, usage]) => {
+          const missing = n(usage?.missingUsage);
+          return `${shortModel(model)} · ${fmt(totalTokens(usage))} ток. · ${fmt(usage?.calls)} выз.${missing ? ` (${fmt(missing)} без usage)` : ''}`;
+        });
       if (models.length) return models;
     }
 
@@ -45,8 +60,19 @@
       .split('→')
       .map(shortModel)
       .filter(Boolean)
-      .filter((model, index, list) => list.indexOf(model) === index)
-      .map(model => model);
+      .filter((model, index, list) => list.indexOf(model) === index);
+  }
+
+  function stagesFrom(state = {}) {
+    const byStage = state?.apiCost?.turn?.by_stage;
+    if (!byStage || typeof byStage !== 'object' || Array.isArray(byStage)) return [];
+    return Object.entries(byStage)
+      .filter(([, usage]) => n(usage?.calls) || totalTokens(usage))
+      .sort((a, b) => n(b[1]?.calls) - n(a[1]?.calls))
+      .map(([stage, usage]) => {
+        const missing = n(usage?.missingUsage);
+        return `${stage} · ${fmt(usage?.calls)} выз. · ${fmt(totalTokens(usage))} ток.${missing ? ` · ${fmt(missing)} без usage` : ''}`;
+      });
   }
 
   function ensureStyles() {
@@ -61,8 +87,9 @@
       .ai-usage-stat{padding:6px 7px;border:1px solid #e7ebf0;border-radius:8px;background:#f8fafc;min-width:0}
       .ai-usage-stat b{display:block;font:800 12px/1.25 ui-monospace,monospace;color:#172033;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .ai-usage-stat span{display:block;margin-top:2px;font:8px/1.2 ui-monospace,monospace;color:#7b8798;text-transform:uppercase;letter-spacing:.04em}
-      .ai-usage-models{font:9px/1.45 ui-monospace,monospace;color:#475569;white-space:normal;word-break:break-word}
-      .ai-usage-models b{color:#172033}
+      .ai-usage-models,.ai-usage-stages{font:9px/1.45 ui-monospace,monospace;color:#475569;white-space:normal;word-break:break-word}
+      .ai-usage-models b,.ai-usage-stages b{color:#172033}
+      .ai-usage-stages{padding-top:6px;border-top:1px solid #edf1f5}
       @media(max-width:900px){.ai-usage-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
       @media(max-width:560px){.ai-usage-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
     `;
@@ -89,23 +116,25 @@
     const turn = state?.apiCost?.turn || {};
     const session = state?.apiCost?.session || {};
     const models = modelsFrom(state);
+    const stages = stagesFrom(state);
 
     const root = create('section', 'ai-usage-meter');
     root.id = ROOT_ID;
 
     const head = create('div', 'ai-usage-head');
+    const missing = n(turn.missingUsage);
     head.append(
       create('strong', '', 'LLM · токены'),
-      create('span', '', `ход ${fmt(turn.calls)} выз. · диалог ${fmt(session.calls)} выз.`)
+      create('span', '', `ход ${fmt(turn.calls)} выз.${missing ? ` · ${fmt(missing)} без usage` : ''} · диалог ${fmt(session.calls)} выз.`)
     );
 
     const grid = create('div', 'ai-usage-grid');
     grid.append(
-      stat('ход · всего', fmt(turn.total_tokens)),
-      stat('ход · prompt', fmt(turn.input_tokens)),
-      stat('ход · answer', fmt(turn.output_tokens)),
+      stat('ход · всего', fmt(totalTokens(turn))),
+      stat('ход · prompt', fmt(inputTokens(turn))),
+      stat('ход · answer', fmt(outputTokens(turn))),
       stat('ход · вызовы', fmt(turn.calls)),
-      stat('диалог · всего', fmt(session.total_tokens)),
+      stat('диалог · всего', fmt(totalTokens(session))),
       stat('диалог · вызовы', fmt(session.calls))
     );
 
@@ -114,6 +143,13 @@
     modelLine.append(document.createTextNode(models.length ? models.join(' · ') : 'ещё нет вызовов'));
 
     root.append(head, grid, modelLine);
+
+    if (stages.length) {
+      const stageLine = create('div', 'ai-usage-stages');
+      stageLine.append(create('b', '', 'Этапы этого хода: '));
+      stageLine.append(document.createTextNode(stages.join(' · ')));
+      root.append(stageLine);
+    }
 
     rendering = true;
     observer?.disconnect();
