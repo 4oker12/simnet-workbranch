@@ -38,6 +38,11 @@ function toolFromField(field = '') {
 function derivedNeedsForRequest(request = '') {
   const text = line(request, 600).toLowerCase();
   if (!text) return [];
+
+  const generalDefinition = /что\s+такое|що\s+таке|что\s+значит|що\s+означає|как\s+работает|як\s+працює/i.test(text);
+  const subscriberSpecific = /\b(?:мой|моя|мо[её]|мне|у\s+меня|мій|моя|моє|мені|у\s+мене|абон\w*|договор\w*|договір\w*|текущ\w*|поточн\w*|сейчас|зараз)\b/iu.test(text);
+  if (generalDefinition && !subscriberSpecific) return [];
+
   const needs = [];
   const add = (tool, system, why) => needs.push(explicitNeed(tool, system, request, why));
 
@@ -117,4 +122,4 @@ export function recoverLiveDataNeeds({ analysis = {}, draft = {} } = {}) {
   return merged.slice(0, 6);
 }
 
-export const LIVE_NEED_RECOVERY_VERSION = 4;
+export const LIVE_NEED_RECOVERY_VERSION = 5;
