@@ -171,8 +171,9 @@ function toolForNeed(need = {}) {
   const text = needText(need);
   const system = oneLine(need.system, 80).toLowerCase();
   if (/building\.snapshot/.test(text)) return 'building.snapshot';
-  const buildingContext = /дом|будин|здан|адрес|покрыт|coverage|собственник|owner|ключ|замет|прим[еі]чан|working[_ ]?note|ук|осбб|building/.test(text);
-  const buildingFact = /gpon|epon|оптик|покрыт|coverage|собственник|owner|ключ|замет|прим[еі]чан|working[_ ]?note|ук|осбб|этаж|поверх|подъезд|під.?їзд|квартир|penetration|менеджер|ktv|ктв/.test(text);
+  const buildingKeyFact = /(?:^|[\s:;,])ключ(?:и|ей|а)?(?=$|[\s:;,.!?])/.test(text);
+  const buildingContext = /дом|будин|здан|адрес|покрыт|coverage|собственник|owner|замет|прим[еі]чан|working[_ ]?note|осбб|building/.test(text) || buildingKeyFact;
+  const buildingFact = /gpon|epon|оптик|покрыт|coverage|собственник|owner|замет|прим[еі]чан|working[_ ]?note|осбб|этаж|поверх|подъезд|під.?їзд|квартир|penetration|менеджер|ktv|ктв/.test(text) || buildingKeyFact;
   if (buildingContext && buildingFact) return 'building.snapshot';
   if (/баланс|balance|рахун|финанс|заборг|долг|списан/.test(text)) return 'billing.balance';
   if (/плат[её]ж|оплат|payment|пополн/.test(text)) return 'billing.payments';
