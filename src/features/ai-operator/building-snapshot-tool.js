@@ -48,7 +48,7 @@ function normalizeStreet(value) {
     .replace(/[’'`]/g, '')
     .replace(/\([^)]*\)/g, ' ')
     .replace(/[.,;:№#]/g, ' ')
-    .replace(/\b(?:м|місто|город|київ|киев|вул|вулиця|улица|ул|просп|проспект|проспекту|пров|провулок|переулок|бул|бульвар|пл|площа|площадь)\b/giu, ' ')
+    .replace(/(?:^|\s)(?:м|місто|город|київ|киев|вул|вулиця|улица|ул|просп|проспект|проспекту|пров|провулок|переулок|бул|бульвар|пл|площа|площадь)(?=\s|$)/giu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -58,10 +58,10 @@ function parseStreetHouse(addressValue) {
   if (!address) return { street: '', house: '' };
   const clean = address.replace(/\u00a0/g, ' ');
 
-  const marker = clean.match(/^(.*?)(?:\s*,?\s*\b(?:буд\.?|будинок|дом|д\.?|house)\s*[:№#-]?\s*)(\d+[\p{L}]?(?:\s*[\/-]\s*[\p{L}\d]+)?)/iu);
+  const marker = clean.match(/^(.*?)(?:\s*,?\s*(?:буд\.?|будинок|дом|д\.?|house)(?=\s|[:№#-])\s*[:№#-]?\s*)(\d+[\p{L}]?(?:\s*[\/-]\s*[\p{L}\d]+)?)/iu);
   if (marker) return { street: normalizeStreet(marker[1]), house: normalizeHouse(marker[2]) };
 
-  const beforeUnit = clean.split(/\b(?:під'?їзд|подъезд|поверх|этаж|кв\.?|квартира|офіс|офис)\b/iu)[0];
+  const beforeUnit = clean.split(/(?:^|\s)(?:під'?їзд|подъезд|поверх|этаж|кв\.?|квартира|офіс|офис)(?=\s|[.,:№#-]|$)/iu)[0];
   const simple = beforeUnit.match(/^(.*?)[,\s]+(\d+[\p{L}]?(?:\s*[\/-]\s*[\p{L}\d]+)?)\s*[,;]?\s*$/u);
   if (simple) return { street: normalizeStreet(simple[1]), house: normalizeHouse(simple[2]) };
 
