@@ -13,6 +13,17 @@ function normalizeNeed(item = {}) {
   };
 }
 
+function semanticEvidenceNeeds(analysis = {}) {
+  const probe = analysis?.probe || {};
+  const source = Array.isArray(probe.evidenceNeeds)
+    ? probe.evidenceNeeds
+    : (Array.isArray(probe.evidence_needs) ? probe.evidence_needs : []);
+  return source
+    .map(normalizeNeed)
+    .filter(item => item.system || item.field || item.why)
+    .slice(0, 6);
+}
+
 function requestList(analysis = {}) {
   const probe = analysis?.probe || {};
   const unresolved = (Array.isArray(probe.unresolvedRequests) ? probe.unresolvedRequests : [])
@@ -46,7 +57,9 @@ function derivedNeedsForRequest(request = '') {
   const needs = [];
   const add = (tool, system, why) => needs.push(explicitNeed(tool, system, request, why));
 
-  // Availability/coverage is a building fact, not an ONU signal measurement.
+  // Recovery only: semantic understanding is the primary source of evidence needs.
+  // These patterns remain as a safety net when an older/failed semantic response
+  // does not provide evidence_needs yet. They are not the primary intent system.
   const accessTechnology = /оптик|fiber|gpon|epon|\bpon\b/i.test(text);
   const availability = /подключ|підключ|можно|можна|возмож|можлив|доступн|покрыт|покрит|coverage/i.test(text);
   if (accessTechnology && availability) {
@@ -93,15 +106,19 @@ export function recoverLiveDataNeeds({ analysis = {}, draft = {} } = {}) {
   const existing = (Array.isArray(draft?.subscriberDataNeeded) ? draft.subscriberDataNeeded : [])
     .map(normalizeNeed)
     .filter(item => item.system || item.field || item.why);
+  const semantic = semanticEvidenceNeeds(analysis);
   const liveNeed = line(analysis?.probe?.liveDataNeed || analysis?.probe?.live_data_need, 20).toLowerCase();
   const requests = requestList(analysis);
-  const derived = requests.flatMap(derivedNeedsForRequest);
-  const recoveryAllowed = liveNeed === 'needed' || derived.length > 0;
+
+  // Regex derivation is strictly fallback. If UNDERSTANDING already produced a
+  // semantic evidence plan, do not rebuild the user's meaning from keywords.
+  const derived = semantic.length ? [] : requests.flatMap(derivedNeedsForRequest);
+  const recoveryAllowed = existing.length > 0 || semantic.length > 0 || liveNeed === 'needed' || derived.length > 0;
   if (!recoveryAllowed) return existing;
 
   const merged = [];
   const seen = new Set();
-  for (const need of [...existing, ...derived]) {
+  for (const need of [...existing, ...semantic, ...derived]) {
     const normalized = normalizeNeed(need);
     const key = toolFromField(normalized.field) || `${normalized.system.toLowerCase()}|${normalized.field.toLowerCase()}`;
     if (!key || seen.has(key)) continue;
@@ -122,4 +139,12 @@ export function recoverLiveDataNeeds({ analysis = {}, draft = {} } = {}) {
   return merged.slice(0, 6);
 }
 
-export const LIVE_NEED_RECOVERY_VERSION = 5;
+export function planLiveDataNeeds(analysis = {}) {
+  return recoverLiveDataNeeds({ analysis, draft: {} });
+}
+
+export function hasLiveDataNeeds(analysis = {}) {
+  return planLiveDataNeeds(analysis).length > 0;
+}
+
+export const LIVE_NEED_RECOVERY_VERSION = 6;
