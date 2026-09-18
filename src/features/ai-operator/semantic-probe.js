@@ -50,7 +50,7 @@ function rateLimitFromHeaders(headers) {
     limitTokens: numberHeader(headers, 'x-ratelimit-limit-tokens'),
     remainingTokens: numberHeader(headers, 'x-ratelimit-remaining-tokens'),
     resetTokens: oneLine(headers?.get?.('x-ratelimit-reset-tokens') || '', 80),
-    remainingRequests: numberHeader(headers?.get?.('x-ratelimit-remaining-requests') || '', 80),
+    remainingRequests: numberHeader(headers, 'x-ratelimit-remaining-requests'),
     retryAfter: oneLine(headers?.get?.('retry-after') || '', 80)
   };
 }
@@ -261,7 +261,7 @@ export function buildSubscriberIntentProbeMessages({ transcript = [], latestCust
 Отдельно определи, зависит ли существенная часть ответа от ТЕКУЩЕГО факта конкретного абонента или системы, который нельзя честно получить из самого диалога/общеизвестного знания:
 - live_data_need=none — текущий READ не нужен; например, вопрос общий, смысловой, арифметический по уже данным числам или ответ уже следует из подтверждённого контекста;
 - live_data_need=needed — нужен свежий/подтверждённый факт Billing, UserSide или Network.
-Если нужен live-факт, перечисли evidence_needs как факты, а НЕ tools и НЕ команды. Например: system=Billing, field="current balance" или field="current tariff". Не пиши названия функций вроде billing.balance. Не добавляй договор/login/адрес как отдельный evidence_need только потому, что они технически нужны для поиска: это идентификатор, а не факт ответа. Не перечисляй соседние данные «на всякий случай» — только то, без чего нельзя закрыть реальную просьбу.
+Если нужен live-факт, перечисли evidence_needs как факты, а НЕ tools и НЕ команды. Пиши field коротким естественным названием факта на языке разговора, например system=Billing, field="текущий баланс" или field="текущий тариф". Не пиши названия функций вроде billing.balance. Не добавляй договор/login/адрес как отдельный evidence_need только потому, что они технически нужны для поиска: это идентификатор, а не факт ответа. Не перечисляй соседние данные «на всякий случай» — только то, без чего нельзя закрыть реальную просьбу.
 
 Также оцени, даст ли внутренняя энциклопедия SIMNET реальную пользу именно на ЭТОМ ходе:
 - knowledge_need=none: внутренние правила/знания ничего существенного не добавят;
