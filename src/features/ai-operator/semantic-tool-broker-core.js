@@ -3,6 +3,7 @@
 import { recordApiUsage } from './api-cost.js';
 import { AI_CONFIG, readAiRuntimeConfig } from '../../config/ai-config.js';
 import { AI_OPERATOR_GENERATION_MODEL_POOL } from './semantic-probe.js';
+import { autonomousOperatorSystemMessages } from './instructions/autonomous-operator-instruction.generated.js';
 
 export const AI_OPERATOR_SOFT_TOOL_CAPABILITIES = Object.freeze({ billing: true, userside: true, network: true });
 
@@ -167,6 +168,9 @@ async function requestSynthesis(messages, meterContext = {}) {
 function needText(need = {}) {
   return `${oneLine(need.system, 80)} ${oneLine(need.field, 160)} ${oneLine(need.why, 260)}`.toLowerCase();
 }
+function hasPonTerm(text = '') {
+  return /(?:^|[^a-zа-яіїєґ0-9])(?:onu|ont|olt|pon|gpon|epon)(?=$|[^a-zа-яіїєґ0-9])/iu.test(String(text || ''));
+}
 function toolForNeed(need = {}) {
   const text = needText(need);
   const system = oneLine(need.system, 80).toLowerCase();
@@ -179,7 +183,7 @@ function toolForNeed(need = {}) {
   if (/плат[её]ж|оплат|payment|пополн/.test(text)) return 'billing.payments';
   if (/тариф|пакет|абонплат|скорост|speed/.test(text) && !/сесс|линк|порт/.test(text)) return 'billing.tariff';
   if (/сигнал|rx|tx|оптик|затух|dbm/.test(text)) return 'pon.signal';
-  if (/onu|ont|olt|pon|gpon|epon/.test(text)) return system.includes('userside') ? 'userside.snapshot' : 'pon.onu';
+  if (hasPonTerm(text)) return system.includes('userside') ? 'userside.snapshot' : 'pon.onu';
   if (/bras|juniper|сесс|авторизац|dhcp|traffic|трафик|vlan/.test(text)) return 'network.session';
   if (/userside|user\s*side|тмц|tmc|точк.*подключ|коммут|ethernet|порт/.test(text) || system.includes('userside')) return 'userside.snapshot';
   if (system.includes('network')) return 'network.session';
@@ -342,11 +346,37 @@ export function ensureNonEmptyReply(reply, analysis = {}, toolTrace = []) {
 function synthesisMessages({ transcript = [], latestCustomer = {}, analysis = {}, draft = {}, toolTrace = [], useKnowledge = true } = {}) {
   const dialogue = (Array.isArray(transcript) ? transcript : []).slice(-14).map(item => ({ role: item?.role === 'customer' ? 'customer' : 'operator', text: block(item?.text, 700) })).filter(item => item.text);
   const evidence = toolTrace.map(item => ({ tool: item.tool, ok: item.ok, code: item.code, observed_at: item.observedAt, source: item.source, data: item.data, warnings: item.warnings }));
+  const stageInstruction = `ЭТАП: TOOL EVIDENCE SYNTHESIS.
+
+READ-only проверки уже выполнены. Сформируй естественный полезный ответ на исходный вопрос абонента, используя dialogue, internal_knowledge, draft и tool_evidence как evidence.
+
+Сначала рассуждай по уже имеющимся фактам. Если их достаточно для прямого логического, арифметического, технического или семантического вывода, дай этот вывод. Не создавай новые требования к данным из-за гипотетического исключения или сценария «а вдруг».
+
+Правила источников:
+- tool_evidence с ok=true подтверждает только реально возвращённые поля;
+- source=billing-live-read-only — свежая READ-проверка Billing;
+- source=userside-live-read-only — свежая READ-проверка UserSide;
+- source=userside-building-snapshot-local — сохранённая карточка здания; учитывай snapshotGeneratedAt/snapshotComplete;
+- ok=false означает только «проверить не удалось/нет данных в этом источнике», а не отрицательный факт;
+- Workbench/Network fallback не выдавай за свежий запрос, если источник так не говорит;
+- слова клиента/оператора не превращай в системный факт;
+- конкретные внутренние тарифы/правила SIMNET бери из переданного internal_knowledge/live evidence, а общие знания используй для их интерпретации;
+- subscriber_data_needed оставляй только для конкретного факта, без которого действительно нельзя закрыть существенную часть запроса;
+- не теряй исходный вопрос клиента;
+- reply обязан быть непустым.
+
+Верни только JSON:
+{
+  "reply":"готовый непустой ответ абоненту",
+  "subscriber_data_needed":[{"system":"Billing|UserSide|Network","field":"что ещё действительно нужно","why":"почему без этого нельзя ответить"}],
+  "unresolved_requests":["что реально осталось незакрытым"],
+  "clarification_questions":["вопросы реально заданные в reply"],
+  "verification_needed":["что всё ещё действительно нельзя утверждать"],
+  "next_step_offered":"следующий шаг или пусто",
+  "basis":["dialogue","knowledge:...","tool:..."]
+}`;
   return [
-    {
-      role: 'system',
-      content: `Ты завершаешь ответ абоненту SIMNET после READ-only проверок. До этого AI свободно понял диалог и при необходимости запросил данные. Инструменты — источники доказательств, а не сценарий мышления.\n\nСобери естественный полезный ответ на языке разговора. Не показывай JSON, названия внутренних стадий, chain-of-thought или внутреннюю механику.\n\nПравила достоверности:\n- tool_evidence с ok=true можно использовать только в пределах реально возвращённых полей;\n- source=billing-live-read-only означает свежую READ-проверку Billing через текущую авторизованную вкладку;\n- source=userside-live-read-only означает свежую READ-проверку UserSide через текущую авторизованную вкладку;\n- source=userside-building-snapshot-local означает чтение сохранённой рабочей карточки здания UserSide; используй только реально присутствующие поля и учитывай snapshotGeneratedAt/snapshotComplete;\n- ok=false означает «проверить не удалось/данных нет в этом источнике», а НЕ доказательство отрицательного факта;\n- Workbench/Network fallback не выдавай за свежий Juniper/UserSide запрос, если источник так не говорит;\n- слова клиента/оператора не превращай в системный факт;\n- внутренние тарифы/правила SIMNET утверждай только из переданного internal_knowledge;\n- если данных недостаточно, задай минимальное уточнение или честно скажи, что именно не удалось подтвердить;\n- не теряй исходный вопрос клиента;\n- поле reply ОБЯЗАТЕЛЬНО должно быть непустым.\n\nВерни только JSON:\n{\n  "reply":"готовый непустой ответ абоненту",\n  "subscriber_data_needed":[{"system":"Billing|UserSide|Network","field":"что ещё нужно","why":"зачем"}],\n  "unresolved_requests":["что осталось незакрытым"],\n  "clarification_questions":["вопросы реально заданные в reply"],\n  "verification_needed":["что всё ещё нельзя утверждать"],\n  "next_step_offered":"следующий шаг или пусто",\n  "basis":["dialogue","knowledge:...","tool:..."]\n}`
-    },
+    ...autonomousOperatorSystemMessages(stageInstruction),
     {
       role: 'user',
       content: JSON.stringify({
