@@ -2,7 +2,14 @@
 // no top-level await. Secrets are loaded asynchronously from chrome.storage.local
 // and are never exported/logged.
 const AI_RUNTIME_CONFIG_KEY = 'simnet_workbench_ai_runtime_v1';
-const DEFAULT_MODEL = 'qwen/qwen3.6-27b';
+const DEFAULT_MODEL = 'qwen/qwen3.8-27b';
+const RETIRED_MODELS = new Set(['qwen/qwen3.6-27b']);
+
+function normalizeModel(value) {
+  const model = String(value || '').trim();
+  if (!model || RETIRED_MODELS.has(model)) return DEFAULT_MODEL;
+  return model;
+}
 
 export const AI_CONFIG = {
   provider: 'groq',
@@ -17,7 +24,7 @@ export const AI_CONFIG = {
 function applyRuntime(raw = {}) {
   const next = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   AI_CONFIG.apiKey = String(next.groqApiKey || '').trim();
-  AI_CONFIG.model = String(next.chatModel || next.model || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
+  AI_CONFIG.model = normalizeModel(next.chatModel || next.model || DEFAULT_MODEL);
   return AI_CONFIG;
 }
 
@@ -46,12 +53,12 @@ export async function readAiRuntimeConfig() {
     return {
       ...raw,
       groqApiKey: String(raw.groqApiKey || '').trim(),
-      chatModel: String(raw.chatModel || raw.model || DEFAULT_MODEL).trim() || DEFAULT_MODEL
+      chatModel: normalizeModel(raw.chatModel || raw.model || DEFAULT_MODEL)
     };
   } catch {
     return {
       groqApiKey: String(AI_CONFIG.apiKey || '').trim(),
-      chatModel: String(AI_CONFIG.model || DEFAULT_MODEL)
+      chatModel: normalizeModel(AI_CONFIG.model || DEFAULT_MODEL)
     };
   }
 }
