@@ -189,7 +189,7 @@ export async function applyAnswerRelevanceGate({
 
 ANSWER RELEVANCE:
 - Сначала зафиксируй request: какой конкретно вопрос/просьбу клиента сейчас нужно закрыть.
-- Каждый доступный релевантный элемент может быть kept или dropped. Источник kept может быть dialogue, common_knowledge, reasoning, knowledge:... или tool:....
+- Каждый доступный факт либо kept, либо dropped. Источник kept может быть dialogue, common_knowledge, reasoning, knowledge:... или tool:....
 - kept — только если элемент прямо нужен для ответа. dropped — если он просто оказался рядом и не помогает ответить.
 - Наличие факта в Billing/KB НЕ означает, что его надо сообщить.
 - Не добавляй в reply нерелевантные dropped-факты.
