@@ -1,6 +1,7 @@
 'use strict';
 
 import * as core from './semantic-tool-broker-core.js';
+import { recoverLiveDataNeeds } from './live-need-recovery.js';
 
 /*
 Evidence contract inherited from the core broker and enforced again by the runtime fallback:
@@ -289,7 +290,7 @@ export function evidenceFallbackReply(analysis = {}, toolTrace = []) {
 export async function groundSubscriberReply(options = {}) {
   const { draft = {}, transcript = [], analysis = {}, labState = {}, execute, coreGround = core.groundSubscriberReply, ...rest } = options;
   if (typeof execute !== 'function') throw new Error('Soft tool broker requires execute(tool)');
-  const needs = Array.isArray(draft?.subscriberDataNeeded) ? draft.subscriberDataNeeded : [];
+  const needs = recoverLiveDataNeeds({ analysis, draft });
   const routedDraft = { ...draft, subscriberDataNeeded: routeNeedsForCore(needs) };
   const pre = await bootstrapExplicitIdentity({ transcript, analysis, labState, execute, includeSnapshot: Boolean(draft?.degraded && needs.length === 0) });
   const result = await coreGround({ ...rest, draft: routedDraft, transcript, analysis, labState: pre.labState, execute });
