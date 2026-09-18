@@ -18,9 +18,13 @@ export function normalizeBillingMainSnapshot({ billingId = '', liveData = {}, ba
   const base = baseData && typeof baseData === 'object' ? baseData : {};
   const evidence = mergePresent(base.evidence, live.evidence);
   if (observedAt) evidence.observedAt = observedAt;
+  const identity = mergePresent(mergePresent(base.identity, live.identity), { billingId });
+  const payments = Array.isArray(live.payments)
+    ? live.payments.slice(0, 6)
+    : Array.isArray(base.payments) ? base.payments.slice(0, 6) : [];
 
   return {
-    identity: mergePresent(base.identity, { billingId }),
+    identity,
     service: mergePresent(base.service, live.service),
     finance: mergePresent(base.finance, live.finance),
     network: mergePresent(base.network, live.network),
@@ -28,7 +32,7 @@ export function normalizeBillingMainSnapshot({ billingId = '', liveData = {}, ba
     address: mergePresent({}, base.address),
     contacts: mergePresent({}, base.contacts),
     customer: mergePresent({}, base.customer),
-    payments: Array.isArray(base.payments) ? base.payments.slice(0, 6) : [],
+    payments,
     evidence,
     source: 'billing-main-live-read-only',
     cache: String(cache || '')
@@ -51,6 +55,7 @@ export function billingBalanceView(snapshot = {}) {
     serviceState: service.serviceState || '',
     activeServices: Array.isArray(service.activeServices) ? service.activeServices : [],
     activeServicesTotal: service.activeServicesTotal ?? null,
+    recentOperations: Array.isArray(snapshot.payments) ? snapshot.payments : [],
     trafficIncomingBytes: network.trafficIncomingBytes || '',
     trafficOutgoingBytes: network.trafficOutgoingBytes || '',
     source: snapshot.source || 'billing-main-live-read-only',
