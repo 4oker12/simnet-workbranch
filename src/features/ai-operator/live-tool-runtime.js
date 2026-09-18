@@ -4,6 +4,8 @@ import * as core from './live-tool-runtime-core.js';
 import { readNetworkSessionLive } from './network-live-search.js';
 import { readBillingMainLive } from './billing-main-live.js';
 import { readBillingTechnicalLive } from './billing-technical-live.js';
+import { readBillingProfileLive } from './billing-profile-live.js';
+import { historyPaymentsView, readBillingHistoryLive } from './billing-history-live.js';
 import { billingBalanceView, billingTariffView, hasBillingMainData, normalizeBillingMainSnapshot } from './billing-main-snapshot.js';
 import { classifyStandaloneBillingLogin, searchBillingLoginLive } from './billing-login-live.js';
 import { readBuildingSnapshot } from './building-snapshot-tool.js';
@@ -173,6 +175,52 @@ async function executeBillingTechnicalTool(name, toolArgs = {}, labState = {}) {
   });
 }
 
+async function executeBillingProfileTool(name, toolArgs = {}, labState = {}) {
+  if (!String(labState?.confirmedCaseId || '').trim()) return result(name, false, 'IDENTITY_REQUIRED', {});
+  const id = billingIdFromLab(labState);
+  if (!id) return result(name, false, 'BILLING_ID_REQUIRED', {});
+  const live = await readBillingProfileLive({ billingId: id, refresh: Boolean(toolArgs.refresh), maxAgeMs: toolArgs.maxAgeMs || 1800000 });
+  if (live?.ok) return result(name, true, 'OK', { ...(live.data || {}), source: live.source, observedAt: live.observedAt || nowIso(), cache: live.cache || '' });
+
+  const fallback = await core.executeOperatorTool({ tool: 'customer.snapshot', toolArgs: { refresh: false }, labState });
+  const data = fallback?.data || {};
+  const hasProfile = [data.address, data.contacts, data.customer].some(section => section && typeof section === 'object' && Object.values(section).some(value => value !== '' && value !== null && value !== undefined));
+  if (hasProfile) {
+    return result(name, true, 'OK', {
+      address: data.address || {}, contacts: data.contacts || {}, customer: data.customer || {},
+      evidence: data.evidence || {}, source: 'billing-snapshot-fallback'
+    }, [`Fresh Billing profile read недоступен (${String(live?.code || 'unknown')}); использован накопленный profile snapshot.`]);
+  }
+  return result(name, false, String(live?.code || 'BILLING_PROFILE_READ_FAILED'), {
+    message: 'Не удалось прочитать профиль абонента Billing.', source: 'billing-profile-live-read-only', billingId: id
+  });
+}
+
+async function executeBillingHistoryTool(name, toolArgs = {}, labState = {}) {
+  if (!String(labState?.confirmedCaseId || '').trim()) return result(name, false, 'IDENTITY_REQUIRED', {});
+  const id = billingIdFromLab(labState);
+  if (!id) return result(name, false, 'BILLING_ID_REQUIRED', {});
+  const live = await readBillingHistoryLive({ billingId: id, refresh: Boolean(toolArgs.refresh), maxAgeMs: toolArgs.maxAgeMs || 120000 });
+  if (live?.ok) {
+    const data = { ...(live.data || {}), source: live.source, observedAt: live.observedAt || nowIso(), cache: live.cache || '' };
+    if (name === 'billing.history') return result(name, true, 'OK', data);
+    const payments = historyPaymentsView(data);
+    if (payments.length) return result(name, true, 'OK', { payments, count: payments.length, source: live.source, observedAt: data.observedAt });
+  }
+
+  // Compatibility fallback: the main Billing snapshot already carries the most recent operations.
+  if (name === 'billing.payments') {
+    const fallback = await core.executeOperatorTool({ tool: 'billing.payments', toolArgs, labState });
+    if (fallback?.ok) return { ...fallback, warnings: [
+      ...(Array.isArray(fallback.warnings) ? fallback.warnings : []),
+      `Billing history read недоступен (${String(live?.code || 'no_matching_events')}); использованы последние операции snapshot.`
+    ] };
+  }
+  return result(name, false, String(live?.code || 'DATA_NOT_AVAILABLE'), {
+    message: 'Не удалось прочитать историю событий Billing.', source: 'billing-history-live-read-only', billingId: id
+  }, ['Не трактовать неудачный history-read как доказательство отсутствия платежей или событий.']);
+}
+
 async function executeNetworkSessionTool(name, toolArgs = {}, labState = {}) {
   if (!String(labState?.confirmedCaseId || '').trim()) return core.executeOperatorTool({ tool: name, toolArgs, labState });
   const billingId = billingIdFromLab(labState);
@@ -201,6 +249,8 @@ export async function executeOperatorTool({ tool, toolArgs = {}, labState = {} }
   if (name === 'customer.snapshot' || name === 'billing.main') return executeBillingMainSnapshot(name, toolArgs, labState);
   if (name === 'billing.balance' || name === 'billing.tariff') return executeBillingSummaryTool(name, toolArgs, labState);
   if (name === 'billing.technical') return executeBillingTechnicalTool(name, toolArgs, labState);
+  if (name === 'billing.profile') return executeBillingProfileTool(name, toolArgs, labState);
+  if (name === 'billing.history' || name === 'billing.payments') return executeBillingHistoryTool(name, toolArgs, labState);
   if (name === 'network.session' || name === 'network.last_session') return executeNetworkSessionTool(name, toolArgs, labState);
   return core.executeOperatorTool({ tool: name, toolArgs, labState });
 }
