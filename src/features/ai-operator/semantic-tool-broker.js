@@ -2,6 +2,7 @@
 
 import * as impl from './semantic-tool-broker-impl.js';
 import { extractStandaloneSubscriberIdentity, identityToolArgs } from './subscriber-identity.js';
+import { applyAnswerRelevanceGate } from './answer-relevance-gate.js';
 
 const BILLING_SUMMARY_ENDPOINT = '/cgi-bin/adm/adm.pl?a=user&id=<billingId>';
 const BILLING_SUMMARY_EVIDENCE = 'Единый DOM-блок главной Billing-карточки table.tbg1.nav3.width100; один fresh GET даёт тариф, цену, сумму к оплате, баланс после тарифа и трафик. Повторные billing.balance/billing.tariff в коротком окне используют тот же cached summary snapshot.';
@@ -169,7 +170,7 @@ function normalizedAddress(value) {
   return String(value == null ? '' : value).toLowerCase().replace(/[.,;:()№#]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 function identityMatchesConfirmed(args = {}, state = {}) {
-  const subscriber = state?.confirmedSubscriber && typeof state.confirmedSubscriber === 'object' ? state.confirmedSubscriber : {};
+  const subscriber = state?.confirmedSubscriber && typeof state.confirmedSubscriber === 'object' && !Array.isArray(state.confirmedSubscriber) ? state.confirmedSubscriber : {};
   if (args.contract) {
     const currentContract = normalizedContract(subscriber.contract || subscriber.login);
     return Boolean(currentContract && currentContract === normalizedContract(args.contract));
@@ -388,6 +389,14 @@ export async function executeInformationNeeds(options = {}) {
 
 export const evidenceFallbackReply = impl.evidenceFallbackReply;
 
+function mergeUsage(primary = {}, secondary = {}) {
+  return {
+    prompt_tokens: Number(primary?.prompt_tokens || 0) + Number(secondary?.prompt_tokens || 0),
+    completion_tokens: Number(primary?.completion_tokens || 0) + Number(secondary?.completion_tokens || 0),
+    total_tokens: Number(primary?.total_tokens || 0) + Number(secondary?.total_tokens || 0)
+  };
+}
+
 export async function groundSubscriberReply(options = {}) {
   const { transcript = [], analysis = {}, labState = {}, execute, draft = {} } = options;
   const pre = await bootstrapStandaloneIdentity({ transcript, analysis, labState, execute });
@@ -396,14 +405,28 @@ export async function groundSubscriberReply(options = {}) {
   const toolEvidence = mergeTrace(pre.trace.filter(item => item?.ok), delegated?.toolEvidence);
   const degraded = Boolean(draft?.degraded || delegated?.degraded);
   const knowledgeReply = degraded ? knowledgeConsultationFallbackReply(analysis, transcript) : '';
-  const reply = knowledgeReply
+  const preliminaryReply = knowledgeReply
     ? (toolEvidence.length && String(delegated?.reply || '').trim()
       ? `${knowledgeReply}\n\n${String(delegated.reply).trim()}`
       : knowledgeReply)
     : delegated?.reply;
+
+  const relevance = await applyAnswerRelevanceGate({
+    reply: preliminaryReply,
+    analysis,
+    toolTrace,
+    latestCustomer: options.latestCustomer || {},
+    transcript,
+    useKnowledge: options.useKnowledge !== false,
+    meterContext: options.meterContext || {}
+  });
+
   return {
     ...delegated,
-    reply,
+    reply: relevance.reply || preliminaryReply,
+    answerRelevance: relevance.answerRelevance || null,
+    relevanceGate: relevance.gate || null,
+    usage: mergeUsage(delegated?.usage || {}, relevance?.gate?.usage || {}),
     toolTrace,
     toolEvidence,
     toolState: delegated?.toolState || pre.labState
