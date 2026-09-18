@@ -4,6 +4,7 @@ import * as core from './live-tool-runtime-core.js';
 import { readNetworkSessionLive } from './network-live-search.js';
 import { readBillingSummaryLive } from './billing-summary-live.js';
 import { classifyStandaloneBillingLogin, searchBillingLoginLive } from './billing-login-live.js';
+import { readBuildingSnapshot } from './building-snapshot-tool.js';
 
 const LIVE_CASE_PREFIX = 'billing-live:';
 
@@ -229,6 +230,9 @@ export async function executeOperatorTool({ tool, toolArgs = {}, labState = {} }
   const genericLogin = name === 'customer.lookup' ? classifyStandaloneBillingLogin(toolArgs.login) : '';
   if (genericLogin && !/^abon\d{3,12}$/i.test(genericLogin)) {
     return executeGenericLoginLookup({ ...toolArgs, login: genericLogin });
+  }
+  if (name === 'building.snapshot') {
+    return readBuildingSnapshot({ toolArgs, labState });
   }
   if (name === 'billing.balance' || name === 'billing.tariff') {
     return executeBillingSummaryTool(name, toolArgs, labState);
