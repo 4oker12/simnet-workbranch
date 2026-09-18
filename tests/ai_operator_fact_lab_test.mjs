@@ -113,13 +113,12 @@ test('Manual Lab uses semantic runtime, soft READ-tools, live profile changes, A
       payload: {
         knowledgeMode: 'off',
         displayMode: 'answer_analysis',
-        behavior: { confidenceStyle: 25, curiosity: 80, initiative: 35, skepticism: 90, brevity: 70, maxFollowUpQuestions: 1 }
+        behavior: { naturalness: 2, depth: 4, initiative: 2 }
       }
     });
     assert.equal(configured.success, true);
     assert.equal(configured.data.knowledgeMode, 'off');
-    assert.equal(configured.data.behavior.curiosity, 80);
-    assert.equal(configured.data.behavior.skepticism, 90);
+    assert.deepEqual(configured.data.behavior, { naturalness: 2, depth: 4, initiative: 2 });
 
     const first = await sendMessage({ type: 'AI_OPERATOR_LAB_SEND', payload: { text: 'Можно перейти на гигабит?' } });
     assert.equal(first.success, true);
@@ -136,11 +135,11 @@ test('Manual Lab uses semantic runtime, soft READ-tools, live profile changes, A
 
     const changed = await sendMessage({
       type: 'AI_OPERATOR_LAB_CONFIG',
-      payload: { knowledgeMode: 'ab', behavior: { confidenceStyle: 70, curiosity: 35, initiative: 75 } }
+      payload: { knowledgeMode: 'ab', behavior: { naturalness: 4, depth: 2, initiative: 4 } }
     });
     assert.equal(changed.success, true);
     assert.equal(changed.data.knowledgeMode, 'ab');
-    assert.equal(changed.data.behavior.confidenceStyle, 70);
+    assert.deepEqual(changed.data.behavior, { naturalness: 4, depth: 2, initiative: 4 });
 
     const bodyCountBeforeRepeat = bodies.length;
     const repeated = await sendMessage({ type: 'AI_OPERATOR_LAB_REPEAT' });
@@ -162,11 +161,15 @@ test('Manual Lab uses semantic runtime, soft READ-tools, live profile changes, A
     assert.equal(repeatBodies.filter(body => /формируешь ответ абоненту/i.test(body.messages?.[0]?.content || '')).length, 2, 'A/B must generate both draft variants');
     assert.equal(repeatBodies.filter(body => /завершаешь ответ абоненту SIMNET после READ-only проверок/i.test(body.messages?.[0]?.content || '')).length, 2, 'A/B must ground both variants after READ-tool attempts');
 
+    const replyBody = repeatBodies.find(body => /формируешь ответ абоненту/i.test(body.messages?.[0]?.content || ''));
+    const replyPayload = JSON.parse(replyBody.messages.at(-1).content);
+    assert.deepEqual(replyPayload.behavior_profile, { naturalness: 4, depth: 2, initiative: 4 });
+
     const snap = await sendMessage({ type: 'AI_OPERATOR_LAB_SNAPSHOT' });
     assert.equal(snap.success, true);
     assert.equal(snap.data.snapshots.length, 1);
     assert.equal(snap.data.snapshots[0].knowledgeMode, 'ab');
-    assert.equal(snap.data.snapshots[0].behavior.confidenceStyle, 70);
+    assert.deepEqual(snap.data.snapshots[0].behavior, { naturalness: 4, depth: 2, initiative: 4 });
     assert.equal(snap.data.snapshots[0].experiment.variants.length, 2);
     assert.ok(snap.data.snapshots[0].experiment.variants[0].toolTrace.length >= 1, 'snapshot must preserve tool trace');
 
