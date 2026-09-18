@@ -41,15 +41,64 @@ export function estimateCost(models = {}, prices = DEFAULT_API_PRICES) {
   }
   return total;
 }
+function modelBreakdown(models = {}, prices = DEFAULT_API_PRICES) {
+  const result = {};
+  for (const [model, usage] of Object.entries(models || {})) {
+    const summary = estimateCost({ [model]: usage }, prices);
+    result[model] = {
+      ...summary,
+      input_tokens: summary.input,
+      output_tokens: summary.output,
+      total_tokens: summary.input + summary.output
+    };
+  }
+  return result;
+}
+function usageSummary(models = {}, prices = DEFAULT_API_PRICES, stages = {}) {
+  const summary = estimateCost(models || {}, prices);
+  const byStage = {};
+  for (const [stage, stageModels] of Object.entries(stages || {})) {
+    const stageSummary = estimateCost(stageModels || {}, prices);
+    byStage[stage] = {
+      ...stageSummary,
+      input_tokens: stageSummary.input,
+      output_tokens: stageSummary.output,
+      total_tokens: stageSummary.input + stageSummary.output,
+      by_model: modelBreakdown(stageModels || {}, prices)
+    };
+  }
+  return {
+    ...summary,
+    input_tokens: summary.input,
+    output_tokens: summary.output,
+    total_tokens: summary.input + summary.output,
+    by_model: modelBreakdown(models || {}, prices),
+    by_stage: byStage
+  };
+}
 export async function recordApiUsage(request) {
   const operation = queue.then(async () => {
     const data = (await chrome.storage.local.get(API_COST_KEY))?.[API_COST_KEY] || { startedAt: new Date().toISOString(), total: {}, scopes: {}, turns: {} };
     data.total = aggregateUsage(data.total, request);
     const scope = String(request.scope || 'operator-other').slice(0, 150);
     const turn = String(request.turnId || 'unscoped').slice(0, 150);
+    const stage = String(request.stage || 'unspecified').slice(0, 100);
     data.scopes ||= {}; data.turns ||= {};
-    data.scopes[scope] = { models: aggregateUsage(data.scopes[scope]?.models, request), at: Date.now() };
-    data.turns[turn] = { models: aggregateUsage(data.turns[turn]?.models, request), at: Date.now() };
+
+    const scopeEntry = data.scopes[scope] || { models: {}, stages: {}, at: 0 };
+    scopeEntry.models = aggregateUsage(scopeEntry.models, request);
+    scopeEntry.stages ||= {};
+    scopeEntry.stages[stage] = aggregateUsage(scopeEntry.stages[stage], request);
+    scopeEntry.at = Date.now();
+    data.scopes[scope] = scopeEntry;
+
+    const turnEntry = data.turns[turn] || { models: {}, stages: {}, at: 0 };
+    turnEntry.models = aggregateUsage(turnEntry.models, request);
+    turnEntry.stages ||= {};
+    turnEntry.stages[stage] = aggregateUsage(turnEntry.stages[stage], request);
+    turnEntry.at = Date.now();
+    data.turns[turn] = turnEntry;
+
     for (const key of ['scopes', 'turns']) data[key] = Object.fromEntries(Object.entries(data[key]).sort((a,b) => b[1].at - a[1].at).slice(0, key === 'scopes' ? 100 : 200));
     await chrome.storage.local.set({ [API_COST_KEY]: data });
   });
@@ -61,8 +110,17 @@ export async function apiCostSummary(scope, turnId) {
   const stored = await chrome.storage.local.get([API_COST_KEY, API_PRICES_KEY]);
   const data = stored?.[API_COST_KEY] || {};
   const prices = { ...DEFAULT_API_PRICES, ...(stored?.[API_PRICES_KEY] || {}) };
-  return { total: estimateCost(data.total, prices), session: estimateCost(data.scopes?.[scope]?.models, prices),
-    turn: estimateCost(data.turns?.[turnId]?.models, prices), prices, models: Object.keys(data.total || {}), startedAt: data.startedAt || null, storageError };
+  const scopeEntry = data.scopes?.[scope] || {};
+  const turnEntry = data.turns?.[turnId] || {};
+  return {
+    total: usageSummary(data.total, prices),
+    session: usageSummary(scopeEntry.models, prices, scopeEntry.stages),
+    turn: usageSummary(turnEntry.models, prices, turnEntry.stages),
+    prices,
+    models: Object.keys(data.total || {}),
+    startedAt: data.startedAt || null,
+    storageError
+  };
 }
 export async function saveApiPrice({ model, input, output, cached } = {}) {
   if (typeof model !== 'string' || !model.trim() || model.length > 150 || ['__proto__','constructor','prototype'].includes(model)) throw Error('Укажите модель.');
