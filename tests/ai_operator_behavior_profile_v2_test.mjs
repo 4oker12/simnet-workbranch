@@ -22,18 +22,18 @@ test('behavior v2 defaults to only the three native 1..5 scales', () => {
   assert.equal('confidenceStyle' in normalizeBehaviorProfile(), false);
 });
 
-test('legacy Lab defaults migrate without silently changing effective behavior', () => {
-  assert.deepEqual(
-    normalizeBehaviorProfile({
-      confidenceStyle: 45,
-      curiosity: 55,
-      initiative: 50,
-      skepticism: 75,
-      brevity: 65,
-      maxFollowUpQuestions: 2
-    }),
-    DEFAULT_AI_OPERATOR_BEHAVIOR
-  );
+test('legacy Lab defaults round-trip without silently changing effective runtime behavior', () => {
+  const legacyDefault = {
+    confidenceStyle: 45,
+    curiosity: 55,
+    initiative: 50,
+    skepticism: 75,
+    brevity: 65,
+    maxFollowUpQuestions: 2
+  };
+  const migrated = normalizeBehaviorProfile(legacyDefault);
+  assert.deepEqual(migrated, DEFAULT_AI_OPERATOR_BEHAVIOR);
+  assert.deepEqual(toLegacyBehaviorCompatibility(migrated), legacyDefault);
 });
 
 test('behavior v2 clamps native values and derives follow-up budget from depth', () => {
