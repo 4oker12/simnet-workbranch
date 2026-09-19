@@ -1,6 +1,7 @@
 'use strict';
 
 import * as impl from './semantic-tool-broker-impl.js';
+import { recoverLiveDataNeeds } from './live-need-recovery.js';
 import { extractStandaloneSubscriberIdentity, identityToolArgs } from './subscriber-identity.js';
 import { applyAnswerRelevanceGate } from './answer-relevance-gate.js';
 
@@ -160,6 +161,16 @@ function latestLiteralIdentity(transcript = []) {
   if (Object.keys(generic).length) return generic;
   const standard = impl.extractIdentityHints([latest], {});
   return standard && typeof standard === 'object' && !Array.isArray(standard) ? standard : {};
+}
+function isAddressScopedBuildingOnlyTurn({ needs = [], analysis = {}, draft = {} } = {}) {
+  const supplied = Array.isArray(needs) && needs.length
+    ? needs
+    : recoverLiveDataNeeds({ analysis, draft });
+  const planned = impl.mapInformationNeedsToTools(supplied);
+  return planned.length > 0 && planned.every(item => (
+    item?.tool === 'building.snapshot'
+    && Boolean(String(item?.toolArgs?.address || '').trim())
+  ));
 }
 function normalizedContract(value) {
   const source = String(value == null ? '' : value).trim().replace(/\s+/g, '');
@@ -371,7 +382,14 @@ export const mapInformationNeedsToTools = impl.mapInformationNeedsToTools;
 
 export async function executeInformationNeeds(options = {}) {
   const { transcript = [], analysis = {}, labState = {}, execute } = options;
-  const pre = await bootstrapStandaloneIdentity({ transcript, analysis, labState, execute });
+  const skipIdentityBootstrap = isAddressScopedBuildingOnlyTurn({
+    needs: options.needs || [],
+    analysis,
+    draft: { subscriberDataNeeded: options.needs || [] }
+  });
+  const pre = skipIdentityBootstrap
+    ? { trace: [], labState: mergeState({}, labState) }
+    : await bootstrapStandaloneIdentity({ transcript, analysis, labState, execute });
   if (pre.trace.length && !String(pre.labState.confirmedCaseId || '').trim()) {
     return {
       planned: impl.mapInformationNeedsToTools(options.needs || []),
@@ -409,7 +427,10 @@ function allRequestedLiveFactsConfirmed(toolTrace = []) {
 
 export async function groundSubscriberReply(options = {}) {
   const { transcript = [], analysis = {}, labState = {}, execute, draft = {} } = options;
-  const pre = await bootstrapStandaloneIdentity({ transcript, analysis, labState, execute });
+  const skipIdentityBootstrap = isAddressScopedBuildingOnlyTurn({ analysis, draft });
+  const pre = skipIdentityBootstrap
+    ? { trace: [], labState: mergeState({}, labState) }
+    : await bootstrapStandaloneIdentity({ transcript, analysis, labState, execute });
   const delegated = await impl.groundSubscriberReply({ ...options, labState: pre.labState });
   const toolTrace = mergeTrace(pre.trace, delegated?.toolTrace);
   const toolEvidence = mergeTrace(pre.trace.filter(item => item?.ok), delegated?.toolEvidence);
