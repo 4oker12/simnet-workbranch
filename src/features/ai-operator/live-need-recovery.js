@@ -147,4 +147,4 @@ export function hasLiveDataNeeds(analysis = {}) {
   return planLiveDataNeeds(analysis).length > 0;
 }
 
-export const LIVE_NEED_RECOVERY_VERSION = 7;
+export const LIVE_NEED_RECOVERY_VERSION = 6;
