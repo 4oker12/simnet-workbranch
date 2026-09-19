@@ -8,6 +8,7 @@ export const DEFAULT_AI_OPERATOR_BEHAVIOR = Object.freeze({
 });
 
 const LEGACY_HUMAN_POINTS = Object.freeze({ 1: 35, 2: 45, 3: 55, 4: 65, 5: 75 });
+const LEGACY_CURIOSITY_POINTS = Object.freeze({ 1: 45, 2: 50, 3: 55, 4: 60, 5: 65 });
 const LEGACY_DEPTH_POINTS = Object.freeze({ 1: 90, 2: 75, 3: 60, 4: 45, 5: 30 });
 const LEGACY_INITIATIVE_POINTS = Object.freeze({ 1: 20, 2: 35, 3: 50, 4: 65, 5: 80 });
 
@@ -75,6 +76,21 @@ export function behaviorRuntimeHints(value = {}) {
   const profile = normalizeBehaviorProfile(value);
   return {
     ...profile,
+    maxFollowUpQuestions: maxFollowUpQuestionsForDepth(profile.depth)
+  };
+}
+
+// Temporary adapter while lab-background/semantic-probe still persist the old 0..100 shape.
+// Keep truth/evidence strictness outside the three user-facing style scales.
+export function toLegacyBehaviorCompatibility(value = {}, current = {}) {
+  const profile = normalizeBehaviorProfile(value);
+  const source = sourceObject(current);
+  return {
+    confidenceStyle: LEGACY_HUMAN_POINTS[profile.humanLikeness],
+    curiosity: LEGACY_CURIOSITY_POINTS[profile.humanLikeness],
+    initiative: LEGACY_INITIATIVE_POINTS[profile.initiative],
+    skepticism: Math.max(70, Number(source.skepticism || 75)),
+    brevity: LEGACY_DEPTH_POINTS[profile.depth],
     maxFollowUpQuestions: maxFollowUpQuestionsForDepth(profile.depth)
   };
 }
