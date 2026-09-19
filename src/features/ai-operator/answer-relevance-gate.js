@@ -17,7 +17,7 @@ function block(value, max = 2600) {
 function requestFrom({ analysis = {}, latestCustomer = {} } = {}) {
   const probe = analysis?.probe || {};
   const unresolved = Array.isArray(probe?.unresolvedRequests) ? probe.unresolvedRequests : [];
-  return oneLine(unresolved[0] || probe?.whatUserWants || latestCustomer?.text || '', 500);
+  return oneLine(unresolved.join(' ') || probe?.whatUserWants || latestCustomer?.text || '', 800);
 }
 
 function successfulTrace(toolTrace = []) {
@@ -46,7 +46,6 @@ function stripAutoInjectedKnowledgePrefix(reply = '', analysis = {}, toolTrace =
   let text = block(reply, 2200);
   if (!text || !successfulTrace(toolTrace).length) return text;
 
-  // Internal KB text is evidence/context, not client-facing copy.
   for (const prefix of injectedKnowledgePrefixes(analysis)) {
     if (!text.startsWith(prefix)) continue;
     text = text.slice(prefix.length).replace(/^\s+/, '').trim();
@@ -85,12 +84,54 @@ function completeness(toolTrace = [], reply = '') {
   return 'unknown';
 }
 
-/**
- * Final relevance boundary intentionally contains NO model/API call and NO
- * subscriber-answer generator. Understanding establishes the semantic frame;
- * READ tools establish live facts; the preceding synthesis or broker recovery
- * forms the human answer. This final step only enforces local invariants.
- */
+function currentBalanceTrace(toolTrace = []) {
+  return successfulTrace(toolTrace).find(item => {
+    if (item?.tool !== 'billing.balance') return false;
+    const field = oneLine(item?.requestedBy?.field || '', 240).toLowerCase();
+    return /баланс|balance/.test(field) && !/долг|задолж|борг|к\s+оплат|до\s+сплат|after|due/.test(field);
+  }) || null;
+}
+
+function currentTariffTrace(toolTrace = []) {
+  return successfulTrace(toolTrace).find(item => {
+    if (item?.tool !== 'billing.tariff') return false;
+    const field = oneLine(item?.requestedBy?.field || '', 240).toLowerCase();
+    return /тариф|tariff|пакет/.test(field) && !/скорост|швидк|цен|стоим|варт|абонплат|next|future|следующ|наступн/.test(field);
+  }) || null;
+}
+
+function clientTariffName(value) {
+  return oneLine(value, 240)
+    .replace(/\s*-\s*\(\d{1,2}\.\d{1,2}\.\d{4}\)\s*$/u, '')
+    .trim();
+}
+
+function deterministicConfirmedFactsRecovery({ analysis = {}, latestCustomer = {}, toolTrace = [] } = {}) {
+  const request = requestFrom({ analysis, latestCustomer }).toLowerCase();
+  const wantsBalance = /баланс|balance|рахун/.test(request);
+  const wantsTariff = /тариф|tariff|пакет/.test(request);
+  if (!wantsBalance && !wantsTariff) return null;
+
+  const balanceTrace = wantsBalance ? currentBalanceTrace(toolTrace) : null;
+  const tariffTrace = wantsTariff ? currentTariffTrace(toolTrace) : null;
+  if (wantsBalance && !balanceTrace) return null;
+  if (wantsTariff && !tariffTrace) return null;
+
+  const parts = [];
+  if (balanceTrace) {
+    const raw = balanceTrace?.data?.accountBalance;
+    if (raw === '' || raw === null || raw === undefined || !Number.isFinite(Number(raw))) return null;
+    parts.push(`Текущий баланс: ${Math.round(Number(raw) * 100) / 100} грн.`);
+  }
+  if (tariffTrace) {
+    const tariff = clientTariffName(tariffTrace?.data?.currentTariff);
+    if (!tariff) return null;
+    parts.push(`Текущий тариф: ${tariff}.`);
+  }
+
+  return parts.length ? parts.join(' ') : null;
+}
+
 export async function applyAnswerRelevanceGate({
   reply = '',
   analysis = {},
@@ -98,9 +139,13 @@ export async function applyAnswerRelevanceGate({
   latestCustomer = {}
 } = {}) {
   const request = requestFrom({ analysis, latestCustomer });
-  const finalReply = stripAutoInjectedKnowledgePrefix(reply, analysis, toolTrace) || block(reply, 2200);
+  const recoveredReply = deterministicConfirmedFactsRecovery({ analysis, latestCustomer, toolTrace });
+  const finalReply = recoveredReply
+    || stripAutoInjectedKnowledgePrefix(reply, analysis, toolTrace)
+    || block(reply, 2200);
   const kept = keptItems(toolTrace);
   const dropped = droppedItems(toolTrace);
+  const recovered = Boolean(recoveredReply);
 
   return {
     reply: finalReply,
@@ -109,11 +154,13 @@ export async function applyAnswerRelevanceGate({
       kept,
       dropped,
       completeness: completeness(toolTrace, finalReply),
-      conclusion: 'Локальная relevance-проверка: semantic frame не переосмысляется отдельной LLM; live-факты учитываются только по результатам READ.'
+      conclusion: recovered
+        ? 'Подтверждённые запрошенные факты восстановлены локально без соседних Billing-полей.'
+        : 'Локальная relevance-проверка: semantic frame не переосмысляется отдельной LLM; live-факты учитываются только по результатам READ.'
     },
     gate: {
       skipped: true,
-      reason: 'deterministic_local_relevance_boundary',
+      reason: recovered ? 'deterministic_confirmed_facts_recovery' : 'deterministic_local_relevance_boundary',
       degraded: false,
       usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
     }
