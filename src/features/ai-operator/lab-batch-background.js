@@ -107,7 +107,7 @@ async function requestParaphrases(sourceText, count) {
             content: JSON.stringify({
               source: sourceText,
               count,
-              schema: { variants: ['ровно указанное количество разных формулировок, без исходной фразы'] }
+              schema: { variants: ['ровно указанное количество новых формулировок, без исходной фразы'] }
             })
           }
         ]
@@ -142,8 +142,8 @@ async function generateBatch(payload = {}) {
   const source = compact(payload.source || payload.text || '', 1000);
   if (!source) throw new Error('Введи исходную реплику для генерации формулировок.');
   const count = clampCount(payload.count, 10);
-  const generated = await requestParaphrases(source, count);
-  const variants = normalizePhrases(generated.variants);
+  const generated = await requestParaphrases(source, count - 1);
+  const variants = normalizePhrases([source, ...generated.variants]).slice(0, count);
   if (variants.length < MIN_GENERATED) throw new Error('AI вернул слишком мало пригодных формулировок.');
   return {
     source,
@@ -160,7 +160,7 @@ function activeVariant(experiment = {}) {
   return variants.find(item => item?.label === experiment.activeVariant) || variants[0] || null;
 }
 
-function compactResult(index, phrase, outcome = {}) {
+function compactResult(index, phrase, outcome = {}, source = '') {
   const experiment = outcome.experiment || {};
   const analysis = experiment.analysis || {};
   const probe = analysis.probe || {};
@@ -171,6 +171,7 @@ function compactResult(index, phrase, outcome = {}) {
   return {
     index,
     phrase,
+    baseline: Boolean(source && phrase === source),
     ok: true,
     whatUserWants: compact(probe.whatUserWants || '', 700),
     latestMessageMeans: compact(probe.latestMessageMeans || '', 900),
@@ -193,10 +194,11 @@ function compactResult(index, phrase, outcome = {}) {
   };
 }
 
-function errorResult(index, phrase, error) {
+function errorResult(index, phrase, error, source = '') {
   return {
     index,
     phrase,
+    baseline: Boolean(source && phrase === source),
     ok: false,
     error: compact(error?.message || error || 'unknown batch error', 1200),
     whatUserWants: '',
@@ -242,6 +244,7 @@ async function runBatch(payload = {}) {
   const knowledgeMode = String(payload.knowledgeMode || labState.knowledgeMode || 'auto');
   const behavior = clone(payload.behavior || labState.behavior || {});
   const baseToolState = clone(payload.toolState || labState.toolState || {});
+  const source = compact(payload.source || '', 1000);
   const batchId = `batch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const results = [];
 
@@ -255,16 +258,16 @@ async function runBatch(payload = {}) {
         toolState: clone(baseToolState),
         scope: `${batchId}:${index + 1}`
       });
-      results.push(compactResult(index + 1, phrase, outcome));
+      results.push(compactResult(index + 1, phrase, outcome, source));
     } catch (error) {
-      results.push(errorResult(index + 1, phrase, error));
+      results.push(errorResult(index + 1, phrase, error, source));
     }
   }
 
   return writeBatch({
     version: 1,
     id: batchId,
-    source: compact(payload.source || '', 1000),
+    source,
     knowledgeMode,
     behavior,
     phrases,
