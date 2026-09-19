@@ -171,12 +171,13 @@ test('behavior v2 UI sends the central native contract without legacy remapping'
   assert.doesNotMatch(source, /INITIATIVE_TO_LEGACY|DEPTH_TO_BREVITY|levelFromRange/);
 });
 
-test('Lab v5 stores native behavior and isolates legacy conversion at the semantic runtime boundary', async () => {
+test('Lab v5 passes native behavior directly through the semantic runtime boundary', async () => {
   const source = await readFile(new URL('../src/features/ai-operator/lab-background.js', import.meta.url), 'utf8');
   assert.match(source, /version:\s*5/);
   assert.match(source, /mergeBehaviorProfile\(lab\.behavior, payload\.behavior\)/);
-  assert.match(source, /behavior:\s*runtimeBehavior\(lab\.behavior\)/);
-  assert.match(source, /toLegacyBehaviorCompatibility/);
+  assert.match(source, /behavior:\s*lab\.behavior/);
+  assert.doesNotMatch(source, /runtimeBehavior\s*\(/);
+  assert.doesNotMatch(source, /toLegacyBehaviorCompatibility/);
   assert.doesNotMatch(source, /function clamp\(value, fallback\)/);
   assert.doesNotMatch(source, /confidenceStyle:\s*clamp\(/);
 });
