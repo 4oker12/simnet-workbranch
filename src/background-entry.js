@@ -4,6 +4,7 @@ import './ai/provider-router.js';
 import './ai/runtime-service.js';
 import './features/ai-operator/background.js';
 import './features/ai-operator/lab-background.js';
+import './features/ai-operator/lab-batch-background.js';
 import './features/ai-operator/replay-background.js';
 import './features/operator-companion/groq-native-tool-bridge.js';
 import './features/ai-operator/groq-token-governor.js';

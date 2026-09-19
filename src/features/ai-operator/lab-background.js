@@ -1,6 +1,6 @@
 import { apiCostSummary, saveApiPrice } from './api-cost.js';
 import { analyzeSubscriberIntent, generateSubscriberReply, generateCleanModelReply } from './semantic-probe.js';
-import { mergeBehaviorProfile, normalizeBehaviorProfile, toLegacyBehaviorCompatibility } from './behavior-profile.js';
+import { mergeBehaviorProfile, normalizeBehaviorProfile } from './behavior-profile.js';
 import { executeOperatorTool } from './live-tool-runtime.js';
 import { planLiveDataNeeds } from './live-need-recovery.js';
 import {
@@ -49,9 +49,6 @@ function normalizeBehavior(value = {}) {
   return normalizeBehaviorProfile(value);
 }
 
-function runtimeBehavior(value = {}) {
-  return toLegacyBehaviorCompatibility(value);
-}
 
 function normalizeKnowledgeMode(value) {
   const mode = String(value || 'auto').toLowerCase();
@@ -273,7 +270,7 @@ async function replyVariant({ lab, transcript, customer, analysis, useKnowledge,
         latestCustomer: customer,
         analysis,
         useKnowledge,
-        behavior: runtimeBehavior(lab.behavior),
+        behavior: lab.behavior,
         capabilities: CAPABILITIES,
         meterContext: { scope: lab.id, turnId: customer.id, variant: label }
       });
@@ -325,7 +322,7 @@ async function cleanVariant({ lab, transcript, customer }) {
   const draft = await generateCleanModelReply({
     transcript,
     latestCustomer: customer,
-    behavior: runtimeBehavior(lab.behavior),
+    behavior: lab.behavior,
     meterContext: { scope: lab.id, turnId: customer.id, variant: 'clean_model' }
   });
   const variant = {
@@ -488,6 +485,38 @@ async function executeExperiment(lab, baseMessages, customer) {
 
   if (activeVariant?.reply && lab.displayMode !== 'analysis') appendMessage(lab, 'agent', activeVariant.reply, { variant: activeVariant.label });
   return experiment;
+}
+
+export async function runIsolatedLabCase({
+  text,
+  transcript = [],
+  knowledgeMode = 'auto',
+  behavior = {},
+  toolState = {},
+  scope = ''
+} = {}) {
+  const incoming = compact(text, 4000);
+  if (!incoming) throw new Error('Пустая реплика пакетного теста.');
+
+  const lab = emptyLab();
+  lab.id = compact(scope, 180) || id('batch_lab');
+  lab.knowledgeMode = normalizeKnowledgeMode(knowledgeMode);
+  lab.displayMode = 'answer_analysis';
+  lab.behavior = normalizeBehavior(behavior);
+  lab.toolState = normalizeToolState(toolState);
+
+  const baseMessages = (Array.isArray(transcript) ? transcript : [])
+    .map(normalizeMessage)
+    .slice(-MAX_MESSAGES);
+  const customer = normalizeMessage({ id: id('msg'), role: 'customer', text: incoming, at: nowIso() });
+
+  await executeExperiment(lab, baseMessages, customer);
+  return {
+    experiment: clone(lab.lastExperiment),
+    decision: clone(lab.lastDecision),
+    toolState: clone(lab.toolState),
+    events: clone(lab.events)
+  };
 }
 
 function recoveryAnalysis(customer = {}) {

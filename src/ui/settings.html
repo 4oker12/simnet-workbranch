@@ -6,6 +6,7 @@
   <title>SIMNET Workbench · Settings</title>
   <link rel="stylesheet" href="settings.css">
   <link rel="stylesheet" href="ai-operator-lab.css">
+  <link rel="stylesheet" href="ai-operator-batch.css">
   <link rel="stylesheet" href="settings-light.css">
   <link rel="stylesheet" href="settings-focus.css">
 </head>
@@ -144,6 +145,47 @@
           </div>
         </details>
 
+        <details class="lab-section" data-accordion-group="lab" data-accordion-panel="batch">
+          <summary class="lab-section-summary">
+            <div>
+              <strong>Пакетный тест формулировок</strong>
+              <span>1 смысл → 10–20 фраз → один и тот же AI pipeline</span>
+            </div>
+            <span class="settings-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="lab-section-body">
+            <div class="section-head lab-section-head-flat">
+              <div>
+                <h3>Устойчивость к формулировкам</h3>
+                <p class="muted">DeepSeek или текущая выбранная модель создаёт равнозначные варианты реплики. Каждый вариант затем запускается отдельно через тот же UNDERSTANDING → KB → READ → ответ, из одинакового стартового состояния.</p>
+              </div>
+            </div>
+
+            <div class="ai-batch-grid">
+              <div>
+                <label class="field-label" for="aiBatchSeed">Исходная реплика</label>
+                <textarea id="aiBatchSeed" rows="2" placeholder="Например: Какая у меня скорость по тарифу?"></textarea>
+              </div>
+              <div>
+                <label class="field-label" for="aiBatchCount">Вариантов</label>
+                <input id="aiBatchCount" type="number" min="2" max="20" step="1" value="10">
+              </div>
+            </div>
+            <div class="ai-batch-actions">
+              <button id="aiBatchGenerate" type="button">Сгенерировать формулировки</button>
+              <button id="aiBatchRun" type="button">Запустить пакет</button>
+              <button id="aiBatchExport" class="secondary" type="button" disabled>Экспорт JSON</button>
+              <button id="aiBatchClear" class="secondary" type="button">Очистить результат</button>
+            </div>
+            <label class="field-label" for="aiBatchVariants">Формулировки · одна строка = один независимый прогон</label>
+            <textarea id="aiBatchVariants" class="ai-batch-variants" rows="10" placeholder="Можно сгенерировать автоматически или вставить свой список до 20 строк."></textarea>
+            <p class="note ai-batch-help">Нормальный Lab-диалог не изменяется. READ-инструменты остаются read-only; HelpCrunch SEND не используется.</p>
+            <div id="aiBatchStatus" class="status ai-batch-status">Готово к пакетному тесту.</div>
+            <div id="aiBatchSummary" class="ai-batch-summary">Результатов пока нет.</div>
+            <div id="aiBatchResults" class="ai-batch-results"><div class="ai-batch-empty">Сгенерируй или вставь формулировки и запусти пакетный тест.</div></div>
+          </div>
+        </details>
+
         <details class="lab-section" data-accordion-group="lab" data-accordion-panel="replay">
           <summary class="lab-section-summary">
             <div>
@@ -230,6 +272,7 @@
   <script src="ai-operator-behavior-v2.js"></script>
   <script src="ai-operator-lab-trace.js"></script>
   <script src="ai-operator-kb-curator.js"></script>
+  <script src="ai-operator-batch.js"></script>
   <script type="module" src="ai-operator-replay.js"></script>
 </body>
 </html>
