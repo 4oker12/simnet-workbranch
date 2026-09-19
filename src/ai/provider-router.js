@@ -47,7 +47,7 @@
   } catch {}
 
   function routeUrl(url) {
-    if (!url.startsWith(GROQ_BASE)) return '';
+    if (!url.startsWith(GROQ_BASE)) return url;
     const suffix = url.slice(GROQ_BASE.length) || '';
     return `${DEEPSEEK_BASE}${suffix}`;
   }
@@ -91,7 +91,9 @@
 
   globalThis.fetch = async function simnetAiProviderFetch(input, init = {}) {
     const sourceUrl = typeof input === 'string' ? input : String(input?.url || '');
-    if (!sourceUrl.startsWith(GROQ_BASE)) return nativeFetch(input, init);
+    const isGroqCompat = sourceUrl.startsWith(GROQ_BASE);
+    const isDeepSeek = sourceUrl.startsWith(DEEPSEEK_BASE);
+    if (!isGroqCompat && !isDeepSeek) return nativeFetch(input, init);
 
     const config = await readConfig();
     if (normalizeProvider(config.provider) !== 'deepseek') return nativeFetch(input, init);
@@ -100,8 +102,6 @@
     if (!apiKey) return nativeFetch(input, init);
 
     const targetUrl = routeUrl(sourceUrl);
-    if (!targetUrl) return nativeFetch(input, init);
-
     const rewritten = rewriteDeepSeekBody(init?.body, config);
     if (rewritten.promptGuard) return syntheticPromptGuardSkip();
 
