@@ -35,6 +35,6 @@ assert.ok(html.includes('ai-operator-batch.js'), 'Settings must load batch UI JS
 assert.match(ui, /AI_OPERATOR_BATCH_GENERATE/);
 assert.match(ui, /AI_OPERATOR_BATCH_RUN/);
 assert.match(ui, /AI_OPERATOR_BATCH_CLEAR/);
-assert.match(ui, /Blob\(\[JSON\.stringify\(lastBatch/), 'Batch UI must export complete JSON results.');
+assert.match(ui, /Blob\(\[JSON\.stringify\(lastBatch/, 'Batch UI must export complete JSON results.');
 
 console.log('AI Operator batch Lab contract: OK');
