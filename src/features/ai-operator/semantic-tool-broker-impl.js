@@ -134,8 +134,6 @@ export const AI_OPERATOR_SOFT_TOOL_CATALOG = TOOL_MANIFEST;
 export const extractIdentityHints = core.extractIdentityHints;
 export const ensureNonEmptyReply = core.ensureNonEmptyReply;
 
-const TECHNICAL_TOOLS = new Set(['userside.snapshot', 'building.snapshot', 'network.session', 'pon.onu', 'pon.signal']);
-
 function oneLine(value, max = 500) {
   const normalized = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
   return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
@@ -245,46 +243,73 @@ function moneyText(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? String(Math.round(numeric * 100) / 100) : oneLine(value, 80);
 }
+function clientTariffName(value) {
+  return oneLine(value, 240)
+    .replace(/\s*-\s*\(\d{1,2}\.\d{1,2}\.\d{4}\)\s*$/u, '')
+    .trim();
+}
 function successfulTool(trace = [], tool) { return (Array.isArray(trace) ? trace : []).find(item => item?.ok && item?.tool === tool) || null; }
+function requestedNonIdentityTools(trace = []) {
+  return [...new Set((Array.isArray(trace) ? trace : [])
+    .filter(item => !['customer.lookup', 'customer.confirm'].includes(String(item?.tool || '')))
+    .map(item => String(item?.tool || '').trim())
+    .filter(Boolean))];
+}
 
-export function evidenceFallbackReply(analysis = {}, toolTrace = []) {
+export function evidenceFallbackResult(analysis = {}, toolTrace = []) {
   const trace = Array.isArray(toolTrace) ? toolTrace : [];
+  const requestedTools = requestedNonIdentityTools(trace);
   const successful = trace.filter(item => item?.ok);
-  if (!successful.length) return core.ensureNonEmptyReply('', analysis, trace);
+  if (!successful.length) {
+    return {
+      reply: core.ensureNonEmptyReply('', analysis, trace),
+      requestedTools,
+      coveredTools: [],
+      complete: false
+    };
+  }
 
   const uk = oneLine(analysis?.probe?.language, 20).toLowerCase() === 'uk';
-  const lookup = successfulTool(trace, 'customer.lookup')?.data || {};
   const snapshot = successfulTool(trace, 'customer.snapshot')?.data || {};
   const balance = successfulTool(trace, 'billing.balance')?.data || {};
   const tariff = successfulTool(trace, 'billing.tariff')?.data || {};
-  const userSide = successfulTool(trace, 'userside.snapshot')?.data || {};
-  const onu = successfulTool(trace, 'pon.onu')?.data || {};
-  const contract = firstPresent(lookup?.candidate?.contract, snapshot?.identity?.contract);
-  const accessState = firstPresent(balance.accessState, tariff.accessState, snapshot?.service?.accessState);
-  const serviceState = firstPresent(balance.serviceState, tariff.serviceState, snapshot?.service?.serviceState);
-  const accountBalance = firstPresent(balance.accountBalance, snapshot?.finance?.accountBalance);
-  const currentTariff = firstPresent(tariff.currentTariff, balance.currentTariff, snapshot?.service?.currentTariff);
-  const connectionFamily = firstPresent(userSide?.network?.connectionFamily, onu.connectionFamily, snapshot?.network?.connectionFamily, lookup?.candidate?.connectionFamily);
-
-  const semanticText = [analysis?.probe?.whatUserWants, analysis?.probe?.latestMessageMeans, ...(Array.isArray(analysis?.probe?.unresolvedRequests) ? analysis.probe.unresolvedRequests : [])].map(item => oneLine(item, 500)).join(' ').toLowerCase();
-  const moneyRelevant = /баланс|сч[её]т|рахун|деньг|грн|оплат|плат[её]ж|задолж|борг/.test(semanticText);
-  const tariffRelevant = /тариф|пакет|скорост|швидк|абонплат/.test(semanticText);
   const parts = [];
-  if (contract && lookup?.candidate) parts.push(uk ? `Договір ${contract} знайдено.` : `Договор ${contract} найден.`);
-  if (accessState || serviceState) {
-    const values = [accessState ? `доступ — ${oneLine(accessState, 120)}` : '', serviceState ? (uk ? `стан послуги — ${oneLine(serviceState, 160)}` : `состояние услуги — ${oneLine(serviceState, 160)}`) : ''].filter(Boolean).join(', ');
-    parts.push(uk ? `За даними Billing: ${values}.` : `По данным Billing: ${values}.`);
+  const coveredTools = [];
+
+  // Deterministic fallback is intentionally narrow. It formats only the facts
+  // that were explicitly requested and that have a safe local representation.
+  // Identity/access/service/connection type are not subscriber copy unless they
+  // were the actual requested fact handled by a dedicated formatter.
+  if (requestedTools.includes('billing.balance')) {
+    const value = moneyText(firstPresent(balance.accountBalance, snapshot?.finance?.accountBalance));
+    if (value) {
+      parts.push(uk ? `Поточний баланс: ${value} грн.` : `Текущий баланс: ${value} грн.`);
+      coveredTools.push('billing.balance');
+    }
   }
-  if (moneyRelevant && accountBalance !== '') {
-    const value = moneyText(accountBalance);
-    if (value) parts.push(uk ? `Поточний баланс: ${value} грн.` : `Текущий баланс: ${value} грн.`);
+
+  if (requestedTools.includes('billing.tariff')) {
+    const value = clientTariffName(firstPresent(tariff.currentTariff, balance.currentTariff, snapshot?.service?.currentTariff));
+    if (value) {
+      parts.push(uk ? `Поточний тариф: ${value}.` : `Текущий тариф: ${value}.`);
+      coveredTools.push('billing.tariff');
+    }
   }
-  if (tariffRelevant && currentTariff) parts.push(uk ? `Поточний тариф: ${oneLine(currentTariff, 220)}.` : `Текущий тариф: ${oneLine(currentTariff, 220)}.`);
-  if (connectionFamily) parts.push(uk ? `Тип підключення: ${oneLine(connectionFamily, 100)}.` : `Тип подключения: ${oneLine(connectionFamily, 100)}.`);
-  if (trace.some(item => !item?.ok && TECHNICAL_TOOLS.has(item?.tool))) {
-    parts.push(uk ? 'Технічну частину лінії зараз повністю перевірити не вдалося; це не означає, що на лінії підтверджена несправність.' : 'Техническую часть линии сейчас полностью проверить не удалось; это не означает, что на линии подтверждена неисправность.');
-  }
-  return block(parts.join(' '), 2200) || core.ensureNonEmptyReply('', analysis, trace);
+
+  const complete = requestedTools.length > 0
+    && requestedTools.every(tool => coveredTools.includes(tool))
+    && requestedTools.every(tool => Boolean(successfulTool(trace, tool)));
+
+  return {
+    reply: block(parts.join(' '), 2200) || core.ensureNonEmptyReply('', analysis, trace),
+    requestedTools,
+    coveredTools,
+    complete
+  };
+}
+
+export function evidenceFallbackReply(analysis = {}, toolTrace = []) {
+  return evidenceFallbackResult(analysis, toolTrace).reply;
 }
 
 export async function groundSubscriberReply(options = {}) {
@@ -297,9 +322,18 @@ export async function groundSubscriberReply(options = {}) {
   const toolTrace = mergeTrace(pre.trace, result?.toolTrace);
   const toolEvidence = uniqueEvidence(toolTrace);
   const mustUseEvidenceFallback = toolEvidence.length > 0 && Boolean(result?.degraded || draft?.degraded);
+  const evidenceFallback = mustUseEvidenceFallback
+    ? evidenceFallbackResult(analysis, toolTrace)
+    : { reply: '', requestedTools: [], coveredTools: [], complete: false };
   return {
     ...result,
-    reply: mustUseEvidenceFallback ? evidenceFallbackReply(analysis, toolTrace) : core.ensureNonEmptyReply(result?.reply, analysis, toolTrace),
+    reply: mustUseEvidenceFallback ? evidenceFallback.reply : core.ensureNonEmptyReply(result?.reply, analysis, toolTrace),
+    evidenceFallback: {
+      used: mustUseEvidenceFallback,
+      requestedTools: evidenceFallback.requestedTools,
+      coveredTools: evidenceFallback.coveredTools,
+      complete: Boolean(evidenceFallback.complete)
+    },
     toolTrace,
     toolEvidence,
     toolState: result?.toolState || pre.labState
