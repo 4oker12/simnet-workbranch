@@ -169,6 +169,10 @@ function routeNeedForCore(need = {}) {
 function routeNeedsForCore(needs = []) {
   return (Array.isArray(needs) ? needs : []).map(routeNeedForCore);
 }
+function requiresSubscriberBootstrap(routedNeeds = []) {
+  const planned = core.mapInformationNeedsToTools(routedNeeds);
+  return planned.some(item => item?.tool && item.tool !== 'building.snapshot');
+}
 export function mapInformationNeedsToTools(needs = []) {
   return core.mapInformationNeedsToTools(routeNeedsForCore(needs));
 }
@@ -226,7 +230,10 @@ function uniqueEvidence(trace = []) { return (Array.isArray(trace) ? trace : [])
 export async function executeInformationNeeds({ needs = [], transcript = [], analysis = {}, labState = {}, execute } = {}) {
   if (typeof execute !== 'function') throw new Error('Soft tool broker requires execute(tool)');
   const routedNeeds = routeNeedsForCore(needs);
-  const pre = await bootstrapExplicitIdentity({ transcript, analysis, labState, execute, includeSnapshot: false });
+  const shouldBootstrap = routedNeeds.length === 0 || requiresSubscriberBootstrap(routedNeeds);
+  const pre = shouldBootstrap
+    ? await bootstrapExplicitIdentity({ transcript, analysis, labState, execute, includeSnapshot: false })
+    : { trace: [], labState: cloneState(labState) };
   if (pre.trace.length && !String(pre.labState.confirmedCaseId || '').trim()) {
     return { planned: core.mapInformationNeedsToTools(routedNeeds), trace: pre.trace, labState: pre.labState };
   }
@@ -389,8 +396,12 @@ export async function groundSubscriberReply(options = {}) {
   const { draft = {}, transcript = [], analysis = {}, labState = {}, execute, coreGround = core.groundSubscriberReply, ...rest } = options;
   if (typeof execute !== 'function') throw new Error('Soft tool broker requires execute(tool)');
   const needs = recoverLiveDataNeeds({ analysis, draft });
-  const routedDraft = { ...draft, subscriberDataNeeded: routeNeedsForCore(needs) };
-  const pre = await bootstrapExplicitIdentity({ transcript, analysis, labState, execute, includeSnapshot: Boolean(draft?.degraded && needs.length === 0) });
+  const routedNeeds = routeNeedsForCore(needs);
+  const routedDraft = { ...draft, subscriberDataNeeded: routedNeeds };
+  const shouldBootstrap = routedNeeds.length === 0 || requiresSubscriberBootstrap(routedNeeds);
+  const pre = shouldBootstrap
+    ? await bootstrapExplicitIdentity({ transcript, analysis, labState, execute, includeSnapshot: Boolean(draft?.degraded && needs.length === 0) })
+    : { trace: [], labState: cloneState(labState) };
   const result = await coreGround({ ...rest, draft: routedDraft, transcript, analysis, labState: pre.labState, execute });
   const toolTrace = mergeTrace(pre.trace, result?.toolTrace);
   const toolEvidence = uniqueEvidence(toolTrace);
