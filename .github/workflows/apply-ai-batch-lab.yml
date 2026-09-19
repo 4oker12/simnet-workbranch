@@ -50,7 +50,7 @@ jobs:
       - name: Commit verified wiring
         shell: bash
         run: |
-          git diff --exit-code --check
+          git diff --check
           if git diff --quiet -- src/features/ai-operator/lab-background.js src/background-entry.js src/ui/settings.html; then
             echo "No batch wiring changes produced"
             exit 1
