@@ -277,6 +277,28 @@ function isCurrentTariffFact(entry = {}) {
   const asksDifferentTariffFact = /скорост|швидк|цен|стоим|варт|абонплат|следующ|наступн|майбут|future|next/i.test(field);
   return asksTariff && !asksDifferentTariffFact;
 }
+function isBuildingAvailabilityFact(entry = {}) {
+  const field = semanticRequestedField(entry).toLowerCase();
+  if (!field) return false;
+  return /оптик|fiber|gpon|epon|\bpon\b|покрыт|покрит|coverage|перейти|переход|перехід|переключ|перемкн|подключ|підключ|доступн|возмож|можлив/i.test(field);
+}
+function buildingGponValue(data = {}) {
+  const fields = data?.fields && typeof data.fields === 'object' && !Array.isArray(data.fields) ? data.fields : {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (/^gpon$/i.test(String(key || '').trim())) return oneLine(Array.isArray(value) ? value[0] : value, 120);
+  }
+  for (const item of Array.isArray(data?.fieldList) ? data.fieldList : []) {
+    if (/^gpon$/i.test(oneLine(item?.key || item?.label, 80))) return oneLine(item?.text, 120);
+  }
+  return '';
+}
+function classifyAvailability(value) {
+  const source = oneLine(value, 120).toLowerCase();
+  if (!source) return null;
+  if (/^(?:да|так|є|есть|yes|available|доступн)/iu.test(source)) return true;
+  if (/^(?:нет|ні|no|відсут|отсутств)/iu.test(source)) return false;
+  return null;
+}
 
 export function evidenceFallbackResult(analysis = {}, toolTrace = []) {
   const trace = Array.isArray(toolTrace) ? toolTrace : [];
@@ -297,14 +319,16 @@ export function evidenceFallbackResult(analysis = {}, toolTrace = []) {
   const snapshot = successfulTool(trace, 'customer.snapshot')?.data || {};
   const balance = successfulTool(trace, 'billing.balance')?.data || {};
   const tariff = successfulTool(trace, 'billing.tariff')?.data || {};
+  const building = successfulTool(trace, 'building.snapshot')?.data || {};
   const parts = [];
   const coverage = [];
   let balanceAdded = false;
   let tariffAdded = false;
+  let buildingAdded = false;
 
   // Deterministic fallback is intentionally fact-scoped, not tool-scoped.
-  // A successful broad Billing tool can expose many adjacent fields; only the
-  // requested semantic fact may count as covered and appear in subscriber copy.
+  // A successful broad tool can expose many adjacent fields; only the requested
+  // semantic fact may count as covered and appear in subscriber copy.
   for (const entry of entries) {
     let covered = false;
     if (entry.tool === 'billing.balance' && entry.ok && isCurrentBalanceFact(entry)) {
@@ -320,6 +344,25 @@ export function evidenceFallbackResult(analysis = {}, toolTrace = []) {
       if (value) {
         if (!tariffAdded) parts.push(uk ? `Поточний тариф: ${value}.` : `Текущий тариф: ${value}.`);
         tariffAdded = true;
+        covered = true;
+      }
+    }
+    if (entry.tool === 'building.snapshot' && entry.ok && isBuildingAvailabilityFact(entry)) {
+      const availability = classifyAvailability(buildingGponValue(building));
+      const address = oneLine(building?.address, 260);
+      if (availability !== null) {
+        if (!buildingAdded) {
+          if (availability) {
+            parts.push(uk
+              ? `За карткою будинку GPON є${address ? ` (${address})` : ''}. Можна оформлювати перехід на оптику.`
+              : `По карточке дома GPON есть${address ? ` (${address})` : ''}. Можно оформлять переход на оптику.`);
+          } else {
+            parts.push(uk
+              ? `За карткою будинку GPON не позначений як доступний${address ? ` (${address})` : ''}.`
+              : `По карточке дома GPON не отмечен как доступный${address ? ` (${address})` : ''}.`);
+          }
+        }
+        buildingAdded = true;
         covered = true;
       }
     }
