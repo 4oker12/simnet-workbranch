@@ -29,6 +29,10 @@ jobs:
       - name: Autonomous AI evidence recovery regression
         shell: bash
         run: node --test tests/ai_operator_evidence_first_recovery_test.mjs
+      - name: AI behavior profile v2 regression
+        if: always()
+        shell: bash
+        run: node --test tests/ai_operator_behavior_profile_v2_test.mjs
       - name: Relevance · semantic JSON repair
         if: always()
         shell: bash
