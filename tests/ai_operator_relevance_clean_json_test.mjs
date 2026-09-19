@@ -149,7 +149,8 @@ test('answer relevance boundary is deterministic, uses zero API calls and strips
       tool: 'billing.balance',
       ok: true,
       code: 'OK',
-      requestedBy: { field: 'текущий баланс', why: 'Ответить на вопрос о балансе' }
+      requestedBy: { field: 'текущий баланс', why: 'Ответить на вопрос о балансе' },
+      data: { accountBalance: 800 }
     }]
   });
 
@@ -158,6 +159,47 @@ test('answer relevance boundary is deterministic, uses zero API calls and strips
   assert.equal(result.gate.reason, 'deterministic_local_relevance_boundary');
   assert.deepEqual(result.gate.usage, { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
   assert.equal(result.answerRelevance.completeness, 'complete');
+});
+
+test('answer relevance does not convert tool ok into a missing fact', async () => {
+  const gate = await import(`../src/features/ai-operator/answer-relevance-gate.js?missing-fact=${Date.now()}`);
+  const result = await gate.applyAnswerRelevanceGate({
+    reply: 'Последняя оплата была вчера.',
+    latestCustomer: { text: 'когда была последняя оплата?' },
+    analysis: { probe: { whatUserWants: 'Узнать дату последней оплаты', unresolvedRequests: ['Когда была последняя оплата?'] } },
+    toolTrace: [{
+      tool: 'billing.balance',
+      ok: true,
+      code: 'OK',
+      requestedBy: { field: 'дата последней оплаты', why: 'Нужно ответить, когда была оплата' },
+      data: { accountBalance: 800, price: 250 }
+    }]
+  });
+
+  assert.equal(result.answerRelevance.completeness, 'unknown');
+  assert.equal(result.answerRelevance.kept.length, 0);
+  assert.equal(result.answerRelevance.dropped.length, 1);
+  assert.match(result.answerRelevance.dropped[0].reason, /ok=true не считается подтверждением/);
+});
+
+test('deterministic tariff-price recovery uses price, not an adjacent tariff label', async () => {
+  const gate = await import(`../src/features/ai-operator/answer-relevance-gate.js?tariff-price=${Date.now()}`);
+  const result = await gate.applyAnswerRelevanceGate({
+    reply: '',
+    latestCustomer: { text: 'сколько стоит мой тариф?' },
+    analysis: { probe: { whatUserWants: 'Узнать стоимость тарифа', unresolvedRequests: ['Сколько стоит мой тариф?'] } },
+    toolTrace: [{
+      tool: 'billing.tariff',
+      ok: true,
+      code: 'OK',
+      requestedBy: { field: 'стоимость тарифа', why: 'Нужно сообщить цену тарифа' },
+      data: { currentTariff: 'PON Гігабіт', price: 250 }
+    }]
+  });
+
+  assert.equal(result.reply, 'Стоимость тарифа: 250 грн.');
+  assert.equal(result.answerRelevance.completeness, 'complete');
+  assert.equal(result.gate.reason, 'deterministic_confirmed_facts_recovery');
 });
 
 test('Lab exposes CLEAN MODEL and records the relevance filter in the ordered trace', () => {
