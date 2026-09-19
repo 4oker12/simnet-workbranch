@@ -7,6 +7,7 @@ import {
   behaviorRuntimeHints,
   isNativeBehaviorProfile,
   maxFollowUpQuestionsForDepth,
+  mergeBehaviorProfile,
   normalizeBehaviorProfile,
   toLegacyBehaviorCompatibility
 } from '../src/features/ai-operator/behavior-profile.js';
@@ -80,6 +81,32 @@ test('native fields take precedence over leftover legacy compatibility fields', 
   };
   assert.equal(isNativeBehaviorProfile(mixed), true);
   assert.deepEqual(normalizeBehaviorProfile(mixed), { humanLikeness: 4, depth: 2, initiative: 5 });
+});
+
+test('behavior merge accepts native partial updates and complete legacy payloads without initiative collision', () => {
+  assert.deepEqual(
+    mergeBehaviorProfile(
+      { humanLikeness: 2, depth: 4, initiative: 3 },
+      { humanLikeness: 5, initiative: 1 }
+    ),
+    { humanLikeness: 5, depth: 4, initiative: 1 }
+  );
+
+  assert.deepEqual(
+    mergeBehaviorProfile(
+      { humanLikeness: 2, depth: 4, initiative: 3 },
+      { confidenceStyle: 75, curiosity: 65, initiative: 65, skepticism: 80, brevity: 90, maxFollowUpQuestions: 1 }
+    ),
+    { humanLikeness: 5, depth: 1, initiative: 4 }
+  );
+
+  assert.deepEqual(
+    mergeBehaviorProfile(
+      { humanLikeness: 2, depth: 4, initiative: 3 },
+      { initiative: 5 }
+    ),
+    { humanLikeness: 2, depth: 4, initiative: 5 }
+  );
 });
 
 test('temporary legacy adapter exactly preserves current runtime semantics', () => {
