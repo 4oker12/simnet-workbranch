@@ -1,6 +1,7 @@
 import { apiCostSummary, saveApiPrice } from './api-cost.js';
 import { analyzeSubscriberIntent, generateSubscriberReply, generateCleanModelReply } from './semantic-probe.js';
 import { executeOperatorTool } from './live-tool-runtime.js';
+import { planLiveDataNeeds } from './live-need-recovery.js';
 import {
   AI_OPERATOR_SOFT_TOOL_CAPABILITIES,
   AI_OPERATOR_TOOL_CAPABILITY_DETAILS,
@@ -205,6 +206,28 @@ function fallbackDraft(analysis, error) {
   };
 }
 
+function evidenceFirstDraft(analysis = {}, behavior = {}, needs = []) {
+  return {
+    reply: '',
+    subscriberDataNeeded: clone(needs),
+    unresolvedRequests: clone(analysis?.probe?.unresolvedRequests || []),
+    clarificationQuestions: [],
+    verificationNeeded: [],
+    nextStepOffered: '',
+    basis: ['dialogue', 'semantic-understanding', 'evidence-plan'],
+    behaviorEffects: {},
+    behavior: clone(behavior),
+    model: '',
+    usage: {},
+    rateLimit: {},
+    answerRelevance: null,
+    relevanceGate: null,
+    degraded: false,
+    degradationReason: '',
+    evidenceFirst: true
+  };
+}
+
 function cleanAnalysis(customer = {}, draft = {}) {
   const request = compact(draft?.answerRelevance?.request || customer?.text || '', 500);
   return {
@@ -247,19 +270,24 @@ function cleanAnalysis(customer = {}, draft = {}) {
 }
 
 async function replyVariant({ lab, transcript, customer, analysis, useKnowledge, label }) {
+  const liveNeeds = planLiveDataNeeds(analysis);
   let draft;
-  try {
-    draft = await generateSubscriberReply({
-      transcript,
-      latestCustomer: customer,
-      analysis,
-      useKnowledge,
-      behavior: lab.behavior,
-      capabilities: CAPABILITIES,
-      meterContext: { scope: lab.id, turnId: customer.id, variant: label }
-    });
-  } catch (error) {
-    draft = fallbackDraft(analysis, error);
+  if (liveNeeds.length) {
+    draft = evidenceFirstDraft(analysis, lab.behavior, liveNeeds);
+  } else {
+    try {
+      draft = await generateSubscriberReply({
+        transcript,
+        latestCustomer: customer,
+        analysis,
+        useKnowledge,
+        behavior: lab.behavior,
+        capabilities: CAPABILITIES,
+        meterContext: { scope: lab.id, turnId: customer.id, variant: label }
+      });
+    } catch (error) {
+      draft = fallbackDraft(analysis, error);
+    }
   }
 
   const grounded = await groundSubscriberReply({
@@ -294,10 +322,11 @@ async function replyVariant({ lab, transcript, customer, analysis, useKnowledge,
     customerMessageId: customer.id,
     variant: label,
     answerRelevance: clone(result.answerRelevance || draft?.answerRelevance || null),
-    gate: clone(result.relevanceGate || null)
+    gate: clone(result.relevanceGate || null),
+    evidenceFirst: Boolean(draft?.evidenceFirst)
   });
 
-  return { label, useKnowledge, ...result };
+  return { label, useKnowledge, ...result, evidenceFirst: Boolean(draft?.evidenceFirst) };
 }
 
 async function cleanVariant({ lab, transcript, customer }) {
@@ -400,7 +429,7 @@ async function executeExperiment(lab, baseMessages, customer) {
     reply: activeVariant?.reply || '',
     reason: requestedMode === 'clean'
       ? 'Manual Lab CLEAN MODEL: только диалог + базовая роль ISP; без SIMNET KB, tool manifest и READ-tools.'
-      : 'Manual Lab: свободное понимание → KB при необходимости → мягкие READ-tools при необходимости → relevance gate → ответ. fact-runtime не участвует.',
+      : 'Manual Lab: UNDERSTANDING → KB при необходимости → evidence plan → READ → один финальный synthesis → локальная проверка. Для live-запросов слепой pre-tool draft пропускается.',
     confidence: Number(analysis.probe?.confidence || 0),
     language: analysis.probe?.language || 'other',
     model,
@@ -419,6 +448,7 @@ async function executeExperiment(lab, baseMessages, customer) {
       knowledge: clone(analysis.knowledge || {}),
       variants: clone(variants.map(item => ({
         label: item.label,
+        evidenceFirst: Boolean(item.evidenceFirst),
         subscriberDataNeeded: item.subscriberDataNeeded,
         unresolvedRequests: item.unresolvedRequests,
         clarificationQuestions: item.clarificationQuestions,
@@ -455,7 +485,8 @@ async function executeExperiment(lab, baseMessages, customer) {
       model: item.model,
       tokens: Number(item.usage?.total_tokens || 0),
       toolCalls: Number(item.toolTrace?.length || 0),
-      degraded: Boolean(item.degraded)
+      degraded: Boolean(item.degraded),
+      evidenceFirst: Boolean(item.evidenceFirst)
     })),
     toolCalls,
     elapsedMs,

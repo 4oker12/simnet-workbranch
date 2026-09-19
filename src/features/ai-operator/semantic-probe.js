@@ -12,6 +12,7 @@ const RETIRED_MODELS = new Set(['qwen/qwen3.6-27b']);
 const PROMPT_GUARD_MODEL = 'meta-llama/llama-prompt-guard-2-86m';
 const MODEL_COOLDOWNS = new Map();
 const KNOWLEDGE_NEEDS = new Set(['none', 'maybe', 'needed']);
+const LIVE_DATA_NEEDS = new Set(['none', 'needed']);
 const KNOWLEDGE_MODES = new Set(['off', 'auto', 'on']);
 const JSON_REPAIR_TOKENS = 1400;
 
@@ -251,11 +252,16 @@ export function buildSubscriberIntentProbeMessages({ transcript = [], latestCust
   const dialogue = transcriptForProbe(transcript);
   const stageInstruction = `ЭТАП: UNDERSTANDING.
 
-Это общение с человеком, а не классификация заранее известных команд. Не отвечай абоненту, не выбирай tools, не проверяй Billing и не применяй бизнес-правила. На этом этапе только пойми человеческий смысл разговора: чего человек хочет добиться, к чему относится последняя реплика, какие утверждения реально прозвучали, какие просьбы ещё не закрыты и где есть настоящая неоднозначность смысла.
+Это общение с человеком, а не классификация заранее известных команд. Не отвечай абоненту, не выбирай tools, не проверяй Billing и не применяй бизнес-правила. На этом этапе пойми человеческий смысл разговора: чего человек хочет добиться, к чему относится последняя реплика, какие утверждения реально прозвучали, какие просьбы ещё не закрыты и где есть настоящая неоднозначность смысла.
 
 Смотри на весь доступный диалог, особенно на непосредственно предыдущую реплику оператора. Короткие ответы понимай только в контексте разговора. Контекст — работа интернет-провайдера, если сам диалог не указывает иначе. Служебные кнопки/пункты меню сами по себе не означают смену реальной темы; служебный выбор меню также не является новой темой без подтверждения контекстом.
 
 Различай источник утверждения: слова клиента и прошлого оператора являются контекстом, но не автоматически фактом Billing, сети или SIMNET. Перед результатом проверь: описываешь ли ты то, что действительно следует из разговора, а не то, что сам додумал.
+
+Отдельно определи, зависит ли существенная часть ответа от ТЕКУЩЕГО факта конкретного абонента или системы, который нельзя честно получить из самого диалога/общеизвестного знания:
+- live_data_need=none — текущий READ не нужен; например, вопрос общий, смысловой, арифметический по уже данным числам или ответ уже следует из подтверждённого контекста;
+- live_data_need=needed — нужен свежий/подтверждённый факт Billing, UserSide или Network.
+Если нужен live-факт, перечисли evidence_needs как факты, а НЕ tools и НЕ команды. Пиши field коротким естественным названием факта на языке разговора, например system=Billing, field="текущий баланс" или field="текущий тариф". Не пиши названия функций вроде billing.balance. Не добавляй договор/login/адрес как отдельный evidence_need только потому, что они технически нужны для поиска: это идентификатор, а не факт ответа. Не перечисляй соседние данные «на всякий случай» — только то, без чего нельзя закрыть реальную просьбу.
 
 Также оцени, даст ли внутренняя энциклопедия SIMNET реальную пользу именно на ЭТОМ ходе:
 - knowledge_need=none: внутренние правила/знания ничего существенного не добавят;
@@ -263,7 +269,7 @@ export function buildSubscriberIntentProbeMessages({ transcript = [], latestCust
 - knowledge_need=maybe: есть конкретное разумное сомнение. Не выбирай maybe «на всякий случай».
 Не открывай энциклопедию только потому, что встретилось общее слово про интернет, договор, роутер или оплату.
 
-Не выполняй арифметику и не решай сам запрос на этой стадии: зафиксируй смысл так, чтобы следующая стадия могла рассуждать по уже известным фактам.
+Не формируй финальный ответ на этой стадии и не показывай внутренние рассуждения. Но используй обычное внутреннее reasoning, чтобы решить, достаточно ли уже известных фактов и общеизвестного знания или действительно отсутствует конкретный live-факт. Разрешены арифметика, сравнение, технический и логический вывод именно для проверки достаточности evidence. Если ответ уже следует из известного контекста, ставь live_data_need=none и не создавай evidence_needs. Новый READ планируй только для конкретного отсутствующего факта, без которого нельзя достоверно закрыть существенную часть запроса.
 
 Верни только JSON без markdown:
 {
@@ -276,6 +282,8 @@ export function buildSubscriberIntentProbeMessages({ transcript = [], latestCust
   "facts_said_by_operator":["важные утверждения прошлого оператора, если они влияют на контекст"],
   "unresolved_requests":["реальные незакрытые вопросы/просьбы клиента из текущего диалога"],
   "ambiguities":["только реальная неоднозначность смысла; не придумывай лишние варианты"],
+  "live_data_need":"none|needed",
+  "evidence_needs":[{"system":"Billing|UserSide|Network","field":"какой текущий факт нужно подтвердить, без названия tool","why":"почему этот факт нужен для текущей просьбы"}],
   "knowledge_need":"none|maybe|needed",
   "knowledge_reason":"коротко: что именно энциклопедия может добавить или почему она не нужна",
   "confidence":0.0
@@ -295,8 +303,27 @@ function normalizeKnowledgeNeed(value) {
   return KNOWLEDGE_NEEDS.has(normalized) ? normalized : 'maybe';
 }
 
+function normalizeLiveDataNeed(value) {
+  const normalized = oneLine(value || '', 20).toLowerCase();
+  return LIVE_DATA_NEEDS.has(normalized) ? normalized : 'none';
+}
+
+function normalizeEvidenceNeeds(value) {
+  return (Array.isArray(value) ? value : [])
+    .map(item => ({
+      system: oneLine(item?.system || '', 80),
+      field: oneLine(item?.field || '', 180),
+      why: oneLine(item?.why || '', 320)
+    }))
+    .filter(item => item.system || item.field || item.why)
+    .filter(item => !/^[a-z]+(?:\.[a-z_]+)+\s*:?/i.test(item.field))
+    .slice(0, 6);
+}
+
 function normalizeProbe(raw = {}) {
   const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const liveDataNeed = normalizeLiveDataNeed(value.live_data_need);
+  const evidenceNeeds = normalizeEvidenceNeeds(value.evidence_needs);
   return {
     language: oneLine(value.language || 'other', 20).toLowerCase(),
     whatUserWants: oneLine(value.what_user_wants || '', 500),
@@ -307,6 +334,8 @@ function normalizeProbe(raw = {}) {
     factsSaidByOperator: stringList(value.facts_said_by_operator),
     unresolvedRequests: stringList(value.unresolved_requests, 8, 420),
     ambiguities: stringList(value.ambiguities, 6),
+    liveDataNeed: evidenceNeeds.length ? 'needed' : liveDataNeed,
+    evidenceNeeds,
     knowledgeNeed: normalizeKnowledgeNeed(value.knowledge_need),
     knowledgeReason: oneLine(value.knowledge_reason || '', 420),
     confidence: Math.max(0, Math.min(1, Number(value.confidence || 0) || 0))
@@ -431,6 +460,8 @@ function readableProbe(probe, knowledge) {
     probe.factsSaidByUser.length ? `3. Что сообщил клиент: ${probe.factsSaidByUser.join('; ')}` : '',
     probe.factsSaidByOperator.length ? `   Контекст от прошлого оператора: ${probe.factsSaidByOperator.join('; ')}` : '',
     probe.unresolvedRequests.length ? `   Незакрытые вопросы/просьбы: ${probe.unresolvedRequests.join('; ')}` : '',
+    probe.liveDataNeed === 'needed' ? '   Нужны live-факты: да.' : '   Нужны live-факты: нет.',
+    probe.evidenceNeeds.length ? `   Evidence needs: ${probe.evidenceNeeds.map(item => `${item.system} → ${item.field}`).join('; ')}` : '',
     encyclopediaLine,
     knowledge.relevantInternalKnowledge.length ? `   Полезное внутреннее знание: ${knowledge.relevantInternalKnowledge.join('; ')}` : '',
     knowledge.howItApplies ? `5. Как это относится к обращению: ${knowledge.howItApplies}` : '',
@@ -505,6 +536,7 @@ export async function analyzeSubscriberIntent({ transcript = [], latestCustomer 
       diagnostic: {
         promptGuard: { model: guard.model, output: guard.output, error: guard.error || '', skipped: Boolean(guard.skipped) },
         knowledgeGate: { mode, need: probe.knowledgeNeed, reason: probe.knowledgeReason, skipped: knowledge.skipped },
+        evidencePlan: { liveDataNeed: probe.liveDataNeed, needs: probe.evidenceNeeds },
         understanding: probe,
         knowledge,
         candidates: candidateArticles.map(({ id, title, score }) => ({ id, title, score }))

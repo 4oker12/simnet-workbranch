@@ -1,6 +1,7 @@
 'use strict';
 
 import * as impl from './semantic-tool-broker-impl.js';
+import { recoverLiveDataNeeds } from './live-need-recovery.js';
 import { extractStandaloneSubscriberIdentity, identityToolArgs } from './subscriber-identity.js';
 import { applyAnswerRelevanceGate } from './answer-relevance-gate.js';
 
@@ -109,7 +110,7 @@ function compactPlannerTool(tool = {}) {
 const previousPlanner = impl.AI_OPERATOR_SOFT_TOOL_CAPABILITIES.toolPlanner || {};
 const TOOL_PLANNER = Object.freeze({
   ...previousPlanner,
-  version: 9,
+  version: 10,
   semanticFrameRule: 'Первый semantic understanding текущего хода является authoritative semantic frame. Knowledge, Billing, UserSide, Network и PON могут только добавить/проверить факты для уже понятого запроса. Последующие стадии не должны заново переопределять, о чём спросил клиент, если новый пользовательский текст не создал реальную неоднозначность.',
   replyStyleRule: 'Отвечай как живой оператор человеку в чате: сначала прямой ответ на вопрос, обычно 1–3 коротких предложения. Источники, названия статей, внутренние стадии, формулировки «по внутренней/подтверждённой информации», пересказ справочника и канцелярит клиенту не показывай. Объяснение добавляй только если оно реально помогает ответу.',
   instruction: `${String(previousPlanner.instruction || '')} billing.balance и billing.tariff читают один и тот же основной Billing DOM-блок table.tbg1.nav3.width100; если нужны оба набора фактов, считай это одним общим main-summary источником, а не двумя независимыми системами. При жалобе «нет интернета» после Billing-идентификации и проверки базового состояния услуги network.session является ранним рекомендуемым инструментом: он делает fresh-read агрегированной сессионной страницы Billing stat.pl a=252 и помогает быстро установить наличие/статус сессии, IP/MAC, время старта, последнее событие, ROUTER/VENDOR и VLAN. Отдельная реплика, содержащая договор или login, включая явно подписанный текстовый идентификатор вроде «Boxing договір», является идентификацией: сначала привяжи кейс через Billing customer.lookup и сохраняй эту привязку для следующих реплик. Если в более поздней реплике клиент явно сообщает ДРУГОЙ договор/login/IP/адрес, это переключение абонента: старую active-привязку нельзя использовать для новых персональных данных; сначала заново выполни Billing customer.lookup, и только успешный lookup устанавливает новый active subscriber. Внутренняя энциклопедия и live-tools имеют разные роли: общие правила/условия из KB можно и нужно сообщать без идентификации; идентификация требуется только для персональных live-фактов. Перед фразой «не хватает данных», «не знаю» или повторным вопросом клиенту обязательно проверь, не отвечает ли уже использованная внутренняя статья на общую часть вопроса. Первый semantic understanding текущего хода — authoritative: KB/tools добавляют факты к этому смыслу, а не запускают повторное переосмысление вопроса. Финальный ответ — обычная человеческая реплика оператора, а не отчёт о том, что система проверила.`,
@@ -160,6 +161,16 @@ function latestLiteralIdentity(transcript = []) {
   if (Object.keys(generic).length) return generic;
   const standard = impl.extractIdentityHints([latest], {});
   return standard && typeof standard === 'object' && !Array.isArray(standard) ? standard : {};
+}
+function isAddressScopedBuildingOnlyTurn({ needs = [], analysis = {}, draft = {} } = {}) {
+  const supplied = Array.isArray(needs) && needs.length
+    ? needs
+    : recoverLiveDataNeeds({ analysis, draft });
+  const planned = impl.mapInformationNeedsToTools(supplied);
+  return planned.length > 0 && planned.every(item => (
+    item?.tool === 'building.snapshot'
+    && Boolean(String(item?.toolArgs?.address || '').trim())
+  ));
 }
 function normalizedContract(value) {
   const source = String(value == null ? '' : value).trim().replace(/\s+/g, '');
@@ -371,7 +382,14 @@ export const mapInformationNeedsToTools = impl.mapInformationNeedsToTools;
 
 export async function executeInformationNeeds(options = {}) {
   const { transcript = [], analysis = {}, labState = {}, execute } = options;
-  const pre = await bootstrapStandaloneIdentity({ transcript, analysis, labState, execute });
+  const skipIdentityBootstrap = isAddressScopedBuildingOnlyTurn({
+    needs: options.needs || [],
+    analysis,
+    draft: { subscriberDataNeeded: options.needs || [] }
+  });
+  const pre = skipIdentityBootstrap
+    ? { trace: [], labState: mergeState({}, labState) }
+    : await bootstrapStandaloneIdentity({ transcript, analysis, labState, execute });
   if (pre.trace.length && !String(pre.labState.confirmedCaseId || '').trim()) {
     return {
       planned: impl.mapInformationNeedsToTools(options.needs || []),
@@ -388,6 +406,7 @@ export async function executeInformationNeeds(options = {}) {
 }
 
 export const evidenceFallbackReply = impl.evidenceFallbackReply;
+export const evidenceFallbackResult = impl.evidenceFallbackResult;
 
 function mergeUsage(primary = {}, secondary = {}) {
   return {
@@ -399,17 +418,20 @@ function mergeUsage(primary = {}, secondary = {}) {
 
 export async function groundSubscriberReply(options = {}) {
   const { transcript = [], analysis = {}, labState = {}, execute, draft = {} } = options;
-  const pre = await bootstrapStandaloneIdentity({ transcript, analysis, labState, execute });
+  const skipIdentityBootstrap = isAddressScopedBuildingOnlyTurn({ analysis, draft });
+  const pre = skipIdentityBootstrap
+    ? { trace: [], labState: mergeState({}, labState) }
+    : await bootstrapStandaloneIdentity({ transcript, analysis, labState, execute });
   const delegated = await impl.groundSubscriberReply({ ...options, labState: pre.labState });
   const toolTrace = mergeTrace(pre.trace, delegated?.toolTrace);
   const toolEvidence = mergeTrace(pre.trace.filter(item => item?.ok), delegated?.toolEvidence);
-  const degraded = Boolean(draft?.degraded || delegated?.degraded);
-  const knowledgeReply = degraded ? knowledgeConsultationFallbackReply(analysis, transcript) : '';
-  const preliminaryReply = knowledgeReply
-    ? (toolEvidence.length && String(delegated?.reply || '').trim()
-      ? `${knowledgeReply}\n\n${String(delegated.reply).trim()}`
-      : knowledgeReply)
-    : delegated?.reply;
+  const generationDegraded = Boolean(draft?.degraded || delegated?.degraded);
+  const hasLiveToolActivity = toolTrace.length > 0;
+
+  const knowledgeReply = generationDegraded && !hasLiveToolActivity
+    ? knowledgeConsultationFallbackReply(analysis, transcript)
+    : '';
+  const preliminaryReply = knowledgeReply || delegated?.reply;
 
   const relevance = await applyAnswerRelevanceGate({
     reply: preliminaryReply,
@@ -421,6 +443,12 @@ export async function groundSubscriberReply(options = {}) {
     meterContext: options.meterContext || {}
   });
 
+  const recoveredFromGenerationFailure = Boolean(
+    generationDegraded
+    && delegated?.evidenceFallback?.used
+    && delegated?.evidenceFallback?.complete
+  );
+
   return {
     ...delegated,
     reply: relevance.reply || preliminaryReply,
@@ -429,6 +457,11 @@ export async function groundSubscriberReply(options = {}) {
     usage: mergeUsage(delegated?.usage || {}, relevance?.gate?.usage || {}),
     toolTrace,
     toolEvidence,
+    degraded: recoveredFromGenerationFailure ? false : Boolean(delegated?.degraded || draft?.degraded),
+    degradationReason: recoveredFromGenerationFailure ? '' : String(delegated?.degradationReason || draft?.degradationReason || ''),
+    recoveredFromGenerationFailure,
+    generationDegraded,
+    generationDegradationReason: generationDegraded ? String(delegated?.degradationReason || draft?.degradationReason || '') : '',
     toolState: delegated?.toolState || pre.labState
   };
 }

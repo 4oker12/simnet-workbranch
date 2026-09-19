@@ -21,6 +21,14 @@ const WORK_STORE_KEY = 'simnet_workbench_companion_work_v1';
 const SESSION_KEY = 'companion:operator';
 const MAX_MESSAGES = 30;
 const MAX_TOOL_CALLS = 4;
+const PROVIDERS = Object.freeze({
+  groq: Object.freeze({
+    label: 'Groq', keyField: 'groqApiKey', url: 'https://api.groq.com/openai/v1/chat/completions', defaultModel: 'qwen/qwen3.8-27b'
+  }),
+  deepseek: Object.freeze({
+    label: 'DeepSeek', keyField: 'deepseekApiKey', url: 'https://api.deepseek.com/chat/completions', defaultModel: 'deepseek-flash'
+  })
+});
 const ALLOWED_HOSTS = new Set(['userside.simnet.kiev.ua', 'admin.simnet.kiev.ua', 'admin.looknet.kiev.ua']);
 const ALLOWED_TOOLS = new Set([
   'customer.lookup', 'customer.confirm', 'customer.snapshot',
@@ -105,31 +113,44 @@ async function saveStores(sessions, session, work) {
   return normalized;
 }
 
+function normalizeProvider(value) {
+  const provider = String(value || '').trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(PROVIDERS, provider) ? provider : 'groq';
+}
+
 async function readAiConfig() {
   const raw = (await chrome.storage.local.get(AI_CONFIG_KEY))?.[AI_CONFIG_KEY] || {};
-  const apiKey = String(raw.groqApiKey || '').trim();
-  if (!apiKey) throw new Error('Groq API key не настроен');
-  return { apiKey, model: String(raw.chatModel || raw.model || 'qwen/qwen3.6-27b').trim() };
+  const provider = normalizeProvider(raw.provider);
+  const spec = PROVIDERS[provider];
+  const apiKey = String(raw[spec.keyField] || '').trim();
+  if (!apiKey) throw new Error(`${spec.label} API key не настроен`);
+  const model = String(raw.chatModel || raw.model || spec.defaultModel).trim() || spec.defaultModel;
+  return { provider, label: spec.label, apiKey, model, url: spec.url };
 }
-async function requestGroq(messages, maxTokens = 900) {
+async function requestAi(messages, maxTokens = 900) {
   const config = await readAiConfig();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 45000);
   try {
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    const body = config.provider === 'deepseek'
+      ? { model: config.model, temperature: 0.25, max_tokens: Math.max(250, maxTokens), messages }
+      : { model: config.model, temperature: 0.25, max_completion_tokens: Math.max(250, maxTokens), reasoning_format: 'hidden', reasoning_effort: 'low', messages };
+    const response = await fetch(config.url, {
       method: 'POST', headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: config.model, temperature: 0.25, max_completion_tokens: Math.max(250, maxTokens), reasoning_format: 'hidden', reasoning_effort: 'low', messages }),
+      body: JSON.stringify(body),
       signal: controller.signal
     });
     const raw = await response.text();
     let json = null; try { json = JSON.parse(raw || '{}'); } catch {}
-    if (!response.ok) throw new Error(`AI API ${response.status}: ${clean(json?.error?.message || raw || response.statusText, 600)}`);
+    if (!response.ok) throw new Error(`${config.label} API ${response.status}: ${clean(json?.error?.message || raw || response.statusText, 600)}`);
     const content = String(json?.choices?.[0]?.message?.content || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-    if (!content) throw new Error('AI API вернул пустой ответ');
+    if (!content) throw new Error(`${config.label} API вернул пустой ответ`);
     const usage = json?.usage ? {
-      promptTokens: Number(json.usage.prompt_tokens || 0), completionTokens: Number(json.usage.completion_tokens || 0), totalTokens: Number(json.usage.total_tokens || 0)
+      promptTokens: Number(json.usage.prompt_tokens || json.usage.input_tokens || 0),
+      completionTokens: Number(json.usage.completion_tokens || json.usage.output_tokens || 0),
+      totalTokens: Number(json.usage.total_tokens || 0)
     } : emptyUsage();
-    return { content, usage };
+    return { content, usage, provider: config.provider, model: String(json?.model || config.model) };
   } catch (error) {
     if (error?.name === 'AbortError') throw new Error('AI API: тайм-аут запроса');
     throw error;
@@ -164,7 +185,7 @@ function workPrompt(work) {
   return `CURRENT WORK EPISODE: ${active ? compactJson(active, 2500) : 'none'}\nPREVIOUS WORK EPISODES: ${previous.length ? compactJson(previous, 3000) : 'none'}`;
 }
 function history(session) {
-  return session.messages.filter(item => item.role === 'user' || item.role === 'assistant').slice(-12).map(item => {
+  return session.messages.filter(item => item.role === 'user' || item.role === 'assistant').slice(-20).map(item => {
     const target = clean(item?.context?.workTarget || item?.context?.activeTarget, 160);
     return { role: item.role, content: `${target ? `[work target: ${target}]` : '[general conversation]'} ${clean(item.content, 1000)}` };
   });
@@ -262,15 +283,17 @@ async function chat(payload = {}, sender = {}) {
     ...recent, { role: 'user', content: message }
   ];
   try {
-    const first = await requestGroq(firstMessages, 900);
+    const first = await requestAi(firstMessages, 900);
     session.usage = plusUsage(session.usage, first.usage);
     const request = parseToolRequest(first.content);
     let answer = first.content;
     let usage = first.usage;
+    let provider = first.provider;
+    let model = first.model;
     let toolEvidence = [...preEvidence];
     if (request?.tools?.length) {
       const executed = await runTools(work, request.tools); work = executed.work; toolEvidence.push(...executed.evidence);
-      const second = await requestGroq([
+      const second = await requestAi([
         { role: 'system', content: SYSTEM_PROMPT }, { role: 'system', content: workPrompt(work) },
         ...(playbook ? [{ role: 'system', content: playbook }] : []),
         { role: 'system', content: evidencePrompt(toolEvidence) },
@@ -284,18 +307,21 @@ async function chat(payload = {}, sender = {}) {
         totalTokens: Number(first.usage?.totalTokens || 0) + Number(second.usage?.totalTokens || 0)
       };
       answer = second.content;
+      provider = second.provider || provider;
+      model = second.model || model;
     } else if (request && !request.tools.length) {
       answer = 'Не смог корректно выбрать READ-инструмент. Уточни, что именно нужно посмотреть.';
     }
     answer = clean(String(answer).replace(/<wb_tool_request>[\s\S]*?<\/wb_tool_request>/gi, '')) || 'Не получил нормальный финальный ответ. Повтори запрос короче.';
     const active = activeCompanionEpisode(work);
     session.messages.push({ role: 'assistant', content: answer, usage, context: {
+      provider: String(provider || ''), model: String(model || ''),
       tools: toolEvidence.slice(-6).map(row => ({ tool: row.tool, ok: Boolean(row.ok), code: String(row.code || ''), observedAt: String(row.observedAt || '') })),
       workEpisodeId: active?.id || '', activeTarget: active ? companionTargetLabel(active.target) : ''
     }, at: new Date().toISOString() });
     session.messages = session.messages.slice(-MAX_MESSAGES);
     session = await saveStores(stores.sessions, session, work);
-    return { answer, usage, session: { ...session, work: summarizeCompanionWork(work) }, work: summarizeCompanionWork(work) };
+    return { answer, usage, provider, model, session: { ...session, work: summarizeCompanionWork(work) }, work: summarizeCompanionWork(work) };
   } catch (error) {
     session.messages.push({ role: 'error', content: `AI: ${clean(error?.message || error, 700)}`, at: new Date().toISOString() });
     session.messages = session.messages.slice(-MAX_MESSAGES);

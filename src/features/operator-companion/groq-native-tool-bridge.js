@@ -7,6 +7,8 @@
   globalThis.__SIMNET_COMPANION_GROQ_NATIVE_BRIDGE__ = true;
 
   const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
+  const DEEPSEEK_CHAT_URL = 'https://api.deepseek.com/chat/completions';
+  const CHAT_URLS = new Set([GROQ_CHAT_URL, DEEPSEEK_CHAT_URL]);
   const COMPANION_MARKER = 'AI-напарник оператора интернет-провайдера SIMNET';
   const FINAL_MARKER = 'Инструменты уже выполнены. Дай финальный видимый ответ';
 
@@ -78,7 +80,7 @@
       item?.role === 'system' && String(item?.content || '').includes(FINAL_MARKER));
   }
 
-  function firstPassPayload(payload) {
+  function firstPassPayload(payload, url) {
     const messages = Array.isArray(payload.messages) ? [...payload.messages] : [];
     const nativeInstruction = {
       role: 'system',
@@ -86,14 +88,18 @@
     };
     const firstUser = messages.findIndex(item => item?.role === 'user');
     messages.splice(firstUser >= 0 ? firstUser : messages.length, 0, nativeInstruction);
-    return applyReasoningCompatibility({
+    const next = {
       ...payload,
       messages,
       tools: TOOL_DEFINITIONS,
       tool_choice: 'auto',
-      parallel_tool_calls: true,
-      disable_tool_validation: false
-    });
+      parallel_tool_calls: true
+    };
+    // Groq-only extension. DeepSeek accepts standard OpenAI tool fields but
+    // does not need Groq's tool-validation switch.
+    if (url === GROQ_CHAT_URL) next.disable_tool_validation = false;
+    else delete next.disable_tool_validation;
+    return applyReasoningCompatibility(next);
   }
 
   function finalPassPayload(payload) {
@@ -112,10 +118,6 @@
     };
 
     // Critical: on the final synthesis pass do not send tools OR tool_choice.
-    // Some Groq-hosted models can still emit a tool-call token while
-    // tool_choice='none', which the API rejects with HTTP 400 before a normal
-    // answer is returned. Without the tool protocol in this pass, the model is
-    // treated as a normal text generator over already collected evidence.
     delete next.tools;
     delete next.tool_choice;
     delete next.parallel_tool_calls;
@@ -151,7 +153,7 @@
 
   globalThis.fetch = async function simnetCompanionFetch(input, init = {}) {
     const url = typeof input === 'string' ? input : String(input?.url || '');
-    if (url !== GROQ_CHAT_URL || String(init?.method || 'GET').toUpperCase() !== 'POST' || typeof init?.body !== 'string') {
+    if (!CHAT_URLS.has(url) || String(init?.method || 'GET').toUpperCase() !== 'POST' || typeof init?.body !== 'string') {
       return nativeFetch(input, init);
     }
 
@@ -159,7 +161,7 @@
     if (!source || !isCompanionPayload(source)) return nativeFetch(input, init);
 
     const finalPass = isFinalPass(source);
-    const response = await send(input, init, finalPass ? finalPassPayload(source) : firstPassPayload(source));
+    const response = await send(input, init, finalPass ? finalPassPayload(source) : firstPassPayload(source, url));
     const text = await response.text();
 
     if (!response.ok) return responseFrom(response, text);

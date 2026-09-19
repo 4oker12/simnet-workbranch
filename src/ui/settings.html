@@ -23,8 +23,8 @@
       <summary class="settings-panel-summary">
         <div class="settings-panel-title">
           <span class="settings-panel-kicker">Доступ</span>
-          <h2>Groq API key</h2>
-          <p>Ключ для AI-напарника, AI Lab, Replay и остальных AI-функций Workbench.</p>
+          <h2>AI provider / API key</h2>
+          <p>Один активный провайдер для AI-напарника, AI Lab, Replay и остальных AI-функций Workbench.</p>
         </div>
         <div class="settings-summary-end">
           <span id="keyBadge" class="badge">Не настроен</span>
@@ -32,9 +32,14 @@
         </div>
       </summary>
       <div class="settings-panel-body">
-        <label class="field-label" for="groqApiKey">Groq API key</label>
+        <label class="field-label" for="aiProvider">Провайдер</label>
+        <select id="aiProvider">
+          <option value="groq">Groq</option>
+          <option value="deepseek">DeepSeek</option>
+        </select>
+        <label id="apiKeyLabel" class="field-label" for="groqApiKey">API key</label>
         <div class="key-row">
-          <input id="groqApiKey" type="password" autocomplete="off" spellcheck="false" placeholder="gsk_…">
+          <input id="groqApiKey" type="password" autocomplete="off" spellcheck="false" placeholder="API key">
           <button id="saveKey" type="button">Сохранить</button>
         </div>
         <div class="actions">
@@ -42,7 +47,7 @@
           <button id="removeKey" class="danger" type="button">Удалить ключ</button>
         </div>
         <div id="keyStatus" class="status">Ключ ещё не сохранён.</div>
-        <p class="note">После сохранения поле очищается. Ключ остаётся только в <code>chrome.storage.local</code> этого Chrome-профиля и не попадает в GitHub или диагностический экспорт.</p>
+        <p class="note">После сохранения поле очищается. Ключ остаётся только в <code>chrome.storage.local</code> этого Chrome-профиля и не попадает в GitHub или диагностический экспорт. Для локального теста это допустимо; для массового развёртывания ключ позже нужно вынести на backend/proxy.</p>
       </div>
     </details>
 
@@ -51,16 +56,15 @@
         <div class="settings-panel-title">
           <span class="settings-panel-kicker">Сервис</span>
           <h2>Модель AI</h2>
-          <p>Для A/B и диагностики различий Qwen / GPT-OSS.</p>
+          <p>Список зависит от выбранного провайдера. Провайдер можно менять для A/B без изменения логики Workbench.</p>
         </div>
         <span class="settings-chevron" aria-hidden="true"></span>
       </summary>
       <div class="settings-panel-body">
         <label class="field-label" for="chatModel">Модель</label>
         <select id="chatModel">
-          <option value="qwen/qwen3.6-27b">Qwen 3.6 27B</option>
-          <option value="openai/gpt-oss-120b">GPT-OSS 120B</option>
           <option value="qwen/qwen3.8-27b">Qwen 3.8 27B</option>
+          <option value="openai/gpt-oss-120b">GPT-OSS 120B</option>
           <option value="openai/gpt-oss-20b">GPT-OSS 20B</option>
         </select>
         <button id="saveChatModel" class="secondary save-model" type="button">Сохранить модель</button>
@@ -223,6 +227,7 @@
   <script src="settings-accordion.js"></script>
   <script src="settings.js"></script>
   <script src="ai-operator-lab.js"></script>
+  <script src="ai-operator-behavior-v2.js"></script>
   <script src="ai-operator-lab-trace.js"></script>
   <script src="ai-operator-kb-curator.js"></script>
   <script type="module" src="ai-operator-replay.js"></script>

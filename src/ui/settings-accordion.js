@@ -198,3 +198,5 @@
     }
   });
 })();
+
+void import('./ai-quota-dashboard.js').catch(error => console.warn('[AI QUOTA]', error));

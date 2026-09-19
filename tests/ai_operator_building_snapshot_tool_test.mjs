@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   BUILDING_SNAPSHOT_TOOL,
   findBuildingInSnapshot,
+  inferBuildingQueryFromText,
   readBuildingSnapshot
 } from '../src/features/ai-operator/building-snapshot-tool.js';
 import {
@@ -10,6 +11,7 @@ import {
   mapInformationNeedsToTools
 } from '../src/features/ai-operator/semantic-tool-broker.js';
 
+const LAB_KEY = 'simnet_ai_operator_lab_v1';
 const SNAPSHOT = {
   schema: 'simnet-crm-building-snapshot-v1',
   version: 1,
@@ -39,12 +41,18 @@ const SNAPSHOT = {
   ]
 };
 
-function installChromeSnapshot(snapshot = SNAPSHOT) {
+function installChromeSnapshot(snapshot = SNAPSHOT, lab = null) {
   globalThis.chrome = {
     storage: {
       local: {
-        async get(key) {
-          return { [key]: snapshot };
+        async get(requested) {
+          const keys = Array.isArray(requested) ? requested : [requested];
+          const result = {};
+          for (const key of keys) {
+            if (key === BUILDING_SNAPSHOT_TOOL.snapshotKey) result[key] = snapshot;
+            if (key === LAB_KEY && lab) result[key] = lab;
+          }
+          return result;
         }
       }
     }
@@ -177,4 +185,51 @@ test('same semantic turn identifies subscriber then building.snapshot uses the r
   assert.equal(building.data.buildingId, '2693');
   assert.equal(building.data.fields.gpon, 'Да');
   assert.equal(building.data.fields.owner, 'ОСББ Тест');
+});
+
+test('building query can be inferred from the latest AI Lab customer message and loaded snapshot', async () => {
+  installChromeSnapshot(SNAPSHOT, {
+    messages: [
+      { role: 'customer', text: 'что известно по GPON на Данченка 32/А?' }
+    ]
+  });
+
+  const query = inferBuildingQueryFromText(SNAPSHOT, 'что известно по GPON на Данченка 32/А?');
+  assert.equal(query.street, 'данченка');
+  assert.equal(query.house, '32/а');
+
+  const result = await readBuildingSnapshot();
+  assert.equal(result.ok, true);
+  assert.equal(result.code, 'OK');
+  assert.equal(result.data.buildingId, '2693');
+  assert.equal(result.data.fields.gpon, 'Да');
+  assert.equal(result.data.source, 'userside-building-snapshot-local');
+});
+
+test('AI tool cycle can read building snapshot from AI Lab question without manual toolArgs', async () => {
+  installChromeSnapshot(SNAPSHOT, {
+    messages: [
+      { role: 'customer', text: 'есть GPON на Данченка 32/А?' }
+    ]
+  });
+
+  const calls = [];
+  const result = await executeInformationNeeds({
+    needs: [
+      { system: 'UserSide', field: 'building.snapshot: GPON coverage по дому', why: 'Проверить оптику по указанному зданию.' }
+    ],
+    transcript: [{ role: 'customer', text: 'есть GPON на Данченка 32/А?' }],
+    analysis: { probe: { whatUserWants: 'Проверить GPON по указанному дому.' } },
+    labState: {},
+    execute: async ({ tool, toolArgs, labState }) => {
+      calls.push(tool);
+      if (tool === 'building.snapshot') return readBuildingSnapshot({ toolArgs, labState });
+      throw new Error(`Unexpected tool: ${tool}`);
+    }
+  });
+
+  assert.deepEqual(calls, ['building.snapshot']);
+  assert.equal(result.trace[0].ok, true);
+  assert.equal(result.trace[0].data.buildingId, '2693');
+  assert.equal(result.trace[0].source, 'userside-building-snapshot-local');
 });
