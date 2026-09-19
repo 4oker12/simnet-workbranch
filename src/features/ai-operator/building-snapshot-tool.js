@@ -1,6 +1,7 @@
 'use strict';
 
 const SNAPSHOT_KEY = 'simnet_crm_building_snapshot_v1';
+const LAB_KEY = 'simnet_ai_operator_lab_v1';
 const TOOL_NAME = 'building.snapshot';
 const SOURCE = 'userside-building-snapshot-local';
 
@@ -88,6 +89,61 @@ function queryFromArgs(toolArgs = {}, labState = {}) {
   return { street: explicitStreet, house: explicitHouse, rawAddress: explicitAddress || subscriberAddress };
 }
 
+function latestCustomerTextFromLab(lab = {}) {
+  const messages = Array.isArray(lab?.messages) ? lab.messages : [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const item = messages[index];
+    if (item?.role !== 'customer') continue;
+    const value = text(item?.text, 1200);
+    if (value) return value;
+  }
+  return '';
+}
+
+function houseTokens(value) {
+  return (String(value || '').match(/\d+[\p{L}]?(?:\s*[\/-]\s*[\p{L}\d]+)?/gu) || [])
+    .map(normalizeHouse)
+    .filter(Boolean);
+}
+
+function streetTokens(value) {
+  return normalizeStreet(value)
+    .split(/\s+/)
+    .map(token => token.trim())
+    .filter(token => token.length >= 2 && !/^\d/.test(token));
+}
+
+export function inferBuildingQueryFromText(snapshot = {}, sourceText = '') {
+  const source = text(sourceText, 1200);
+  const buildings = Array.isArray(snapshot?.buildings) ? snapshot.buildings : [];
+  if (!source || !buildings.length) return { street: '', house: '', rawAddress: source };
+
+  const sourceStreetTokens = new Set(streetTokens(source));
+  const sourceHouses = new Set(houseTokens(source));
+  if (!sourceHouses.size) return { street: '', house: '', rawAddress: source };
+
+  const matches = [];
+  for (const building of buildings) {
+    const parsed = parseStreetHouse(building?.address);
+    if (!parsed.street || !parsed.house || !sourceHouses.has(parsed.house)) continue;
+    const tokens = streetTokens(parsed.street);
+    if (!tokens.length || !tokens.every(token => sourceStreetTokens.has(token))) continue;
+    matches.push({ ...parsed, rawAddress: text(building?.address, 500) });
+  }
+
+  if (matches.length !== 1) return { street: '', house: '', rawAddress: source };
+  return matches[0];
+}
+
+async function labQueryFallback(snapshot = {}) {
+  try {
+    const lab = (await chrome.storage.local.get(LAB_KEY))?.[LAB_KEY];
+    return inferBuildingQueryFromText(snapshot, latestCustomerTextFromLab(lab));
+  } catch {
+    return { street: '', house: '', rawAddress: '' };
+  }
+}
+
 function fieldMap(fields = []) {
   const mapped = {};
   for (const item of Array.isArray(fields) ? fields : []) {
@@ -130,15 +186,9 @@ export function findBuildingInSnapshot(snapshot = {}, query = {}) {
 }
 
 export async function readBuildingSnapshot({ toolArgs = {}, labState = {} } = {}) {
-  const query = queryFromArgs(toolArgs, labState);
-  if (!query.street || !query.house) {
-    return result(false, 'BUILDING_ADDRESS_REQUIRED', {
-      message: 'Для карточки здания нужны улица и номер дома.',
-      query
-    }, ['Если адрес уже известен по подтверждённому абоненту, передай его в confirmedSubscriber.address или toolArgs.address.']);
-  }
+  let query = queryFromArgs(toolArgs, labState);
 
-  const stored = await chrome.storage.local.get(SNAPSHOT_KEY);
+  const stored = await chrome.storage.local.get([SNAPSHOT_KEY, LAB_KEY]);
   const snapshot = stored?.[SNAPSHOT_KEY];
   if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
     return result(false, 'BUILDING_SNAPSHOT_MISSING', {
@@ -147,6 +197,18 @@ export async function readBuildingSnapshot({ toolArgs = {}, labState = {} } = {}
       snapshotKey: SNAPSHOT_KEY,
       query
     }, ['Не трактовать отсутствие snapshot как отсутствие покрытия или дома.']);
+  }
+
+  if (!query.street || !query.house) {
+    const labText = latestCustomerTextFromLab(stored?.[LAB_KEY]);
+    query = inferBuildingQueryFromText(snapshot, labText);
+  }
+
+  if (!query.street || !query.house) {
+    return result(false, 'BUILDING_ADDRESS_REQUIRED', {
+      message: 'Для карточки здания нужны улица и номер дома.',
+      query
+    }, ['Передай адрес напрямую в toolArgs.address, через confirmedSubscriber.address или явно укажи улицу и дом в текущем вопросе AI Lab.']);
   }
 
   const found = findBuildingInSnapshot(snapshot, query);
