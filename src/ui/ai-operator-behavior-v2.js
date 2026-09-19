@@ -1,10 +1,9 @@
 (async () => {
   'use strict';
 
-  const {
-    normalizeBehaviorProfile,
-    toLegacyBehaviorCompatibility
-  } = await import(chrome.runtime.getURL('src/features/ai-operator/behavior-profile.js'));
+  const { normalizeBehaviorProfile } = await import(
+    chrome.runtime.getURL('src/features/ai-operator/behavior-profile.js')
+  );
 
   const ROOT_ID = 'aiLabExperiment';
   const UPGRADED_ATTR = 'data-behavior-v2';
@@ -67,9 +66,7 @@
   }
 
   async function save(container) {
-    // Until the background/runtime migration lands, translate the three native
-    // scales back to the old persisted shape in one centralized adapter.
-    const behavior = toLegacyBehaviorCompatibility(levelsFrom(container), latestBehavior || {});
+    const behavior = normalizeBehaviorProfile(levelsFrom(container));
     latestBehavior = behavior;
     try {
       const state = await runtime('AI_OPERATOR_LAB_CONFIG', { behavior });
