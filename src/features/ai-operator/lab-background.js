@@ -1,5 +1,6 @@
 import { apiCostSummary, saveApiPrice } from './api-cost.js';
 import { analyzeSubscriberIntent, generateSubscriberReply, generateCleanModelReply } from './semantic-probe.js';
+import { mergeBehaviorProfile, normalizeBehaviorProfile } from './behavior-profile.js';
 import { executeOperatorTool } from './live-tool-runtime.js';
 import { planLiveDataNeeds } from './live-need-recovery.js';
 import {
@@ -44,22 +45,10 @@ function compact(value, max = 1200) {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-function clamp(value, fallback) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.max(0, Math.min(100, Math.round(parsed))) : fallback;
+function normalizeBehavior(value = {}) {
+  return normalizeBehaviorProfile(value);
 }
 
-function normalizeBehavior(value = {}) {
-  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-  return {
-    confidenceStyle: clamp(source.confidenceStyle, 45),
-    curiosity: clamp(source.curiosity, 55),
-    initiative: clamp(source.initiative, 50),
-    skepticism: clamp(source.skepticism, 75),
-    brevity: clamp(source.brevity, 65),
-    maxFollowUpQuestions: Math.max(1, Math.min(3, Math.round(Number(source.maxFollowUpQuestions || 2))))
-  };
-}
 
 function normalizeKnowledgeMode(value) {
   const mode = String(value || 'auto').toLowerCase();
@@ -93,7 +82,7 @@ function normalizeToolState(value = {}) {
 
 function emptyLab() {
   return {
-    version: 4,
+    version: 5,
     id: id('lab'),
     messages: [],
     events: [],
@@ -116,7 +105,7 @@ function emptyLab() {
 function normalizeLab(raw = {}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return emptyLab();
   return {
-    version: 4,
+    version: 5,
     id: String(raw.id || id('lab')),
     messages: (Array.isArray(raw.messages) ? raw.messages : []).slice(-MAX_MESSAGES).map(normalizeMessage),
     events: (Array.isArray(raw.events) ? raw.events : []).slice(-MAX_EVENTS),
@@ -326,7 +315,7 @@ async function replyVariant({ lab, transcript, customer, analysis, useKnowledge,
     evidenceFirst: Boolean(draft?.evidenceFirst)
   });
 
-  return { label, useKnowledge, ...result, evidenceFirst: Boolean(draft?.evidenceFirst) };
+  return { label, useKnowledge, ...result, behavior: clone(lab.behavior), evidenceFirst: Boolean(draft?.evidenceFirst) };
 }
 
 async function cleanVariant({ lab, transcript, customer }) {
@@ -340,6 +329,7 @@ async function cleanVariant({ lab, transcript, customer }) {
     label: 'clean_model',
     useKnowledge: false,
     ...draft,
+    behavior: clone(lab.behavior),
     subscriberDataNeeded: [],
     toolTrace: [],
     toolEvidence: [],
@@ -497,6 +487,38 @@ async function executeExperiment(lab, baseMessages, customer) {
   return experiment;
 }
 
+export async function runIsolatedLabCase({
+  text,
+  transcript = [],
+  knowledgeMode = 'auto',
+  behavior = {},
+  toolState = {},
+  scope = ''
+} = {}) {
+  const incoming = compact(text, 4000);
+  if (!incoming) throw new Error('Пустая реплика пакетного теста.');
+
+  const lab = emptyLab();
+  lab.id = compact(scope, 180) || id('batch_lab');
+  lab.knowledgeMode = normalizeKnowledgeMode(knowledgeMode);
+  lab.displayMode = 'answer_analysis';
+  lab.behavior = normalizeBehavior(behavior);
+  lab.toolState = normalizeToolState(toolState);
+
+  const baseMessages = (Array.isArray(transcript) ? transcript : [])
+    .map(normalizeMessage)
+    .slice(-MAX_MESSAGES);
+  const customer = normalizeMessage({ id: id('msg'), role: 'customer', text: incoming, at: nowIso() });
+
+  await executeExperiment(lab, baseMessages, customer);
+  return {
+    experiment: clone(lab.lastExperiment),
+    decision: clone(lab.lastDecision),
+    toolState: clone(lab.toolState),
+    events: clone(lab.events)
+  };
+}
+
 function recoveryAnalysis(customer = {}) {
   const customerText = compact(customer?.text || '', 1400);
   return {
@@ -638,6 +660,7 @@ async function recoverTurn(lab, baseMessages, customer, error) {
     label: 'degraded',
     useKnowledge: false,
     reply,
+    behavior: clone(lab.behavior),
     toolTrace: clone(toolTrace),
     toolEvidence: clone(toolEvidence),
     degraded: true,
@@ -696,7 +719,7 @@ async function updateConfig(payload = {}) {
   const lab = await readLab();
   if (payload.knowledgeMode != null) lab.knowledgeMode = normalizeKnowledgeMode(payload.knowledgeMode);
   if (payload.displayMode != null) lab.displayMode = normalizeDisplayMode(payload.displayMode);
-  if (payload.behavior != null) lab.behavior = normalizeBehavior({ ...lab.behavior, ...payload.behavior });
+  if (payload.behavior != null) lab.behavior = mergeBehaviorProfile(lab.behavior, payload.behavior);
   appendEvent(lab, 'profile_change', { knowledgeMode: lab.knowledgeMode, displayMode: lab.displayMode, behavior: clone(lab.behavior) });
   return writeLab(lab);
 }

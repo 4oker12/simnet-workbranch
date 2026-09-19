@@ -144,11 +144,14 @@ test('subscriber reply path keeps behavior tunable while truth rules stay invari
   assert.match(source, /не добавляй «обычную практику отрасли»/i);
   assert.match(source, /subscriber_data_needed/);
   assert.match(source, /behavior_effects/);
-  assert.match(source, /Решительность \$\{profile\.confidenceStyle\}/);
-  assert.match(source, /Любопытство \$\{profile\.curiosity\}/);
-  assert.match(source, /Инициативность \$\{profile\.initiative\}/);
-  assert.match(source, /Скепсис \$\{profile\.skepticism\}/);
-  assert.match(source, /Краткость \$\{profile\.brevity\}/);
+  assert.match(source, /behaviorPromptGuidance\(profile\)/);
+  assert.match(source, /"naturalness":"как человекоподобность/);
+  assert.match(source, /"depth":"как полезная развернутость/);
+  assert.match(source, /"initiative":"почему предложен\/не предложен следующий шаг"/);
+  assert.doesNotMatch(source, /Решительность \$\{profile\.confidenceStyle\}/);
+  assert.doesNotMatch(source, /Любопытство \$\{profile\.curiosity\}/);
+  assert.doesNotMatch(source, /Скепсис \$\{profile\.skepticism\}/);
+  assert.doesNotMatch(source, /Краткость \$\{profile\.brevity\}/);
 });
 
 test('Replay knowledge experiment bypasses deterministic regulator files', () => {

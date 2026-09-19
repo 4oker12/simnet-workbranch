@@ -2,6 +2,7 @@ import { recordApiUsage } from './api-cost.js';
 import { AI_CONFIG, readAiRuntimeConfig } from '../../config/ai-config.js';
 import { SIMNET_KNOWLEDGE_VERSION, knowledgeQueryFromUnderstanding, searchKnowledgeLibrary } from './knowledge/index.js';
 import { autonomousOperatorSystemMessages } from './instructions/autonomous-operator-instruction.generated.js';
+import { behaviorPromptGuidance, behaviorRuntimeHints } from './behavior-profile.js';
 
 const GENERATION_FALLBACK_MODELS = Object.freeze([
   'qwen/qwen3.8-27b',
@@ -86,6 +87,8 @@ function isCoolingDown(model) {
 
 function modelsForRuntime(runtime = {}) {
   const preferred = String(runtime.chatModel || AI_CONFIG.model || '').trim();
+  const provider = String(runtime.provider || AI_CONFIG.provider || 'groq').trim().toLowerCase();
+  if (provider !== 'groq') return preferred ? [preferred] : [];
   const all = [preferred, ...GENERATION_FALLBACK_MODELS]
     .filter((model, index, list) => model && !RETIRED_MODELS.has(model) && model !== PROMPT_GUARD_MODEL && list.indexOf(model) === index);
   const ready = all.filter(model => !isCoolingDown(model));
@@ -114,10 +117,13 @@ async function requestModel(messages, apiKey, model, meterContext = {}, {
     const raw = await response.text();
     let data = null;
     try { data = raw ? JSON.parse(raw) : null; } catch {}
+    const promptGuardSkipped = response.headers?.get?.('x-simnet-prompt-guard-skipped') === '1'
+      || data?.simnet?.prompt_guard_skipped === true;
+    const promptGuardSkipReason = oneLine(data?.simnet?.reason || '', 120);
     reportedUsage = data?.usage || null;
     reportedModel = String(data?.model || model);
     if (!response.ok) {
-      const error = new Error(`Groq HTTP ${response.status} — ${oneLine(data?.error?.message || raw || response.statusText, 500)}`);
+      const error = new Error(`AI provider HTTP ${response.status} — ${oneLine(data?.error?.message || raw || response.statusText, 500)}`);
       error.status = response.status;
       error.rateLimit = rateLimit;
       if (Number(response.status) === 429) markRateLimited(model, rateLimit);
@@ -126,16 +132,18 @@ async function requestModel(messages, apiKey, model, meterContext = {}, {
     MODEL_COOLDOWNS.delete(model);
     const choice = data?.choices?.[0] || {};
     const answer = choice?.message?.content;
-    if (!answer) throw new Error('Semantic probe: Groq returned an empty response');
+    if (!answer) throw new Error('Semantic probe: AI provider returned an empty response');
     return {
       answer: String(answer),
       model: reportedModel,
       usage: data?.usage || {},
       rateLimit,
-      finishReason: oneLine(choice?.finish_reason || '', 80)
+      finishReason: oneLine(choice?.finish_reason || '', 80),
+      promptGuardSkipped,
+      promptGuardSkipReason
     };
   } catch (error) {
-    if (controller.signal.aborted) throw new Error('Semantic probe: Groq request timeout');
+    if (controller.signal.aborted) throw new Error('Semantic probe: AI provider request timeout');
     throw error;
   } finally {
     clearTimeout(timer);
@@ -226,7 +234,7 @@ async function requestJsonWithFallback(messages, runtime, meterContext = {}, req
 
 async function runPromptGuard(latestCustomer = {}, runtime = {}, meterContext = {}) {
   const text = block(latestCustomer?.text || '', 1600);
-  if (!text) return { model: PROMPT_GUARD_MODEL, skipped: true, output: '', usage: {}, rateLimit: {} };
+  if (!text) return { model: PROMPT_GUARD_MODEL, skipped: true, skipReason: 'empty_input', output: '', usage: {}, rateLimit: {} };
   try {
     const response = await requestModel(
       [{ role: 'user', content: text }],
@@ -235,9 +243,19 @@ async function runPromptGuard(latestCustomer = {}, runtime = {}, meterContext = 
       { ...meterContext, stage: 'prompt_guard' },
       { jsonMode: false, maxTokens: 64, temperature: 0 }
     );
-    return { model: response.model || PROMPT_GUARD_MODEL, skipped: false, output: oneLine(response.answer, 500), usage: response.usage || {}, rateLimit: response.rateLimit || {} };
+    if (response.promptGuardSkipped) {
+      return {
+        model: PROMPT_GUARD_MODEL,
+        skipped: true,
+        skipReason: response.promptGuardSkipReason || 'provider_capability_unavailable',
+        output: '',
+        usage: response.usage || {},
+        rateLimit: response.rateLimit || {}
+      };
+    }
+    return { model: response.model || PROMPT_GUARD_MODEL, skipped: false, skipReason: '', output: oneLine(response.answer, 500), usage: response.usage || {}, rateLimit: response.rateLimit || {} };
   } catch (error) {
-    return { model: PROMPT_GUARD_MODEL, skipped: false, output: '', error: oneLine(error?.message || error, 500), usage: {}, rateLimit: error?.rateLimit || {} };
+    return { model: PROMPT_GUARD_MODEL, skipped: false, skipReason: '', output: '', error: oneLine(error?.message || error, 500), usage: {}, rateLimit: error?.rateLimit || {} };
   }
 }
 
@@ -489,7 +507,7 @@ function normalizeKnowledgeMode(value) {
 export async function analyzeSubscriberIntent({ transcript = [], latestCustomer = {}, meterContext = {}, knowledgeMode = 'auto' } = {}) {
   const runtime = await readAiRuntimeConfig();
   const apiKey = String(runtime.groqApiKey || '').trim();
-  if (!apiKey) throw new Error('Groq API key is not configured');
+  if (!apiKey) throw new Error('AI provider API key is not configured');
   const mode = normalizeKnowledgeMode(knowledgeMode);
 
   const guard = await runPromptGuard(latestCustomer, runtime, meterContext);
@@ -534,14 +552,14 @@ export async function analyzeSubscriberIntent({ transcript = [], latestCustomer 
       confidence: probe.confidence,
       language: probe.language,
       diagnostic: {
-        promptGuard: { model: guard.model, output: guard.output, error: guard.error || '', skipped: Boolean(guard.skipped) },
+        promptGuard: { model: guard.model, output: guard.output, error: guard.error || '', skipped: Boolean(guard.skipped), skipReason: guard.skipReason || '' },
         knowledgeGate: { mode, need: probe.knowledgeNeed, reason: probe.knowledgeReason, skipped: knowledge.skipped },
         evidencePlan: { liveDataNeed: probe.liveDataNeed, needs: probe.evidenceNeeds },
         understanding: probe,
         knowledge,
         candidates: candidateArticles.map(({ id, title, score }) => ({ id, title, score }))
       },
-      model: [guard.model, semanticResponse.model, knowledgeResponse?.model].filter(Boolean).join(' → '),
+      model: [guard.skipped ? '' : guard.model, semanticResponse.model, knowledgeResponse?.model].filter(Boolean).join(' → '),
       usage: totalUsage,
       rateLimit: knowledgeResponse?.rateLimit || semanticResponse.rateLimit || guard.rateLimit || {},
       promptChars,
@@ -554,20 +572,8 @@ export async function analyzeSubscriberIntent({ transcript = [], latestCustomer 
   };
 }
 
-function clampBehavior(value, fallback) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.max(0, Math.min(100, Math.round(parsed))) : fallback;
-}
-
 function behaviorProfile(value = {}) {
-  return {
-    confidenceStyle: clampBehavior(value.confidenceStyle, 45),
-    curiosity: clampBehavior(value.curiosity, 55),
-    initiative: clampBehavior(value.initiative, 50),
-    skepticism: clampBehavior(value.skepticism, 75),
-    brevity: clampBehavior(value.brevity, 65),
-    maxFollowUpQuestions: Math.max(1, Math.min(3, Math.round(Number(value.maxFollowUpQuestions || 2))))
-  };
+  return behaviorRuntimeHints(value);
 }
 
 function normalizeDataNeeds(value) {
@@ -579,11 +585,9 @@ function normalizeDataNeeds(value) {
 function normalizeBehaviorEffects(value = {}) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   return {
-    directness: oneLine(source.directness || '', 260),
-    clarification: oneLine(source.clarification || '', 260),
-    verification: oneLine(source.verification || '', 260),
-    initiative: oneLine(source.initiative || '', 260),
-    brevity: oneLine(source.brevity || '', 260)
+    naturalness: oneLine(source.naturalness || source.human_likeness || source.directness || '', 260),
+    depth: oneLine(source.depth || source.brevity || source.clarification || '', 260),
+    initiative: oneLine(source.initiative || '', 260)
   };
 }
 
@@ -652,13 +656,7 @@ ANSWER RELEVANCE GATE:
 4. Если источник не гарантирует полный перечень вариантов, не делай абсолютный вывод об их отсутствии.
 5. Не выгружай соседние данные только потому, что они доступны.
 
-Поведенческий профиль влияет на манеру, но не отменяет central instruction и правила правдивости:
-- Решительность ${profile.confidenceStyle};
-- Любопытство ${profile.curiosity};
-- Инициативность ${profile.initiative};
-- Скепсис ${profile.skepticism};
-- Краткость ${profile.brevity};
-- не более ${profile.maxFollowUpQuestions} уточняющих вопросов за ход.
+${behaviorPromptGuidance(profile)}
 
 Capabilities: Billing=${capabilities.billing ? 'ON' : 'OFF'}, UserSide=${capabilities.userside ? 'ON' : 'OFF'}, Network=${capabilities.network ? 'ON' : 'OFF'}.
 
@@ -679,11 +677,9 @@ Capabilities: Billing=${capabilities.billing ? 'ON' : 'OFF'}, UserSide=${capabil
     "conclusion":"короткий вывод"
   },
   "behavior_effects":{
-    "directness":"как профиль повлиял на прямоту",
-    "clarification":"почему задано/не задано уточнение",
-    "verification":"как применён скепсис",
-    "initiative":"почему предложен/не предложен следующий шаг",
-    "brevity":"как выбран объём"
+    "naturalness":"как человекоподобность повлияла на манеру ответа",
+    "depth":"как полезная развернутость повлияла на объём и объяснение",
+    "initiative":"почему предложен/не предложен следующий шаг"
   }
 }`;
 }
@@ -699,7 +695,7 @@ export async function generateSubscriberReply({
 } = {}) {
   const runtime = await readAiRuntimeConfig();
   const apiKey = String(runtime.groqApiKey || '').trim();
-  if (!apiKey) throw new Error('Groq API key is not configured');
+  if (!apiKey) throw new Error('AI provider API key is not configured');
   const profile = behaviorProfile(behavior);
   const dialogue = transcriptForProbe(transcript);
   const grounded = answerPayload(analysis, useKnowledge);
@@ -747,7 +743,7 @@ export async function generateCleanModelReply({
 } = {}) {
   const runtime = await readAiRuntimeConfig();
   const apiKey = String(runtime.groqApiKey || '').trim();
-  if (!apiKey) throw new Error('Groq API key is not configured');
+  if (!apiKey) throw new Error('AI provider API key is not configured');
   const profile = behaviorProfile(behavior);
   const dialogue = transcriptForProbe(transcript);
   const messages = [
@@ -757,7 +753,9 @@ export async function generateCleanModelReply({
 
 Пойми реплику по смыслу и ответь естественно. Можно использовать сам диалог и устойчивые общеизвестные знания модели из любых областей, если они не требуют актуальной проверки. Нельзя выдавать такие знания за конкретный внутренний факт SIMNET, текущее состояние договора/абонента или другой live/current факт. Если вопрос требует конкретных внутренних или текущих данных, честно обозначь, чего именно не хватает, без выдумывания.
 
-Не показывай внутренние рассуждения. Ответ обычно 1–3 коротких предложения. Краткость=${profile.brevity}, инициативность=${profile.initiative}, любопытство=${profile.curiosity}.
+Не показывай внутренние рассуждения. Выбирай объём и манеру по поведенческому профилю, не растягивая ответ нерелевантными деталями.
+
+${behaviorPromptGuidance(profile)}
 
 Верни только JSON:
 {
