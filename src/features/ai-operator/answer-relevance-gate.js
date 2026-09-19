@@ -286,13 +286,12 @@ export async function applyAnswerRelevanceGate({
   latestCustomer = {}
 } = {}) {
   const request = requestFrom({ analysis, latestCustomer });
-  const recoveredReply = deterministicConfirmedFactsRecovery({ analysis, latestCustomer, toolTrace });
-  const finalReply = recoveredReply
-    || stripAutoInjectedKnowledgePrefix(reply, analysis, toolTrace)
-    || block(reply, 2200);
+  const cleanedReply = stripAutoInjectedKnowledgePrefix(reply, analysis, toolTrace) || block(reply, 2200);
+  const recoveryCandidate = deterministicConfirmedFactsRecovery({ analysis, latestCustomer, toolTrace });
+  const recovered = Boolean(recoveryCandidate && oneLine(recoveryCandidate, 2200) !== oneLine(cleanedReply, 2200));
+  const finalReply = recovered ? recoveryCandidate : cleanedReply;
   const kept = keptItems(toolTrace);
   const dropped = droppedItems(toolTrace);
-  const recovered = Boolean(recoveredReply);
 
   return {
     reply: finalReply,
