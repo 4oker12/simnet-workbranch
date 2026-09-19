@@ -125,7 +125,7 @@ test('answer relevance boundary is deterministic, uses zero API calls and strips
   assert.doesNotMatch(gateSource, /fetch\s*\(/);
   assert.doesNotMatch(gateSource, /readAiRuntimeConfig|AI_OPERATOR_GENERATION_MODEL_POOL|recordApiUsage/);
   assert.match(gateSource, /deterministic_local_relevance_boundary/);
-  assert.match(gateSource, /Internal KB text is evidence\/context, not client-facing copy/i);
+  assert.match(gateSource, /ok=true не считается подтверждением этого факта/);
   assert.match(broker, /applyAnswerRelevanceGate/);
   assert.match(broker, /answerRelevance: relevance\.answerRelevance/);
   assert.match(broker, /relevanceGate: relevance\.gate/);
