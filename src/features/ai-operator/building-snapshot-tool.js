@@ -83,12 +83,13 @@ function normalizeStreet(value) {
 
 function parsedStreet(streetValue = '', houseValue = '', rawAddress = '') {
   const streetAliases = streetVariants(streetValue);
+  const baseHouse = normalizeHouse(houseValue);
   const houseAliases = houseVariantsFromAddress(rawAddress, houseValue);
   return {
     street: streetAliases[0] || '',
     streetAliases,
-    house: houseAliases[0] || normalizeHouse(houseValue),
-    houseAliases: houseAliases.length ? houseAliases : [normalizeHouse(houseValue)].filter(Boolean)
+    house: baseHouse || houseAliases[0] || '',
+    houseAliases: houseAliases.length ? houseAliases : [baseHouse].filter(Boolean)
   };
 }
 
@@ -117,7 +118,7 @@ function queryFromArgs(toolArgs = {}, labState = {}) {
     return {
       street: explicitStreet,
       streetAliases: streetVariants(toolArgs.street),
-      house: houseAliases[0] || explicitHouse,
+      house: explicitHouse,
       houseAliases: houseAliases.length ? houseAliases : [explicitHouse],
       rawAddress: explicitAddress || `${toolArgs.street} ${toolArgs.house}`
     };
