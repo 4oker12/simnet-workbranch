@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-import { groundSubscriberReply } from '../src/features/ai-operator/semantic-tool-broker.js';
+import { evidenceFallbackResult, groundSubscriberReply } from '../src/features/ai-operator/semantic-tool-broker.js';
 
 function okTrace(tool, data, field) {
   return {
@@ -50,7 +50,30 @@ test('generation recovery state depends on evidence coverage, not reply wording'
   assert.match(impl, /evidenceFallback:\s*\{/);
   assert.match(impl, /requestedTools:/);
   assert.match(impl, /coveredTools:/);
+  assert.match(impl, /coverage:/);
   assert.match(impl, /complete: Boolean\(evidenceFallback\.complete\)/);
+});
+
+test('deterministic recovery does not treat adjacent financial or tariff fields as the requested fact', () => {
+  const debtAnalysis = {
+    probe: { language: 'ru', whatUserWants: 'Узнать долг', unresolvedRequests: ['Какой у меня долг?'] }
+  };
+  const debt = evidenceFallbackResult(debtAnalysis, [
+    okTrace('billing.balance', { accountBalance: 800, totalDue: 349 }, 'какой у меня долг')
+  ]);
+  assert.equal(debt.complete, false);
+  assert.equal(debt.coverage[0]?.covered, false);
+  assert.doesNotMatch(debt.reply, /800\s*грн/);
+
+  const speedAnalysis = {
+    probe: { language: 'ru', whatUserWants: 'Узнать скорость по тарифу', unresolvedRequests: ['Какая у меня тарифная скорость?'] }
+  };
+  const speed = evidenceFallbackResult(speedAnalysis, [
+    okTrace('billing.tariff', { currentTariff: 'PON Гігабіт 400 (прив.сектор)' }, 'какая у меня тарифная скорость')
+  ]);
+  assert.equal(speed.complete, false);
+  assert.equal(speed.coverage[0]?.covered, false);
+  assert.doesNotMatch(speed.reply, /Поточний тариф|Текущий тариф/);
 });
 
 test('confirmed balance + tariff survive final synthesis 429 without leaking adjacent Billing facts', async () => {
@@ -151,12 +174,14 @@ test('confirmed balance + tariff survive final synthesis 429 without leaking adj
   assert.equal(result.degraded, false, 'complete confirmed evidence must recover the subscriber-facing turn');
   assert.equal(result.recoveredFromGenerationFailure, true);
   assert.equal(result.generationDegraded, true);
-  assert.deepEqual(result.evidenceFallback, {
-    used: true,
-    requestedTools: ['billing.balance', 'billing.tariff'],
-    coveredTools: ['billing.balance', 'billing.tariff'],
-    complete: true
-  });
+  assert.equal(result.evidenceFallback?.used, true);
+  assert.equal(result.evidenceFallback?.complete, true);
+  assert.deepEqual(result.evidenceFallback?.requestedTools, ['billing.balance', 'billing.tariff']);
+  assert.deepEqual(result.evidenceFallback?.coveredTools, ['billing.balance', 'billing.tariff']);
+  assert.deepEqual(result.evidenceFallback?.coverage?.map(item => [item.tool, item.field, item.ok, item.covered]), [
+    ['billing.balance', 'текущий баланс', true, true],
+    ['billing.tariff', 'текущий тариф', true, true]
+  ]);
   assert.equal(result.relevanceGate?.reason, 'deterministic_local_relevance_boundary');
   assert.doesNotMatch(result.reply, /Договор|Разрешен|Все ОК|Тип подключения|connectionFamily/i);
   assert.doesNotMatch(result.reply, /balance field is accountBalance|повторите|rate limit|429/i);
