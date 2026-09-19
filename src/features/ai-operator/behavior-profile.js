@@ -37,8 +37,17 @@ function sourceObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+export function isNativeBehaviorProfile(value = {}) {
+  const source = sourceObject(value);
+  return ['humanLikeness', 'depth', 'initiative'].every(key => {
+    const numeric = Number(source[key]);
+    return Number.isFinite(numeric) && numeric >= BEHAVIOR_MIN && numeric <= BEHAVIOR_MAX;
+  });
+}
+
 export function normalizeBehaviorProfile(value = {}) {
   const source = sourceObject(value);
+  const nativeShape = source.humanLikeness != null || source.depth != null;
 
   const humanLikeness = source.humanLikeness != null
     ? clampLevel(source.humanLikeness, DEFAULT_AI_OPERATOR_BEHAVIOR.humanLikeness)
@@ -48,7 +57,7 @@ export function normalizeBehaviorProfile(value = {}) {
     ? clampLevel(source.depth, DEFAULT_AI_OPERATOR_BEHAVIOR.depth)
     : nearestLegacyLevel(source.brevity, LEGACY_DEPTH_POINTS, DEFAULT_AI_OPERATOR_BEHAVIOR.depth);
 
-  const initiative = source.initiative != null && Number(source.initiative) >= BEHAVIOR_MIN && Number(source.initiative) <= BEHAVIOR_MAX
+  const initiative = nativeShape
     ? clampLevel(source.initiative, DEFAULT_AI_OPERATOR_BEHAVIOR.initiative)
     : nearestLegacyLevel(source.initiative, LEGACY_INITIATIVE_POINTS, DEFAULT_AI_OPERATOR_BEHAVIOR.initiative);
 
@@ -68,12 +77,4 @@ export function behaviorRuntimeHints(value = {}) {
     ...profile,
     maxFollowUpQuestions: maxFollowUpQuestionsForDepth(profile.depth)
   };
-}
-
-export function isNativeBehaviorProfile(value = {}) {
-  const source = sourceObject(value);
-  return ['humanLikeness', 'depth', 'initiative'].every(key => {
-    const numeric = Number(source[key]);
-    return Number.isFinite(numeric) && numeric >= BEHAVIOR_MIN && numeric <= BEHAVIOR_MAX;
-  });
 }
