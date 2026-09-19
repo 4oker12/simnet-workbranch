@@ -42,38 +42,70 @@ function normalizeHouse(value) {
     .replace(/-+/g, '-');
 }
 
-function normalizeStreet(value) {
+function normalizeStreetPart(value) {
   return text(value, 260)
     .toLowerCase()
     .replace(/ё/g, 'е')
     .replace(/[’'`]/g, '')
-    .replace(/\([^)]*\)/g, ' ')
-    .replace(/[.,;:№#]/g, ' ')
+    .replace(/[().,;:№#]/g, ' ')
     .replace(/(?:^|\s)(?:м|місто|город|київ|киев|вул|вулиця|улица|ул|просп|проспект|проспекту|пров|провулок|переулок|бул|бульвар|пл|площа|площадь)(?=\s|$)/giu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
+function streetVariants(value) {
+  const source = text(value, 500);
+  if (!source) return [];
+  const aliases = [source.replace(/\([^)]*\)/g, ' ')];
+  for (const match of source.matchAll(/\(([^)]*)\)/g)) aliases.push(match[1]);
+  const normalized = aliases
+    .flatMap(item => String(item || '').split(/\s*(?:\||;)\s*/))
+    .map(normalizeStreetPart)
+    .filter(Boolean);
+  return [...new Set(normalized)];
+}
+
+function normalizeStreet(value) {
+  return streetVariants(value)[0] || '';
+}
+
+function parsedStreet(streetValue = '', houseValue = '') {
+  const streetAliases = streetVariants(streetValue);
+  return {
+    street: streetAliases[0] || '',
+    streetAliases,
+    house: normalizeHouse(houseValue)
+  };
+}
+
 function parseStreetHouse(addressValue) {
   const address = text(addressValue, 500);
-  if (!address) return { street: '', house: '' };
+  if (!address) return { street: '', streetAliases: [], house: '' };
   const clean = address.replace(/\u00a0/g, ' ');
 
   const marker = clean.match(/^(.*?)(?:\s*,?\s*(?:буд\.?|будинок|дом|д\.?|house)(?=\s|[:№#-])\s*[:№#-]?\s*)(\d+[\p{L}]?(?:\s*[\/-]\s*[\p{L}\d]+)?)/iu);
-  if (marker) return { street: normalizeStreet(marker[1]), house: normalizeHouse(marker[2]) };
+  if (marker) return parsedStreet(marker[1], marker[2]);
 
   const beforeUnit = clean.split(/(?:^|\s)(?:під'?їзд|подъезд|поверх|этаж|кв\.?|квартира|офіс|офис)(?=\s|[.,:№#-]|$)/iu)[0];
   const simple = beforeUnit.match(/^(.*?)[,\s]+(\d+[\p{L}]?(?:\s*[\/-]\s*[\p{L}\d]+)?)\s*[,;]?\s*$/u);
-  if (simple) return { street: normalizeStreet(simple[1]), house: normalizeHouse(simple[2]) };
+  if (simple) return parsedStreet(simple[1], simple[2]);
 
-  return { street: normalizeStreet(beforeUnit), house: '' };
+  const streetAliases = streetVariants(beforeUnit);
+  return { street: streetAliases[0] || '', streetAliases, house: '' };
 }
 
 function queryFromArgs(toolArgs = {}, labState = {}) {
   const explicitStreet = normalizeStreet(toolArgs.street);
   const explicitHouse = normalizeHouse(toolArgs.house);
   const explicitAddress = text(toolArgs.address, 500);
-  if (explicitStreet && explicitHouse) return { street: explicitStreet, house: explicitHouse, rawAddress: explicitAddress || `${toolArgs.street} ${toolArgs.house}` };
+  if (explicitStreet && explicitHouse) {
+    return {
+      street: explicitStreet,
+      streetAliases: streetVariants(toolArgs.street),
+      house: explicitHouse,
+      rawAddress: explicitAddress || `${toolArgs.street} ${toolArgs.house}`
+    };
+  }
 
   if (explicitAddress) {
     const parsed = parseStreetHouse(explicitAddress);
@@ -86,7 +118,7 @@ function queryFromArgs(toolArgs = {}, labState = {}) {
     if (parsed.street && parsed.house) return { ...parsed, rawAddress: subscriberAddress };
   }
 
-  return { street: explicitStreet, house: explicitHouse, rawAddress: explicitAddress || subscriberAddress };
+  return { street: explicitStreet, streetAliases: streetVariants(toolArgs.street), house: explicitHouse, rawAddress: explicitAddress || subscriberAddress };
 }
 
 function latestCustomerTextFromLab(lab = {}) {
@@ -107,7 +139,7 @@ function houseTokens(value) {
 }
 
 function streetTokens(value) {
-  return normalizeStreet(value)
+  return normalizeStreetPart(value)
     .split(/\s+/)
     .map(token => token.trim())
     .filter(token => token.length >= 2 && !/^\d/.test(token));
@@ -116,22 +148,26 @@ function streetTokens(value) {
 export function inferBuildingQueryFromText(snapshot = {}, sourceText = '') {
   const source = text(sourceText, 1200);
   const buildings = Array.isArray(snapshot?.buildings) ? snapshot.buildings : [];
-  if (!source || !buildings.length) return { street: '', house: '', rawAddress: source };
+  if (!source || !buildings.length) return { street: '', streetAliases: [], house: '', rawAddress: source };
 
   const sourceStreetTokens = new Set(streetTokens(source));
   const sourceHouses = new Set(houseTokens(source));
-  if (!sourceHouses.size) return { street: '', house: '', rawAddress: source };
+  if (!sourceHouses.size) return { street: '', streetAliases: [], house: '', rawAddress: source };
 
   const matches = [];
   for (const building of buildings) {
     const parsed = parseStreetHouse(building?.address);
     if (!parsed.street || !parsed.house || !sourceHouses.has(parsed.house)) continue;
-    const tokens = streetTokens(parsed.street);
-    if (!tokens.length || !tokens.every(token => sourceStreetTokens.has(token))) continue;
+    const aliases = parsed.streetAliases.length ? parsed.streetAliases : [parsed.street];
+    const aliasMatches = aliases.some(alias => {
+      const tokens = streetTokens(alias);
+      return tokens.length > 0 && tokens.every(token => sourceStreetTokens.has(token));
+    });
+    if (!aliasMatches) continue;
     matches.push({ ...parsed, rawAddress: text(building?.address, 500) });
   }
 
-  if (matches.length !== 1) return { street: '', house: '', rawAddress: source };
+  if (matches.length !== 1) return { street: '', streetAliases: [], house: '', rawAddress: source };
   return matches[0];
 }
 
@@ -156,19 +192,41 @@ function candidateSummary(building = {}) {
   };
 }
 
+function normalizedQueryStreets(query = {}) {
+  const variants = [
+    ...(Array.isArray(query.streetAliases) ? query.streetAliases : []),
+    query.street
+  ].map(normalizeStreetPart).filter(Boolean);
+  if (query.rawAddress) {
+    const parsed = parseStreetHouse(query.rawAddress);
+    variants.push(...(parsed.streetAliases || []));
+  }
+  return [...new Set(variants)];
+}
+
+function streetsFuzzyMatch(left = '', right = '') {
+  return Boolean(left && right && (left === right || left.includes(right) || right.includes(left)));
+}
+
 export function findBuildingInSnapshot(snapshot = {}, query = {}) {
   const buildings = Array.isArray(snapshot?.buildings) ? snapshot.buildings : [];
-  const street = normalizeStreet(query.street);
+  const streets = normalizedQueryStreets(query);
   const house = normalizeHouse(query.house);
-  if (!street || !house) return { code: 'BUILDING_ADDRESS_REQUIRED', matches: [] };
+  if (!streets.length || !house) return { code: 'BUILDING_ADDRESS_REQUIRED', matches: [] };
 
   const exact = [];
   const fuzzy = [];
   for (const building of buildings) {
     const parsed = parseStreetHouse(building?.address);
     if (!parsed.street || !parsed.house || parsed.house !== house) continue;
-    if (parsed.street === street) exact.push(building);
-    else if (parsed.street.includes(street) || street.includes(parsed.street)) fuzzy.push(building);
+    const buildingStreets = parsed.streetAliases.length ? parsed.streetAliases : [parsed.street];
+    const exactMatch = buildingStreets.some(candidate => streets.includes(candidate));
+    if (exactMatch) {
+      exact.push(building);
+      continue;
+    }
+    const fuzzyMatch = buildingStreets.some(candidate => streets.some(queryStreet => streetsFuzzyMatch(candidate, queryStreet)));
+    if (fuzzyMatch) fuzzy.push(building);
   }
   const matches = exact.length ? exact : fuzzy;
   if (!matches.length) return { code: 'NOT_FOUND', matches: [] };
