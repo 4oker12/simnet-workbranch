@@ -49,15 +49,14 @@ function scoreArticle(article, queryText) {
   return score;
 }
 
-export function knowledgeQueryFromUnderstanding({ probe = {}, transcript = [], latestCustomer = {} } = {}) {
-  const recent = (Array.isArray(transcript) ? transcript : []).slice(-8).map(item => item?.text || '').join(' ');
+export function knowledgeQueryFromUnderstanding({ probe = {}, latestCustomer = {} } = {}) {
   return [
     probe.whatUserWants,
     probe.latestMessageMeans,
+    probe.refersTo,
     probe.underlyingGoal,
     ...(probe.factsSaidByUser || []),
-    latestCustomer?.text,
-    recent
+    latestCustomer?.text
   ].filter(Boolean).join(' ');
 }
 

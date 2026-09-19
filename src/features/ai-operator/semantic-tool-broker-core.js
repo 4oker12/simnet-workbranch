@@ -180,6 +180,7 @@ function toolForNeed(need = {}) {
   const buildingFact = /gpon|epon|оптик|покрыт|coverage|собственник|owner|замет|прим[еі]чан|working[_ ]?note|осбб|этаж|поверх|подъезд|під.?їзд|квартир|penetration|менеджер|ktv|ктв/.test(text) || buildingKeyFact;
   if (buildingContext && buildingFact) return 'building.snapshot';
   if (/баланс|balance|рахун|финанс|заборг|долг|списан/.test(text)) return 'billing.balance';
+  if (/кешбек|кэшбек|cashback/.test(text) && /услов|правил|начисл|зачисл|положен|належ|будет|буде/.test(text)) return '';
   if (/плат[её]ж|оплат|payment|пополн/.test(text)) return 'billing.payments';
   if (/тариф|пакет|абонплат|скорост|speed/.test(text) && !/сесс|линк|порт/.test(text)) return 'billing.tariff';
   if (/сигнал|rx|tx|оптик|затух|dbm/.test(text)) return 'pon.signal';

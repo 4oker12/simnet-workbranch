@@ -298,7 +298,7 @@ export function buildSubscriberIntentProbeMessages({ transcript = [], latestCust
   "underlying_goal":"более широкая цель клиента, если она видна",
   "facts_said_by_user":["только то, что клиент реально сообщил/утверждает"],
   "facts_said_by_operator":["важные утверждения прошлого оператора, если они влияют на контекст"],
-  "unresolved_requests":["реальные незакрытые вопросы/просьбы клиента из текущего диалога"],
+  "unresolved_requests":["только активные незакрытые просьбы, которые клиент всё ещё продолжает сейчас; старую тему не тащи сюда после явной смены вопроса"],
   "ambiguities":["только реальная неоднозначность смысла; не придумывай лишние варианты"],
   "live_data_need":"none|needed",
   "evidence_needs":[{"system":"Billing|UserSide|Network","field":"какой текущий факт нужно подтвердить, без названия tool","why":"почему этот факт нужен для текущей просьбы"}],
@@ -404,7 +404,7 @@ export function buildKnowledgeReflectionMessages({ probe = {}, candidateArticles
     {
       role: 'user',
       content: JSON.stringify({
-        understanding: probe,
+        understanding: { ...probe, unresolvedRequests: [] },
         knowledge_version: SIMNET_KNOWLEDGE_VERSION,
         retrieval_status: noCandidates ? 'no_candidate_articles_found' : 'candidate_articles_found',
         candidate_articles: candidateArticles.map(articlePayload)
@@ -522,11 +522,15 @@ export async function analyzeSubscriberIntent({ transcript = [], latestCustomer 
   let knowledge = skippedKnowledge(probe, mode === 'off' ? 'knowledge_mode_off' : 'semantic_gate_none');
 
   if (readKnowledge) {
-    const query = knowledgeQueryFromUnderstanding({ probe, transcript, latestCustomer });
-    candidateArticles = searchKnowledgeLibrary(query, { limit: 6, minScore: 1 });
-    knowledgeMessages = buildKnowledgeReflectionMessages({ probe, candidateArticles });
-    knowledgeResponse = await requestJsonWithFallback(knowledgeMessages, runtime, { ...meterContext, stage: 'knowledge' }, { maxTokens: JSON_REPAIR_TOKENS });
-    knowledge = normalizeKnowledgeReflection(knowledgeResponse.parsed || parseJsonObject(knowledgeResponse.answer), candidateArticles);
+    const query = knowledgeQueryFromUnderstanding({ probe, latestCustomer });
+    candidateArticles = searchKnowledgeLibrary(query, { limit: 4, minScore: 4 });
+    if (candidateArticles.length) {
+      knowledgeMessages = buildKnowledgeReflectionMessages({ probe, candidateArticles });
+      knowledgeResponse = await requestJsonWithFallback(knowledgeMessages, runtime, { ...meterContext, stage: 'knowledge' }, { maxTokens: JSON_REPAIR_TOKENS });
+      knowledge = normalizeKnowledgeReflection(knowledgeResponse.parsed || parseJsonObject(knowledgeResponse.answer), candidateArticles);
+    } else {
+      knowledge = skippedKnowledge(probe, 'no_relevant_articles');
+    }
   }
 
   const totalUsage = usageTotal(guard, semanticResponse, knowledgeResponse);
@@ -716,7 +720,7 @@ export async function generateSubscriberReply({
   const raw = response.parsed || parseJsonObject(response.answer);
   const reply = block(raw?.reply || '', 2200);
   if (!reply) throw new Error('Semantic reply: model returned an empty reply');
-  const fallbackRequest = analysis?.probe?.unresolvedRequests?.[0] || analysis?.probe?.whatUserWants || '';
+  const fallbackRequest = analysis?.probe?.whatUserWants || analysis?.probe?.unresolvedRequests?.[0] || '';
   return {
     reply,
     subscriberDataNeeded: normalizeDataNeeds(raw?.subscriber_data_needed),
