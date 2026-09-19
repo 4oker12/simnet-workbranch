@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
   DEFAULT_AI_OPERATOR_BEHAVIOR,
+  behaviorPromptGuidance,
   behaviorRuntimeHints,
   isNativeBehaviorProfile,
   maxFollowUpQuestionsForDepth,
@@ -102,6 +103,16 @@ test('temporary legacy adapter exactly preserves current runtime semantics', () 
     70,
     'style migration must never lower evidence strictness'
   );
+});
+
+test('native behavior prompt keeps truthfulness invariant and describes only the three scales', () => {
+  const prompt = behaviorPromptGuidance({ humanLikeness: 5, depth: 4, initiative: 2 });
+  assert.match(prompt, /Человекоподобность=5\/5/);
+  assert.match(prompt, /Полезная развернутость=4\/5/);
+  assert.match(prompt, /Инициативность=2\/5/);
+  assert.match(prompt, /достоверности.*неизменяемы/i);
+  assert.match(prompt, /не более 2 уточняющих вопросов/);
+  assert.doesNotMatch(prompt, /Скепсис=|Любопытство=|Краткость=|Решительность=/);
 });
 
 test('behavior v2 UI bridge uses the central contract instead of its own mapping tables', async () => {
