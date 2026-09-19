@@ -103,6 +103,11 @@ test('temporary legacy adapter exactly preserves current runtime semantics', () 
     70,
     'style migration must never lower evidence strictness'
   );
+  assert.equal(
+    toLegacyBehaviorCompatibility({ humanLikeness: 3, depth: 3, initiative: 3 }, { skepticism: 'broken' }).skepticism,
+    75,
+    'corrupted legacy style data must fall back safely instead of producing NaN'
+  );
 });
 
 test('native behavior prompt keeps truthfulness invariant and describes only the three scales', () => {
