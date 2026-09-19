@@ -279,6 +279,16 @@ function deterministicConfirmedFactsRecovery({ analysis = {}, latestCustomer = {
   return parts.length ? parts.join(' ') : null;
 }
 
+function canonicalRecoveryText(value = '') {
+  return oneLine(value, 2200)
+    .toLowerCase()
+    .replace(/\b(?:текущ(?:ий|ая|ее)|поточн(?:ий|а|е))\s+(баланс|тариф)\b/giu, '$1')
+    .replace(/\b(?:стоимость|вартість|цена)\s+тарифа\b/giu, 'тариф')
+    .replace(/[—–:;,.!?()]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export async function applyAnswerRelevanceGate({
   reply = '',
   analysis = {},
@@ -288,7 +298,10 @@ export async function applyAnswerRelevanceGate({
   const request = requestFrom({ analysis, latestCustomer });
   const cleanedReply = stripAutoInjectedKnowledgePrefix(reply, analysis, toolTrace) || block(reply, 2200);
   const recoveryCandidate = deterministicConfirmedFactsRecovery({ analysis, latestCustomer, toolTrace });
-  const recovered = Boolean(recoveryCandidate && oneLine(recoveryCandidate, 2200) !== oneLine(cleanedReply, 2200));
+  const recovered = Boolean(
+    recoveryCandidate
+    && canonicalRecoveryText(recoveryCandidate) !== canonicalRecoveryText(cleanedReply)
+  );
   const finalReply = recovered ? recoveryCandidate : cleanedReply;
   const kept = keptItems(toolTrace);
   const dropped = droppedItems(toolTrace);
