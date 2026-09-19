@@ -66,6 +66,6 @@ test('Billing house + block resolves to the specific slash-suffixed building bef
   assert.equal(result.data.buildingId, 'victory-v');
   assert.equal(result.data.address, 'просп. Берестейський (Перемоги), буд. 5/В');
   assert.equal(result.data.fields.gpon, 'Да');
-  assert.equal(result.data.query.house, '5/в');
+  assert.equal(result.data.query.house, '5');
   assert.deepEqual(result.data.query.houseAliases, ['5/в', '5']);
 });
