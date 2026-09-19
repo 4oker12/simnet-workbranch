@@ -38,6 +38,17 @@ function sourceObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+function hasNativeMarkers(value = {}) {
+  const source = sourceObject(value);
+  return source.humanLikeness != null || source.depth != null;
+}
+
+function hasLegacyMarkers(value = {}) {
+  const source = sourceObject(value);
+  return ['confidenceStyle', 'curiosity', 'skepticism', 'brevity', 'maxFollowUpQuestions']
+    .some(key => source[key] != null);
+}
+
 export function isNativeBehaviorProfile(value = {}) {
   const source = sourceObject(value);
   return ['humanLikeness', 'depth', 'initiative'].every(key => {
@@ -48,7 +59,7 @@ export function isNativeBehaviorProfile(value = {}) {
 
 export function normalizeBehaviorProfile(value = {}) {
   const source = sourceObject(value);
-  const nativeShape = source.humanLikeness != null || source.depth != null;
+  const nativeShape = hasNativeMarkers(source);
 
   const humanLikeness = source.humanLikeness != null
     ? clampLevel(source.humanLikeness, DEFAULT_AI_OPERATOR_BEHAVIOR.humanLikeness)
@@ -63,6 +74,27 @@ export function normalizeBehaviorProfile(value = {}) {
     : nearestLegacyLevel(source.initiative, LEGACY_INITIATIVE_POINTS, DEFAULT_AI_OPERATOR_BEHAVIOR.initiative);
 
   return { humanLikeness, depth, initiative };
+}
+
+export function mergeBehaviorProfile(current = {}, incoming = {}) {
+  const base = normalizeBehaviorProfile(current);
+  const next = sourceObject(incoming);
+
+  if (hasNativeMarkers(next)) {
+    return normalizeBehaviorProfile({ ...base, ...next });
+  }
+
+  if (hasLegacyMarkers(next) || Number(next.initiative) > BEHAVIOR_MAX) {
+    const merged = { ...base };
+    if (next.confidenceStyle != null) merged.humanLikeness = nearestLegacyLevel(next.confidenceStyle, LEGACY_HUMAN_POINTS, base.humanLikeness);
+    else if (next.curiosity != null) merged.humanLikeness = nearestLegacyLevel(next.curiosity, LEGACY_CURIOSITY_POINTS, base.humanLikeness);
+    if (next.brevity != null) merged.depth = nearestLegacyLevel(next.brevity, LEGACY_DEPTH_POINTS, base.depth);
+    if (next.initiative != null) merged.initiative = nearestLegacyLevel(next.initiative, LEGACY_INITIATIVE_POINTS, base.initiative);
+    return normalizeBehaviorProfile(merged);
+  }
+
+  if (next.initiative != null) return normalizeBehaviorProfile({ ...base, initiative: next.initiative });
+  return base;
 }
 
 export function maxFollowUpQuestionsForDepth(value) {
@@ -91,7 +123,7 @@ export function behaviorPromptGuidance(value = {}) {
   ].join('\n');
 }
 
-// Temporary adapter while lab-background/semantic-probe still persist the old 0..100 shape.
+// Temporary adapter while semantic-probe still consumes the old 0..100 shape.
 // Keep truth/evidence strictness outside the three user-facing style scales.
 export function toLegacyBehaviorCompatibility(value = {}, current = {}) {
   const profile = normalizeBehaviorProfile(value);
