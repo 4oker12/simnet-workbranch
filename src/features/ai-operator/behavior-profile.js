@@ -96,11 +96,13 @@ export function behaviorPromptGuidance(value = {}) {
 export function toLegacyBehaviorCompatibility(value = {}, current = {}) {
   const profile = normalizeBehaviorProfile(value);
   const source = sourceObject(current);
+  const storedSkepticism = Number(source.skepticism);
+  const skepticism = Number.isFinite(storedSkepticism) ? Math.max(70, storedSkepticism) : 75;
   return {
     confidenceStyle: LEGACY_HUMAN_POINTS[profile.humanLikeness],
     curiosity: LEGACY_CURIOSITY_POINTS[profile.humanLikeness],
     initiative: LEGACY_INITIATIVE_POINTS[profile.initiative],
-    skepticism: Math.max(70, Number(source.skepticism || 75)),
+    skepticism,
     brevity: LEGACY_DEPTH_POINTS[profile.depth],
     maxFollowUpQuestions: maxFollowUpQuestionsForDepth(profile.depth)
   };
