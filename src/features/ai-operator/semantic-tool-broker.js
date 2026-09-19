@@ -416,15 +416,6 @@ function mergeUsage(primary = {}, secondary = {}) {
   };
 }
 
-function nonIdentityTrace(toolTrace = []) {
-  return (Array.isArray(toolTrace) ? toolTrace : []).filter(item => !['customer.lookup', 'customer.confirm'].includes(String(item?.tool || '')));
-}
-
-function allRequestedLiveFactsConfirmed(toolTrace = []) {
-  const requested = nonIdentityTrace(toolTrace);
-  return requested.length > 0 && requested.every(item => item?.ok);
-}
-
 export async function groundSubscriberReply(options = {}) {
   const { transcript = [], analysis = {}, labState = {}, execute, draft = {} } = options;
   const skipIdentityBootstrap = isAddressScopedBuildingOnlyTurn({ analysis, draft });
@@ -452,17 +443,10 @@ export async function groundSubscriberReply(options = {}) {
     meterContext: options.meterContext || {}
   });
 
-  const deterministicRecovery = relevance?.gate?.reason === 'deterministic_confirmed_facts_recovery';
   const recoveredFromGenerationFailure = Boolean(
     generationDegraded
-    && (
-      deterministicRecovery
-      || (
-        delegated?.evidenceFallback?.used
-        && delegated?.evidenceFallback?.complete
-        && allRequestedLiveFactsConfirmed(toolTrace)
-      )
-    )
+    && delegated?.evidenceFallback?.used
+    && delegated?.evidenceFallback?.complete
   );
 
   return {
