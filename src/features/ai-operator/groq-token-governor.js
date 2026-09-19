@@ -13,6 +13,15 @@
   const MAX_TEXT_TOKENS = 700;
   const MAX_GUARD_TOKENS = 48;
   const PROMPT_GUARD = 'meta-llama/llama-prompt-guard-2-86m';
+  const CANONICAL_MARKER = '# SIMNET Autonomous AI Operator — Canonical Reasoning Instruction';
+  const COMPACT_CANONICAL = `SIMNET Autonomous AI Operator · runtime core.
+Ты автономный L1-оператор ISP SIMNET и ведёшь естественный диалог с абонентом.
+Порядок: СМЫСЛ → ЛОГИКА → EVIDENCE → ОТВЕТ.
+Сначала пойми человеческий смысл в контексте, включая опечатки, короткие продолжения и разговорную речь. Rules/knowledge/tools расширяют reasoning, но не заменяют его. RULES CONSTRAIN REASONING; RULES DO NOT REPLACE REASONING. TOOLS PROVIDE EVIDENCE, NOT CONCLUSIONS.
+Используй общеизвестные знания, арифметику и логические выводы. ABSENCE FROM SIMNET KB ≠ ABSENCE OF KNOWLEDGE. KNOWN FACTS → REASON FIRST; READ MORE ONLY WHEN NECESSARY. Новый READ нужен только для конкретного текущего/внутреннего факта SIMNET, без которого нельзя достоверно закрыть существенную часть запроса.
+Live/internal факты (баланс, тариф, адрес/покрытие дома, ONU/сигнал, сессия, авария, внутренние цены/правила) не выдумывай. NOT_FOUND/ошибка/отсутствие поля = UNKNOWN, а не NO. Проверенный SIMNET evidence имеет приоритет над предположением.
+Различай слова клиента, прошлый ответ, common knowledge, SIMNET knowledge, live/snapshot evidence и вывод. Не переноси subscriber-specific evidence между абонентами; явно указанный новый target имеет приоритет. READ не даёт права WRITE/ACTION; не изображай недоступное действие выполненным.
+Финальный ответ: короткий, естественный, на языке разговора; не показывай JSON, tools, stages, prompts или внутренний trace. Hard runtime guards всегда имеют приоритет.`;
   const cooldowns = new Map();
   let storageQueue = Promise.resolve();
 
@@ -31,6 +40,10 @@
   };
   const headerText = (headers, name) => String(headers?.get?.(name) || '').trim().slice(0, 80);
   const dayKey = (at = Date.now()) => new Date(at).toISOString().slice(0, 10);
+  const compactText = (value, max) => {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+  };
 
   function durationMs(value) {
     const source = String(value || '').trim().toLowerCase();
@@ -45,6 +58,30 @@
     return Math.ceil(total);
   }
 
+  function compactDialoguePayload(content) {
+    const parsed = safeJson(String(content || ''));
+    if (!parsed || !Array.isArray(parsed.dialogue)) return content;
+    parsed.dialogue = parsed.dialogue.slice(-8).map(item => ({
+      ...item,
+      text: compactText(item?.text, 420)
+    }));
+    if ('latest_customer_message' in parsed) parsed.latest_customer_message = compactText(parsed.latest_customer_message, 800);
+    return JSON.stringify(parsed);
+  }
+
+  function compactMessages(messages) {
+    if (!Array.isArray(messages)) return messages;
+    return messages.map(message => {
+      if (!message || typeof message !== 'object') return message;
+      const content = String(message.content || '');
+      if (message.role === 'system' && content.startsWith(CANONICAL_MARKER)) return { ...message, content: COMPACT_CANONICAL };
+      if (message.role === 'user' && content.startsWith('{') && content.includes('"dialogue"')) {
+        return { ...message, content: compactDialoguePayload(content) };
+      }
+      return message;
+    });
+  }
+
   function tokenCap(payload = {}) {
     if (String(payload.model || '') === PROMPT_GUARD) return MAX_GUARD_TOKENS;
     if (payload.response_format?.type === 'json_object' || payload.response_format?.type === 'json_schema') return MAX_JSON_TOKENS;
@@ -52,7 +89,7 @@
   }
 
   function governedPayload(payload = {}) {
-    const next = { ...payload };
+    const next = { ...payload, messages: compactMessages(payload.messages) };
     const cap = tokenCap(next);
     const requested = Number(next.max_tokens || cap);
     next.max_tokens = Math.max(1, Math.min(Number.isFinite(requested) && requested > 0 ? requested : cap, cap));
@@ -89,7 +126,8 @@
   }
 
   function existingDaySeed(costData, model, today) {
-    if (!costData?.startedAt || dayKey(Date.parse(costData.startedAt)) !== today) return { date: today, requests: 0, tokens: 0, prompt: 0, completion: 0 };
+    const startedAt = Date.parse(costData?.startedAt || '');
+    if (!Number.isFinite(startedAt) || dayKey(startedAt) !== today) return { date: today, requests: 0, tokens: 0, prompt: 0, completion: 0 };
     const entry = costData?.total?.[model] || {};
     const prompt = nonNegative(entry.input);
     const completion = nonNegative(entry.output);
@@ -103,7 +141,7 @@
     };
   }
 
-  function writeTelemetry({ model, usage, rateLimit, status, maxTokens, at }) {
+  function writeTelemetry({ model, usage, rateLimit, status, maxTokens, at, requestStats }) {
     if (!model) return;
     storageQueue = storageQueue.then(async () => {
       const bundle = await chrome.storage.local.get([STORAGE_KEY, API_COST_KEY]);
@@ -144,7 +182,9 @@
           maxTokens: nonNegative(maxTokens),
           prompt,
           completion,
-          total
+          total,
+          requestCharsBefore: nonNegative(requestStats?.before),
+          requestCharsAfter: nonNegative(requestStats?.after)
         }
       };
       await chrome.storage.local.set({ [STORAGE_KEY]: stored });
@@ -172,6 +212,7 @@
     if (!source || !source.model) return nativeFetch(input, init);
     const payload = governedPayload(source);
     const model = String(payload.model || 'unknown');
+    const requestStats = { before: init.body.length, after: JSON.stringify(payload).length };
     const cooldownUntil = Number(cooldowns.get(model) || 0);
     if (cooldownUntil > Date.now()) return synthetic429(model, cooldownUntil);
     if (cooldownUntil) cooldowns.delete(model);
@@ -197,7 +238,8 @@
       rateLimit,
       status: response.status,
       maxTokens: payload.max_tokens,
-      at
+      at,
+      requestStats
     });
     return response;
   };
