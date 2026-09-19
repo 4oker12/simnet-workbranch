@@ -37,6 +37,19 @@ jobs:
           node --input-type=module --check < src/features/ai-operator/lab-background.js
           node --check src/ui/ai-operator-behavior-v2.js
           node --test tests/ai_operator_behavior_profile_v2_test.mjs
+      - name: AI semantic runtime v2 regression
+        if: always()
+        shell: bash
+        run: |
+          node --check src/features/ai-operator/semantic-probe.js
+          node --test tests/ai_operator_semantic_runtime_v2_contract_test.mjs
+      - name: AI Lab batch regression
+        if: always()
+        shell: bash
+        run: |
+          node --check src/features/ai-operator/lab-batch-background.js
+          node --check src/ui/ai-operator-batch.js
+          node tests/ai_operator_batch_lab_contract_test.mjs
       - name: Relevance · semantic JSON repair
         if: always()
         shell: bash
