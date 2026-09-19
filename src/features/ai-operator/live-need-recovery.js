@@ -61,7 +61,7 @@ function derivedNeedsForRequest(request = '') {
   // These patterns remain as a safety net when an older/failed semantic response
   // does not provide evidence_needs yet. They are not the primary intent system.
   const accessTechnology = /оптик|fiber|gpon|epon|\bpon\b/i.test(text);
-  const availability = /подключ|підключ|можно|можна|возмож|можлив|доступн|покрыт|покрит|coverage/i.test(text);
+  const availability = /подключ|підключ|перейти|переход|перехід|переключ|перемкн|можно|можна|возмож|можлив|доступн|покрыт|покрит|coverage/i.test(text);
   if (accessTechnology && availability) {
     add('building.snapshot', 'UserSide', 'Нужно проверить доступность технологии по уже известному адресу абонента/дома.');
     return needs;
@@ -147,4 +147,4 @@ export function hasLiveDataNeeds(analysis = {}) {
   return planLiveDataNeeds(analysis).length > 0;
 }
 
-export const LIVE_NEED_RECOVERY_VERSION = 6;
+export const LIVE_NEED_RECOVERY_VERSION = 7;
