@@ -5,7 +5,8 @@ import {
   behaviorRuntimeHints,
   isNativeBehaviorProfile,
   maxFollowUpQuestionsForDepth,
-  normalizeBehaviorProfile
+  normalizeBehaviorProfile,
+  toLegacyBehaviorCompatibility
 } from '../src/features/ai-operator/behavior-profile.js';
 
 test('behavior v2 defaults to three neutral 1..5 scales only', () => {
@@ -77,4 +78,27 @@ test('native fields take precedence over leftover legacy compatibility fields', 
   };
   assert.equal(isNativeBehaviorProfile(mixed), true);
   assert.deepEqual(normalizeBehaviorProfile(mixed), { humanLikeness: 4, depth: 2, initiative: 5 });
+});
+
+test('temporary legacy adapter exactly preserves current runtime semantics', () => {
+  assert.deepEqual(
+    toLegacyBehaviorCompatibility(
+      { humanLikeness: 5, depth: 1, initiative: 4 },
+      { skepticism: 82 }
+    ),
+    {
+      confidenceStyle: 75,
+      curiosity: 65,
+      initiative: 65,
+      skepticism: 82,
+      brevity: 90,
+      maxFollowUpQuestions: 1
+    }
+  );
+
+  assert.equal(
+    toLegacyBehaviorCompatibility({ humanLikeness: 3, depth: 3, initiative: 3 }, { skepticism: 10 }).skepticism,
+    70,
+    'style migration must never lower evidence strictness'
+  );
 });
