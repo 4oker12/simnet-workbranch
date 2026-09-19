@@ -27,7 +27,7 @@ export const AI_OPERATOR_SOFT_TOOL_CATALOG = Object.freeze([
   { name: 'pon.signal', source: 'UserSide/PON', purpose: 'Прочитать live оптические показатели ONU; при недоступности использовать подтверждённый Workbench fallback.' }
 ]);
 
-const ACCOUNT_TOOLS = new Set(['customer.snapshot', 'billing.balance', 'billing.tariff', 'billing.payments', 'userside.snapshot', 'building.snapshot', 'network.session', 'pon.onu', 'pon.signal']);
+const ACCOUNT_TOOLS = new Set(['customer.snapshot', 'billing.balance', 'billing.tariff', 'billing.payments', 'userside.snapshot', 'network.session', 'pon.onu', 'pon.signal']);
 const SYNTHESIS_COOLDOWNS = new Map();
 
 function oneLine(value, max = 500) {
@@ -191,15 +191,34 @@ function toolForNeed(need = {}) {
   return 'customer.snapshot';
 }
 
+function buildingAddressFromNeed(need = {}) {
+  const direct = oneLine(need?.address, 320);
+  if (direct) return direct;
+  for (const candidate of [need?.field, need?.why]) {
+    const source = oneLine(candidate, 500);
+    if (!source) continue;
+    const match = source.match(/(?:по\s+адрес(?:у|у\b)|за\s+адресою|адрес(?:а|у)?|address)\s*[:\-]?\s*(.+)$/iu);
+    if (!match?.[1]) continue;
+    const value = oneLine(match[1], 320).replace(/[.!?]+$/u, '').trim();
+    if (value && /\d/.test(value)) return value;
+  }
+  return '';
+}
+
 export function mapInformationNeedsToTools(needs = []) {
   const calls = [];
   const freshTools = new Set(['billing.balance', 'billing.tariff', 'billing.payments', 'customer.snapshot', 'userside.snapshot', 'pon.onu', 'pon.signal']);
   for (const need of Array.isArray(needs) ? needs : []) {
     const tool = toolForNeed(need);
     if (!tool || calls.some(item => item.tool === tool)) continue;
+    const toolArgs = freshTools.has(tool) ? { refresh: true, maxAgeMs: 120000 } : {};
+    if (tool === 'building.snapshot') {
+      const address = buildingAddressFromNeed(need);
+      if (address) toolArgs.address = address;
+    }
     calls.push({
       tool,
-      toolArgs: freshTools.has(tool) ? { refresh: true, maxAgeMs: 120000 } : {},
+      toolArgs,
       requestedBy: { system: oneLine(need?.system, 80), field: oneLine(need?.field, 160), why: oneLine(need?.why, 260) }
     });
   }
@@ -267,7 +286,12 @@ function evidenceSource(result = {}) {
 
 export async function executeInformationNeeds({ needs = [], transcript = [], analysis = {}, labState = {}, execute } = {}) {
   if (typeof execute !== 'function') throw new Error('Soft tool broker requires execute(tool)');
-  const planned = mapInformationNeedsToTools(needs);
+  const identity = extractIdentityHints(transcript, analysis);
+  const planned = mapInformationNeedsToTools(needs).map(item => (
+    item.tool === 'building.snapshot' && !item?.toolArgs?.address && identity.address
+      ? { ...item, toolArgs: { ...(item.toolArgs || {}), address: identity.address } }
+      : item
+  ));
   let state = applyStatePatch({}, labState);
   const calls = [];
   const needsAccount = planned.some(item => ACCOUNT_TOOLS.has(item.tool));
@@ -279,7 +303,6 @@ export async function executeInformationNeeds({ needs = [], transcript = [], ana
       requestedBy: { system: 'identity', field: 'pendingCandidate', why: confirmation ? 'Клиент подтвердил найденное подключение.' : 'Клиент отклонил найденное подключение.' }
     });
   } else if (needsAccount && !String(state.confirmedCaseId || '').trim() && !state.pendingCandidate) {
-    const identity = extractIdentityHints(transcript, analysis);
     if (Object.keys(identity).length) {
       calls.push({
         tool: 'customer.lookup',
