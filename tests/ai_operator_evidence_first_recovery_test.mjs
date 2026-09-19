@@ -18,6 +18,18 @@ function okTrace(tool, data, field) {
   };
 }
 
+test('UNDERSTANDING may reason about evidence sufficiency but does not answer or choose tools', () => {
+  const source = fs.readFileSync(new URL('../src/features/ai-operator/semantic-probe.js', import.meta.url), 'utf8');
+  const stage = source.match(/const stageInstruction = `ЭТАП: UNDERSTANDING\.[\s\S]*?`;\n  return \[/)?.[0] || '';
+
+  assert.match(stage, /Не формируй финальный ответ на этой стадии/);
+  assert.match(stage, /обычное внутреннее reasoning/);
+  assert.match(stage, /достаточно ли уже известных фактов и общеизвестного знания/);
+  assert.match(stage, /Если ответ уже следует из известного контекста, ставь live_data_need=none и не создавай evidence_needs/);
+  assert.match(stage, /evidence_needs как факты, а НЕ tools и НЕ команды/);
+  assert.doesNotMatch(stage, /Не выполняй арифметику и не решай сам запрос/);
+});
+
 test('live balance + tariff skips pre-tool answer synthesis in the Lab pipeline', () => {
   const source = fs.readFileSync(new URL('../src/features/ai-operator/lab-background.js', import.meta.url), 'utf8');
   const liveBranch = source.match(/async function replyVariant[\s\S]*?async function cleanVariant/)?.[0] || '';
