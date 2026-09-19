@@ -247,9 +247,11 @@ function tariffPrice(data = {}) {
 function deterministicConfirmedFactsRecovery({ analysis = {}, latestCustomer = {}, toolTrace = [] } = {}) {
   const request = requestFrom({ analysis, latestCustomer }).toLowerCase();
   const wantsBalance = /баланс|balance|рахун/.test(request);
-  const wantsTariffPrice = /(?:тариф|пакет).{0,40}(?:цен|стоим|варт|абонплат|сколько\s+стоит|скільки\s+кошту)|(?:цен|стоим|варт|абонплат).{0,40}(?:тариф|пакет)/iu.test(request);
-  const wantsTariffName = /(?:какой|який|мой|мій|текущ|поточн).{0,40}(?:тариф|пакет)|(?:тариф|пакет).{0,30}(?:сейчас|зараз|у\s+меня|у\s+мене)|(?:что|що).{0,20}по\s+(?:тариф|пакет)/iu.test(request)
-    || (/(?:тариф|tariff|пакет)/iu.test(request) && !wantsTariffPrice && !/скорост|швидк|speed/iu.test(request));
+  const wantsTariffPrice = /(?:тариф|пакет).{0,40}(?:цен|стоим|варт|абонплат|сколько\s+стоит|скільки\s+кошту)|(?:цен|стоим|варт|абонплат|сколько\s+стоит|скільки\s+кошту).{0,40}(?:тариф|пакет)/iu.test(request);
+  const wantsTariffName = !wantsTariffPrice && (
+    /(?:какой|який|мой|мій|текущ|поточн).{0,40}(?:тариф|пакет)|(?:тариф|пакет).{0,30}(?:сейчас|зараз|у\s+меня|у\s+мене)|(?:что|що).{0,20}по\s+(?:тариф|пакет)/iu.test(request)
+    || (/(?:тариф|tariff|пакет)/iu.test(request) && !/скорост|швидк|speed/iu.test(request))
+  );
   if (!wantsBalance && !wantsTariffName && !wantsTariffPrice) return null;
 
   const balanceTrace = wantsBalance ? currentBalanceTrace(toolTrace) : null;
