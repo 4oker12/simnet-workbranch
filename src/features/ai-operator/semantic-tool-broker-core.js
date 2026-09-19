@@ -294,7 +294,12 @@ export async function executeInformationNeeds({ needs = [], transcript = [], ana
   ));
   let state = applyStatePatch({}, labState);
   const calls = [];
-  const needsAccount = planned.some(item => ACCOUNT_TOOLS.has(item.tool));
+  const buildingNeedsSubscriberAddress = planned.some(item =>
+    item.tool === 'building.snapshot'
+    && !item?.toolArgs?.address
+    && Boolean(identity.login || identity.contract || identity.ip)
+  );
+  const needsAccount = planned.some(item => ACCOUNT_TOOLS.has(item.tool)) || buildingNeedsSubscriberAddress;
   const confirmation = pendingConfirmation(transcript, state);
   if (confirmation !== null) {
     calls.push({
