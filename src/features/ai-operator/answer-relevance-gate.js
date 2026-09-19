@@ -284,8 +284,8 @@ function deterministicConfirmedFactsRecovery({ analysis = {}, latestCustomer = {
 function canonicalRecoveryText(value = '') {
   return oneLine(value, 2200)
     .toLowerCase()
-    .replace(/\b(?:текущ(?:ий|ая|ее)|поточн(?:ий|а|е))\s+(баланс|тариф)\b/giu, '$1')
-    .replace(/\b(?:стоимость|вартість|цена)\s+тарифа\b/giu, 'тариф')
+    .replace(/(?:текущ(?:ий|ая|ее)|поточн(?:ий|а|е))\s+(баланс|тариф)/giu, '$1')
+    .replace(/(?:стоимость|вартість|цена)\s+тарифа/giu, 'тариф')
     .replace(/[—–:;,.!?()]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
