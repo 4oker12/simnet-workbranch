@@ -416,9 +416,6 @@ export async function groundSubscriberReply(options = {}) {
   const generationDegraded = Boolean(draft?.degraded || delegated?.degraded);
   const hasLiveToolActivity = toolTrace.length > 0;
 
-  // KB reflection may help a purely knowledge-based degraded turn, but it must
-  // never be auto-prepended once live READs are part of the turn. Tool evidence
-  // and KB have different roles; internal reflection is not subscriber copy.
   const knowledgeReply = generationDegraded && !hasLiveToolActivity
     ? knowledgeConsultationFallbackReply(analysis, transcript)
     : '';
@@ -434,13 +431,17 @@ export async function groundSubscriberReply(options = {}) {
     meterContext: options.meterContext || {}
   });
 
-  // Recovery state is based on evidence coverage, never on wording of reply or
-  // on a regex match inside the local relevance boundary.
+  const deterministicRecovery = relevance?.gate?.reason === 'deterministic_confirmed_facts_recovery';
   const recoveredFromGenerationFailure = Boolean(
     generationDegraded
-    && delegated?.evidenceFallback?.used
-    && delegated?.evidenceFallback?.complete
-    && allRequestedLiveFactsConfirmed(toolTrace)
+    && (
+      deterministicRecovery
+      || (
+        delegated?.evidenceFallback?.used
+        && delegated?.evidenceFallback?.complete
+        && allRequestedLiveFactsConfirmed(toolTrace)
+      )
+    )
   );
 
   return {
