@@ -22,10 +22,13 @@ jobs:
           node --test \
             tests/ai_operator_live_need_semantic_first_test.mjs \
             tests/ai_operator_evidence_first_orchestration_test.mjs \
+            tests/ai_operator_evidence_first_recovery_test.mjs \
             tests/ai_operator_confirmed_facts_recovery_test.mjs \
             tests/ai_operator_final_synthesis_boundary_test.mjs \
             tests/ai_operator_live_recovery_contract_test.mjs \
-            tests/ai_operator_understanding_evidence_plan_test.mjs
+            tests/ai_operator_understanding_evidence_plan_test.mjs \
+            tests/ai_operator_relevance_clean_json_test.mjs \
+            tests/ai_provider_deepseek_json_repair_test.mjs
       - name: Run npm test
         shell: bash
         run: |
