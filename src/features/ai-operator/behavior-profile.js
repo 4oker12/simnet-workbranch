@@ -13,6 +13,8 @@ const LEGACY_HUMAN_POINTS = Object.freeze({ 1: 35, 2: 45, 3: 55, 4: 65, 5: 75 })
 const LEGACY_CURIOSITY_POINTS = Object.freeze({ 1: 45, 2: 50, 3: 55, 4: 60, 5: 65 });
 const LEGACY_DEPTH_POINTS = Object.freeze({ 1: 90, 2: 75, 3: 60, 4: 45, 5: 30 });
 const LEGACY_INITIATIVE_POINTS = Object.freeze({ 1: 20, 2: 35, 3: 50, 4: 65, 5: 80 });
+const LEGACY_DEFAULT_CURIOSITY = 55;
+const LEGACY_DEFAULT_BREVITY = 65;
 
 function clampLevel(value, fallback = 3) {
   const numeric = Number(value);
@@ -126,18 +128,25 @@ export function behaviorPromptGuidance(value = {}) {
 }
 
 // Temporary adapter while semantic-probe still consumes the old 0..100 shape.
-// Keep truth/evidence strictness outside the three user-facing style scales.
+// Preserve the old Lab defaults exactly so migrating storage alone cannot change answer style.
+// Truth/evidence strictness stays outside the three user-facing style scales.
 export function toLegacyBehaviorCompatibility(value = {}, current = {}) {
   const profile = normalizeBehaviorProfile(value);
   const source = sourceObject(current);
   const storedSkepticism = Number(source.skepticism);
   const skepticism = Number.isFinite(storedSkepticism) ? Math.max(70, storedSkepticism) : 75;
+  const curiosity = profile.humanLikeness === DEFAULT_AI_OPERATOR_BEHAVIOR.humanLikeness
+    ? LEGACY_DEFAULT_CURIOSITY
+    : LEGACY_CURIOSITY_POINTS[profile.humanLikeness];
+  const brevity = profile.depth === DEFAULT_AI_OPERATOR_BEHAVIOR.depth
+    ? LEGACY_DEFAULT_BREVITY
+    : LEGACY_DEPTH_POINTS[profile.depth];
   return {
     confidenceStyle: LEGACY_HUMAN_POINTS[profile.humanLikeness],
-    curiosity: LEGACY_CURIOSITY_POINTS[profile.humanLikeness],
+    curiosity,
     initiative: LEGACY_INITIATIVE_POINTS[profile.initiative],
     skepticism,
-    brevity: LEGACY_DEPTH_POINTS[profile.depth],
+    brevity,
     maxFollowUpQuestions: maxFollowUpQuestionsForDepth(profile.depth)
   };
 }
