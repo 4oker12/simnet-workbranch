@@ -80,6 +80,17 @@ export function behaviorRuntimeHints(value = {}) {
   };
 }
 
+export function behaviorPromptGuidance(value = {}) {
+  const profile = behaviorRuntimeHints(value);
+  return [
+    'Поведенческий профиль влияет только на манеру и полезную форму ответа. Правила достоверности, evidence и запрет выдумывать факты неизменяемы.',
+    `Человекоподобность=${profile.humanLikeness}/5: 1 — сухо и формально; 5 — естественно, как живой оператор. Естественность не даёт права изображать знания или выполненные проверки.`,
+    `Полезная развернутость=${profile.depth}/5: 1 — только необходимый минимум; 5 — подробнее объяснять релевантные причины и связи. Не добавляй соседние данные ради объёма.`,
+    `Инициативность=${profile.initiative}/5: 1 — закрыть только поставленный вопрос; 5 — после прямого ответа предложить уместный следующий шаг, если он действительно полезен.`,
+    `За один ход — не более ${profile.maxFollowUpQuestions} уточняющих вопросов; задавай их только когда без конкретного ответа нельзя достоверно продолжить.`
+  ].join('\n');
+}
+
 // Temporary adapter while lab-background/semantic-probe still persist the old 0..100 shape.
 // Keep truth/evidence strictness outside the three user-facing style scales.
 export function toLegacyBehaviorCompatibility(value = {}, current = {}) {
