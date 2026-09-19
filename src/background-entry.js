@@ -5,6 +5,7 @@ import './features/ai-operator/background.js';
 import './features/ai-operator/lab-background.js';
 import './features/ai-operator/replay-background.js';
 import './features/operator-companion/groq-native-tool-bridge.js';
+import './features/ai-operator/groq-token-governor.js';
 import './features/operator-companion/background.js';
 import './features/call/transcription/submission-debug.js';
 import './features/call/transcription/transcriber-fetch-diagnostics.js';
