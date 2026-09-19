@@ -11,9 +11,11 @@ test('live degraded path never prepends knowledge reflection', () => {
   assert.doesNotMatch(broker, /\$\{knowledgeReply\}\\n\\n\$\{String\(delegated\.reply\)/);
 });
 
-test('fully confirmed requested live facts can recover generation failure', () => {
-  assert.match(broker, /function allRequestedLiveFactsConfirmed/);
-  assert.match(broker, /relevance\?\.gate\?\.reason === 'deterministic_confirmed_facts_recovery'/);
+test('fully covered requested live facts can recover generation failure', () => {
+  assert.doesNotMatch(broker, /function allRequestedLiveFactsConfirmed/);
+  assert.doesNotMatch(broker, /relevance\?\.gate\?\.reason === 'deterministic_confirmed_facts_recovery'/);
+  assert.match(broker, /delegated\?\.evidenceFallback\?\.used/);
+  assert.match(broker, /delegated\?\.evidenceFallback\?\.complete/);
   assert.match(broker, /degraded: recoveredFromGenerationFailure \? false/);
   assert.match(broker, /generationDegraded/);
   assert.match(broker, /generationDegradationReason/);
