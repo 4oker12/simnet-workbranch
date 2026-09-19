@@ -17,7 +17,7 @@ function block(value, max = 2600) {
 function requestFrom({ analysis = {}, latestCustomer = {} } = {}) {
   const probe = analysis?.probe || {};
   const unresolved = Array.isArray(probe?.unresolvedRequests) ? probe.unresolvedRequests : [];
-  return oneLine(unresolved.join(' ') || probe?.whatUserWants || latestCustomer?.text || '', 800);
+  return oneLine(probe?.whatUserWants || latestCustomer?.text || unresolved[0] || '', 800);
 }
 
 function successfulTrace(toolTrace = []) {
@@ -83,6 +83,9 @@ function requestedFactCovered(item = {}) {
   }
 
   if (tool === 'billing.tariff') {
+    if (/smart\s*tv|смарт\s*тв|телевид|\bтв\b|\btv\b/iu.test(request)) {
+      return hasAny(data, ['smartTv', 'smartTV', 'tv', 'tvPackage', 'television', 'services']);
+    }
     if (/скорост|швидк|speed/iu.test(request)) {
       return hasAny(data, ['speed', 'tariffSpeed', 'speedMbit', 'speedMbps'])
         || /\b\d+(?:[.,]\d+)?\s*(?:m(?:bit|bps)|мб(?:ит|іт)(?:\/с)?|гб(?:ит|іт)(?:\/с)?)/iu.test(tariffText(data));
@@ -96,10 +99,12 @@ function requestedFactCovered(item = {}) {
   }
 
   if (tool === 'billing.payments') {
+    if (/кешбек|кэшбек|cashback/iu.test(request) && /услов|правил|начисл|зачисл|положен|належ|будет|буде/iu.test(request)) return false;
     return Array.isArray(data.payments) || hasOwn(data, 'count', { allowEmpty: true });
   }
 
   if (tool === 'building.snapshot') {
+    if (/стоим|цен|варт|оборуд|аренд|покуп|комплект/iu.test(request)) return false;
     if (/gpon|epon|\bpon\b|оптик|fiber|покрыт|покрит|coverage/iu.test(request)) {
       const fields = data?.fields && typeof data.fields === 'object' && !Array.isArray(data.fields) ? data.fields : {};
       if (Object.keys(fields).some(key => /^(?:gpon|epon|pon|оптика)$/iu.test(String(key).trim()))) return true;
