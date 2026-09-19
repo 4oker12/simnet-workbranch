@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
   DEFAULT_AI_OPERATOR_BEHAVIOR,
   behaviorRuntimeHints,
@@ -101,4 +102,12 @@ test('temporary legacy adapter exactly preserves current runtime semantics', () 
     70,
     'style migration must never lower evidence strictness'
   );
+});
+
+test('behavior v2 UI bridge uses the central contract instead of its own mapping tables', async () => {
+  const source = await readFile(new URL('../src/ui/ai-operator-behavior-v2.js', import.meta.url), 'utf8');
+  assert.match(source, /behavior-profile\.js/);
+  assert.match(source, /normalizeBehaviorProfile/);
+  assert.match(source, /toLegacyBehaviorCompatibility/);
+  assert.doesNotMatch(source, /INITIATIVE_TO_LEGACY|DEPTH_TO_BREVITY|levelFromRange/);
 });
