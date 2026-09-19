@@ -8,6 +8,7 @@
 
   const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
   const STORAGE_KEY = 'simnet_ai_operator_quota_v1';
+  const API_COST_KEY = 'simnet_ai_operator_api_cost_v1';
   const MAX_JSON_TOKENS = 650;
   const MAX_TEXT_TOKENS = 700;
   const MAX_GUARD_TOKENS = 48;
@@ -62,7 +63,19 @@
     return next;
   }
 
-  function rateHeaders(headers) {
+  function errorQuota(message) {
+    const text = String(message || '').replace(/,/g, ' ');
+    const result = {};
+    for (const type of ['TPM', 'TPD', 'RPM', 'RPD']) {
+      const match = text.match(new RegExp(`${type}[^.]*?Limit\\s+(\\d+(?:\\.\\d+)?)[^.]*(?:Used|Current)\\s+(\\d+(?:\\.\\d+)?)`, 'i'));
+      if (!match) continue;
+      result[`${type.toLowerCase()}Limit`] = nonNegative(match[1]);
+      result[`${type.toLowerCase()}Used`] = nonNegative(match[2]);
+    }
+    return result;
+  }
+
+  function rateHeaders(headers, errorMessage = '') {
     return {
       limitTokens: headerNumber(headers, 'x-ratelimit-limit-tokens'),
       remainingTokens: headerNumber(headers, 'x-ratelimit-remaining-tokens'),
@@ -70,28 +83,48 @@
       limitRequests: headerNumber(headers, 'x-ratelimit-limit-requests'),
       remainingRequests: headerNumber(headers, 'x-ratelimit-remaining-requests'),
       resetRequests: headerText(headers, 'x-ratelimit-reset-requests'),
-      retryAfter: headerText(headers, 'retry-after')
+      retryAfter: headerText(headers, 'retry-after'),
+      ...errorQuota(errorMessage)
+    };
+  }
+
+  function existingDaySeed(costData, model, today) {
+    if (!costData?.startedAt || dayKey(Date.parse(costData.startedAt)) !== today) return { date: today, requests: 0, tokens: 0, prompt: 0, completion: 0 };
+    const entry = costData?.total?.[model] || {};
+    const prompt = nonNegative(entry.input);
+    const completion = nonNegative(entry.output);
+    return {
+      date: today,
+      requests: nonNegative(entry.calls),
+      tokens: prompt + completion,
+      prompt,
+      completion,
+      seededFromApiCost: true
     };
   }
 
   function writeTelemetry({ model, usage, rateLimit, status, maxTokens, at }) {
     if (!model) return;
     storageQueue = storageQueue.then(async () => {
-      const stored = (await chrome.storage.local.get(STORAGE_KEY))?.[STORAGE_KEY] || { version: 1, models: {} };
+      const bundle = await chrome.storage.local.get([STORAGE_KEY, API_COST_KEY]);
+      const stored = bundle?.[STORAGE_KEY] || { version: 1, models: {} };
       stored.version = 1;
       stored.updatedAt = at;
       stored.models ||= {};
       const previous = stored.models[model] || {};
       const today = dayKey(at);
-      const day = previous.day?.date === today ? { ...previous.day } : { date: today, requests: 0, tokens: 0, prompt: 0, completion: 0 };
+      const day = previous.day?.date === today ? { ...previous.day } : existingDaySeed(bundle?.[API_COST_KEY], model, today);
+      const prompt = nonNegative(usage?.prompt_tokens ?? usage?.input_tokens);
+      const completion = nonNegative(usage?.completion_tokens ?? usage?.output_tokens);
+      const total = nonNegative(usage?.total_tokens || (prompt + completion));
       day.requests = nonNegative(day.requests) + 1;
-      day.prompt = nonNegative(day.prompt) + nonNegative(usage?.prompt_tokens ?? usage?.input_tokens);
-      day.completion = nonNegative(day.completion) + nonNegative(usage?.completion_tokens ?? usage?.output_tokens);
-      day.tokens = nonNegative(day.tokens) + nonNegative(usage?.total_tokens || (nonNegative(usage?.prompt_tokens ?? usage?.input_tokens) + nonNegative(usage?.completion_tokens ?? usage?.output_tokens)));
+      day.prompt = nonNegative(day.prompt) + prompt;
+      day.completion = nonNegative(day.completion) + completion;
+      day.tokens = nonNegative(day.tokens) + total;
 
       const events = [...(Array.isArray(previous.events) ? previous.events : []), {
         at,
-        tokens: nonNegative(usage?.total_tokens || (nonNegative(usage?.prompt_tokens ?? usage?.input_tokens) + nonNegative(usage?.completion_tokens ?? usage?.output_tokens))),
+        tokens: total,
         status: Number(status || 0)
       }].filter(item => at - Number(item?.at || 0) <= 60000).slice(-120);
 
@@ -109,9 +142,9 @@
           at,
           status: Number(status || 0),
           maxTokens: nonNegative(maxTokens),
-          prompt: nonNegative(usage?.prompt_tokens ?? usage?.input_tokens),
-          completion: nonNegative(usage?.completion_tokens ?? usage?.output_tokens),
-          total: nonNegative(usage?.total_tokens)
+          prompt,
+          completion,
+          total
         }
       };
       await chrome.storage.local.set({ [STORAGE_KEY]: stored });
@@ -147,7 +180,8 @@
     const clone = response.clone();
     let data = null;
     try { data = safeJson(await clone.text()); } catch {}
-    const rateLimit = rateHeaders(response.headers);
+    const errorMessage = String(data?.error?.message || '');
+    const rateLimit = rateHeaders(response.headers, errorMessage);
     const at = Date.now();
 
     if (response.status === 429) {
