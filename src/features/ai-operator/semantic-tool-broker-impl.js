@@ -80,7 +80,7 @@ const TOOL_MANIFEST = Object.freeze([
     name: 'building.snapshot', system: 'UserSide', capability: 'userside', implementation: 'implemented', mode: 'userside-building-snapshot-local',
     establishes: 'Устанавливает всю сохранённую рабочую карточку конкретного здания по адресу: GPON, собственника, заметки, рабочую заметку, УК/ОСББ, ключи, этажи, подъезды, квартиры, проникновение, менеджера, КТВ и другие реально присутствующие поля.',
     answers: ['Есть ли по этому дому GPON/оптическое покрытие?', 'Что вообще известно про этот дом в UserSide?', 'Кто собственник/УК/ОСББ, какие есть заметки и ключи?', 'Сколько этажей/подъездов/квартир и какие другие поля заполнены в карточке?'],
-    recommendedWhen: ['Вопрос относится к дому/зданию или покрытию по адресу, а не к текущему сигналу конкретной ONU.', 'Нужно проверить GPON по дому, собственника, ключи, заметки, УК/ОСББ или другие поля карточки здания.'],
+    recommendedWhen: ['Вопрос относится к дому/зданию или покрытию GPON по адресу, собственнике, ключах или заметках, а не к текущему сигналу конкретной ONU.', 'Нужно проверить GPON по дому, собственника, ключи, заметки, УК/ОСББ или другие поля карточки здания.'],
     returns: ['buildingId', 'address', 'url', 'fields', 'fieldList', 'snapshotGeneratedAt', 'snapshotComplete', 'source'],
     requires: ['Известны улица и номер дома напрямую или через адрес подтверждённого абонента.', 'В chrome.storage.local существует simnet_crm_building_snapshot_v1.'],
     limitations: ['Это сохранённый snapshot, а не автоматический live refresh карточки /building/{id}.', 'NOT_FOUND/BUILDING_SNAPSHOT_MISSING не доказывает отсутствие GPON/покрытия.', 'При нескольких совпадениях возвращает AMBIGUOUS_BUILDING и не выбирает дом наугад.']
@@ -249,22 +249,46 @@ function clientTariffName(value) {
     .trim();
 }
 function successfulTool(trace = [], tool) { return (Array.isArray(trace) ? trace : []).find(item => item?.ok && item?.tool === tool) || null; }
-function requestedNonIdentityTools(trace = []) {
-  return [...new Set((Array.isArray(trace) ? trace : [])
+function requestedEntries(trace = []) {
+  return (Array.isArray(trace) ? trace : [])
     .filter(item => !['customer.lookup', 'customer.confirm'].includes(String(item?.tool || '')))
-    .map(item => String(item?.tool || '').trim())
-    .filter(Boolean))];
+    .map(item => ({
+      tool: String(item?.tool || '').trim(),
+      field: oneLine(item?.requestedBy?.field || '', 260),
+      ok: Boolean(item?.ok)
+    }))
+    .filter(item => item.tool);
+}
+function semanticRequestedField(entry = {}) {
+  const tool = String(entry?.tool || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return oneLine(entry?.field || '', 260).replace(new RegExp(`^${tool}\\s*:?\\s*`, 'i'), '').trim();
+}
+function isCurrentBalanceFact(entry = {}) {
+  const field = semanticRequestedField(entry).toLowerCase();
+  if (!field) return false;
+  const asksBalance = /баланс|на\s+сч[её]т|на\s+рахунк|account\s+balance/i.test(field);
+  const asksDifferentFinance = /долг|борг|задолж|заборг|к\s+оплат|до\s+сплат|сколько.*плат|скільки.*плат|временн.*плат|тимчасов.*плат|balance\s+after|total\s+due/i.test(field);
+  return asksBalance && !asksDifferentFinance;
+}
+function isCurrentTariffFact(entry = {}) {
+  const field = semanticRequestedField(entry).toLowerCase();
+  if (!field) return false;
+  const asksTariff = /тариф|пакет|current\s+tariff/i.test(field);
+  const asksDifferentTariffFact = /скорост|швидк|цен|стоим|варт|абонплат|следующ|наступн|майбут|future|next/i.test(field);
+  return asksTariff && !asksDifferentTariffFact;
 }
 
 export function evidenceFallbackResult(analysis = {}, toolTrace = []) {
   const trace = Array.isArray(toolTrace) ? toolTrace : [];
-  const requestedTools = requestedNonIdentityTools(trace);
+  const entries = requestedEntries(trace);
+  const requestedTools = [...new Set(entries.map(item => item.tool))];
   const successful = trace.filter(item => item?.ok);
   if (!successful.length) {
     return {
       reply: core.ensureNonEmptyReply('', analysis, trace),
       requestedTools,
       coveredTools: [],
+      coverage: entries.map(item => ({ ...item, covered: false })),
       complete: false
     };
   }
@@ -274,36 +298,42 @@ export function evidenceFallbackResult(analysis = {}, toolTrace = []) {
   const balance = successfulTool(trace, 'billing.balance')?.data || {};
   const tariff = successfulTool(trace, 'billing.tariff')?.data || {};
   const parts = [];
-  const coveredTools = [];
+  const coverage = [];
+  let balanceAdded = false;
+  let tariffAdded = false;
 
-  // Deterministic fallback is intentionally narrow. It formats only the facts
-  // that were explicitly requested and that have a safe local representation.
-  // Identity/access/service/connection type are not subscriber copy unless they
-  // were the actual requested fact handled by a dedicated formatter.
-  if (requestedTools.includes('billing.balance')) {
-    const value = moneyText(firstPresent(balance.accountBalance, snapshot?.finance?.accountBalance));
-    if (value) {
-      parts.push(uk ? `Поточний баланс: ${value} грн.` : `Текущий баланс: ${value} грн.`);
-      coveredTools.push('billing.balance');
+  // Deterministic fallback is intentionally fact-scoped, not tool-scoped.
+  // A successful broad Billing tool can expose many adjacent fields; only the
+  // requested semantic fact may count as covered and appear in subscriber copy.
+  for (const entry of entries) {
+    let covered = false;
+    if (entry.tool === 'billing.balance' && entry.ok && isCurrentBalanceFact(entry)) {
+      const value = moneyText(firstPresent(balance.accountBalance, snapshot?.finance?.accountBalance));
+      if (value) {
+        if (!balanceAdded) parts.push(uk ? `Поточний баланс: ${value} грн.` : `Текущий баланс: ${value} грн.`);
+        balanceAdded = true;
+        covered = true;
+      }
     }
+    if (entry.tool === 'billing.tariff' && entry.ok && isCurrentTariffFact(entry)) {
+      const value = clientTariffName(firstPresent(tariff.currentTariff, balance.currentTariff, snapshot?.service?.currentTariff));
+      if (value) {
+        if (!tariffAdded) parts.push(uk ? `Поточний тариф: ${value}.` : `Текущий тариф: ${value}.`);
+        tariffAdded = true;
+        covered = true;
+      }
+    }
+    coverage.push({ tool: entry.tool, field: entry.field, ok: entry.ok, covered });
   }
 
-  if (requestedTools.includes('billing.tariff')) {
-    const value = clientTariffName(firstPresent(tariff.currentTariff, balance.currentTariff, snapshot?.service?.currentTariff));
-    if (value) {
-      parts.push(uk ? `Поточний тариф: ${value}.` : `Текущий тариф: ${value}.`);
-      coveredTools.push('billing.tariff');
-    }
-  }
-
-  const complete = requestedTools.length > 0
-    && requestedTools.every(tool => coveredTools.includes(tool))
-    && requestedTools.every(tool => Boolean(successfulTool(trace, tool)));
+  const coveredTools = [...new Set(coverage.filter(item => item.covered).map(item => item.tool))];
+  const complete = coverage.length > 0 && coverage.every(item => item.ok && item.covered);
 
   return {
     reply: block(parts.join(' '), 2200) || core.ensureNonEmptyReply('', analysis, trace),
     requestedTools,
     coveredTools,
+    coverage,
     complete
   };
 }
@@ -324,7 +354,7 @@ export async function groundSubscriberReply(options = {}) {
   const mustUseEvidenceFallback = toolEvidence.length > 0 && Boolean(result?.degraded || draft?.degraded);
   const evidenceFallback = mustUseEvidenceFallback
     ? evidenceFallbackResult(analysis, toolTrace)
-    : { reply: '', requestedTools: [], coveredTools: [], complete: false };
+    : { reply: '', requestedTools: [], coveredTools: [], coverage: [], complete: false };
   return {
     ...result,
     reply: mustUseEvidenceFallback ? evidenceFallback.reply : core.ensureNonEmptyReply(result?.reply, analysis, toolTrace),
@@ -332,6 +362,7 @@ export async function groundSubscriberReply(options = {}) {
       used: mustUseEvidenceFallback,
       requestedTools: evidenceFallback.requestedTools,
       coveredTools: evidenceFallback.coveredTools,
+      coverage: evidenceFallback.coverage,
       complete: Boolean(evidenceFallback.complete)
     },
     toolTrace,
