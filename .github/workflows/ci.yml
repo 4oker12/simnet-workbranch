@@ -29,13 +29,36 @@ jobs:
       - name: Autonomous AI evidence recovery regression
         shell: bash
         run: node --test tests/ai_operator_evidence_first_recovery_test.mjs
-      - name: Autonomous AI relevance regression
+      - name: Relevance · semantic JSON repair
+        if: always()
         shell: bash
-        run: node --test tests/ai_operator_relevance_clean_json_test.mjs
+        run: node --test --test-name-pattern="semantic probe repairs HTTP 200 truncated JSON" tests/ai_operator_relevance_clean_json_test.mjs
+      - name: Relevance · clean model boundary
+        if: always()
+        shell: bash
+        run: node --test --test-name-pattern="clean model path has no SIMNET tool manifest" tests/ai_operator_relevance_clean_json_test.mjs
+      - name: Relevance · local fact gate
+        if: always()
+        shell: bash
+        run: node --test --test-name-pattern="answer relevance boundary is deterministic" tests/ai_operator_relevance_clean_json_test.mjs
+      - name: Relevance · missing fact
+        if: always()
+        shell: bash
+        run: node --test --test-name-pattern="answer relevance does not convert tool ok" tests/ai_operator_relevance_clean_json_test.mjs
+      - name: Relevance · tariff price
+        if: always()
+        shell: bash
+        run: node --test --test-name-pattern="deterministic tariff-price recovery" tests/ai_operator_relevance_clean_json_test.mjs
+      - name: Relevance · Lab trace contract
+        if: always()
+        shell: bash
+        run: node --test --test-name-pattern="Lab exposes CLEAN MODEL" tests/ai_operator_relevance_clean_json_test.mjs
       - name: DeepSeek adapter regression
+        if: always()
         shell: bash
         run: node --test tests/ai_provider_deepseek_json_repair_test.mjs
       - name: Run npm test
+        if: always()
         shell: bash
         run: |
           set -o pipefail
