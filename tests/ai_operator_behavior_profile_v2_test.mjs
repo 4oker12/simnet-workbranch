@@ -12,13 +12,28 @@ import {
   toLegacyBehaviorCompatibility
 } from '../src/features/ai-operator/behavior-profile.js';
 
-test('behavior v2 defaults to three neutral 1..5 scales only', () => {
+test('behavior v2 defaults to only the three native 1..5 scales', () => {
+  assert.deepEqual(DEFAULT_AI_OPERATOR_BEHAVIOR, { humanLikeness: 2, depth: 3, initiative: 3 });
   assert.deepEqual(normalizeBehaviorProfile(), DEFAULT_AI_OPERATOR_BEHAVIOR);
   assert.deepEqual(Object.keys(normalizeBehaviorProfile()).sort(), ['depth', 'humanLikeness', 'initiative']);
   assert.equal('skepticism' in normalizeBehaviorProfile(), false, 'truth/evidence strictness must not be a user style knob');
   assert.equal('brevity' in normalizeBehaviorProfile(), false);
   assert.equal('curiosity' in normalizeBehaviorProfile(), false);
   assert.equal('confidenceStyle' in normalizeBehaviorProfile(), false);
+});
+
+test('legacy Lab defaults migrate without silently changing effective behavior', () => {
+  assert.deepEqual(
+    normalizeBehaviorProfile({
+      confidenceStyle: 45,
+      curiosity: 55,
+      initiative: 50,
+      skepticism: 75,
+      brevity: 65,
+      maxFollowUpQuestions: 2
+    }),
+    DEFAULT_AI_OPERATOR_BEHAVIOR
+  );
 });
 
 test('behavior v2 clamps native values and derives follow-up budget from depth', () => {
@@ -37,7 +52,7 @@ test('behavior v2 clamps native values and derives follow-up budget from depth',
   );
 });
 
-test('legacy behavior migrates to the same visible v2 levels used by the current UI bridge', () => {
+test('legacy behavior migrates to the same visible v2 levels used by the UI', () => {
   assert.deepEqual(
     normalizeBehaviorProfile({
       confidenceStyle: 35,
@@ -109,7 +124,7 @@ test('behavior merge accepts native partial updates and complete legacy payloads
   );
 });
 
-test('temporary legacy adapter exactly preserves current runtime semantics', () => {
+test('temporary legacy adapter exactly preserves current semantic runtime semantics', () => {
   assert.deepEqual(
     toLegacyBehaviorCompatibility(
       { humanLikeness: 5, depth: 1, initiative: 4 },
@@ -147,10 +162,21 @@ test('native behavior prompt keeps truthfulness invariant and describes only the
   assert.doesNotMatch(prompt, /Скепсис=|Любопытство=|Краткость=|Решительность=/);
 });
 
-test('behavior v2 UI bridge uses the central contract instead of its own mapping tables', async () => {
+test('behavior v2 UI sends the central native contract without legacy remapping', async () => {
   const source = await readFile(new URL('../src/ui/ai-operator-behavior-v2.js', import.meta.url), 'utf8');
   assert.match(source, /behavior-profile\.js/);
   assert.match(source, /normalizeBehaviorProfile/);
-  assert.match(source, /toLegacyBehaviorCompatibility/);
+  assert.match(source, /AI_OPERATOR_LAB_CONFIG/);
+  assert.doesNotMatch(source, /toLegacyBehaviorCompatibility/);
   assert.doesNotMatch(source, /INITIATIVE_TO_LEGACY|DEPTH_TO_BREVITY|levelFromRange/);
+});
+
+test('Lab v5 stores native behavior and isolates legacy conversion at the semantic runtime boundary', async () => {
+  const source = await readFile(new URL('../src/features/ai-operator/lab-background.js', import.meta.url), 'utf8');
+  assert.match(source, /version:\s*5/);
+  assert.match(source, /mergeBehaviorProfile\(lab\.behavior, payload\.behavior\)/);
+  assert.match(source, /behavior:\s*runtimeBehavior\(lab\.behavior\)/);
+  assert.match(source, /toLegacyBehaviorCompatibility/);
+  assert.doesNotMatch(source, /function clamp\(value, fallback\)/);
+  assert.doesNotMatch(source, /confidenceStyle:\s*clamp\(/);
 });
