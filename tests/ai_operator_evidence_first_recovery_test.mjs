@@ -40,6 +40,19 @@ test('live balance + tariff skips pre-tool answer synthesis in the Lab pipeline'
   assert.match(source, /UNDERSTANDING → KB при необходимости → evidence plan → READ → один финальный synthesis → локальная проверка/);
 });
 
+test('generation recovery state depends on evidence coverage, not reply wording', () => {
+  const broker = fs.readFileSync(new URL('../src/features/ai-operator/semantic-tool-broker.js', import.meta.url), 'utf8');
+  const impl = fs.readFileSync(new URL('../src/features/ai-operator/semantic-tool-broker-impl.js', import.meta.url), 'utf8');
+
+  assert.match(broker, /delegated\?\.evidenceFallback\?\.used/);
+  assert.match(broker, /delegated\?\.evidenceFallback\?\.complete/);
+  assert.doesNotMatch(broker, /relevance\?\.gate\?\.reason === 'deterministic_confirmed_facts_recovery'/);
+  assert.match(impl, /evidenceFallback:\s*\{/);
+  assert.match(impl, /requestedTools:/);
+  assert.match(impl, /coveredTools:/);
+  assert.match(impl, /complete: Boolean\(evidenceFallback\.complete\)/);
+});
+
 test('confirmed balance + tariff survive final synthesis 429 without leaking adjacent Billing facts', async () => {
   const analysis = {
     probe: {
@@ -138,7 +151,13 @@ test('confirmed balance + tariff survive final synthesis 429 without leaking adj
   assert.equal(result.degraded, false, 'complete confirmed evidence must recover the subscriber-facing turn');
   assert.equal(result.recoveredFromGenerationFailure, true);
   assert.equal(result.generationDegraded, true);
-  assert.equal(result.relevanceGate?.reason, 'deterministic_confirmed_facts_recovery');
+  assert.deepEqual(result.evidenceFallback, {
+    used: true,
+    requestedTools: ['billing.balance', 'billing.tariff'],
+    coveredTools: ['billing.balance', 'billing.tariff'],
+    complete: true
+  });
+  assert.equal(result.relevanceGate?.reason, 'deterministic_local_relevance_boundary');
   assert.doesNotMatch(result.reply, /Договор|Разрешен|Все ОК|Тип подключения|connectionFamily/i);
   assert.doesNotMatch(result.reply, /balance field is accountBalance|повторите|rate limit|429/i);
   assert.doesNotMatch(result.reply, /18\.09\.2026/);
