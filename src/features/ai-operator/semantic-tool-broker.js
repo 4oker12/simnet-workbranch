@@ -388,6 +388,7 @@ export async function executeInformationNeeds(options = {}) {
 }
 
 export const evidenceFallbackReply = impl.evidenceFallbackReply;
+export const evidenceFallbackResult = impl.evidenceFallbackResult;
 
 function mergeUsage(primary = {}, secondary = {}) {
   return {
@@ -433,9 +434,12 @@ export async function groundSubscriberReply(options = {}) {
     meterContext: options.meterContext || {}
   });
 
+  // Recovery state is based on evidence coverage, never on wording of reply or
+  // on a regex match inside the local relevance boundary.
   const recoveredFromGenerationFailure = Boolean(
     generationDegraded
-    && relevance?.gate?.reason === 'deterministic_confirmed_facts_recovery'
+    && delegated?.evidenceFallback?.used
+    && delegated?.evidenceFallback?.complete
     && allRequestedLiveFactsConfirmed(toolTrace)
   );
 
