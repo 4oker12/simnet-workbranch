@@ -32,7 +32,10 @@ jobs:
       - name: AI behavior profile v2 regression
         if: always()
         shell: bash
-        run: node --test tests/ai_operator_behavior_profile_v2_test.mjs
+        run: |
+          node --input-type=module --check < src/features/ai-operator/behavior-profile.js
+          node --check src/ui/ai-operator-behavior-v2.js
+          node --test tests/ai_operator_behavior_profile_v2_test.mjs
       - name: Relevance · semantic JSON repair
         if: always()
         shell: bash
