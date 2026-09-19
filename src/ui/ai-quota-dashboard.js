@@ -29,6 +29,7 @@ function ensureStyle() {
     .ai-quota-row{margin-top:7px}.ai-quota-label{display:flex;justify-content:space-between;gap:8px;font-size:11px;margin-bottom:3px}.ai-quota-label b{font-variant-numeric:tabular-nums}.ai-quota-meta{font-size:9px;opacity:.62;margin-top:2px}
     .ai-quota-track{height:8px;border-radius:999px;background:rgba(80,40,60,.10);overflow:hidden}.ai-quota-fill{height:100%;width:0;border-radius:inherit;background:#a50046;transition:width .15s ease}.ai-quota-fill.warn{background:#b56a00}.ai-quota-fill.danger{background:#b42318}
     .ai-quota-empty{font-size:11px;opacity:.65;padding:6px 0}.ai-quota-saving{margin-top:10px;padding-top:8px;border-top:1px solid rgba(92,40,70,.10);font-size:10px;opacity:.72}
+    .ai-quota-shrink{margin-top:8px;padding:6px 8px;border-radius:7px;background:rgba(165,0,70,.06);font-size:10px;font-variant-numeric:tabular-nums}
   `;
   document.head.append(style);
 }
@@ -60,6 +61,15 @@ function metricRow(name, used, limit, meta = '') {
   return row;
 }
 
+function providerMetric(rate, type, fallbackUsed, fallbackLimit) {
+  const limitKey = `${type}Limit`;
+  const usedKey = `${type}Used`;
+  if (rate?.[limitKey] != null && rate?.[usedKey] != null) {
+    return { used: number(rate[usedKey]), limit: number(rate[limitKey]) || fallbackLimit, exact: true };
+  }
+  return { used: fallbackUsed, limit: fallbackLimit, exact: false };
+}
+
 function modelCard(model, limits, telemetry = {}) {
   const card = document.createElement('div');
   card.className = 'ai-quota-card';
@@ -84,19 +94,35 @@ function modelCard(model, limits, telemetry = {}) {
   const localDayRequests = number(telemetry.day?.requests);
   const rate = telemetry.rateLimit || {};
 
-  const providerTpm = rate.limitTokens != null && rate.remainingTokens != null;
-  const tpmLimit = number(rate.limitTokens) || limits.tpm;
-  const tpmUsed = providerTpm ? Math.max(0, tpmLimit - number(rate.remainingTokens)) : localMinuteTokens;
-  const providerRpd = rate.limitRequests != null && rate.remainingRequests != null;
-  const rpdLimit = number(rate.limitRequests) || limits.rpd;
-  const rpdUsed = providerRpd ? Math.max(0, rpdLimit - number(rate.remainingRequests)) : localDayRequests;
+  const providerTpmHeader = rate.limitTokens != null && rate.remainingTokens != null;
+  const headerTpmLimit = number(rate.limitTokens) || limits.tpm;
+  const headerTpmUsed = providerTpmHeader ? Math.max(0, headerTpmLimit - number(rate.remainingTokens)) : localMinuteTokens;
+  const tpm = providerMetric(rate, 'tpm', headerTpmUsed, headerTpmLimit);
+
+  const tpd = providerMetric(rate, 'tpd', localDayTokens, limits.tpd);
+  const rpm = providerMetric(rate, 'rpm', localMinuteRequests, limits.rpm);
+
+  const providerRpdHeader = rate.limitRequests != null && rate.remainingRequests != null;
+  const headerRpdLimit = number(rate.limitRequests) || limits.rpd;
+  const headerRpdUsed = providerRpdHeader ? Math.max(0, headerRpdLimit - number(rate.remainingRequests)) : localDayRequests;
+  const rpd = providerMetric(rate, 'rpd', headerRpdUsed, headerRpdLimit);
 
   card.append(
-    metricRow('TPM · токены/мин', tpmUsed, tpmLimit, providerTpm ? `Groq header · reset ${shortReset(rate.resetTokens)}` : 'локальный rolling 60s'),
-    metricRow('TPD · токены/день', localDayTokens, limits.tpd, 'локально в этом Chrome-профиле'),
-    metricRow('RPM · запросы/мин', localMinuteRequests, limits.rpm, 'локальный rolling 60s'),
-    metricRow('RPD · запросы/день', rpdUsed, rpdLimit, providerRpd ? `Groq header · reset ${shortReset(rate.resetRequests)}` : 'локально в этом Chrome-профиле')
+    metricRow('TPM · токены/мин', tpm.used, tpm.limit, tpm.exact ? 'точно из Groq 429' : providerTpmHeader ? `Groq header · reset ${shortReset(rate.resetTokens)}` : 'локальный rolling 60s'),
+    metricRow('TPD · токены/день', tpd.used, tpd.limit, tpd.exact ? 'точно из Groq 429' : telemetry.day?.seededFromApiCost ? 'с учётом прежнего счётчика Workbench за сегодня' : 'локально в этом Chrome-профиле'),
+    metricRow('RPM · запросы/мин', rpm.used, rpm.limit, rpm.exact ? 'точно из Groq 429' : 'локальный rolling 60s'),
+    metricRow('RPD · запросы/день', rpd.used, rpd.limit, rpd.exact ? 'точно из Groq 429' : providerRpdHeader ? `Groq header · reset ${shortReset(rate.resetRequests)}` : 'локально в этом Chrome-профиле')
   );
+
+  const before = number(telemetry.last?.requestCharsBefore);
+  const after = number(telemetry.last?.requestCharsAfter);
+  if (before) {
+    const shrink = document.createElement('div');
+    shrink.className = 'ai-quota-shrink';
+    const saved = Math.max(0, before - after);
+    shrink.textContent = `Последний payload: ${integer(before)} → ${integer(after)} символов · срезано ${integer(saved)} (${percent(saved, before).toFixed(1)}%)`;
+    card.append(shrink);
+  }
   return card;
 }
 
@@ -128,7 +154,7 @@ async function render() {
   title.textContent = 'Лимиты AI · 0–100%';
   const subtitle = document.createElement('div');
   subtitle.className = 'ai-quota-empty';
-  subtitle.textContent = 'TPM/RPD уточняются по реальным Groq headers; TPD/RPM считаются локально.';
+  subtitle.textContent = 'TPM/RPD берутся из Groq headers; TPD/RPM — локально, а при 429 заменяются точными Used/Limit провайдера.';
   left.append(title, subtitle);
   const stamp = document.createElement('span');
   stamp.textContent = stored.updatedAt ? `обновлено ${new Date(stored.updatedAt).toLocaleTimeString('ru-RU', { hour12: false })}` : 'ожидаю первый API-вызов';
@@ -142,7 +168,7 @@ async function render() {
 
   const saving = document.createElement('div');
   saving.className = 'ai-quota-saving';
-  saving.textContent = 'TOKEN GOVERNOR: JSON ≤ 650 · ответ ≤ 700 · Prompt Guard ≤ 48 · Qwen reasoning=none · GPT-OSS reasoning=low · повторный сетевой запрос во время 429 cooldown блокируется.';
+  saving.textContent = 'TOKEN GOVERNOR: canonical runtime сжат · semantic transcript ≤ 8 реплик · JSON ≤ 650 · ответ ≤ 700 · Prompt Guard ≤ 48 · Qwen reasoning=none · GPT-OSS reasoning=low · 429 cooldown блокирует повторный сетевой запрос.';
   root.append(saving);
 }
 
