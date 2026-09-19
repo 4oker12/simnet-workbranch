@@ -1,8 +1,10 @@
 const BEHAVIOR_MIN = 1;
 const BEHAVIOR_MAX = 5;
 
+// Preserve the effective defaults of the legacy Lab profile:
+// confidenceStyle=45 -> humanLikeness=2, brevity=65 -> depth=3, initiative=50 -> initiative=3.
 export const DEFAULT_AI_OPERATOR_BEHAVIOR = Object.freeze({
-  humanLikeness: 3,
+  humanLikeness: 2,
   depth: 3,
   initiative: 3
 });
