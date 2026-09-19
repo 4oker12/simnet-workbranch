@@ -1,11 +1,13 @@
-(() => {
+(async () => {
   'use strict';
+
+  const {
+    normalizeBehaviorProfile,
+    toLegacyBehaviorCompatibility
+  } = await import(chrome.runtime.getURL('src/features/ai-operator/behavior-profile.js'));
 
   const ROOT_ID = 'aiLabExperiment';
   const UPGRADED_ATTR = 'data-behavior-v2';
-  const LEVELS = Object.freeze([1, 2, 3, 4, 5]);
-  const INITIATIVE_TO_LEGACY = Object.freeze({ 1: 20, 2: 35, 3: 50, 4: 65, 5: 80 });
-  const DEPTH_TO_BREVITY = Object.freeze({ 1: 90, 2: 75, 3: 60, 4: 45, 5: 30 });
 
   let latestBehavior = null;
   let saveTimer = null;
@@ -13,44 +15,6 @@
   function clampLevel(value, fallback = 3) {
     const numeric = Number(value);
     return Number.isFinite(numeric) ? Math.max(1, Math.min(5, Math.round(numeric))) : fallback;
-  }
-
-  function levelFromRange(value, points, fallback = 3) {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) return fallback;
-    let best = fallback;
-    let distance = Infinity;
-    for (const [level, point] of Object.entries(points)) {
-      const next = Math.abs(numeric - Number(point));
-      if (next < distance) {
-        distance = next;
-        best = Number(level);
-      }
-    }
-    return clampLevel(best, fallback);
-  }
-
-  function viewModel(behavior = {}) {
-    const humanLikeness = levelFromRange(behavior.confidenceStyle, { 1: 35, 2: 45, 3: 55, 4: 65, 5: 75 }, 3);
-    const depth = levelFromRange(behavior.brevity, DEPTH_TO_BREVITY, 3);
-    const initiative = levelFromRange(behavior.initiative, INITIATIVE_TO_LEGACY, 3);
-    return { humanLikeness, depth, initiative };
-  }
-
-  function legacyBehavior(levels = {}, current = {}) {
-    const human = clampLevel(levels.humanLikeness);
-    const depth = clampLevel(levels.depth);
-    const initiative = clampLevel(levels.initiative);
-    return {
-      ...current,
-      confidenceStyle: { 1: 35, 2: 45, 3: 55, 4: 65, 5: 75 }[human],
-      curiosity: { 1: 45, 2: 50, 3: 55, 4: 60, 5: 65 }[human],
-      // Truthfulness is not a style knob. Keep skepticism high and stable.
-      skepticism: Math.max(70, Number(current.skepticism || 75)),
-      brevity: DEPTH_TO_BREVITY[depth],
-      maxFollowUpQuestions: depth <= 2 ? 1 : depth >= 5 ? 3 : 2,
-      initiative: INITIATIVE_TO_LEGACY[initiative]
-    };
   }
 
   async function runtime(type, payload = undefined) {
@@ -93,7 +57,7 @@
   }
 
   function renderLevels(container, behavior = {}) {
-    const levels = viewModel(behavior);
+    const levels = normalizeBehaviorProfile(behavior);
     for (const [key, value] of Object.entries(levels)) {
       const input = container.querySelector(`[data-behavior-v2-key="${key}"]`);
       const output = container.querySelector(`[data-behavior-v2-output="${key}"]`);
@@ -103,7 +67,9 @@
   }
 
   async function save(container) {
-    const behavior = legacyBehavior(levelsFrom(container), latestBehavior || {});
+    // Until the background/runtime migration lands, translate the three native
+    // scales back to the old persisted shape in one centralized adapter.
+    const behavior = toLegacyBehaviorCompatibility(levelsFrom(container), latestBehavior || {});
     latestBehavior = behavior;
     try {
       const state = await runtime('AI_OPERATOR_LAB_CONFIG', { behavior });
@@ -154,4 +120,4 @@
   const observer = new MutationObserver(() => void upgrade());
   observer.observe(document.documentElement, { childList: true, subtree: true });
   void upgrade();
-})();
+})().catch(error => console.warn('[AI Lab behavior v2]', error));
