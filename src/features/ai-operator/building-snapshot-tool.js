@@ -42,6 +42,27 @@ function normalizeHouse(value) {
     .replace(/-+/g, '-');
 }
 
+function normalizeHouseSuffix(value) {
+  const suffix = String(value || '').toLowerCase();
+  // A common operator input is Latin "a" while UserSide stores Cyrillic "А".
+  if (suffix === 'a') return 'а';
+  return suffix;
+}
+
+function canonicalHouseKey(value) {
+  const normalized = normalizeHouse(value);
+  if (!normalized) return '';
+  const letterSuffix = normalized.match(/^(\d+)[\/-]?([\p{L}])$/u);
+  if (letterSuffix) return `${letterSuffix[1]}/${normalizeHouseSuffix(letterSuffix[2])}`;
+  return normalized;
+}
+
+function houseEquivalent(left = '', right = '') {
+  const leftKey = canonicalHouseKey(left);
+  const rightKey = canonicalHouseKey(right);
+  return Boolean(leftKey && rightKey && leftKey === rightKey);
+}
+
 function houseVariantsFromAddress(addressValue = '', houseValue = '') {
   const base = normalizeHouse(houseValue);
   if (!base) return [];
@@ -51,6 +72,8 @@ function houseVariantsFromAddress(addressValue = '', houseValue = '') {
   const normalizedBlock = normalizeHouse(block);
   if (normalizedBlock && !base.includes('/')) variants.push(`${base}/${normalizedBlock}`);
   variants.push(base);
+  const canonicalBase = canonicalHouseKey(base);
+  if (canonicalBase && canonicalBase !== base) variants.push(canonicalBase);
   return [...new Set(variants.filter(Boolean))];
 }
 
@@ -65,11 +88,21 @@ function normalizeStreetPart(value) {
     .trim();
 }
 
+const ADMINISTRATIVE_STREET_ANNOTATION_RE = /^(?:голосіївський|дарницький|деснянський|дніпровський|оболонський|печерський|подільський|святошинський|соломянський|шевченківський|голосеевский|дарницкий|деснянский|днепровский|оболонский|печерский|подольский|святошинский|соломенский|шевченковский)(?:\s+(?:район|р-н))?$/iu;
+
+function isAdministrativeStreetAnnotation(value = '') {
+  const normalized = normalizeStreetPart(value);
+  return Boolean(normalized && ADMINISTRATIVE_STREET_ANNOTATION_RE.test(normalized));
+}
+
 function streetVariants(value) {
   const source = text(value, 500);
   if (!source) return [];
   const aliases = [source.replace(/\([^)]*\)/g, ' ')];
-  for (const match of source.matchAll(/\(([^)]*)\)/g)) aliases.push(match[1]);
+  for (const match of source.matchAll(/\(([^)]*)\)/g)) {
+    const alias = match[1];
+    if (!isAdministrativeStreetAnnotation(alias)) aliases.push(alias);
+  }
   const normalized = aliases
     .flatMap(item => String(item || '').split(/\s*(?:\||;)\s*/))
     .map(normalizeStreetPart)
@@ -139,7 +172,7 @@ function queryFromArgs(toolArgs = {}, labState = {}) {
     street: explicitStreet,
     streetAliases: streetVariants(toolArgs.street),
     house: explicitHouse,
-    houseAliases: explicitHouse ? [explicitHouse] : [],
+    houseAliases: explicitHouse ? houseVariantsFromAddress(explicitAddress, explicitHouse) : [],
     rawAddress: explicitAddress || subscriberAddress
   };
 }
@@ -157,7 +190,7 @@ function latestCustomerTextFromLab(lab = {}) {
 
 function houseTokens(value) {
   return (String(value || '').match(/\d+[\p{L}]?(?:\s*[\/-]\s*[\p{L}\d]+)?/gu) || [])
-    .map(normalizeHouse)
+    .map(canonicalHouseKey)
     .filter(Boolean);
 }
 
@@ -181,7 +214,8 @@ export function inferBuildingQueryFromText(snapshot = {}, sourceText = '') {
   for (const building of buildings) {
     const parsed = parseStreetHouse(building?.address);
     const buildingHouses = parsed.houseAliases?.length ? parsed.houseAliases : [parsed.house];
-    if (!parsed.street || !buildingHouses.some(house => sourceHouses.has(house))) continue;
+    const buildingHouseKeys = buildingHouses.map(canonicalHouseKey).filter(Boolean);
+    if (!parsed.street || !buildingHouseKeys.some(house => sourceHouses.has(house))) continue;
     const aliases = parsed.streetAliases.length ? parsed.streetAliases : [parsed.street];
     const aliasMatches = aliases.some(alias => {
       const tokens = streetTokens(alias);
@@ -237,7 +271,14 @@ function normalizedQueryHouses(query = {}) {
     const parsed = parseStreetHouse(query.rawAddress);
     variants.push(...(parsed.houseAliases || []), parsed.house);
   }
-  return [...new Set(variants.map(normalizeHouse).filter(Boolean))];
+  const expanded = [];
+  for (const variant of variants) {
+    const normalized = normalizeHouse(variant);
+    const canonical = canonicalHouseKey(variant);
+    if (normalized) expanded.push(normalized);
+    if (canonical) expanded.push(canonical);
+  }
+  return [...new Set(expanded)];
 }
 
 function streetsFuzzyMatch(left = '', right = '') {
@@ -245,22 +286,37 @@ function streetsFuzzyMatch(left = '', right = '') {
 }
 
 function collectMatches(buildings = [], streets = [], house = '') {
-  const exact = [];
+  const primaryExact = [];
+  const aliasExact = [];
   const fuzzy = [];
+  const queryPrimary = streets[0] || '';
   for (const building of buildings) {
     const parsed = parseStreetHouse(building?.address);
     const buildingHouses = parsed.houseAliases?.length ? parsed.houseAliases : [parsed.house];
-    if (!parsed.street || !buildingHouses.includes(house)) continue;
-    const buildingStreets = parsed.streetAliases.length ? parsed.streetAliases : [parsed.street];
-    const exactMatch = buildingStreets.some(candidate => streets.includes(candidate));
-    if (exactMatch) {
-      exact.push(building);
+    if (!parsed.street || !buildingHouses.some(candidate => houseEquivalent(candidate, house))) continue;
+
+    const buildingPrimary = normalizeStreetPart(parsed.street);
+    const buildingStreets = (parsed.streetAliases.length ? parsed.streetAliases : [parsed.street])
+      .map(normalizeStreetPart)
+      .filter(Boolean);
+
+    if (queryPrimary && buildingPrimary === queryPrimary) {
+      primaryExact.push(building);
       continue;
     }
+
+    const exactAliasMatch = buildingStreets.some(candidate => streets.includes(candidate));
+    if (exactAliasMatch) {
+      aliasExact.push(building);
+      continue;
+    }
+
     const fuzzyMatch = buildingStreets.some(candidate => streets.some(queryStreet => streetsFuzzyMatch(candidate, queryStreet)));
     if (fuzzyMatch) fuzzy.push(building);
   }
-  return exact.length ? exact : fuzzy;
+  if (primaryExact.length) return primaryExact;
+  if (aliasExact.length) return aliasExact;
+  return fuzzy;
 }
 
 export function findBuildingInSnapshot(snapshot = {}, query = {}) {
