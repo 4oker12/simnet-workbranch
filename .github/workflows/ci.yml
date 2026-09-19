@@ -53,10 +53,13 @@ jobs:
         if: always()
         shell: bash
         run: node --test --test-name-pattern="Lab exposes CLEAN MODEL" tests/ai_operator_relevance_clean_json_test.mjs
-      - name: DeepSeek adapter regression
+      - name: AI provider adapter regression
         if: always()
         shell: bash
-        run: node --test tests/ai_provider_deepseek_json_repair_test.mjs
+        run: |
+          node --test \
+            tests/ai_provider_deepseek_json_repair_test.mjs \
+            tests/ai_provider_router_bootstrap_order_test.mjs
       - name: Run npm test
         if: always()
         shell: bash
