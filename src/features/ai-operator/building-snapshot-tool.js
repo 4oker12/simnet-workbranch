@@ -135,15 +135,6 @@ export function inferBuildingQueryFromText(snapshot = {}, sourceText = '') {
   return matches[0];
 }
 
-async function labQueryFallback(snapshot = {}) {
-  try {
-    const lab = (await chrome.storage.local.get(LAB_KEY))?.[LAB_KEY];
-    return inferBuildingQueryFromText(snapshot, latestCustomerTextFromLab(lab));
-  } catch {
-    return { street: '', house: '', rawAddress: '' };
-  }
-}
-
 function fieldMap(fields = []) {
   const mapped = {};
   for (const item of Array.isArray(fields) ? fields : []) {
@@ -186,11 +177,10 @@ export function findBuildingInSnapshot(snapshot = {}, query = {}) {
 }
 
 export async function readBuildingSnapshot({ toolArgs = {}, labState = {} } = {}) {
-  let query = queryFromArgs(toolArgs, labState);
-
   const stored = await chrome.storage.local.get([SNAPSHOT_KEY, LAB_KEY]);
   const snapshot = stored?.[SNAPSHOT_KEY];
   if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    const query = queryFromArgs(toolArgs, labState);
     return result(false, 'BUILDING_SNAPSHOT_MISSING', {
       message: 'Локальный индекс карточек зданий UserSide ещё не загружен.',
       source: SOURCE,
@@ -199,16 +189,24 @@ export async function readBuildingSnapshot({ toolArgs = {}, labState = {} } = {}
     }, ['Не трактовать отсутствие snapshot как отсутствие покрытия или дома.']);
   }
 
-  if (!query.street || !query.house) {
-    const labText = latestCustomerTextFromLab(stored?.[LAB_KEY]);
-    query = inferBuildingQueryFromText(snapshot, labText);
-  }
+  // Address priority matters. A building-level question may happen while another
+  // subscriber is already bound in Lab. In that case the address explicitly
+  // mentioned in the CURRENT customer turn must win over confirmedSubscriber.address.
+  const explicitQuery = queryFromArgs(toolArgs, {});
+  const labText = latestCustomerTextFromLab(stored?.[LAB_KEY]);
+  const currentTurnQuery = inferBuildingQueryFromText(snapshot, labText);
+  const subscriberQuery = queryFromArgs({}, labState);
+  let query = explicitQuery.street && explicitQuery.house
+    ? explicitQuery
+    : currentTurnQuery.street && currentTurnQuery.house
+      ? currentTurnQuery
+      : subscriberQuery;
 
   if (!query.street || !query.house) {
     return result(false, 'BUILDING_ADDRESS_REQUIRED', {
       message: 'Для карточки здания нужны улица и номер дома.',
       query
-    }, ['Передай адрес напрямую в toolArgs.address, через confirmedSubscriber.address или явно укажи улицу и дом в текущем вопросе AI Lab.']);
+    }, ['Передай адрес напрямую в toolArgs.address, явно укажи улицу и дом в текущем вопросе AI Lab или используй адрес подтверждённого абонента.']);
   }
 
   const found = findBuildingInSnapshot(snapshot, query);
@@ -241,7 +239,7 @@ export async function readBuildingSnapshot({ toolArgs = {}, labState = {} } = {}
     source: SOURCE,
     snapshotKey: SNAPSHOT_KEY,
     snapshotGeneratedAt: text(snapshot.generatedAt, 100),
-    snapshotComplete: Boolean(snapshot?.stats?.complete),
+    snapshotComplete: Boolean(snapshot?.stats?.complete ?? snapshot?.complete),
     query
   });
 }
