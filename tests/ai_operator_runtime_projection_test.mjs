@@ -85,3 +85,21 @@ test('semantic runtime uses deterministic KB retrieval instead of a second knowl
   assert.match(source, /Отдельный LLM knowledge-reflection этап не запускается/);
   assert.doesNotMatch(source, /await\s+base\.buildKnowledgeReflectionMessages/);
 });
+
+test('semantic stage prompts stay task-scoped instead of duplicating AUTONOMOUS_OPERATOR', () => {
+  const source = readFileSync(new URL('../src/features/ai-operator/semantic-probe-runtime-base.js', import.meta.url), 'utf8');
+  assert.match(source, /ЭТАП: UNDERSTANDING\./);
+  assert.match(source, /ЭТАП: FINAL ANSWER\./);
+  assert.match(source, /ЭТАП: FINAL ANSWER AFTER READ\./);
+  assert.doesNotMatch(source, /ANSWER RELEVANCE GATE/);
+  assert.doesNotMatch(source, /НЕИЗМЕНЯЕМЫЕ правила достоверности/);
+  assert.doesNotMatch(source, /"behavior_effects"/);
+});
+
+test('canonical fact path bypasses legacy tool synthesis prompt', () => {
+  const source = readFileSync(new URL('../src/features/ai-operator/semantic-tool-broker-core.js', import.meta.url), 'utf8');
+  assert.match(source, /generateGroundedSubscriberReply/);
+  assert.match(source, /if \(!originalFactResolution\)/);
+  assert.match(source, /canonicalFactEvidence:/);
+  assert.doesNotMatch(source, /TOOL EVIDENCE SYNTHESIS/);
+});
