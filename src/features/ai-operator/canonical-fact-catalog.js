@@ -20,6 +20,8 @@ const building = (field, type = 'text') => fact('userside.building', [`fields.${
 export const CANONICAL_SOURCE_CATALOG = Object.freeze({
   'billing.mainSummary': Object.freeze({ tool: 'billing.main_summary', ttlMs: 120000, scope: 'subscriber' }),
   'billing.customer': Object.freeze({ tool: 'customer.snapshot', ttlMs: 120000, scope: 'subscriber' }),
+  // Kept for legacy callers. Canonical finance/payment/service facts that are present
+  // on a=user are intentionally grouped under billing.mainSummary to avoid fetching dopdata.
   'billing.payments': Object.freeze({ tool: 'billing.payments', ttlMs: 120000, scope: 'subscriber' }),
   'userside.subscriber': Object.freeze({ tool: 'userside.snapshot', ttlMs: 120000, scope: 'subscriber' }),
   'network.session': Object.freeze({ tool: 'network.session', ttlMs: 45000, scope: 'subscriber' }),
@@ -62,11 +64,11 @@ export const CANONICAL_FACT_CATALOG = Object.freeze({
   'subscriber.finance.balance.afterTariff': billingMain('finance.balanceAfterTariff', 'money'),
   'subscriber.finance.balance.withoutTemporary': billingMain('finance.balanceWithoutTemporary', 'money'),
   'subscriber.finance.temporaryPayment': billingMain('finance.temporaryPayment', 'money'),
-  'subscriber.finance.payments': fact('billing.payments', 'payments', 'array', 120000),
+  'subscriber.finance.payments': billingMain('payments', 'array'),
 
-  'subscriber.service.accessState': billingCustomer('service.accessState'),
-  'subscriber.service.serviceState': billingCustomer('service.serviceState'),
-  'subscriber.services': billingCustomer('service.activeServices', 'array'),
+  'subscriber.service.accessState': billingMain('service.accessState'),
+  'subscriber.service.serviceState': billingMain('service.serviceState'),
+  'subscriber.services': billingMain('service.activeServices', 'array'),
 
   // IP is canonically owned by NetworkAccess even when it is used as a lookup key.
   'subscriber.network.currentIp': billingCustomer(['network.ip', 'network.currentIp']),
@@ -146,4 +148,3 @@ export function normalizeCanonicalFacts(values = []) {
   }
   return result.slice(0, 16);
 }
-
