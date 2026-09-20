@@ -72,16 +72,14 @@ export function normalizeTariffLabel(value) {
 function nextCalendarMonth(now = new Date()) {
   const date = now instanceof Date ? now : new Date(now);
   if (Number.isNaN(date.getTime())) return null;
-  const year = date.getFullYear();
-  const monthIndex = date.getMonth() + 1;
-  const next = new Date(year, monthIndex, 1);
+  const next = new Date(date.getFullYear(), date.getMonth() + 1, 1);
   return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function normalizeEffectivePeriod(value, now = new Date()) {
   const raw = clean(value, 260);
   if (!raw) return null;
-  if (/(?:в|на)\s+(?:следующ(?:ем|ий)|наступн(?:ому|ий))\s+месяц|(?:в|на)\s+наступн(?:ому|ий)\s+місяц/i.test(raw)) {
+  if (/(?:в|на)\s+(?:следующ\w*|наступн\w*)\s+(?:месяц\w*|місяц\w*)/i.test(raw)) {
     return { kind: 'next_month', month: nextCalendarMonth(now), raw };
   }
   return { kind: 'billing_schedule', month: null, raw };
@@ -154,7 +152,9 @@ export function normalizeBillingTariffSnapshot(snapshot = {}, { now = new Date()
     now
   });
   const activeServices = normalizeActiveServices(service.activeServices);
-  const recurringTotal = calculateRecurringTotal(finance.price, activeServices);
+  const priceSemantics = String(finance.priceSemantics || '');
+  const internetPriceIsAuthoritative = !/^generic_price_row_not_guaranteed/i.test(priceSemantics);
+  const recurringTotal = internetPriceIsAuthoritative ? calculateRecurringTotal(finance.price, activeServices) : null;
 
   service.currentTariffRaw = current.rawName;
   service.currentTariffDisplay = current.displayName;
@@ -187,9 +187,11 @@ export function normalizeBillingTariffSnapshot(snapshot = {}, { now = new Date()
     : activeServices.length ? null : 0;
 
   finance.recurringTotal = recurringTotal;
-  finance.recurringTotalSemantics = recurringTotal == null
-    ? 'unknown_when_internet_or_additional_service_amount_is_missing'
-    : 'exact_internet_tariff_price_plus_active_additional_services';
+  finance.recurringTotalSemantics = !internetPriceIsAuthoritative
+    ? 'unknown_because_source_price_is_not_confirmed_as_internet_tariff_price'
+    : recurringTotal == null
+      ? 'unknown_when_internet_or_additional_service_amount_is_missing'
+      : 'exact_internet_tariff_price_plus_active_additional_services';
 
   return { ...snapshot, service, finance };
 }
