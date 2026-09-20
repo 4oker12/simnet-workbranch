@@ -24,6 +24,15 @@ function semanticEvidenceNeeds(analysis = {}) {
     .slice(0, 6);
 }
 
+function semanticRequiredFacts(analysis = {}) {
+  const facts = Array.isArray(analysis?.probe?.requiredFacts) ? analysis.probe.requiredFacts : [];
+  return facts.map(path => ({
+    system: 'Domain',
+    field: line(path, 180),
+    why: 'Semantic understanding определил этот канонический факт как необходимый для текущего ответа.'
+  })).filter(item => item.field).slice(0, 16);
+}
+
 function requestList(analysis = {}) {
   const probe = analysis?.probe || {};
   const unresolved = (Array.isArray(probe.unresolvedRequests) ? probe.unresolvedRequests : [])
@@ -107,18 +116,19 @@ export function recoverLiveDataNeeds({ analysis = {}, draft = {} } = {}) {
     .map(normalizeNeed)
     .filter(item => item.system || item.field || item.why);
   const semantic = semanticEvidenceNeeds(analysis);
+  const canonical = semanticRequiredFacts(analysis);
   const liveNeed = line(analysis?.probe?.liveDataNeed || analysis?.probe?.live_data_need, 20).toLowerCase();
   const requests = requestList(analysis);
 
   // Regex derivation is strictly fallback. If UNDERSTANDING already produced a
   // semantic evidence plan, do not rebuild the user's meaning from keywords.
-  const derived = semantic.length ? [] : requests.flatMap(derivedNeedsForRequest);
-  const recoveryAllowed = existing.length > 0 || semantic.length > 0 || liveNeed === 'needed' || derived.length > 0;
+  const derived = semantic.length || canonical.length ? [] : requests.flatMap(derivedNeedsForRequest);
+  const recoveryAllowed = existing.length > 0 || semantic.length > 0 || canonical.length > 0 || liveNeed === 'needed' || derived.length > 0;
   if (!recoveryAllowed) return existing;
 
   const merged = [];
   const seen = new Set();
-  for (const need of [...existing, ...semantic, ...derived]) {
+  for (const need of [...existing, ...canonical, ...semantic, ...derived]) {
     const normalized = normalizeNeed(need);
     const key = toolFromField(normalized.field) || `${normalized.system.toLowerCase()}|${normalized.field.toLowerCase()}`;
     if (!key || seen.has(key)) continue;

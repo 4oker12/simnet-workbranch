@@ -2,6 +2,8 @@
 
 import * as core from './semantic-tool-broker-core.js';
 import { recoverLiveDataNeeds } from './live-need-recovery.js';
+import { normalizeCanonicalFacts } from './canonical-fact-catalog.js';
+import { resolveFacts } from './canonical-fact-resolver.js';
 
 /*
 Evidence contract inherited from the core broker and enforced again by the runtime fallback:
@@ -397,12 +399,25 @@ export async function groundSubscriberReply(options = {}) {
   if (typeof execute !== 'function') throw new Error('Soft tool broker requires execute(tool)');
   const needs = recoverLiveDataNeeds({ analysis, draft });
   const routedNeeds = routeNeedsForCore(needs);
-  const routedDraft = { ...draft, subscriberDataNeeded: routedNeeds };
-  const shouldBootstrap = routedNeeds.length === 0 || requiresSubscriberBootstrap(routedNeeds);
+  const requiredFacts = normalizeCanonicalFacts(analysis?.probe?.requiredFacts || []);
+  const routedDraft = { ...draft, subscriberDataNeeded: requiredFacts.length ? [] : routedNeeds };
+  const canonicalNeedsSubscriber = requiredFacts.some(path => !path.startsWith('building.'));
+  const shouldBootstrap = requiredFacts.length
+    ? canonicalNeedsSubscriber
+    : (routedNeeds.length === 0 || requiresSubscriberBootstrap(routedNeeds));
   const pre = shouldBootstrap
     ? await bootstrapExplicitIdentity({ transcript, analysis, labState, execute, includeSnapshot: Boolean(draft?.degraded && needs.length === 0) })
     : { trace: [], labState: cloneState(labState) };
-  const result = await coreGround({ ...rest, draft: routedDraft, transcript, analysis, labState: pre.labState, execute });
+  const identity = core.extractIdentityHints(transcript, analysis);
+  const factResolution = requiredFacts.length
+    ? await resolveFacts({
+      context: pre.labState,
+      facts: requiredFacts,
+      execute,
+      request: { address: identity?.address || '', refresh: false }
+    })
+    : null;
+  const result = await coreGround({ ...rest, draft: routedDraft, transcript, analysis, labState: pre.labState, execute, factResolution });
   const toolTrace = mergeTrace(pre.trace, result?.toolTrace);
   const toolEvidence = uniqueEvidence(toolTrace);
   const mustUseEvidenceFallback = toolEvidence.length > 0 && Boolean(result?.degraded || draft?.degraded);
@@ -421,6 +436,8 @@ export async function groundSubscriberReply(options = {}) {
     },
     toolTrace,
     toolEvidence,
+    factEvidence: result?.factEvidence || factResolution?.evidence || [],
+    factDiagnostics: result?.factDiagnostics || factResolution?.diagnostics || {},
     toolState: result?.toolState || pre.labState
   };
 }

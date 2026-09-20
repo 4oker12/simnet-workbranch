@@ -407,9 +407,9 @@ function synthesisEvidenceData(item = {}) {
   return compactObject(data);
 }
 
-function synthesisMessages({ transcript = [], latestCustomer = {}, analysis = {}, draft = {}, toolTrace = [], useKnowledge = true } = {}) {
+function synthesisMessages({ transcript = [], latestCustomer = {}, analysis = {}, draft = {}, toolTrace = [], factResolution = null, useKnowledge = true } = {}) {
   const dialogue = (Array.isArray(transcript) ? transcript : []).slice(-14).map(item => ({ role: item?.role === 'customer' ? 'customer' : 'operator', text: block(item?.text, 700) })).filter(item => item.text);
-  const evidence = toolTrace.map(item => ({
+  const evidence = factResolution ? [] : toolTrace.map(item => ({
     tool: item.tool,
     requested_by: compactObject(item.requestedBy || {}),
     ok: item.ok,
@@ -421,12 +421,13 @@ function synthesisMessages({ transcript = [], latestCustomer = {}, analysis = {}
   }));
   const stageInstruction = `ЭТАП: TOOL EVIDENCE SYNTHESIS.
 
-READ-only проверки уже выполнены. Сформируй естественный полезный ответ на исходный вопрос абонента, используя dialogue, internal_knowledge и tool_evidence как evidence. draft_reply может быть пустым: для live-запросов это нормально, потому что ответ специально не генерируется до получения фактов.
+READ-only проверки уже выполнены. Сформируй естественный полезный ответ на исходный вопрос абонента, используя dialogue, internal_knowledge и canonical_fact_evidence (либо legacy tool_evidence) как evidence. draft_reply может быть пустым: для live-запросов это нормально, потому что ответ специально не генерируется до получения фактов.
 
 Сначала рассуждай по уже имеющимся фактам. Если их достаточно для прямого логического, арифметического, технического или семантического вывода, дай этот вывод. Не создавай новые требования к данным из-за гипотетического исключения или сценария «а вдруг».
 
 Правила источников:
 - tool_evidence с ok=true подтверждает только реально возвращённые поля;
+- canonical_fact_evidence содержит только запрошенные канонические факты: status=known подтверждает значение, status=absent означает успешно наблюдавшееся пустое поле, status=unknown означает, что факт не прочитан/не подтверждён;
 - requested_by показывает, ради какого факта был сделан READ; соседние возвращённые поля не обязаны попадать в ответ;
 - source=billing-live-read-only и source=billing-main-live-read-only — свежая READ-проверка Billing;
 - source=userside-live-read-only — свежая READ-проверка UserSide;
@@ -461,6 +462,8 @@ READ-only проверки уже выполнены. Сформируй ест�
         internal_knowledge: useKnowledge ? compactObject(analysis?.knowledge || {}) : { skipped: true },
         draft_reply: block(draft?.reply, 1800),
         draft_data_needs: normalizeDataNeeds(draft?.subscriberDataNeeded),
+        canonical_fact_evidence: compactObject(factResolution?.evidence || []),
+        fact_resolver_diagnostics: compactObject(factResolution?.diagnostics || {}),
         tool_evidence: evidence
       })
     }
@@ -481,18 +484,36 @@ function normalizeSynthesis(raw = {}, draft = {}) {
   };
 }
 
-export async function groundSubscriberReply({ draft = {}, transcript = [], latestCustomer = {}, analysis = {}, useKnowledge = true, labState = {}, execute, meterContext = {} } = {}) {
+export async function groundSubscriberReply({ draft = {}, transcript = [], latestCustomer = {}, analysis = {}, useKnowledge = true, labState = {}, execute, meterContext = {}, factResolution = null } = {}) {
   const needs = normalizeDataNeeds(draft?.subscriberDataNeeded);
-  const cycle = await executeInformationNeeds({ needs, transcript, analysis, labState, execute });
-  const hasToolActivity = cycle.trace.length > 0;
+  const factTrace = (Array.isArray(factResolution?.sourceTrace) ? factResolution.sourceTrace : []).map(item => ({
+    tool: oneLine(item?.tool || 'canonical.fact_resolver', 100),
+    requestedBy: { system: 'CanonicalDomain', field: (item?.requestedFacts || []).join(', '), why: 'Resolve only facts selected by semantic understanding.' },
+    args: compactObject(item?.args || {}),
+    ok: Boolean(item?.ok),
+    code: oneLine(item?.code || (item?.ok ? 'OK' : 'ERROR'), 100),
+    observedAt: oneLine(item?.observedAt || '', 100),
+    source: oneLine(item?.provenance || item?.source || '', 140),
+    data: {},
+    warnings: stringList(item?.warnings, 5, 360),
+    cache: oneLine(item?.cache || '', 20),
+    requestedFacts: [...(item?.requestedFacts || [])]
+  }));
+  const cycle = factResolution
+    ? { trace: factTrace, labState: factResolution.context || labState }
+    : await executeInformationNeeds({ needs, transcript, analysis, labState, execute });
+  const hasToolActivity = cycle.trace.length > 0 || Boolean(factResolution?.requestedFacts?.length);
   const rawDraftReply = block(draft?.reply, 2200);
   const safeDraft = ensureNonEmptyReply(rawDraftReply, analysis, cycle.trace);
   if (!hasToolActivity) {
     return { ...draft, reply: safeDraft, subscriberDataNeeded: needs, toolTrace: [], toolEvidence: [], degraded: Boolean(draft?.degraded), degradationReason: oneLine(draft?.degradationReason, 500), toolState: cycle.labState };
   }
   try {
+    const messages = factResolution
+      ? synthesisMessages({ transcript, latestCustomer, analysis, draft: { ...draft, reply: rawDraftReply }, toolTrace: cycle.trace, factResolution, useKnowledge })
+      : synthesisMessages({ transcript, latestCustomer, analysis, draft: { ...draft, reply: rawDraftReply }, toolTrace: cycle.trace, useKnowledge });
     const response = await requestSynthesis(
-      synthesisMessages({ transcript, latestCustomer, analysis, draft: { ...draft, reply: rawDraftReply }, toolTrace: cycle.trace, useKnowledge }),
+      messages,
       { ...meterContext, stage: 'tool_synthesis' }
     );
     const normalized = normalizeSynthesis(parseJsonObject(response.answer), draft);
@@ -505,6 +526,8 @@ export async function groundSubscriberReply({ draft = {}, transcript = [], lates
       rateLimit: response.rateLimit || draft?.rateLimit || {},
       toolTrace: cycle.trace,
       toolEvidence: cycle.trace.filter(item => item.ok),
+      factEvidence: compactObject(factResolution?.evidence || []),
+      factDiagnostics: compactObject(factResolution?.diagnostics || {}),
       degraded: false,
       degradationReason: '',
       toolState: cycle.labState
@@ -516,6 +539,8 @@ export async function groundSubscriberReply({ draft = {}, transcript = [], lates
       subscriberDataNeeded: needs,
       toolTrace: cycle.trace,
       toolEvidence: cycle.trace.filter(item => item.ok),
+      factEvidence: compactObject(factResolution?.evidence || []),
+      factDiagnostics: compactObject(factResolution?.diagnostics || {}),
       degraded: true,
       degradationReason: oneLine(error?.message || error, 600),
       toolState: cycle.labState

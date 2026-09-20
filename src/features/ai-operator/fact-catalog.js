@@ -1,5 +1,13 @@
 // SIMNET source semantics live here, not in the language model's prompt.
 // Durations are cache policy, not claims about CRM update frequency.
+export {
+  CANONICAL_FACT_CATALOG,
+  CANONICAL_SOURCE_CATALOG,
+  LEGACY_FACT_ALIASES,
+  canonicalFactPath,
+  normalizeCanonicalFacts
+} from './canonical-fact-catalog.js';
+
 const billing = (path, type = 'text') => ({ source: 'customer.snapshot', path, type, ttlMs: 120000 });
 export const FACT_CATALOG = Object.freeze({
   accountBalance: billing('finance.accountBalance', 'money'),

@@ -3,6 +3,7 @@ import { AI_CONFIG, readAiRuntimeConfig } from '../../config/ai-config.js';
 import { SIMNET_KNOWLEDGE_VERSION, knowledgeQueryFromUnderstanding, searchKnowledgeLibrary } from './knowledge/index.js';
 import { autonomousOperatorSystemMessages } from './instructions/autonomous-operator-instruction.generated.js';
 import { behaviorPromptGuidance, behaviorRuntimeHints } from './behavior-profile.js';
+import { CANONICAL_FACT_PATHS, normalizeCanonicalFacts } from './canonical-fact-catalog.js';
 
 const GENERATION_FALLBACK_MODELS = Object.freeze([
   'qwen/qwen3.8-27b',
@@ -279,7 +280,10 @@ export function buildSubscriberIntentProbeMessages({ transcript = [], latestCust
 Отдельно определи, зависит ли существенная часть ответа от ТЕКУЩЕГО факта конкретного абонента или системы, который нельзя честно получить из самого диалога/общеизвестного знания:
 - live_data_need=none — текущий READ не нужен; например, вопрос общий, смысловой, арифметический по уже данным числам или ответ уже следует из подтверждённого контекста;
 - live_data_need=needed — нужен свежий/подтверждённый факт Billing, UserSide или Network.
-Если нужен live-факт, перечисли evidence_needs как факты, а НЕ tools и НЕ команды. Пиши field коротким естественным названием факта на языке разговора, например system=Billing, field="текущий баланс" или field="текущий тариф". Не пиши названия функций вроде billing.balance. Не добавляй договор/login/адрес как отдельный evidence_need только потому, что они технически нужны для поиска: это идентификатор, а не факт ответа. Не перечисляй соседние данные «на всякий случай» — только то, без чего нельзя закрыть реальную просьбу.
+Если нужен live-факт, перечисли evidence_needs как факты, а НЕ tools и НЕ команды. Пиши field коротким естественным названием факта на языке разговора, например system=Billing, field="текущий баланс" или field="текущий тариф". Одновременно заполни required_facts точными каноническими путями из разрешённого списка ниже. Не пиши названия функций вроде billing.balance. Не добавляй договор/login/адрес как отдельный evidence_need только потому, что они технически нужны для поиска: это идентификатор, а не факт ответа. Не перечисляй соседние данные «на всякий случай» — только то, без чего нельзя закрыть реальную просьбу.
+
+Разрешённые canonical facts:
+${CANONICAL_FACT_PATHS.join('\n')}
 
 Также оцени, даст ли внутренняя энциклопедия SIMNET реальную пользу именно на ЭТОМ ходе:
 - knowledge_need=none: внутренние правила/знания ничего существенного не добавят;
@@ -302,6 +306,7 @@ export function buildSubscriberIntentProbeMessages({ transcript = [], latestCust
   "ambiguities":["только реальная неоднозначность смысла; не придумывай лишние варианты"],
   "live_data_need":"none|needed",
   "evidence_needs":[{"system":"Billing|UserSide|Network","field":"какой текущий факт нужно подтвердить, без названия tool","why":"почему этот факт нужен для текущей просьбы"}],
+  "required_facts":["точный canonical path из разрешённого списка; только минимально необходимые факты"],
   "knowledge_need":"none|maybe|needed",
   "knowledge_reason":"коротко: что именно энциклопедия может добавить или почему она не нужна",
   "confidence":0.0
@@ -342,6 +347,14 @@ function normalizeProbe(raw = {}) {
   const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const liveDataNeed = normalizeLiveDataNeed(value.live_data_need);
   const evidenceNeeds = normalizeEvidenceNeeds(value.evidence_needs);
+  const requiredFacts = normalizeCanonicalFacts(value.required_facts);
+  if (requiredFacts.length && !evidenceNeeds.length) {
+    evidenceNeeds.push({
+      system: 'Domain',
+      field: 'канонические факты текущего запроса',
+      why: 'Точные canonical paths перечислены в requiredFacts.'
+    });
+  }
   return {
     language: oneLine(value.language || 'other', 20).toLowerCase(),
     whatUserWants: oneLine(value.what_user_wants || '', 500),
@@ -354,6 +367,7 @@ function normalizeProbe(raw = {}) {
     ambiguities: stringList(value.ambiguities, 6),
     liveDataNeed: evidenceNeeds.length ? 'needed' : liveDataNeed,
     evidenceNeeds,
+    requiredFacts,
     knowledgeNeed: normalizeKnowledgeNeed(value.knowledge_need),
     knowledgeReason: oneLine(value.knowledge_reason || '', 420),
     confidence: Math.max(0, Math.min(1, Number(value.confidence || 0) || 0))

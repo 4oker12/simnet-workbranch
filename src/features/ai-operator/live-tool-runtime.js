@@ -112,9 +112,10 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
   const id = billingIdFromLab(labState);
   if (!id) return core.executeOperatorTool({ tool: name, toolArgs, labState });
 
+  const baseTool = name === 'billing.main_summary' ? 'customer.snapshot' : name;
   const [live, base] = await Promise.all([
     readBillingSummaryLive({ billingId: id, refresh: Boolean(toolArgs.refresh), maxAgeMs: toolArgs.maxAgeMs || 30000 }),
-    core.executeOperatorTool({ tool: name, toolArgs: { ...toolArgs, refresh: false }, labState })
+    core.executeOperatorTool({ tool: baseTool, toolArgs: { ...toolArgs, refresh: false }, labState })
   ]);
 
   if (!live?.ok) {
@@ -139,6 +140,41 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
   const network = live.data?.network || {};
   const evidence = live.data?.evidence || {};
   const baseData = base?.data || {};
+
+  if (name === 'billing.main_summary') {
+    // A successful main-summary read owns the fields it actually observed,
+    // including explicit null/empty values. Unobserved fields such as nextTariff
+    // may still come from the broader Billing snapshot with their original age.
+    const mergedService = { ...(baseData.service || {}), ...service };
+    const mergedFinance = { ...(baseData.finance || {}), ...finance };
+    const liveFieldObservedAt = {};
+    for (const key of Object.keys(service)) liveFieldObservedAt[`service.${key}`] = live.observedAt;
+    for (const key of Object.keys(finance)) liveFieldObservedAt[`finance.${key}`] = live.observedAt;
+    const hasData = [
+      mergedService.currentTariff,
+      mergedService.nextTariff,
+      mergedFinance.accountBalance,
+      mergedFinance.price,
+      mergedFinance.totalDue,
+      mergedFinance.balanceAfterTariff
+    ].some(value => value !== '' && value !== null && value !== undefined);
+    if (!hasData) return result(name, false, 'DATA_NOT_AVAILABLE', { source: 'billing-main-summary-live-read-only', evidence });
+    return result(name, true, 'OK', {
+      identity: baseData.identity || {},
+      service: mergedService,
+      finance: mergedFinance,
+      network: mergePresent(baseData.network || {}, network),
+      source: 'billing-main-summary-live-read-only',
+      evidence: {
+        ...evidence,
+        fieldObservedAt: {
+          ...(baseData?.evidence?.fieldObservedAt || {}),
+          ...liveFieldObservedAt
+        }
+      },
+      cache: live.cache || ''
+    });
+  }
 
   if (name === 'billing.balance') {
     const mergedFinance = mergePresent(baseData, finance);
@@ -234,7 +270,7 @@ export async function executeOperatorTool({ tool, toolArgs = {}, labState = {} }
   if (name === 'building.snapshot') {
     return readBuildingSnapshot({ toolArgs, labState });
   }
-  if (name === 'billing.balance' || name === 'billing.tariff') {
+  if (name === 'billing.main_summary' || name === 'billing.balance' || name === 'billing.tariff') {
     return executeBillingSummaryTool(name, toolArgs, labState);
   }
   if (name === 'network.session' || name === 'network.last_session') {

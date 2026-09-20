@@ -76,7 +76,13 @@ function normalizeToolState(value = {}) {
     pendingCandidate: source.pendingCandidate || null,
     confirmedCaseId: String(source.confirmedCaseId || ''),
     confirmedSubscriber: source.confirmedSubscriber || null,
-    invalidatedAt: Number(source.invalidatedAt || 0) || 0
+    invalidatedAt: Number(source.invalidatedAt || 0) || 0,
+    domainContext: source.domainContext && typeof source.domainContext === 'object' && !Array.isArray(source.domainContext)
+      ? clone(source.domainContext)
+      : {},
+    factSourceCache: source.factSourceCache && typeof source.factSourceCache === 'object' && !Array.isArray(source.factSourceCache)
+      ? clone(source.factSourceCache)
+      : {}
   };
 }
 
@@ -303,7 +309,9 @@ async function replyVariant({ lab, transcript, customer, analysis, useKnowledge,
       requestedBy: trace.requestedBy,
       args: trace.args,
       data: trace.data,
-      warnings: trace.warnings
+      warnings: trace.warnings,
+      requestedFacts: trace.requestedFacts || [],
+      cache: trace.cache || ''
     });
   }
 
@@ -449,6 +457,8 @@ async function executeExperiment(lab, baseMessages, customer) {
         relevanceGate: item.relevanceGate || null,
         behaviorEffects: item.behaviorEffects,
         toolTrace: item.toolTrace,
+        factEvidence: item.factEvidence || [],
+        factDiagnostics: item.factDiagnostics || {},
         degraded: Boolean(item.degraded),
         degradationReason: item.degradationReason || '',
         model: item.model,

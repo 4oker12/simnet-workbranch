@@ -162,7 +162,13 @@ function latestLiteralIdentity(transcript = []) {
   const standard = impl.extractIdentityHints([latest], {});
   return standard && typeof standard === 'object' && !Array.isArray(standard) ? standard : {};
 }
-function isAddressScopedBuildingOnlyTurn({ needs = [], analysis = {}, draft = {} } = {}) {
+function isAddressScopedBuildingOnlyTurn({ needs = [], analysis = {}, draft = {}, transcript = [], labState = {} } = {}) {
+  const requiredFacts = Array.isArray(analysis?.probe?.requiredFacts) ? analysis.probe.requiredFacts : [];
+  if (requiredFacts.length && requiredFacts.every(path => String(path || '').startsWith('building.'))) {
+    const address = impl.extractIdentityHints(transcript, analysis)?.address;
+    const activeBuilding = labState?.domainContext?.activeBuildingId || labState?.domainContext?.activeBuildingAddress;
+    if (address || activeBuilding) return true;
+  }
   const supplied = Array.isArray(needs) && needs.length
     ? needs
     : recoverLiveDataNeeds({ analysis, draft });
@@ -210,7 +216,9 @@ function resetSubscriberBinding(state = {}) {
     confirmedSubscriber: null,
     invalidatedAt: Date.now(),
     facts: {},
-    reads: {}
+    reads: {},
+    domainContext: {},
+    factSourceCache: {}
   };
 }
 function identityFromArgs(args = {}) {
@@ -385,7 +393,9 @@ export async function executeInformationNeeds(options = {}) {
   const skipIdentityBootstrap = isAddressScopedBuildingOnlyTurn({
     needs: options.needs || [],
     analysis,
-    draft: { subscriberDataNeeded: options.needs || [] }
+    draft: { subscriberDataNeeded: options.needs || [] },
+    transcript,
+    labState
   });
   const pre = skipIdentityBootstrap
     ? { trace: [], labState: mergeState({}, labState) }
@@ -418,7 +428,7 @@ function mergeUsage(primary = {}, secondary = {}) {
 
 export async function groundSubscriberReply(options = {}) {
   const { transcript = [], analysis = {}, labState = {}, execute, draft = {} } = options;
-  const skipIdentityBootstrap = isAddressScopedBuildingOnlyTurn({ analysis, draft });
+  const skipIdentityBootstrap = isAddressScopedBuildingOnlyTurn({ analysis, draft, transcript, labState });
   const pre = skipIdentityBootstrap
     ? { trace: [], labState: mergeState({}, labState) }
     : await bootstrapStandaloneIdentity({ transcript, analysis, labState, execute });
