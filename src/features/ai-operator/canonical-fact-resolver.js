@@ -34,6 +34,10 @@ function normalizeFieldKey(value) {
   return clean(value, 120).toLowerCase().replace(/[\s-]+/g, '_');
 }
 
+function normalizeAddressKey(value) {
+  return clean(value, 320).toLowerCase().replace(/[\s,.;]+/g, ' ').trim();
+}
+
 function readBuildingField(data = {}, field = '') {
   const wanted = normalizeFieldKey(field);
   for (const [key, value] of Object.entries(data?.fields || {})) {
@@ -81,9 +85,13 @@ function normalizedValue(value, type) {
 function entityKey(source, context = {}, request = {}) {
   const sourceSpec = CANONICAL_SOURCE_CATALOG[source] || {};
   if (sourceSpec.scope === 'building') {
+    // An explicit address is a new entity request and must outrank stale activeBuildingId.
+    // Otherwise Building A could be returned from cache while the user explicitly asks for Building B.
+    const explicitAddress = normalizeAddressKey(request.address);
+    if (explicitAddress) return `building-address:${explicitAddress}`;
     const buildingId = clean(context?.domainContext?.activeBuildingId, 120);
     if (buildingId) return `building:${buildingId}`;
-    const address = clean(request.address || context?.domainContext?.activeBuildingAddress || context?.domainContext?.activeServiceAddress?.fullAddress, 320).toLowerCase();
+    const address = normalizeAddressKey(context?.domainContext?.activeBuildingAddress || context?.domainContext?.activeServiceAddress?.fullAddress);
     return `building-address:${address || 'unbound'}`;
   }
   const subscriber = context?.confirmedSubscriber || {};
@@ -275,7 +283,9 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
     returned.push(...groupFacts);
     context.domainContext = updateDomainContext(context.domainContext, source, data, context);
     if (!fromCache && result?.ok && sourceSpec.scope === 'building') {
-      const resolvedKey = cacheKey(source, context, request);
+      // Keep both the explicit-address key used for this read and a stable resolved-id alias.
+      // A follow-up "там" can then reuse Building B without another read.
+      const resolvedKey = cacheKey(source, context, {});
       context.factSourceCache[resolvedKey] = { ok: true, cachedAt: now, result: clone(result) };
     }
 
@@ -327,4 +337,4 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
   };
 }
 
-export const CANONICAL_FACT_RESOLVER_VERSION = 1;
+export const CANONICAL_FACT_RESOLVER_VERSION = 2;
