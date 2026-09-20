@@ -51,12 +51,12 @@ function canonicalTrace(factResolution = null) {
 
 export async function groundSubscriberReply(options = {}) {
   const originalFactResolution = options?.factResolution || null;
-  const compactTranscript = compactRuntimeTranscript(options?.transcript, { maxTurns: 10, maxChars: 520 });
+  const compactTranscript = compactRuntimeTranscript(options?.transcript, { maxTurns: 8, maxChars: 380 });
   const compactAnalysis = compactRuntimeAnalysis(options?.analysis);
 
   // Legacy/degraded routing keeps the compatibility implementation. The canonical
   // resolver path uses one compact FINAL stage instead of the old duplicate
-  // TOOL EVIDENCE SYNTHESIS instruction.
+  // tool-evidence synthesis instruction.
   if (!originalFactResolution) {
     return base.groundSubscriberReply({
       ...options,

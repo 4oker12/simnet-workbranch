@@ -34,9 +34,10 @@ function knowledgeMode(value) {
 function articleEvidence(article = {}) {
   return {
     id: text(article?.id, 100),
-    title: text(article?.title, 180),
-    summary: text(article?.summary, 420),
-    text: text(article?.text, 1800)
+    title: text(article?.title, 160),
+    summary: text(article?.summary, 320),
+    // Keep in sync with runtime-projection compactArticle (≤900).
+    text: text(article?.text, 900)
   };
 }
 
@@ -75,7 +76,7 @@ function directKnowledge(probe = {}, candidateArticles = [], mode = 'auto') {
 
 export async function analyzeSubscriberIntent(options = {}) {
   const requestedMode = knowledgeMode(options?.knowledgeMode);
-  const compactTranscript = compactRuntimeTranscript(options?.transcript, { maxTurns: 14, maxChars: 620 });
+  const compactTranscript = compactRuntimeTranscript(options?.transcript, { maxTurns: 10, maxChars: 420 });
   const semanticOnly = await base.analyzeSubscriberIntent({
     ...options,
     transcript: compactTranscript,
@@ -146,7 +147,7 @@ export async function analyzeSubscriberIntent(options = {}) {
 export async function generateSubscriberReply(options = {}) {
   return base.generateSubscriberReply({
     ...options,
-    transcript: compactRuntimeTranscript(options?.transcript, { maxTurns: 10, maxChars: 520 }),
+    transcript: compactRuntimeTranscript(options?.transcript, { maxTurns: 8, maxChars: 380 }),
     analysis: compactRuntimeAnalysis(options?.analysis),
     capabilities: compactRuntimeCapabilities(options?.capabilities)
   });
@@ -155,6 +156,6 @@ export async function generateSubscriberReply(options = {}) {
 export async function generateCleanModelReply(options = {}) {
   return base.generateCleanModelReply({
     ...options,
-    transcript: compactRuntimeTranscript(options?.transcript, { maxTurns: 10, maxChars: 520 })
+    transcript: compactRuntimeTranscript(options?.transcript, { maxTurns: 8, maxChars: 380 })
   });
 }
