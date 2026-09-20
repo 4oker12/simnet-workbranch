@@ -8,12 +8,16 @@ function text(value, max = 500) {
 }
 
 export function isSubscriberLogin(value) {
-  return /^[A-Za-z][A-Za-z0-9._-]{2,63}$/.test(text(value, 80).replace(/\s+/g, ''));
+  const compact = text(value, 80).replace(/\s+/g, '');
+  // abon + 4..6 digits OR named login (kundanika) — case-insensitive
+  if (/^abon\d{4,6}$/i.test(compact)) return true;
+  return /^[A-Za-z][A-Za-z0-9._-]{2,63}$/.test(compact);
 }
 
 export function canonicalLabContract(value) {
   const compact = text(value, 80).replace(/\s+/g, '');
-  const abon = compact.match(/^abon(\d{3,12})$/i);
+  // abonNNNN ↔ contract digits (лицевой / особовий рахунок)
+  const abon = compact.match(/^abon(\d{4,6})$/i);
   if (abon) return abon[1];
   return /^\d{3,12}$/.test(compact) ? compact : '';
 }
