@@ -5,6 +5,7 @@ import { readNetworkSessionLive } from './network-live-search.js';
 import { readBillingSummaryLive } from './billing-summary-live.js';
 import { classifyStandaloneBillingLogin, searchBillingLoginLive } from './billing-login-live.js';
 import { readBuildingSnapshot } from './building-snapshot-tool.js';
+import { CANONICAL_FACT_CATALOG, canonicalFactPath } from './canonical-fact-catalog.js';
 
 const LIVE_CASE_PREFIX = 'billing-live:';
 
@@ -49,6 +50,38 @@ function mergePresent(base = {}, overlay = {}) {
     merged[key] = value;
   }
   return merged;
+}
+function hasOwnPath(root, path) {
+  const parts = String(path || '').split('.').filter(Boolean);
+  if (!parts.length) return false;
+  let node = root;
+  for (const part of parts) {
+    if (!node || typeof node !== 'object' || !Object.hasOwn(node, part)) return false;
+    node = node[part];
+  }
+  return true;
+}
+function requestedCanonicalFacts(toolArgs = {}) {
+  const seen = new Set();
+  const facts = [];
+  for (const value of Array.isArray(toolArgs?.requiredCanonicalFacts) ? toolArgs.requiredCanonicalFacts : []) {
+    const path = canonicalFactPath(value);
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    facts.push(path);
+  }
+  return facts;
+}
+function missingBillingMainFacts(facts = [], data = {}) {
+  return facts.filter(path => {
+    const spec = CANONICAL_FACT_CATALOG[path];
+    if (!spec || spec.source !== 'billing.mainSummary') return true;
+    return !(spec.paths || []).some(rawPath => hasOwnPath(data, rawPath));
+  });
+}
+function fallbackToolArgs(toolArgs = {}) {
+  const { requiredCanonicalFacts: _requiredCanonicalFacts, ...rest } = toolArgs || {};
+  return rest;
 }
 function liveLookupCandidate(candidate = {}) {
   const billingId = String(candidate.billingId || '').replace(/\D+/g, '').slice(0, 12);
@@ -113,10 +146,46 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
   if (!id) return core.executeOperatorTool({ tool: name, toolArgs, labState });
 
   const baseTool = name === 'billing.main_summary' ? 'customer.snapshot' : name;
-  const [live, base] = await Promise.all([
-    readBillingSummaryLive({ billingId: id, refresh: Boolean(toolArgs.refresh), maxAgeMs: toolArgs.maxAgeMs || 30000 }),
-    core.executeOperatorTool({ tool: baseTool, toolArgs: { ...toolArgs, refresh: false }, labState })
-  ]);
+  const liveRead = () => readBillingSummaryLive({
+    billingId: id,
+    refresh: Boolean(toolArgs.refresh),
+    maxAgeMs: toolArgs.maxAgeMs || 30000
+  });
+  const baseRead = () => core.executeOperatorTool({
+    tool: baseTool,
+    toolArgs: { ...fallbackToolArgs(toolArgs), refresh: false },
+    labState
+  });
+
+  let live;
+  let base = null;
+  let requiredFacts = [];
+  let missingFacts = [];
+  let fallbackReason = '';
+
+  if (name === 'billing.main_summary') {
+    live = await liveRead();
+    requiredFacts = requestedCanonicalFacts(toolArgs);
+    if (live?.ok && requiredFacts.length) {
+      missingFacts = missingBillingMainFacts(requiredFacts, live.data || {});
+    }
+    if (!live?.ok) {
+      fallbackReason = 'dedicated-reader-unavailable';
+      base = await baseRead();
+    } else if (!requiredFacts.length) {
+      // Legacy/direct callers did not declare canonical intent. Keep the previous
+      // broad snapshot merge until they migrate to requiredCanonicalFacts.
+      fallbackReason = 'legacy-call-without-required-facts';
+      base = await baseRead();
+    } else if (missingFacts.length) {
+      // The dedicated a=user parser did not expose at least one requested raw path.
+      // Only then pay for the broader customer.snapshot fallback.
+      fallbackReason = 'missing-canonical-facts';
+      base = await baseRead();
+    }
+  } else {
+    [live, base] = await Promise.all([liveRead(), baseRead()]);
+  }
 
   if (!live?.ok) {
     if (base?.ok) {
@@ -135,6 +204,7 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
     });
   }
 
+  const identity = live.data?.identity || {};
   const service = live.data?.service || {};
   const finance = live.data?.finance || {};
   const payments = Array.isArray(live.data?.payments) ? live.data.payments : null;
@@ -144,31 +214,26 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
 
   if (name === 'billing.main_summary') {
     // The single a=user page owns every field it actually exposes. Broader cached
-    // snapshots are fallback only for fields not present on that page; no dopdata
-    // request is needed for finance, tariff, service-state or payment facts.
+    // snapshots are fallback only for canonical fields absent from that page.
+    const mergedIdentity = { ...(baseData.identity || {}), ...identity };
     const mergedService = { ...(baseData.service || {}), ...service };
     const mergedFinance = { ...(baseData.finance || {}), ...finance };
     const liveFieldObservedAt = {};
+    for (const key of Object.keys(identity)) liveFieldObservedAt[`identity.${key}`] = live.observedAt;
     for (const key of Object.keys(service)) liveFieldObservedAt[`service.${key}`] = live.observedAt;
     for (const key of Object.keys(finance)) liveFieldObservedAt[`finance.${key}`] = live.observedAt;
-    if (payments) liveFieldObservedAt.payments = live.observedAt;
-    const hasData = [
-      mergedService.currentTariff,
-      mergedService.nextTariff,
-      mergedService.accessState,
-      mergedService.serviceState,
-      mergedFinance.accountBalance,
-      mergedFinance.price,
-      mergedFinance.totalDue,
-      mergedFinance.balanceAfterTariff,
-      payments?.length
-    ].some(value => value !== '' && value !== null && value !== undefined && value !== false);
+    if (payments !== null) liveFieldObservedAt.payments = live.observedAt;
+    const hasData = Object.keys(identity).length > 0
+      || Object.keys(service).length > 0
+      || Object.keys(finance).length > 0
+      || payments !== null
+      || Object.keys(network).length > 0;
     if (!hasData) return result(name, false, 'DATA_NOT_AVAILABLE', { source: 'billing-main-summary-live-read-only', evidence });
     return result(name, true, 'OK', {
-      identity: baseData.identity || {},
+      identity: mergedIdentity,
       service: mergedService,
       finance: mergedFinance,
-      ...(payments ? { payments } : (Array.isArray(baseData.payments) ? { payments: baseData.payments } : {})),
+      ...(payments !== null ? { payments } : (Array.isArray(baseData.payments) ? { payments: baseData.payments } : {})),
       network: mergePresent(baseData.network || {}, network),
       source: 'billing-main-summary-live-read-only',
       evidence: {
@@ -176,7 +241,11 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
         fieldObservedAt: {
           ...(baseData?.evidence?.fieldObservedAt || {}),
           ...liveFieldObservedAt
-        }
+        },
+        broadFallbackUsed: Boolean(base),
+        fallbackReason,
+        requestedCanonicalFacts: requiredFacts,
+        missingCanonicalFacts: missingFacts
       },
       cache: live.cache || ''
     });
