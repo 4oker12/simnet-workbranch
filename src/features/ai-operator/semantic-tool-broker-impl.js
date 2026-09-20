@@ -228,6 +228,18 @@ async function bootstrapExplicitIdentity({ transcript = [], analysis = {}, labSt
 
 function mergeTrace(first = [], second = []) { return [...(Array.isArray(first) ? first : []), ...(Array.isArray(second) ? second : [])]; }
 function uniqueEvidence(trace = []) { return (Array.isArray(trace) ? trace : []).filter(item => item?.ok); }
+function isCanonicalSourceTrace(item = {}) { return Array.isArray(item?.requestedFacts) && item.requestedFacts.length > 0; }
+function splitResultTrace(trace = []) {
+  const legacy = [];
+  const canonical = [];
+  for (const item of Array.isArray(trace) ? trace : []) {
+    (isCanonicalSourceTrace(item) ? canonical : legacy).push(item);
+  }
+  return { legacy, canonical };
+}
+function fallbackEvidence(trace = []) {
+  return uniqueEvidence(trace).filter(item => !['customer.lookup', 'customer.confirm'].includes(String(item?.tool || '')));
+}
 
 export async function executeInformationNeeds({ needs = [], transcript = [], analysis = {}, labState = {}, execute } = {}) {
   if (typeof execute !== 'function') throw new Error('Soft tool broker requires execute(tool)');
@@ -418,9 +430,12 @@ export async function groundSubscriberReply(options = {}) {
     })
     : null;
   const result = await coreGround({ ...rest, draft: routedDraft, transcript, analysis, labState: pre.labState, execute, factResolution });
-  const toolTrace = mergeTrace(pre.trace, result?.toolTrace);
+  const split = splitResultTrace(result?.toolTrace);
+  const toolTrace = mergeTrace(pre.trace, split.legacy);
+  const factSourceTrace = mergeTrace(result?.factSourceTrace, split.canonical);
   const toolEvidence = uniqueEvidence(toolTrace);
-  const mustUseEvidenceFallback = toolEvidence.length > 0 && Boolean(result?.degraded || draft?.degraded);
+  const legacyFallbackEvidence = fallbackEvidence(toolTrace);
+  const mustUseEvidenceFallback = legacyFallbackEvidence.length > 0 && Boolean(result?.degraded || draft?.degraded);
   const evidenceFallback = mustUseEvidenceFallback
     ? evidenceFallbackResult(analysis, toolTrace)
     : { reply: '', requestedTools: [], coveredTools: [], coverage: [], complete: false };
@@ -436,6 +451,7 @@ export async function groundSubscriberReply(options = {}) {
     },
     toolTrace,
     toolEvidence,
+    factSourceTrace,
     factEvidence: result?.factEvidence || factResolution?.evidence || [],
     factDiagnostics: result?.factDiagnostics || factResolution?.diagnostics || {},
     toolState: result?.toolState || pre.labState
