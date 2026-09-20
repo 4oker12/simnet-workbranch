@@ -1,5 +1,7 @@
 'use strict';
 
+import { normalizeBillingTariffSnapshot } from './billing-tariff-normalizer.js';
+
 const BILLING_TAB_URLS = Object.freeze([
   'https://admin.simnet.kiev.ua/*',
   'https://admin.looknet.kiev.ua/*'
@@ -16,9 +18,44 @@ function normalizeIp(value) {
   return parts.every(part => part >= 0 && part <= 255) ? match[0] : '';
 }
 
+export function normalizeContractIdentifier(value) {
+  let candidate = clean(value, 120)
+    .replace(/^\s*(?:договор|договір|contract)\s*(?:№|#|no\.?|номер)?\s*[:=\-]?\s*/i, '')
+    .replace(/^\s*(?:номер|№|#)\s*(?:договора|договору|договору)?\s*[:=\-]?\s*/i, '')
+    .replace(/\s+/g, '')
+    .replace(/^["'`()\[\]{}<>:;,]+|["'`()\[\]{}<>:;,]+$/g, '');
+  if (!candidate || candidate.length > 80) return '';
+  if (!/^[0-9A-Za-zА-Яа-яІіЇїЄєҐґ._\/-]+$/.test(candidate)) return '';
+  if (!/\d/.test(candidate)) return '';
+  return candidate;
+}
+
+export function extractContractIdentifier(value) {
+  const source = clean(value, 320);
+  if (!source) return '';
+  const patterns = [
+    /(?:договор|договір|contract)\s*(?:№|#|no\.?|номер)?\s*[:=\-]?\s*([0-9A-Za-zА-Яа-яІіЇїЄєҐґ][0-9A-Za-zА-Яа-яІіЇїЄєҐґ._\/-]{0,79})/i,
+    /(?:номер|№|#)\s*(?:договора|договору|договору)\s*[:=\-]?\s*([0-9A-Za-zА-Яа-яІіЇїЄєҐґ][0-9A-Za-zА-Яа-яІіЇїЄєҐґ._\/-]{0,79})/i
+  ];
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    const normalized = normalizeContractIdentifier(match?.[1] || '');
+    if (normalized) return normalized;
+  }
+  return '';
+}
+
+function looksLikeStandaloneAlphanumericContract(value) {
+  const compact = clean(value, 100).replace(/\s+/g, '');
+  if (!/^[0-9A-Za-zА-Яа-яІіЇїЄєҐґ._\/-]{3,40}$/.test(compact)) return false;
+  if (!/\d/.test(compact) || !/[A-Za-zА-Яа-яІіЇїЄєҐґ]/.test(compact)) return false;
+  // Avoid turning ordinary lowercase words containing a digit into contract lookup.
+  return /[A-ZА-ЯІЇЄҐ]/.test(compact) || /[\/-]/.test(compact);
+}
+
 export function classifyBillingLookup(toolArgs = {}) {
   const explicitLogin = clean(toolArgs.login, 80).replace(/\s+/g, '').toLowerCase();
-  const explicitContract = clean(toolArgs.contract, 80).replace(/\D/g, '');
+  const explicitContract = normalizeContractIdentifier(toolArgs.contract);
   const explicitIp = normalizeIp(toolArgs.ip);
   const address = clean(toolArgs.address, 320);
   const query = clean(toolArgs.query, 320);
@@ -28,7 +65,10 @@ export function classifyBillingLookup(toolArgs = {}) {
   if (address) return { mode: 'address', value: address };
   const compactQuery = query.replace(/\s+/g, '');
   if (/^abon\d{3,12}$/i.test(compactQuery)) return { mode: 'login', value: compactQuery.toLowerCase() };
+  const phrasedContract = extractContractIdentifier(query);
+  if (phrasedContract) return { mode: 'contract', value: phrasedContract };
   if (/^\d{3,12}$/.test(compactQuery)) return { mode: 'contract', value: compactQuery };
+  if (looksLikeStandaloneAlphanumericContract(query)) return { mode: 'contract', value: normalizeContractIdentifier(compactQuery) };
   const queryIp = normalizeIp(query);
   if (queryIp) return { mode: 'ip', value: queryIp };
   return null;
@@ -128,7 +168,7 @@ async function executeSearch(tabId, request) {
       const readActiveServices = doc => {
         if (!doc.querySelector('select[name="paket"]')) return [];
         return [...doc.querySelectorAll('input[type="checkbox"][name^="sr"]')].filter(c => c.checked).map(c => {
-          const row = c.closest('table')?.querySelector('tr') || c.closest('tr');
+          const row = c.closest('tr') || c.closest('table')?.querySelector('tr');
           const cells = row ? [...row.querySelectorAll(':scope > td, :scope > th')] : [];
           const amountText = compact(cells.at(-1)?.textContent || '', 120);
           return {
@@ -400,6 +440,13 @@ async function executeSearch(tabId, request) {
   return execution?.result || { ok: false, code: 'BILLING_SEARCH_NO_RESULT' };
 }
 
+function normalizeSearchSnapshots(snapshots = {}) {
+  return Object.fromEntries(Object.entries(snapshots || {}).map(([id, snapshot]) => [
+    id,
+    normalizeBillingTariffSnapshot(snapshot, { now: new Date() })
+  ]));
+}
+
 export async function searchBillingLive(toolArgs = {}) {
   const request = classifyBillingLookup(toolArgs);
   if (!request) return { ok: false, code: 'IDENTITY_QUERY_REQUIRED', candidates: [], snapshots: {} };
@@ -413,7 +460,13 @@ export async function searchBillingLive(toolArgs = {}) {
       const outcome = await executeSearch(tab.id, request);
       last = outcome;
       if (outcome?.ok || !['BILLING_SESSION_REQUIRED', 'BILLING_AUTH_REQUIRED', 'BILLING_TAB_INVALID'].includes(String(outcome?.code || ''))) {
-        return { ...outcome, request, tabId: tab.id, source: 'billing-live-read-only' };
+        return {
+          ...outcome,
+          snapshots: outcome?.snapshots ? normalizeSearchSnapshots(outcome.snapshots) : outcome?.snapshots,
+          request,
+          tabId: tab.id,
+          source: 'billing-live-read-only'
+        };
       }
     } catch (error) {
       last = { ok: false, code: 'BILLING_SEARCH_EXECUTION_FAILED', message: clean(error?.message || error, 500) };
