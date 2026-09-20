@@ -103,12 +103,16 @@ function cacheKey(source, context, request) {
   return `${source}:${entityKey(source, context, request)}`;
 }
 
-function adapterArgs(source, context = {}, request = {}, ttlMs = 120000) {
+function adapterArgs(source, context = {}, request = {}, ttlMs = 120000, requiredFacts = []) {
   if (source === 'userside.building') {
     const address = clean(request.address || context?.domainContext?.activeBuildingAddress || context?.domainContext?.activeServiceAddress?.fullAddress, 320);
     return address ? { address } : {};
   }
-  return { refresh: Boolean(request.refresh), maxAgeMs: ttlMs };
+  const args = { refresh: Boolean(request.refresh), maxAgeMs: ttlMs };
+  if (source === 'billing.mainSummary' && Array.isArray(requiredFacts) && requiredFacts.length) {
+    args.requiredCanonicalFacts = [...requiredFacts];
+  }
+  return args;
 }
 
 function updateDomainContext(domainContext = {}, source, data = {}, context = {}) {
@@ -256,7 +260,7 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
       fromCache = true;
       cacheHits.push(source);
     } else {
-      const toolArgs = adapterArgs(source, context, request, ttlMs);
+      const toolArgs = adapterArgs(source, context, request, ttlMs, paths);
       try {
         result = await execute({ tool: sourceSpec.tool, toolArgs, labState: context });
       } catch (error) {
@@ -293,7 +297,7 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
       tool: sourceSpec.tool,
       source,
       requestedFacts: [...paths],
-      args: adapterArgs(source, context, request, ttlMs),
+      args: adapterArgs(source, context, request, ttlMs, paths),
       ok: Boolean(result?.ok),
       code: clean(result?.code || (result?.ok ? 'OK' : 'ERROR'), 100),
       observedAt,
@@ -337,4 +341,4 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
   };
 }
 
-export const CANONICAL_FACT_RESOLVER_VERSION = 2;
+export const CANONICAL_FACT_RESOLVER_VERSION = 3;
