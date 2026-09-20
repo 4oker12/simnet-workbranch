@@ -265,3 +265,25 @@ test('semantic understanding requests canonical facts without choosing tools', (
   const needs = planLiveDataNeeds({ probe: { requiredFacts: ['subscriber.tariff.current.name'], liveDataNeed: 'needed' } });
   assert.equal(needs[0].field, 'subscriber.tariff.current.name');
 });
+
+test('empty canonical requiredFacts does not re-route unresolved text through legacy regex', () => {
+  const needs = planLiveDataNeeds({
+    probe: {
+      requiredFacts: [],
+      liveDataNeed: 'none',
+      unresolvedRequests: ['потенциально оформить заявку на переход на оптику (не подтверждено абонентом)']
+    }
+  });
+  assert.deepEqual(needs, []);
+});
+
+test('unsupported canonical fact is not converted into a guessed legacy tool request', () => {
+  const needs = planLiveDataNeeds({
+    probe: {
+      requiredFacts: ['subscriber.unsupported.magicFact'],
+      liveDataNeed: 'none',
+      unresolvedRequests: ['какой у меня баланс?']
+    }
+  });
+  assert.deepEqual(needs, []);
+});
