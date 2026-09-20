@@ -20,16 +20,27 @@ function requestFrom({ analysis = {}, latestCustomer = {} } = {}) {
   return oneLine(probe?.whatUserWants || latestCustomer?.text || unresolved[0] || '', 800);
 }
 
+function isCanonicalSourceTrace(item = {}) {
+  return Array.isArray(item?.requestedFacts) && item.requestedFacts.length > 0;
+}
+
 function successfulTrace(toolTrace = []) {
   return (Array.isArray(toolTrace) ? toolTrace : []).filter(item => item?.ok);
 }
 
+function successfulLegacyTrace(toolTrace = []) {
+  return successfulTrace(toolTrace).filter(item => !isCanonicalSourceTrace(item));
+}
+
 function failedTrace(toolTrace = []) {
-  return (Array.isArray(toolTrace) ? toolTrace : []).filter(item => !item?.ok);
+  return (Array.isArray(toolTrace) ? toolTrace : []).filter(item => !item?.ok && !isCanonicalSourceTrace(item));
 }
 
 function nonIdentityTrace(toolTrace = []) {
-  return (Array.isArray(toolTrace) ? toolTrace : []).filter(item => !['customer.lookup', 'customer.confirm'].includes(String(item?.tool || '')));
+  return (Array.isArray(toolTrace) ? toolTrace : []).filter(item => (
+    !isCanonicalSourceTrace(item)
+    && !['customer.lookup', 'customer.confirm'].includes(String(item?.tool || ''))
+  ));
 }
 
 function requestedText(item = {}) {
@@ -65,7 +76,7 @@ function tariffText(data = {}) {
 }
 
 function requestedFactCovered(item = {}) {
-  if (!item?.ok) return false;
+  if (!item?.ok || isCanonicalSourceTrace(item)) return false;
   const tool = String(item?.tool || '');
   if (['customer.lookup', 'customer.confirm'].includes(tool)) return true;
 
@@ -138,11 +149,11 @@ function requestedFactCovered(item = {}) {
 }
 
 function confirmedTrace(toolTrace = []) {
-  return successfulTrace(toolTrace).filter(requestedFactCovered);
+  return successfulLegacyTrace(toolTrace).filter(requestedFactCovered);
 }
 
 function uncoveredSuccessfulTrace(toolTrace = []) {
-  return successfulTrace(toolTrace).filter(item => !requestedFactCovered(item));
+  return successfulLegacyTrace(toolTrace).filter(item => !requestedFactCovered(item));
 }
 
 function injectedKnowledgePrefixes(analysis = {}) {
@@ -161,7 +172,7 @@ function injectedKnowledgePrefixes(analysis = {}) {
 
 function stripAutoInjectedKnowledgePrefix(reply = '', analysis = {}, toolTrace = []) {
   let text = block(reply, 2200);
-  if (!text || !successfulTrace(toolTrace).length) return text;
+  if (!text || !successfulLegacyTrace(toolTrace).length) return text;
 
   for (const prefix of injectedKnowledgePrefixes(analysis)) {
     if (!text.startsWith(prefix)) continue;
@@ -303,6 +314,7 @@ export async function applyAnswerRelevanceGate({
   latestCustomer = {}
 } = {}) {
   const request = requestFrom({ analysis, latestCustomer });
+  const canonicalSourceActivity = (Array.isArray(toolTrace) ? toolTrace : []).some(isCanonicalSourceTrace);
   const cleanedReply = stripAutoInjectedKnowledgePrefix(reply, analysis, toolTrace) || block(reply, 2200);
   const recoveryCandidate = deterministicConfirmedFactsRecovery({ analysis, latestCustomer, toolTrace });
   const recovered = Boolean(
@@ -320,13 +332,17 @@ export async function applyAnswerRelevanceGate({
       kept,
       dropped,
       completeness: completeness(toolTrace, finalReply),
-      conclusion: recovered
-        ? 'Запрошенные и реально возвращённые READ-факты восстановлены локально без соседних Billing-полей.'
-        : 'Локальная relevance-проверка: semantic frame не переосмысляется отдельной LLM; ok=true считается evidence только когда конкретно запрошенный факт присутствует в результате READ.'
+      conclusion: canonicalSourceActivity && !nonIdentityTrace(toolTrace).length
+        ? 'Canonical fact path активен: source-trace является диагностикой Resolver и не переоценивается legacy relevance-проверкой. Фактические значения должны оцениваться по factEvidence.'
+        : recovered
+          ? 'Запрошенные и реально возвращённые READ-факты восстановлены локально без соседних Billing-полей.'
+          : 'Локальная relevance-проверка: semantic frame не переосмысляется отдельной LLM; ok=true считается evidence только когда конкретно запрошенный legacy READ-факт присутствует в результате.'
     },
     gate: {
       skipped: true,
-      reason: recovered ? 'deterministic_confirmed_facts_recovery' : 'deterministic_local_relevance_boundary',
+      reason: canonicalSourceActivity && !nonIdentityTrace(toolTrace).length
+        ? 'canonical_fact_evidence_boundary'
+        : (recovered ? 'deterministic_confirmed_facts_recovery' : 'deterministic_local_relevance_boundary'),
       degraded: false,
       usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
     }
