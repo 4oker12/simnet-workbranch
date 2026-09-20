@@ -287,3 +287,40 @@ test('unsupported canonical fact is not converted into a guessed legacy tool req
   });
   assert.deepEqual(needs, []);
 });
+
+test('canonical source diagnostics are separated from legacy tool evidence and fallback', async () => {
+  const result = await groundSubscriberReply({
+    draft: { reply: '', subscriberDataNeeded: [], degraded: true },
+    transcript: [{ role: 'customer', text: 'Договор 146888, какой у меня тариф?' }],
+    analysis: { probe: { requiredFacts: ['subscriber.tariff.current.name'], language: 'ru' } },
+    labState: {},
+    execute: async ({ tool }) => {
+      if (tool === 'customer.lookup') {
+        return { ok: true, tool, code: 'OK', data: { source: 'billing-live-read-only' }, statePatch: IDENTITY };
+      }
+      return mainSummary();
+    },
+    coreGround: async options => ({
+      reply: 'Текущий тариф — SIMNET 500.',
+      degraded: true,
+      toolTrace: [{
+        tool: 'billing.main_summary',
+        requestedFacts: ['subscriber.tariff.current.name'],
+        requestedBy: { system: 'CanonicalDomain', field: 'subscriber.tariff.current.name', why: 'resolver source read' },
+        ok: true,
+        code: 'OK',
+        data: {}
+      }],
+      toolEvidence: [],
+      toolState: options.factResolution.context,
+      factEvidence: options.factResolution.evidence,
+      factDiagnostics: options.factResolution.diagnostics
+    })
+  });
+
+  assert.deepEqual(result.toolTrace.map(item => item.tool), ['customer.lookup']);
+  assert.deepEqual(result.factSourceTrace.map(item => item.tool), ['billing.main_summary']);
+  assert.equal(result.toolEvidence.length, 1);
+  assert.equal(result.evidenceFallback.used, false);
+  assert.deepEqual(result.factEvidence.map(item => item.path), ['subscriber.tariff.current.name']);
+});
