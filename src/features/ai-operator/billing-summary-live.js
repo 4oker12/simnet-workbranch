@@ -1,5 +1,7 @@
 'use strict';
 
+import { normalizeBillingTariffSnapshot } from './billing-tariff-normalizer.js';
+
 const BILLING_TAB_URLS = Object.freeze([
   'https://admin.simnet.kiev.ua/*',
   'https://admin.looknet.kiev.ua/*'
@@ -86,6 +88,20 @@ async function executeRead(tabId, id) {
           };
         }).filter(item => item.date || item.description || item.amount).slice(0, 12);
       };
+      const readActiveServices = root => [...root.querySelectorAll('input[type="checkbox"][name^="sr"]')]
+        .filter(control => control.checked)
+        .map(control => {
+          const row = control.closest('tr');
+          const cells = row ? [...row.querySelectorAll(':scope > td, :scope > th')] : [];
+          const amountText = compact(cells.at(-1)?.textContent || '', 120);
+          const nameCell = cells.find(cell => cell !== cells.at(-1) && compact(cell.textContent || '', 220));
+          return {
+            name: compact(nameCell?.textContent || control.name, 220).replace(/^услуга\s*/i, ''),
+            amount: money(amountText),
+            amountText
+          };
+        })
+        .slice(0, 20);
       const parseMainPage = root => {
         const table = root?.querySelector?.(summarySelector);
         if (!table) return null;
@@ -109,7 +125,8 @@ async function executeRead(tabId, id) {
             nextTariffDelay: selected(root, 'next_paket_delay'),
             accessState: selected(root, 'state'),
             serviceState: selected(root, 'cstate'),
-            group: selected(root, 'grp')
+            group: selected(root, 'grp'),
+            activeServices: readActiveServices(root)
           },
           finance: {
             accountBalance: money(rowValueFromIndex(index, [/^на\s+счету,?\s*грн/i, /^на\s+рахунку,?\s*грн/i])),
@@ -249,6 +266,7 @@ export async function readBillingSummaryLive({ billingId: rawBillingId, refresh 
       if (outcome?.ok) {
         const result = {
           ...outcome,
+          data: normalizeBillingTariffSnapshot(outcome.data, { now: new Date() }),
           billingId: id,
           tabId: tab.id,
           observedAt: new Date().toISOString(),
