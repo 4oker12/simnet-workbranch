@@ -21,6 +21,8 @@ export function isMeaningfulBillingSelection(value) {
 }
 
 function finiteMoney(value) {
+  if (value == null) return null;
+  if (typeof value === 'string' && !value.trim()) return null;
   const number = Number(value);
   return Number.isFinite(number) ? Math.round(number * 100) / 100 : null;
 }
