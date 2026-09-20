@@ -129,7 +129,7 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
       };
     }
     return result(name, false, String(live?.code || base?.code || 'BILLING_SUMMARY_READ_FAILED'), {
-      message: 'Не удалось прочитать основной финансово-тарифный блок Billing.',
+      message: 'Не удалось прочитать основную карточку Billing.',
       source: 'billing-main-summary-live-read-only',
       billingId: id
     });
@@ -137,32 +137,38 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
 
   const service = live.data?.service || {};
   const finance = live.data?.finance || {};
+  const payments = Array.isArray(live.data?.payments) ? live.data.payments : null;
   const network = live.data?.network || {};
   const evidence = live.data?.evidence || {};
   const baseData = base?.data || {};
 
   if (name === 'billing.main_summary') {
-    // A successful main-summary read owns the fields it actually observed,
-    // including explicit null/empty values. Unobserved fields such as nextTariff
-    // may still come from the broader Billing snapshot with their original age.
+    // The single a=user page owns every field it actually exposes. Broader cached
+    // snapshots are fallback only for fields not present on that page; no dopdata
+    // request is needed for finance, tariff, service-state or payment facts.
     const mergedService = { ...(baseData.service || {}), ...service };
     const mergedFinance = { ...(baseData.finance || {}), ...finance };
     const liveFieldObservedAt = {};
     for (const key of Object.keys(service)) liveFieldObservedAt[`service.${key}`] = live.observedAt;
     for (const key of Object.keys(finance)) liveFieldObservedAt[`finance.${key}`] = live.observedAt;
+    if (payments) liveFieldObservedAt.payments = live.observedAt;
     const hasData = [
       mergedService.currentTariff,
       mergedService.nextTariff,
+      mergedService.accessState,
+      mergedService.serviceState,
       mergedFinance.accountBalance,
       mergedFinance.price,
       mergedFinance.totalDue,
-      mergedFinance.balanceAfterTariff
-    ].some(value => value !== '' && value !== null && value !== undefined);
+      mergedFinance.balanceAfterTariff,
+      payments?.length
+    ].some(value => value !== '' && value !== null && value !== undefined && value !== false);
     if (!hasData) return result(name, false, 'DATA_NOT_AVAILABLE', { source: 'billing-main-summary-live-read-only', evidence });
     return result(name, true, 'OK', {
       identity: baseData.identity || {},
       service: mergedService,
       finance: mergedFinance,
+      ...(payments ? { payments } : (Array.isArray(baseData.payments) ? { payments: baseData.payments } : {})),
       network: mergePresent(baseData.network || {}, network),
       source: 'billing-main-summary-live-read-only',
       evidence: {
@@ -190,8 +196,8 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
     return result(name, true, 'OK', {
       ...mergedFinance,
       currentTariff: service.currentTariff || baseData.currentTariff || '',
-      accessState: baseData.accessState || '',
-      serviceState: baseData.serviceState || '',
+      accessState: service.accessState ?? baseData.accessState ?? '',
+      serviceState: service.serviceState ?? baseData.serviceState ?? '',
       trafficIncomingBytes: network.trafficIncomingBytes || '',
       trafficOutgoingBytes: network.trafficOutgoingBytes || '',
       source: 'billing-main-summary-live-read-only',
@@ -202,17 +208,43 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
 
   if (name === 'billing.tariff') {
     const currentTariff = service.currentTariff || baseData.currentTariff || '';
-    if (!currentTariff && !baseData.nextTariff) return result(name, false, 'DATA_NOT_AVAILABLE', { source: 'billing-main-summary-live-read-only', evidence });
+    const nextTariff = service.nextTariff ?? baseData.nextTariff ?? '';
+    if (!currentTariff && !nextTariff) return result(name, false, 'DATA_NOT_AVAILABLE', { source: 'billing-main-summary-live-read-only', evidence });
     return result(name, true, 'OK', {
       ...baseData,
       currentTariff,
+      nextTariff,
+      nextTariffDelay: service.nextTariffDelay ?? baseData.nextTariffDelay ?? '',
+      accessState: service.accessState ?? baseData.accessState ?? '',
+      serviceState: service.serviceState ?? baseData.serviceState ?? '',
+      group: service.group ?? baseData.group ?? '',
+      activeServices: service.activeServices ?? baseData.activeServices ?? [],
       tariffId: service.tariffId || '',
       tariffDisplay: service.tariffDisplay || '',
       price: finance.price ?? baseData.price ?? '',
       totalDue: finance.totalDue ?? baseData.totalDue ?? '',
-      balanceAfterTariff: finance.balanceAfterTariff ?? '',
+      balanceAfterTariff: finance.balanceAfterTariff ?? baseData.balanceAfterTariff ?? '',
       trafficIncomingBytes: network.trafficIncomingBytes || '',
       trafficOutgoingBytes: network.trafficOutgoingBytes || '',
+      source: 'billing-main-summary-live-read-only',
+      evidence,
+      cache: live.cache || ''
+    });
+  }
+
+  if (name === 'billing.payments') {
+    const fallbackPayments = Array.isArray(baseData.payments) ? baseData.payments : [];
+    const observedPayments = payments ?? fallbackPayments;
+    if (!observedPayments.length) {
+      return result(name, false, 'DATA_NOT_AVAILABLE', {
+        message: 'На основной карточке Billing нет доступных записей платежей.',
+        source: 'billing-main-summary-live-read-only',
+        evidence
+      });
+    }
+    return result(name, true, 'OK', {
+      payments: observedPayments,
+      count: observedPayments.length,
       source: 'billing-main-summary-live-read-only',
       evidence,
       cache: live.cache || ''
@@ -270,7 +302,7 @@ export async function executeOperatorTool({ tool, toolArgs = {}, labState = {} }
   if (name === 'building.snapshot') {
     return readBuildingSnapshot({ toolArgs, labState });
   }
-  if (name === 'billing.main_summary' || name === 'billing.balance' || name === 'billing.tariff') {
+  if (['billing.main_summary', 'billing.balance', 'billing.tariff', 'billing.payments'].includes(name)) {
     return executeBillingSummaryTool(name, toolArgs, labState);
   }
   if (name === 'network.session' || name === 'network.last_session') {
