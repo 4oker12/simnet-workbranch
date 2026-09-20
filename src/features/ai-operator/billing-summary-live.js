@@ -43,58 +43,33 @@ async function executeRead(tabId, id) {
         const match = compact(value, 160).replace(/\s/g, '').replace(',', '.').match(/-?\d+(?:\.\d+)?/);
         return match ? Number(match[0]) : null;
       };
-      const rowValue = (root, patterns) => {
-        for (const row of root?.querySelectorAll?.('tr') || []) {
-          const cells = [...row.querySelectorAll(':scope > td, :scope > th')];
-          if (cells.length < 2) continue;
-          const label = compact(cells[0]?.textContent || '', 260).toLowerCase();
-          if (!patterns.some(pattern => pattern.test(label))) continue;
-          return compact(cells[cells.length - 1]?.textContent || '', 500);
+
+      const indexSummaryTable = root => {
+        const byLabel = new Map();
+        if (!root) return byLabel;
+        const rows = root.rows || root.querySelectorAll('tr');
+        for (let i = 0; i < rows.length; i += 1) {
+          const row = rows[i];
+          const cells = row.cells || row.children;
+          if (!cells || cells.length < 2) continue;
+          const label = compact(cells[0].textContent || '', 260).toLowerCase();
+          if (!label) continue;
+          const value = compact(cells[cells.length - 1].textContent || '', 500);
+          if (!byLabel.has(label)) byLabel.set(label, value);
+        }
+        return byLabel;
+      };
+      const rowValueFromIndex = (index, patterns) => {
+        for (const [label, value] of index) {
+          if (patterns.some(pattern => pattern.test(label))) return value;
         }
         return '';
-      };
-      const selectedField = (doc, name) => {
-        const node = doc.querySelector(`select[name="${CSS.escape(name)}"]`);
-        if (!node) return { observed: false, value: '' };
-        return { observed: true, value: compact(node.options?.[node.selectedIndex]?.textContent || node.value || '', 260) };
-      };
-      const temporaryPaymentText = doc => [...doc.querySelectorAll('.modified,td,span,p,div')]
-        .map(node => compact(node.textContent || '', 260))
-        .filter(value => value.length <= 240 && /временн(?:ый|ого)\s+плат[её]ж/i.test(value))
-        .sort((a, b) => a.length - b.length)[0] || '';
-      const readPayments = doc => {
-        const table = doc.querySelector('#my_x_16');
-        if (!table) return { observed: false, payments: [] };
-        const payments = [...table.querySelectorAll(':scope > tbody > tr, :scope > tr')].map(row => {
-          const cells = [...row.querySelectorAll(':scope > td, :scope > th')];
-          return {
-            date: compact(cells[0]?.textContent || '', 80),
-            description: compact(cells[1]?.textContent || '', 220),
-            amount: compact(cells[2]?.textContent || '', 100)
-          };
-        }).filter(item => item.date || item.description || item.amount).slice(0, 6);
-        return { observed: true, payments };
-      };
-      const readActiveServices = doc => {
-        const checkboxes = [...doc.querySelectorAll('input[type="checkbox"][name^="sr"]')];
-        if (!checkboxes.length && !doc.querySelector('select[name="paket"]')) return { observed: false, services: [] };
-        const services = checkboxes.filter(checkbox => checkbox.checked).map(checkbox => {
-          const row = checkbox.closest('table')?.querySelector('tr') || checkbox.closest('tr');
-          const cells = row ? [...row.querySelectorAll(':scope > td, :scope > th')] : [];
-          const amountText = compact(cells.at(-1)?.textContent || '', 120);
-          return {
-            name: compact(cells[0]?.textContent || checkbox.name, 220).replace(/^услуга\s*/i, ''),
-            amount: money(amountText),
-            amountText
-          };
-        }).slice(0, 20);
-        return { observed: true, services };
       };
       const decodeResponseHtml = async response => {
         const bytes = new Uint8Array(await response.arrayBuffer());
         const contentType = String(response.headers.get('content-type') || '');
         const headerCharset = contentType.match(/charset\s*=\s*["']?([^;"'\s]+)/i)?.[1] || '';
-        const head = new TextDecoder('windows-1252').decode(bytes.slice(0, 8192));
+        const head = new TextDecoder('windows-1252').decode(bytes.subarray(0, Math.min(bytes.length, 4096)));
         const metaCharset = head.match(/charset\s*=\s*["']?\s*([a-z0-9._-]+)/i)?.[1] || '';
         const declared = String(headerCharset || metaCharset || '').toLowerCase();
         const charset = /^(?:windows-1251|win-?1251|cp1251)$/i.test(declared)
@@ -108,7 +83,7 @@ async function executeRead(tabId, id) {
           const replacementCount = value => (String(value).match(/\uFFFD/g) || []).length;
           if (replacementCount(legacy) < replacementCount(html)) html = legacy;
         }
-        return { html, byteLength: bytes.byteLength };
+        return html;
       };
       const authPage = doc => Boolean(doc.querySelector('input[type="password"]'));
 
@@ -130,79 +105,56 @@ async function executeRead(tabId, id) {
       url.searchParams.set('id', String(targetBillingId));
 
       const response = await fetch(url.href, { method: 'GET', credentials: 'include', cache: 'no-store' });
-      const decoded = await decodeResponseHtml(response);
-      const doc = new DOMParser().parseFromString(decoded.html, 'text/html');
+      const html = await decodeResponseHtml(response);
+      const doc = new DOMParser().parseFromString(html, 'text/html');
       if (!response.ok) return { ok: false, code: 'BILLING_SUMMARY_FETCH_FAILED', status: response.status };
       if (authPage(doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED' };
 
       const table = doc.querySelector(summarySelector);
       if (!table) return { ok: false, code: 'BILLING_SUMMARY_TABLE_NOT_FOUND', selector: summarySelector };
 
-      const tariffDisplay = rowValue(table, [/^тарифи\s+на\s+інтернет/i, /^тарифы\s+на\s+интернет/i]);
+      const index = indexSummaryTable(table);
+
+      const tariffDisplay = rowValueFromIndex(index, [/^тарифи\s+на\s+інтернет/i, /^тарифы\s+на\s+интернет/i]);
       const tariffMatch = tariffDisplay.match(/^\[(\d+)\]\s*(.+)$/);
       const currentTariff = compact(tariffMatch?.[2] || tariffDisplay, 260);
       const tariffId = compact(tariffMatch?.[1] || '', 40);
-      const price = money(rowValue(table, [/^ціна,?\s*грн/i, /^цена,?\s*грн/i]));
-      const totalDue = money(rowValue(table, [/^разом\s+до\s+сплати/i, /^итого\s+к\s+оплате/i]));
-      const accountBalance = money(rowValue(table, [/^на\s+счету,?\s*грн/i, /^на\s+рахунку,?\s*грн/i]));
-      const balanceAfterTariff = money(rowValue(table, [
+      const price = money(rowValueFromIndex(index, [/^ціна,?\s*грн/i, /^цена,?\s*грн/i]));
+      const totalDue = money(rowValueFromIndex(index, [/^разом\s+до\s+сплати/i, /^итого\s+к\s+оплате/i]));
+      const accountBalance = money(rowValueFromIndex(index, [/^на\s+счету,?\s*грн/i, /^на\s+рахунку,?\s*грн/i]));
+      const balanceAfterTariff = money(rowValueFromIndex(index, [
         /на\s+счете\s+с\s+учетом\s+стоимости\s+тарифного\s+плана/i,
         /на\s+рахунку\s+з\s+урахуванням\s+вартості\s+тарифного\s+плану/i
       ]));
-      const balanceWithoutTemporary = money(rowValue(table, [
+      const balanceWithoutTemporary = money(rowValueFromIndex(index, [
         /на\s+счете\s+без\s+учета\s+временных\s+платежей/i,
         /на\s+рахунку\s+без\s+урахування\s+тимчасових\s+платежів/i
       ]));
-      const nextTariff = selectedField(doc, 'next_paket');
-      const nextTariffDelay = selectedField(doc, 'next_paket_delay');
-      const accessState = selectedField(doc, 'state');
-      const serviceState = selectedField(doc, 'cstate');
-      const group = selectedField(doc, 'grp');
-      const activeServices = readActiveServices(doc);
-      const payments = readPayments(doc);
-      const temporaryText = temporaryPaymentText(doc);
-
-      const service = { currentTariff, tariffId, tariffDisplay };
-      if (nextTariff.observed) service.nextTariff = nextTariff.value || null;
-      if (nextTariffDelay.observed) service.nextTariffDelay = nextTariffDelay.value || null;
-      if (accessState.observed) service.accessState = accessState.value || null;
-      if (serviceState.observed) service.serviceState = serviceState.value || null;
-      if (group.observed) service.group = group.value || null;
-      if (activeServices.observed) service.activeServices = activeServices.services;
-
-      const finance = {
-        accountBalance,
-        price,
-        totalDue,
-        balanceAfterTariff,
-        balanceWithoutTemporary,
-        priceSemantics: 'internet_tariff_price_from_main_summary_table',
-        totalDueSemantics: 'current_total_due_from_main_summary_table_not_future_charge'
-      };
-      if (temporaryText) {
-        finance.temporaryPayment = money(temporaryText);
-        finance.temporaryPaymentText = temporaryText;
-      }
 
       return {
         ok: true,
         code: 'OK',
         data: {
-          service,
-          finance,
-          ...(payments.observed ? { payments: payments.payments } : {}),
+          service: { currentTariff, tariffId, tariffDisplay },
+          finance: {
+            accountBalance,
+            price,
+            totalDue,
+            balanceAfterTariff,
+            balanceWithoutTemporary,
+            priceSemantics: 'internet_tariff_price_from_main_summary_table',
+            totalDueSemantics: 'current_total_due_from_main_summary_table_not_future_charge'
+          },
           network: {
-            trafficIncomingBytes: rowValue(table, [/^інтернет\s+входящий,?\s*байт/i, /^интернет\s+входящий,?\s*байт/i]),
-            trafficOutgoingBytes: rowValue(table, [/^інтернет\s+исходящий,?\s*байт/i, /^интернет\s+исходящий,?\s*байт/i]),
-            uaixIncomingBytes: rowValue(table, [/^ua-ix\s+входящий,?\s*байт/i]),
-            uaixOutgoingBytes: rowValue(table, [/^ua-ix\s+исходящий,?\s*байт/i])
+            trafficIncomingBytes: rowValueFromIndex(index, [/^інтернет\s+входящий,?\s*байт/i, /^интернет\s+входящий,?\s*байт/i]),
+            trafficOutgoingBytes: rowValueFromIndex(index, [/^інтернет\s+исходящий,?\s*байт/i, /^интернет\s+исходящий,?\s*байт/i]),
+            uaixIncomingBytes: rowValueFromIndex(index, [/^ua-ix\s+входящий,?\s*байт/i]),
+            uaixOutgoingBytes: rowValueFromIndex(index, [/^ua-ix\s+исходящий,?\s*байт/i])
           },
           evidence: {
             source: 'billing-main-summary-live-read-only',
             endpoint: '/cgi-bin/adm/adm.pl?a=user&id=<billingId>',
-            selector: summarySelector,
-            pageReads: 1,
-            responseBytes: decoded.byteLength
+            selector: summarySelector
           }
         }
       };
