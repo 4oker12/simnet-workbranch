@@ -1,5 +1,16 @@
 'use strict';
 
+/**
+ * Stage-aware defaults for dialogue tail passed into LLM stages.
+ * understanding — needs a bit more context for referent resolution
+ * reply / grounded — shorter tail; understanding already carries the frame
+ */
+export const TRANSCRIPT_STAGE_LIMITS = Object.freeze({
+  understanding: { maxTurns: 10, maxChars: 420 },
+  reply: { maxTurns: 8, maxChars: 380 },
+  grounded: { maxTurns: 8, maxChars: 380 }
+});
+
 function text(value, max = 500) {
   const normalized = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
   return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
@@ -16,7 +27,7 @@ function objectList(value, mapper, maxItems = 6) {
   return (Array.isArray(value) ? value : []).slice(0, maxItems).map(mapper).filter(Boolean);
 }
 
-export function compactRuntimeTranscript(transcript = [], { maxTurns = 12, maxChars = 600 } = {}) {
+export function compactRuntimeTranscript(transcript = [], { maxTurns = 10, maxChars = 420 } = {}) {
   return (Array.isArray(transcript) ? transcript : [])
     .slice(-maxTurns)
     .map(item => ({
@@ -26,34 +37,41 @@ export function compactRuntimeTranscript(transcript = [], { maxTurns = 12, maxCh
     .filter(item => item.text);
 }
 
+/** Convenience: compact dialogue for a named stage. */
+export function compactRuntimeTranscriptForStage(transcript = [], stage = 'reply') {
+  const limits = TRANSCRIPT_STAGE_LIMITS[stage] || TRANSCRIPT_STAGE_LIMITS.reply;
+  return compactRuntimeTranscript(transcript, limits);
+}
+
 export function compactRuntimeProbe(probe = {}) {
   const source = probe && typeof probe === 'object' && !Array.isArray(probe) ? probe : {};
   return {
     language: text(source.language || 'other', 20),
-    whatUserWants: text(source.whatUserWants, 500),
-    latestMessageMeans: text(source.latestMessageMeans, 520),
-    refersTo: text(source.refersTo, 320),
-    underlyingGoal: text(source.underlyingGoal, 320),
-    unresolvedRequests: list(source.unresolvedRequests, 5, 320),
-    ambiguities: list(source.ambiguities, 4, 240),
+    whatUserWants: text(source.whatUserWants, 160),
+    latestMessageMeans: text(source.latestMessageMeans, 220),
+    refersTo: text(source.refersTo, 120),
+    underlyingGoal: text(source.underlyingGoal, 160),
+    unresolvedRequests: list(source.unresolvedRequests, 5, 140),
+    ambiguities: list(source.ambiguities, 3, 120),
     liveDataNeed: text(source.liveDataNeed, 20),
     evidenceNeeds: objectList(source.evidenceNeeds, item => ({
-      system: text(item?.system, 50),
-      field: text(item?.field, 140),
-      why: text(item?.why, 220)
+      system: text(item?.system, 40),
+      field: text(item?.field, 120),
+      why: text(item?.why, 160)
     }), 5),
-    requiredFacts: list(source.requiredFacts, 12, 140),
+    requiredFacts: list(source.requiredFacts, 10, 100),
     knowledgeNeed: text(source.knowledgeNeed, 20),
-    knowledgeReason: text(source.knowledgeReason, 260),
+    knowledgeReason: text(source.knowledgeReason, 160),
     confidence: Number.isFinite(Number(source.confidence)) ? Number(source.confidence) : 0
   };
 }
 
 function compactArticle(article = {}) {
   const id = text(article?.id, 100);
-  const title = text(article?.title, 180);
-  const summary = text(article?.summary, 420);
-  const body = text(article?.text, 1000);
+  const title = text(article?.title, 160);
+  const summary = text(article?.summary, 320);
+  // Synthesis only needs the relevant rule/price, not the full article body.
+  const body = text(article?.text, 900);
   if (!id && !title && !summary && !body) return null;
   return { id, title, summary, text: body };
 }
@@ -62,17 +80,17 @@ export function compactRuntimeKnowledge(knowledge = {}) {
   const source = knowledge && typeof knowledge === 'object' && !Array.isArray(knowledge) ? knowledge : {};
   return {
     skipped: Boolean(source.skipped),
-    skipReason: text(source.skipReason, 120),
+    skipReason: text(source.skipReason, 100),
     usedArticles: objectList(source.usedArticles, item => ({
       id: text(item?.id, 100),
-      why: text(item?.why, 220)
-    }), 4),
-    articleEvidence: objectList(source.articleEvidence, compactArticle, 3),
-    relevantInternalKnowledge: list(source.relevantInternalKnowledge, 6, 360),
-    howItApplies: text(source.howItApplies, 520),
-    alreadyEnough: list(source.alreadyEnough, 4, 260),
-    mustNotAssume: list(source.mustNotAssume, 5, 280),
-    knowledgeGaps: list(source.knowledgeGaps, 4, 260)
+      why: text(item?.why, 140)
+    }), 3),
+    articleEvidence: objectList(source.articleEvidence, compactArticle, 2),
+    relevantInternalKnowledge: list(source.relevantInternalKnowledge, 6, 280),
+    howItApplies: text(source.howItApplies, 280),
+    alreadyEnough: list(source.alreadyEnough, 3, 180),
+    mustNotAssume: list(source.mustNotAssume, 4, 180),
+    knowledgeGaps: list(source.knowledgeGaps, 3, 160)
   };
 }
 

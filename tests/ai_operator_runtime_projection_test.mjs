@@ -41,7 +41,7 @@ test('runtime projection removes verbose duplicate semantic fields while preserv
   assert.equal(Object.hasOwn(projected, 'candidates'), false);
   assert.equal(Object.hasOwn(projected, 'decision'), false);
   assert.equal(Object.hasOwn(projected.knowledge, 'hypotheses'), false);
-  assert.ok(projected.knowledge.articleEvidence[0].text.length <= 1000);
+  assert.ok(projected.knowledge.articleEvidence[0].text.length <= 900);
 });
 
 test('runtime transcript keeps only recent compact turns', () => {
