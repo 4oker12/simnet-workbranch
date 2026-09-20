@@ -53,6 +53,43 @@ async function executeRead(tabId, id) {
         }
         return '';
       };
+      const selectedField = (doc, name) => {
+        const node = doc.querySelector(`select[name="${CSS.escape(name)}"]`);
+        if (!node) return { observed: false, value: '' };
+        return { observed: true, value: compact(node.options?.[node.selectedIndex]?.textContent || node.value || '', 260) };
+      };
+      const temporaryPaymentText = doc => [...doc.querySelectorAll('.modified,td,span,p,div')]
+        .map(node => compact(node.textContent || '', 260))
+        .filter(value => value.length <= 240 && /временн(?:ый|ого)\s+плат[её]ж/i.test(value))
+        .sort((a, b) => a.length - b.length)[0] || '';
+      const readPayments = doc => {
+        const table = doc.querySelector('#my_x_16');
+        if (!table) return { observed: false, payments: [] };
+        const payments = [...table.querySelectorAll(':scope > tbody > tr, :scope > tr')].map(row => {
+          const cells = [...row.querySelectorAll(':scope > td, :scope > th')];
+          return {
+            date: compact(cells[0]?.textContent || '', 80),
+            description: compact(cells[1]?.textContent || '', 220),
+            amount: compact(cells[2]?.textContent || '', 100)
+          };
+        }).filter(item => item.date || item.description || item.amount).slice(0, 6);
+        return { observed: true, payments };
+      };
+      const readActiveServices = doc => {
+        const checkboxes = [...doc.querySelectorAll('input[type="checkbox"][name^="sr"]')];
+        if (!checkboxes.length && !doc.querySelector('select[name="paket"]')) return { observed: false, services: [] };
+        const services = checkboxes.filter(checkbox => checkbox.checked).map(checkbox => {
+          const row = checkbox.closest('table')?.querySelector('tr') || checkbox.closest('tr');
+          const cells = row ? [...row.querySelectorAll(':scope > td, :scope > th')] : [];
+          const amountText = compact(cells.at(-1)?.textContent || '', 120);
+          return {
+            name: compact(cells[0]?.textContent || checkbox.name, 220).replace(/^услуга\s*/i, ''),
+            amount: money(amountText),
+            amountText
+          };
+        }).slice(0, 20);
+        return { observed: true, services };
+      };
       const decodeResponseHtml = async response => {
         const bytes = new Uint8Array(await response.arrayBuffer());
         const contentType = String(response.headers.get('content-type') || '');
@@ -71,7 +108,7 @@ async function executeRead(tabId, id) {
           const replacementCount = value => (String(value).match(/\uFFFD/g) || []).length;
           if (replacementCount(legacy) < replacementCount(html)) html = legacy;
         }
-        return html;
+        return { html, byteLength: bytes.byteLength };
       };
       const authPage = doc => Boolean(doc.querySelector('input[type="password"]'));
 
@@ -93,8 +130,8 @@ async function executeRead(tabId, id) {
       url.searchParams.set('id', String(targetBillingId));
 
       const response = await fetch(url.href, { method: 'GET', credentials: 'include', cache: 'no-store' });
-      const html = await decodeResponseHtml(response);
-      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const decoded = await decodeResponseHtml(response);
+      const doc = new DOMParser().parseFromString(decoded.html, 'text/html');
       if (!response.ok) return { ok: false, code: 'BILLING_SUMMARY_FETCH_FAILED', status: response.status };
       if (authPage(doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED' };
 
@@ -116,21 +153,44 @@ async function executeRead(tabId, id) {
         /на\s+счете\s+без\s+учета\s+временных\s+платежей/i,
         /на\s+рахунку\s+без\s+урахування\s+тимчасових\s+платежів/i
       ]));
+      const nextTariff = selectedField(doc, 'next_paket');
+      const nextTariffDelay = selectedField(doc, 'next_paket_delay');
+      const accessState = selectedField(doc, 'state');
+      const serviceState = selectedField(doc, 'cstate');
+      const group = selectedField(doc, 'grp');
+      const activeServices = readActiveServices(doc);
+      const payments = readPayments(doc);
+      const temporaryText = temporaryPaymentText(doc);
+
+      const service = { currentTariff, tariffId, tariffDisplay };
+      if (nextTariff.observed) service.nextTariff = nextTariff.value || null;
+      if (nextTariffDelay.observed) service.nextTariffDelay = nextTariffDelay.value || null;
+      if (accessState.observed) service.accessState = accessState.value || null;
+      if (serviceState.observed) service.serviceState = serviceState.value || null;
+      if (group.observed) service.group = group.value || null;
+      if (activeServices.observed) service.activeServices = activeServices.services;
+
+      const finance = {
+        accountBalance,
+        price,
+        totalDue,
+        balanceAfterTariff,
+        balanceWithoutTemporary,
+        priceSemantics: 'internet_tariff_price_from_main_summary_table',
+        totalDueSemantics: 'current_total_due_from_main_summary_table_not_future_charge'
+      };
+      if (temporaryText) {
+        finance.temporaryPayment = money(temporaryText);
+        finance.temporaryPaymentText = temporaryText;
+      }
 
       return {
         ok: true,
         code: 'OK',
         data: {
-          service: { currentTariff, tariffId, tariffDisplay },
-          finance: {
-            accountBalance,
-            price,
-            totalDue,
-            balanceAfterTariff,
-            balanceWithoutTemporary,
-            priceSemantics: 'internet_tariff_price_from_main_summary_table',
-            totalDueSemantics: 'current_total_due_from_main_summary_table_not_future_charge'
-          },
+          service,
+          finance,
+          ...(payments.observed ? { payments: payments.payments } : {}),
           network: {
             trafficIncomingBytes: rowValue(table, [/^інтернет\s+входящий,?\s*байт/i, /^интернет\s+входящий,?\s*байт/i]),
             trafficOutgoingBytes: rowValue(table, [/^інтернет\s+исходящий,?\s*байт/i, /^интернет\s+исходящий,?\s*байт/i]),
@@ -140,7 +200,9 @@ async function executeRead(tabId, id) {
           evidence: {
             source: 'billing-main-summary-live-read-only',
             endpoint: '/cgi-bin/adm/adm.pl?a=user&id=<billingId>',
-            selector: summarySelector
+            selector: summarySelector,
+            pageReads: 1,
+            responseBytes: decoded.byteLength
           }
         }
       };
