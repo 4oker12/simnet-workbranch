@@ -2,7 +2,7 @@ import { recordApiUsage } from './api-cost.js';
 import { AI_CONFIG, readAiRuntimeConfig } from '../../config/ai-config.js';
 import { SIMNET_KNOWLEDGE_VERSION, knowledgeQueryFromUnderstanding, searchKnowledgeLibrary } from './knowledge/index.js';
 import { autonomousOperatorSystemMessages } from './instructions/autonomous-operator-instruction.generated.js';
-import { behaviorPromptGuidance, behaviorRuntimeHints } from './behavior-profile.js';
+import { behaviorRuntimeHints } from './behavior-profile.js';
 import { CANONICAL_FACT_PATHS, normalizeCanonicalFacts } from './canonical-fact-catalog.js';
 
 const GENERATION_FALLBACK_MODELS = Object.freeze([
@@ -176,7 +176,7 @@ function repairMessages(messages, response = {}) {
     { role: 'assistant', content: block(response?.answer || '', 2200) },
     {
       role: 'user',
-      content: 'Предыдущий ответ не является завершённым валидным JSON. Исправь только формат: верни один полный JSON-объект по исходной схеме, без markdown, пояснений и текста до/после JSON.'
+      content: 'Исправь только формат предыдущего ответа: верни один полный JSON-объект по исходной схеме, без markdown и пояснений.'
     }
   ];
 }
@@ -185,9 +185,8 @@ async function requestJsonWithFallback(messages, runtime, meterContext = {}, req
   const failures = [];
   const baseMaxTokens = Math.max(Number(requestOptions.maxTokens || 0), JSON_REPAIR_TOKENS);
   for (const model of modelsForRuntime(runtime)) {
-    let firstResponse = null;
     try {
-      firstResponse = await requestModel(messages, runtime.groqApiKey, model, meterContext, {
+      const firstResponse = await requestModel(messages, runtime.groqApiKey, model, meterContext, {
         jsonMode: true,
         ...requestOptions,
         maxTokens: baseMaxTokens
@@ -271,44 +270,31 @@ export function buildSubscriberIntentProbeMessages({ transcript = [], latestCust
   const dialogue = transcriptForProbe(transcript);
   const stageInstruction = `ЭТАП: UNDERSTANDING.
 
-Это общение с человеком, а не классификация заранее известных команд. Не отвечай абоненту, не выбирай tools, не проверяй Billing и не применяй бизнес-правила. На этом этапе пойми человеческий смысл разговора: чего человек хочет добиться, к чему относится последняя реплика, какие утверждения реально прозвучали, какие просьбы ещё не закрыты и где есть настоящая неоднозначность смысла.
+Выполни только semantic-разбор текущего хода. Не отвечай абоненту и не выбирай tools.
+Определи смысл последней реплики в контексте диалога, её referent, активную просьбу, реальную неоднозначность и минимальные данные, без которых нельзя закрыть текущий запрос.
 
-Смотри на весь доступный диалог, особенно на непосредственно предыдущую реплику оператора. Короткие ответы понимай только в контексте разговора. Контекст — работа интернет-провайдера, если сам диалог не указывает иначе. Служебные кнопки/пункты меню сами по себе не означают смену реальной темы; служебный выбор меню также не является новой темой без подтверждения контекстом.
-
-Различай источник утверждения: слова клиента и прошлого оператора являются контекстом, но не автоматически фактом Billing, сети или SIMNET. Перед результатом проверь: описываешь ли ты то, что действительно следует из разговора, а не то, что сам додумал.
-
-Отдельно определи, зависит ли существенная часть ответа от ТЕКУЩЕГО факта конкретного абонента или системы, который нельзя честно получить из самого диалога/общеизвестного знания:
-- live_data_need=none — текущий READ не нужен; например, вопрос общий, смысловой, арифметический по уже данным числам или ответ уже следует из подтверждённого контекста;
-- live_data_need=needed — нужен свежий/подтверждённый факт Billing, UserSide или Network.
-Если нужен live-факт, перечисли evidence_needs как факты, а НЕ tools и НЕ команды. Пиши field коротким естественным названием факта на языке разговора, например system=Billing, field="текущий баланс" или field="текущий тариф". Одновременно заполни required_facts точными каноническими путями из разрешённого списка ниже. Не пиши названия функций вроде billing.balance. Не добавляй договор/login/адрес как отдельный evidence_need только потому, что они технически нужны для поиска: это идентификатор, а не факт ответа. Не перечисляй соседние данные «на всякий случай» — только то, без чего нельзя закрыть реальную просьбу.
+Если нужен текущий внутренний факт SIMNET, заполни required_facts точными путями из списка ниже и кратко опиши его в evidence_needs. Если такого факта не нужно, required_facts=[] и live_data_need=none.
+Отдельно укажи, нужны ли внутренние знания SIMNET: knowledge_need=none|maybe|needed. maybe — только при конкретном сомнении, не «на всякий случай».
 
 Разрешённые canonical facts:
 ${CANONICAL_FACT_PATHS.join('\n')}
 
-Также оцени, даст ли внутренняя энциклопедия SIMNET реальную пользу именно на ЭТОМ ходе:
-- knowledge_need=none: внутренние правила/знания ничего существенного не добавят;
-- knowledge_need=needed: ответ реально зависит от внутренних знаний SIMNET;
-- knowledge_need=maybe: есть конкретное разумное сомнение. Не выбирай maybe «на всякий случай».
-Не открывай энциклопедию только потому, что встретилось общее слово про интернет, договор, роутер или оплату.
-
-Не формируй финальный ответ на этой стадии и не показывай внутренние рассуждения. Но используй обычное внутреннее reasoning, чтобы решить, достаточно ли уже известных фактов и общеизвестного знания или действительно отсутствует конкретный live-факт. Разрешены арифметика, сравнение, технический и логический вывод именно для проверки достаточности evidence. Если ответ уже следует из известного контекста, ставь live_data_need=none и не создавай evidence_needs. Новый READ планируй только для конкретного отсутствующего факта, без которого нельзя достоверно закрыть существенную часть запроса.
-
-Верни только JSON без markdown:
+Верни только JSON:
 {
   "language":"ru|uk|mixed|other",
-  "what_user_wants":"одним предложением",
-  "latest_message_means":"как именно ты понял последнюю реплику",
-  "refers_to":"к чему/какой предыдущей реплике она относится; пусто если ни к чему",
-  "underlying_goal":"более широкая цель клиента, если она видна",
-  "facts_said_by_user":["только то, что клиент реально сообщил/утверждает"],
-  "facts_said_by_operator":["важные утверждения прошлого оператора, если они влияют на контекст"],
-  "unresolved_requests":["только активные незакрытые просьбы, которые клиент всё ещё продолжает сейчас; старую тему не тащи сюда после явной смены вопроса"],
-  "ambiguities":["только реальная неоднозначность смысла; не придумывай лишние варианты"],
+  "what_user_wants":"текущая цель одним предложением",
+  "latest_message_means":"смысл последней реплики",
+  "refers_to":"к чему она относится или пусто",
+  "underlying_goal":"более широкая цель, если явно видна",
+  "facts_said_by_user":["важные утверждения клиента для текущего контекста"],
+  "facts_said_by_operator":["важные утверждения прошлого оператора для текущего контекста"],
+  "unresolved_requests":["активные незакрытые просьбы"],
+  "ambiguities":["только реальная неоднозначность"],
   "live_data_need":"none|needed",
-  "evidence_needs":[{"system":"Billing|UserSide|Network","field":"какой текущий факт нужно подтвердить, без названия tool","why":"почему этот факт нужен для текущей просьбы"}],
-  "required_facts":["точный canonical path из разрешённого списка; только минимально необходимые факты"],
+  "evidence_needs":[{"system":"Billing|UserSide|Network","field":"нужный текущий факт","why":"зачем он нужен"}],
+  "required_facts":["точный canonical path"],
   "knowledge_need":"none|maybe|needed",
-  "knowledge_reason":"коротко: что именно энциклопедия может добавить или почему она не нужна",
+  "knowledge_reason":"короткая причина",
   "confidence":0.0
 }`;
   return [
@@ -386,32 +372,16 @@ export function buildKnowledgeReflectionMessages({ probe = {}, candidateArticles
   const noCandidates = !candidateArticles.length;
   const stageInstruction = `ЭТАП: KNOWLEDGE REFLECTION.
 
-Первый этап уже понял смысл разговора. Перед тобой кандидатные статьи внутренней энциклопедии SIMNET. Энциклопедия — справочник, а не сценарий: это источник подтверждённых внутренних знаний, не готовый ответ и не право отменять обычное reasoning.
-
-Не отвечай абоненту и не выбирай tools. Определи только, что релевантного knowledge действительно добавляет к текущему запросу.
-
-Критически важно:
-- если уже известных фактов достаточно для обычного логического, арифметического, технического или семантического вывода, не создавай дополнительные blockers;
-- не превращай гипотетическую скидку, редкое исключение, возможное особое условие или любой сценарий «а вдруг» в обязательный недостающий факт, если в текущем dialogue/evidence/article нет признака, что он реально применим;
-- knowledge может ограничить вывод только конкретным подтверждённым условием, которое действительно относится к этому обращению;
-- already_enough перечисляет то, чего уже достаточно для дальнейшего вывода;
-- must_not_assume защищает от выдумывания live/internal фактов, но НЕ запрещает арифметику, сравнение, семантическую интерпретацию и логические следствия из уже известных фактов;
-- customer_claim остаётся сообщением клиента, а не подтверждённым внутренним фактом;
-- гипотеза допустима только если у неё есть конкретное основание. Сам факт, что нечто теоретически возможно, основанием не является;
-- не добавляй «типичную практику отрасли», штрафы, сроки, документы и другие общие догадки, которых нет в источниках;
-- отделяй главное от второстепенного и не перечисляй всё, что вообще можно было бы проверить;
-- если клиент спрашивает о конкретном внутреннем правиле SIMNET, а подтверждения нет, не превращай слова клиента или прошлого оператора в правило компании;
-- knowledge_gaps — только пробел внутренней энциклопедии, действительно важный для ответа. Не записывай туда номер договора, адрес, модель роутера, баланс, текущий тариф конкретного договора и другие персональные/live-данные; не создавай пробелы «на всякий случай».
-
+Определи, какие из candidate_articles реально добавляют внутренние знания SIMNET к уже понятому запросу. Не отвечай абоненту и не выбирай tools.
 Верни только JSON:
 {
-  "used_articles":[{"id":"article.id","why":"чем статья реально полезна"}],
-  "relevant_internal_knowledge":["только релевантные знания из прочитанных статей"],
-  "how_it_applies":"как внутреннее знание уточняет текущий запрос, не подменяя reasoning",
-  "already_enough":["каких уже известных фактов достаточно для следующего вывода"],
-  "must_not_assume":["только действительно непроверенные live/internal факты, которые нельзя выдумывать"],
-  "hypotheses":[{"text":"допустимое предположение","basis":"конкретное основание из диалога/KB/технической логики"}],
-  "knowledge_gaps":["только критически важное отсутствующее внутреннее знание SIMNET"]
+  "used_articles":[{"id":"article.id","why":"чем статья полезна"}],
+  "relevant_internal_knowledge":["релевантное знание"],
+  "how_it_applies":"как оно относится к запросу",
+  "already_enough":["что уже достаточно для вывода"],
+  "must_not_assume":["неподтверждённые внутренние/live факты"],
+  "hypotheses":[{"text":"допустимое предположение","basis":"основание"}],
+  "knowledge_gaps":["критически важный пробел внутреннего знания"]
 }`;
   return [
     ...autonomousOperatorSystemMessages(stageInstruction),
@@ -594,6 +564,10 @@ function behaviorProfile(value = {}) {
   return behaviorRuntimeHints(value);
 }
 
+function compactBehaviorGuidance(profile = {}) {
+  return `Поведенческий профиль: человекоподобность=${profile.humanLikeness}/5, развернутость=${profile.depth}/5, инициативность=${profile.initiative}/5. Используй его только для тона, объёма и уместного следующего шага; правила AUTONOMOUS_OPERATOR имеют приоритет. Не задавай больше ${profile.maxFollowUpQuestions} уточняющих вопросов.`;
+}
+
 function normalizeDataNeeds(value) {
   return (Array.isArray(value) ? value : []).map(item => ({
     system: oneLine(item?.system || '', 80), field: oneLine(item?.field || '', 120), why: oneLine(item?.why || '', 320)
@@ -648,57 +622,21 @@ function answerPayload(analysis = {}, useKnowledge = true) {
 }
 
 function replySchemaPrompt(profile, capabilities) {
-  return `ЭТАП: ANSWER SYNTHESIS.
+  const style = compactBehaviorGuidance(profile);
+  return `ЭТАП: FINAL ANSWER.
 
-Сформируй естественный полезный ответ абоненту на языке разговора. Это лабораторный режим: нельзя изображать выполненную проверку, которой не было.
+Сформируй ответ абоненту по правилам AUTONOMOUS_OPERATOR, используя dialogue и grounded_context. Это финальный ответ текущего хода, а не новый semantic-анализ и не отчёт о reasoning.
+Если для ответа всё ещё реально не хватает конкретного subscriber-факта, укажи его в subscriber_data_needed; иначе оставь массив пустым.
 
-Сначала проверь, достаточно ли уже переданных фактов для обычного логического, арифметического, технического или семантического вывода. Если достаточно — сделай вывод и ответь. Не добавляй subscriber_data_needed или уточняющий вопрос только из-за гипотетического исключения, скидки, особого условия, редкой неисправности или другого «а вдруг», если evidence не показывает, что оно реально применимо.
+${style}
 
-subscriber_data_needed допускается только для конкретного отсутствующего факта, без которого нельзя достоверно закрыть существенную часть запроса. Если основной ответ уже надёжен, дай его первым; второстепенную неопределённость не превращай в блокировку всего ответа.
-
-НЕИЗМЕНЯЕМЫЕ правила достоверности:
-- не выдумывай баланс, текущий тариф конкретного договора, платежи, адрес, состояние сессии/OLT/ONU/BRAS, аварию или выполненную проверку;
-- customer_claim и слова прошлого оператора не являются подтверждёнными фактами системы;
-- внутреннее правило/цена SIMNET можно утверждать только если оно присутствует в переданном internal_knowledge или уже подтверждено переданным live/snapshot evidence;
-- internal_knowledge.article_evidence содержит прямой текст выбранных статей; используй его семантически, а не как готовый сценарий;
-- internal_knowledge.already_enough специально показывает факты, которых уже достаточно для reasoning: не игнорируй их ради лишней проверки;
-- internal_knowledge.must_not_assume запрещает выдумывать факты, но не запрещает арифметику, сравнение и логический вывод;
-- если internal_knowledge.enabled=false, не используй из памяти конкретные внутренние тарифы, цены, акции или процедуры SIMNET;
-- не добавляй «обычную практику отрасли» как замену отсутствующему правилу SIMNET;
-- не теряй незакрытый вопрос клиента из-за социальной реплики.
-
-ANSWER RELEVANCE GATE:
-1. Возьми главный текущий unresolved request / what_user_wants.
-2. Используй только факты, которые прямо помогают ответить на него.
-3. Для сравнительного запроса применяй условие сравнения.
-4. Если источник не гарантирует полный перечень вариантов, не делай абсолютный вывод об их отсутствии.
-5. Не выгружай соседние данные только потому, что они доступны.
-
-${behaviorPromptGuidance(profile)}
-
-Capabilities: Billing=${capabilities.billing ? 'ON' : 'OFF'}, UserSide=${capabilities.userside ? 'ON' : 'OFF'}, Network=${capabilities.network ? 'ON' : 'OFF'}.
-
-Верни только JSON без markdown. diagnostics — короткое операционное резюме, не chain-of-thought:
+Верни только JSON:
 {
   "reply":"готовый ответ абоненту",
-  "subscriber_data_needed":[{"system":"Billing|UserSide|Network","field":"конкретный действительно необходимый факт","why":"почему без него нельзя закрыть существенную часть запроса"}],
-  "unresolved_requests":["что реально осталось незакрытым после ответа"],
-  "clarification_questions":["какие вопросы реально заданы в reply"],
-  "verification_needed":["что действительно нельзя утверждать без проверки"],
-  "next_step_offered":"следующий шаг или пусто",
-  "basis":["dialogue","knowledge:article.id"],
-  "answer_relevance":{
-    "request":"какой конкретно вопрос/просьбу сейчас закрываем",
-    "kept":[{"fact":"релевантный факт","source":"dialogue|knowledge:...|tool:...","reason":"почему он отвечает на запрос"}],
-    "dropped":[{"fact":"доступный, но неиспользованный факт","source":"...","reason":"почему он не относится к запросу"}],
-    "completeness":"complete|partial|unknown",
-    "conclusion":"короткий вывод"
-  },
-  "behavior_effects":{
-    "naturalness":"как человекоподобность повлияла на манеру ответа",
-    "depth":"как полезная развернутость повлияла на объём и объяснение",
-    "initiative":"почему предложен/не предложен следующий шаг"
-  }
+  "subscriber_data_needed":[{"system":"Billing|UserSide|Network","field":"нужный факт","why":"зачем он нужен"}],
+  "clarification_questions":["вопросы, реально заданные в reply"],
+  "verification_needed":["что всё ещё нельзя подтвердить"],
+  "next_step_offered":"следующий шаг или пусто"
 }`;
 }
 
@@ -730,7 +668,7 @@ export async function generateSubscriberReply({
       })
     }
   ];
-  const response = await requestJsonWithFallback(messages, runtime, { ...meterContext, stage: useKnowledge ? 'reply_with_knowledge' : 'reply_without_knowledge' }, { maxTokens: 1000, temperature: 0.2 });
+  const response = await requestJsonWithFallback(messages, runtime, { ...meterContext, stage: useKnowledge ? 'reply_with_knowledge' : 'reply_without_knowledge' }, { maxTokens: 900, temperature: 0.2 });
   const raw = response.parsed || parseJsonObject(response.answer);
   const reply = block(raw?.reply || '', 2200);
   if (!reply) throw new Error('Semantic reply: model returned an empty reply');
@@ -738,13 +676,81 @@ export async function generateSubscriberReply({
   return {
     reply,
     subscriberDataNeeded: normalizeDataNeeds(raw?.subscriber_data_needed),
-    unresolvedRequests: stringList(raw?.unresolved_requests, 8, 420),
+    unresolvedRequests: [],
     clarificationQuestions: stringList(raw?.clarification_questions, profile.maxFollowUpQuestions, 360),
     verificationNeeded: stringList(raw?.verification_needed, 8, 360),
     nextStepOffered: oneLine(raw?.next_step_offered || '', 500),
-    basis: stringList(raw?.basis, 10, 160),
-    answerRelevance: normalizeAnswerRelevance(raw?.answer_relevance, fallbackRequest),
-    behaviorEffects: normalizeBehaviorEffects(raw?.behavior_effects),
+    basis: [],
+    answerRelevance: normalizeAnswerRelevance({}, fallbackRequest),
+    behaviorEffects: normalizeBehaviorEffects({}),
+    behavior: profile,
+    model: response.model,
+    usage: response.usage || {},
+    rateLimit: response.rateLimit || {},
+    finishReason: response.finishReason || ''
+  };
+}
+
+export async function generateGroundedSubscriberReply({
+  transcript = [],
+  latestCustomer = {},
+  analysis = {},
+  useKnowledge = true,
+  behavior = {},
+  canonicalFactEvidence = [],
+  toolEvidence = [],
+  meterContext = {}
+} = {}) {
+  const runtime = await readAiRuntimeConfig();
+  const apiKey = String(runtime.groqApiKey || '').trim();
+  if (!apiKey) throw new Error('AI provider API key is not configured');
+  const profile = behaviorProfile(behavior);
+  const dialogue = transcriptForProbe(transcript);
+  const grounded = answerPayload(analysis, useKnowledge);
+  const stageInstruction = `ЭТАП: FINAL ANSWER AFTER READ.
+
+READ уже выполнен. Ответь абоненту по правилам AUTONOMOUS_OPERATOR, используя dialogue, grounded_context и переданный evidence. Не запускай новый semantic-разбор.
+Для canonical_fact_evidence: status=known — значение подтверждено; status=absent — источник успешно наблюдал пустое поле; status=unknown — факт не подтверждён. Для tool_evidence учитывай только реально возвращённые поля.
+
+${compactBehaviorGuidance(profile)}
+
+Верни только JSON:
+{
+  "reply":"готовый ответ абоненту",
+  "subscriber_data_needed":[{"system":"Billing|UserSide|Network","field":"факт, без которого ответ всё ещё нельзя закрыть","why":"зачем он нужен"}],
+  "clarification_questions":["вопросы, реально заданные в reply"],
+  "verification_needed":["что всё ещё нельзя подтвердить"],
+  "next_step_offered":"следующий шаг или пусто"
+}`;
+  const messages = [
+    ...autonomousOperatorSystemMessages(stageInstruction),
+    {
+      role: 'user',
+      content: JSON.stringify({
+        dialogue,
+        latest_customer_message: block(latestCustomer?.text || '', 1200),
+        grounded_context: grounded,
+        canonical_fact_evidence: canonicalFactEvidence,
+        tool_evidence: toolEvidence,
+        behavior_profile: profile
+      })
+    }
+  ];
+  const response = await requestJsonWithFallback(messages, runtime, { ...meterContext, stage: 'tool_synthesis' }, { maxTokens: 900, temperature: 0.2 });
+  const raw = response.parsed || parseJsonObject(response.answer);
+  const reply = block(raw?.reply || '', 2200);
+  if (!reply) throw new Error('Grounded semantic reply: model returned an empty reply');
+  const fallbackRequest = analysis?.probe?.whatUserWants || analysis?.probe?.unresolvedRequests?.[0] || '';
+  return {
+    reply,
+    subscriberDataNeeded: normalizeDataNeeds(raw?.subscriber_data_needed),
+    unresolvedRequests: [],
+    clarificationQuestions: stringList(raw?.clarification_questions, profile.maxFollowUpQuestions, 360),
+    verificationNeeded: stringList(raw?.verification_needed, 8, 360),
+    nextStepOffered: oneLine(raw?.next_step_offered || '', 500),
+    basis: [],
+    answerRelevance: normalizeAnswerRelevance({}, fallbackRequest),
+    behaviorEffects: {},
     behavior: profile,
     model: response.model,
     usage: response.usage || {},
@@ -767,38 +773,23 @@ export async function generateCleanModelReply({
   const messages = [
     {
       role: 'system',
-      content: `Ты оператор первой линии обычного интернет-провайдера и отвечаешь человеку в живом чате. У тебя НЕТ внутренней базы SIMNET, НЕТ Billing/UserSide/сетевых tools, НЕТ списка тарифов, цен, внутренних процедур и специальных правил компании. Не притворяйся, что знаешь их.
-
-Пойми реплику по смыслу и ответь естественно. Можно использовать сам диалог и устойчивые общеизвестные знания модели из любых областей, если они не требуют актуальной проверки. Нельзя выдавать такие знания за конкретный внутренний факт SIMNET, текущее состояние договора/абонента или другой live/current факт. Если вопрос требует конкретных внутренних или текущих данных, честно обозначь, чего именно не хватает, без выдумывания.
-
-Не показывай внутренние рассуждения. Выбирай объём и манеру по поведенческому профилю, не растягивая ответ нерелевантными деталями.
-
-${behaviorPromptGuidance(profile)}
-
-Верни только JSON:
-{
-  "reply":"ответ человеку",
-  "unresolved_requests":["что осталось незакрыто"],
-  "clarification_questions":["вопросы, реально заданные в reply"],
-  "verification_needed":["какие внутренние данные потребовались бы"],
-  "answer_relevance":{"request":"что спросили","kept":[{"fact":"что использовано из диалога или общеизвестного знания","source":"dialogue|common_knowledge","reason":"почему релевантно"}],"dropped":[],"completeness":"complete|partial|unknown","conclusion":"короткий вывод"}
-}`
+      content: `Ты оператор первой линии обычного интернет-провайдера. Ответь человеку по смыслу диалога и общеизвестным знаниям. У тебя нет внутренних данных SIMNET, Billing/UserSide/Network и нельзя изображать их наличие.\n\n${compactBehaviorGuidance(profile)}\n\nВерни только JSON: {"reply":"ответ человеку","clarification_questions":[],"verification_needed":[]}`
     },
     { role: 'user', content: JSON.stringify({ dialogue, latest_customer_message: block(latestCustomer?.text || '', 1200) }) }
   ];
-  const response = await requestJsonWithFallback(messages, runtime, { ...meterContext, stage: 'clean_model_reply' }, { maxTokens: 900, temperature: 0.25 });
+  const response = await requestJsonWithFallback(messages, runtime, { ...meterContext, stage: 'clean_model_reply' }, { maxTokens: 800, temperature: 0.25 });
   const raw = response.parsed || parseJsonObject(response.answer);
   const reply = block(raw?.reply || '', 2200);
   if (!reply) throw new Error('Clean model reply: model returned an empty reply');
   return {
     reply,
     subscriberDataNeeded: [],
-    unresolvedRequests: stringList(raw?.unresolved_requests, 8, 420),
+    unresolvedRequests: [],
     clarificationQuestions: stringList(raw?.clarification_questions, profile.maxFollowUpQuestions, 360),
     verificationNeeded: stringList(raw?.verification_needed, 8, 360),
     nextStepOffered: '',
     basis: ['dialogue', 'clean-model'],
-    answerRelevance: normalizeAnswerRelevance(raw?.answer_relevance, latestCustomer?.text || ''),
+    answerRelevance: normalizeAnswerRelevance({}, latestCustomer?.text || ''),
     behaviorEffects: {},
     behavior: profile,
     model: response.model,
