@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   compactFactResolutionForSynthesis,
@@ -75,4 +76,12 @@ test('fact resolver diagnostics are omitted only from synthesis payload', () => 
   assert.deepEqual(projected.evidence, source.evidence);
   assert.equal(projected.context.confirmedCaseId, '42');
   assert.equal(source.diagnostics.broadPayloadChars, 9000);
+});
+
+test('semantic runtime uses deterministic KB retrieval instead of a second knowledge LLM call', () => {
+  const source = readFileSync(new URL('../src/features/ai-operator/semantic-probe.js', import.meta.url), 'utf8');
+  assert.match(source, /knowledgeMode:\s*'off'/);
+  assert.match(source, /searchKnowledgeLibrary\(query/);
+  assert.match(source, /Отдельный LLM knowledge-reflection этап не запускается/);
+  assert.doesNotMatch(source, /await\s+base\.buildKnowledgeReflectionMessages/);
 });
