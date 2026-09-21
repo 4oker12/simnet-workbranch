@@ -14,6 +14,7 @@ import {
 import { CANONICAL_FACT_CATALOG } from '../src/features/ai-operator/canonical-fact-catalog.js';
 import { TARIFF_CATALOG, TARIFF_KNOWLEDGE, findTariffOffer } from '../src/features/ai-operator/knowledge/tariffs.js';
 import { SERVICE_KNOWLEDGE } from '../src/features/ai-operator/knowledge/services.js';
+import { searchKnowledgeLibrary } from '../src/features/ai-operator/knowledge/index.js';
 
 const codedTariff = normalizeTariffLabel('BZL, 310, 300 MB');
 assert.equal(codedTariff.rawName, 'BZL, 310, 300 MB');
@@ -114,6 +115,11 @@ assert.match(residentialNew.text, /194 канала/);
 const privateSector = TARIFF_KNOWLEDGE.find(item => item.id === 'tariff.private-sector');
 assert.match(privateSector.text, /Тарифа 500 Мбит\/с для частного сектора нет/);
 assert.match(privateSector.text, /30 каналов/);
+
+const newConnectionHits = searchKnowledgeLibrary('новое подключение квартиры 500 мегабит сколько стоит omega', { limit: 6 });
+assert.ok(newConnectionHits.some(item => item.id === 'tariff.residential-new-connection'), 'new apartment tariff knowledge must be retrievable');
+const privateHits = searchKnowledgeLibrary('частный сектор 500 мегабит тариф есть ли', { limit: 6 });
+assert.ok(privateHits.some(item => item.id === 'tariff.private-sector'), 'private-sector tariff knowledge must be retrievable');
 
 const social = TARIFF_KNOWLEDGE.find(item => item.id === 'tariff.social');
 assert.ok(social);
