@@ -28,32 +28,49 @@ function tokens(value) {
   return [...new Set(normalize(value).split(' ').filter(token => token.length >= 3))];
 }
 
-function scoreArticle(article, queryTokens) {
-  if (!queryTokens.length) return 0;
-  const hay = normalize([article.id, article.title, article.summary, ...(article.tags || []), article.text].join(' '));
+function articleSearchText(article) {
+  return normalize([article.id, article.title, article.summary, ...(article.tags || [])].join(' '));
+}
+
+function scoreArticle(article, queryText) {
+  const haystack = articleSearchText(article);
+  const query = normalize(queryText);
+  const queryTokens = tokens(query);
   let score = 0;
-  for (const token of queryTokens) {
-    if (hay.includes(token)) score += 1;
+
+  for (const tag of article.tags || []) {
+    const normalizedTag = normalize(tag);
+    if (normalizedTag && query.includes(normalizedTag)) score += 10;
   }
+  for (const token of queryTokens) {
+    if (haystack.includes(token)) score += token.length >= 7 ? 3 : 1;
+  }
+  if (query && normalize(article.title).split(' ').some(part => part.length >= 4 && query.includes(part))) score += 3;
   return score;
 }
 
-export function searchKnowledgeLibrary(query, { limit = 3 } = {}) {
-  const queryTokens = tokens(query);
-  return SIMNET_KNOWLEDGE
-    .map(article => ({ article, score: scoreArticle(article, queryTokens) }))
-    .filter(item => item.score > 0)
-    .sort((a, b) => b.score - a.score || a.article.id.localeCompare(b.article.id))
-    .slice(0, Math.max(1, Math.min(10, Number(limit) || 3)))
-    .map(item => item.article);
+export function knowledgeQueryFromUnderstanding({ probe = {}, latestCustomer = {} } = {}) {
+  return [
+    probe.whatUserWants,
+    probe.latestMessageMeans,
+    probe.refersTo,
+    probe.underlyingGoal,
+    ...(probe.factsSaidByUser || []),
+    latestCustomer?.text
+  ].filter(Boolean).join(' ');
 }
 
-export function knowledgeQueryFromUnderstanding(understanding = {}) {
-  const parts = [
-    understanding.whatUserWants,
-    understanding.latestMessageMeans,
-    understanding.knowledgeReason,
-    ...(Array.isArray(understanding.unresolvedRequests) ? understanding.unresolvedRequests : [])
-  ];
-  return parts.filter(Boolean).join(' ');
+// This is retrieval, not a decision rule. It only offers candidate encyclopedia pages.
+// The model is explicitly allowed to ignore all candidates when they are not useful.
+export function searchKnowledgeLibrary(queryText, { limit = 6, minScore = 1 } = {}) {
+  return SIMNET_KNOWLEDGE
+    .map(article => ({ article, score: scoreArticle(article, queryText) }))
+    .filter(item => item.score >= minScore)
+    .sort((a, b) => b.score - a.score || a.article.id.localeCompare(b.article.id))
+    .slice(0, Math.max(1, Math.min(10, Number(limit) || 6)))
+    .map(({ article, score }) => ({ ...article, score }));
+}
+
+export function knowledgeIndex() {
+  return SIMNET_KNOWLEDGE.map(({ id, title, summary, tags }) => ({ id, title, summary, tags }));
 }
