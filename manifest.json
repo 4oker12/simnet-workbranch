@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SIMNET Workbench",
-  "version": "1.7.36.172",
+  "version": "1.7.36.173",
   "description": "SIMNET Workbench: facts + visits + direct if/else actions, without continuous page rescanning.",
   "permissions": ["storage","scripting","unlimitedStorage","tabs","alarms"],
   "host_permissions": ["https://userside.simnet.kiev.ua/*","https://admin.simnet.kiev.ua/*","https://admin.looknet.kiev.ua/*","https://pbx.simnet.kiev.ua/*","https://stargroup.helpcrunch.com/*","http://127.0.0.1/*","http://localhost/*","https://api.groq.com/*","https://api.deepseek.com/*"],
@@ -92,7 +92,7 @@
     "world":"MAIN"
   },{
     "matches":["https://pbx.simnet.kiev.ua/*"],
-    "js":["src/pbx/pbx-manual-analysis-ui.js","src/pbx/pbx-call-binding-column.js","src/pbx/pbx-workbench-shell.js","src/pbx/pbx-error-diagnostics.js"],
+    "js":["src/pbx/pbx-manual-analysis-ui.js","src/pbx/pbx-analysis-resilience.js","src/pbx/pbx-call-binding-column.js","src/pbx/pbx-workbench-shell.js","src/pbx/pbx-error-diagnostics.js"],
     "run_at":"document_idle"
   },{
     "matches":["https://stargroup.helpcrunch.com/*"],
@@ -103,6 +103,6 @@
   "options_ui":{"page":"src/ui/settings.html","open_in_tab":true},
   "icons":{"16":"assets/icon16.png","32":"assets/icon32.png","48":"assets/icon48.png","128":"assets/icon128.png"},
   "web_accessible_resources":[{"resources":["src/parsers/userside/tmc.js"],"matches":["https://userside.simnet.kiev.ua/*","https://admin.simnet.kiev.ua/*","https://admin.looknet.kiev.ua/*"]}],
-  "version_name":"1.7.36.172-building-index-ui-compat",
+  "version_name":"1.7.36.173-pbx-retry-safe",
   "content_security_policy":{"extension_pages":"script-src 'self'; object-src 'self'"}
 }
