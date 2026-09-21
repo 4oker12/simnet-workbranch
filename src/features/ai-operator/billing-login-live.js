@@ -20,7 +20,7 @@ export function classifyStandaloneBillingLogin(value) {
   const login = clean(value, 80).replace(/\s+/g, '');
   const normalized = login.toLowerCase();
   if (!login || EXCLUDED_LOGIN_WORDS.has(normalized)) return '';
-  return LOGIN_RE.test(login) ? login : '';
+  return LOGIN_RE.test(login) ? normalized : '';
 }
 
 function rankBillingTabs(tabs = []) {
@@ -89,7 +89,8 @@ async function executeLoginSearch(tabId, login) {
       if (!uu) uu = compact(document.querySelector('input[name="uu"]')?.value || '', 80);
       if (!pp) return { ok: false, code: 'BILLING_SESSION_REQUIRED' };
 
-      // Native Billing free-text search. Preserve the exact subscriber-supplied casing in name=.
+      // Native Billing free-text search. SIMNET login matching is case-insensitive;
+      // the classifier supplies a normalized lowercase login in name=.
       const searchUrl = makeUrl({ pp, ...(uu ? { uu } : {}), a: 'listuser', f: 'n', name: requestedLogin });
       const searchPage = await fetchDoc(searchUrl);
       if (!searchPage.ok) return { ok: false, code: 'BILLING_SEARCH_FAILED', status: searchPage.status };
