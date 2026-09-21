@@ -127,7 +127,8 @@ assert.match(social.text, /50 Мбит\/с за 200 грн\/месяц/);
 assert.match(social.text, /подтвержд/i);
 const futurePayment = TARIFF_KNOWLEDGE.find(item => item.id === 'tariff.future-payment');
 assert.match(futurePayment.text, /оба поля содержат осмысленные значения/);
-assert.match(futurePayment.text, /ровно 349 грн\/месяц/);
+assert.match(futurePayment.text, /349 грн/);
+assert.match(futurePayment.text, /нельзя самовольно округлять до 350 грн/);
 assert.match(futurePayment.text, /нельзя переносить её на следующий месяц/);
 
 const omega = SERVICE_KNOWLEDGE.find(item => item.id === 'service.omega-tv');
