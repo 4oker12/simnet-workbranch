@@ -3,21 +3,28 @@
 
   if (window.top !== window.self || location.hostname !== 'pbx.simnet.kiev.ua') return;
 
-  function isBusy(runButton) {
-    const tools = runButton?.closest?.('.wb-pbx-manual-tools');
-    const result = tools?.querySelector?.('.wb-pbx-manual-result');
-    return String(result?.dataset?.state || '') === 'processing';
-  }
+  const lastClickAt = new Map();
+  const WINDOW_MS = 900;
 
   document.addEventListener('click', event => {
     const run = event.target?.closest?.('.wb-pbx-manual-run');
-    if (!run || !isBusy(run)) return;
+    if (!run) return;
 
-    // The first click starts analysis. Any further click while that same call is
-    // processing must do nothing — especially not trigger the legacy cancel path.
-    event.preventDefault();
-    event.stopImmediatePropagation();
+    const recordId = String(run.closest?.('.wb-pbx-manual-tools')?.dataset?.recordId || '');
+    const key = recordId || '__unknown__';
+    const now = Date.now();
+    const previous = Number(lastClickAt.get(key) || 0);
 
-    run.title = 'Разбор уже выполняется — дождитесь завершения';
+    if (now - previous < WINDOW_MS) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      run.title = 'Повторный клик проигнорирован';
+      return;
+    }
+
+    lastClickAt.set(key, now);
+    setTimeout(() => {
+      if (Number(lastClickAt.get(key) || 0) === now) lastClickAt.delete(key);
+    }, WINDOW_MS + 50);
   }, true);
 })();
