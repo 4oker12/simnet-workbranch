@@ -41,9 +41,22 @@ function inferTariffNumbers(label) {
 
   const speed = text.match(/\b(\d{2,4})\s*(?:M(?:B|BIT)(?:\/S)?|МБ(?:І|И)?Т(?:\/С)?|МБ)\b/i);
   if (speed) speedMbps = Number(speed[1]);
+  if (!Number.isFinite(speedMbps) && /\b1\s*(?:G(?:BIT|BPS)|ГБ(?:І|И)?Т(?:\/С)?)\b/i.test(text)) speedMbps = 1000;
   const price = text.match(/\b(\d{2,4}(?:[.,]\d{1,2})?)\s*(?:грн|uah)\b/i);
   if (price) priceUAH = finiteMoney(String(price[1]).replace(',', '.'));
   return { priceUAH, speedMbps, serviceCode: /^\s*BZL\b/i.test(text) ? 'BZL' : '' };
+}
+
+function sanitizeTariffDisplayName(value) {
+  let text = clean(value, 260);
+  if (!text) return '';
+  // Billing can glue a technical appendix to the package name:
+  // "Безліміт 310 (15.10.2024) Швидкість - 500 Мбіт/с".
+  // Keep the complete source string as rawName, but do not show that appendix as the package name.
+  text = text.split(/\s*(?:швидкість|скорость)\s*[-–:]?/iu)[0];
+  text = text.replace(/\s*[-–]?\s*\(\d{1,2}\.\d{1,2}\.\d{2,4}\)\s*/gu, ' ');
+  text = text.replace(/[\s,;:–-]+$/u, '');
+  return clean(text, 220);
 }
 
 export function normalizeTariffLabel(value) {
@@ -52,7 +65,8 @@ export function normalizeTariffLabel(value) {
 
   const withoutNumericId = rawName.replace(/^\s*\[\d+\]\s*/, '').trim();
   const inferred = inferTariffNumbers(withoutNumericId);
-  let displayName = withoutNumericId
+  const displayBase = sanitizeTariffDisplayName(withoutNumericId) || withoutNumericId;
+  let displayName = displayBase
     .replace(/^\s*BZL\b\s*[,;:\-]?\s*/i, '')
     .replace(/\b(\d{2,4})\s*(?:M(?:B|BIT)(?:\/S)?|МБ(?:І|И)?Т(?:\/С)?|МБ)\b/gi, '$1 Мбит/с')
     .replace(/\s*,\s*/g, ', ')
@@ -64,7 +78,7 @@ export function normalizeTariffLabel(value) {
 
   return {
     rawName,
-    displayName: displayName || withoutNumericId || rawName,
+    displayName: displayName || displayBase || withoutNumericId || rawName,
     priceUAH: inferred.priceUAH,
     speedMbps: Number.isFinite(inferred.speedMbps) ? inferred.speedMbps : null,
     serviceCode: inferred.serviceCode
