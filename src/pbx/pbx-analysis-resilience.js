@@ -36,8 +36,9 @@
       if (!run || !result) continue;
       const state = String(result.dataset.state || 'idle');
       const busy = state === 'processing';
-      run.disabled = busy;
-      run.setAttribute('aria-disabled', busy ? 'true' : 'false');
+      if (run.disabled !== busy) run.disabled = busy;
+      const ariaDisabled = busy ? 'true' : 'false';
+      if (run.getAttribute('aria-disabled') !== ariaDisabled) run.setAttribute('aria-disabled', ariaDisabled);
       if (busy) {
         run.textContent = '…';
         run.title = 'Разбор уже выполняется. Повторный запуск заблокирован.';
@@ -258,7 +259,15 @@
     }, true);
 
     shadowObserver?.disconnect();
-    shadowObserver = new MutationObserver(() => queueMicrotask(syncCard));
+    shadowObserver = new MutationObserver(mutations => {
+      const relevant = mutations.some(mutation => {
+        const target = mutation.target?.nodeType === Node.ELEMENT_NODE
+          ? mutation.target
+          : mutation.target?.parentElement;
+        return !target?.closest?.('.answer,.wb-retry-box,.wb-analysis-retry');
+      });
+      if (relevant) queueMicrotask(syncCard);
+    });
     shadowObserver.observe(shadow, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden', 'data-tone'] });
     queueMicrotask(syncCard);
   }
