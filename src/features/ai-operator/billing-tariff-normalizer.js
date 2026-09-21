@@ -81,7 +81,7 @@ function nextCalendarMonth(now = new Date()) {
 function normalizeEffectivePeriod(value, now = new Date()) {
   const raw = clean(value, 260);
   if (!raw) return null;
-  if (/(?:в|на)\s+(?:следующ\w*|наступн\w*)\s+(?:месяц\w*|місяц\w*)/i.test(raw)) {
+  if (/(?:в|на)\s+(?:следующ[а-яёіїєґ]*|наступн[а-яёіїєґ]*)\s+(?:месяц[а-яёіїєґ]*|місяц[а-яёіїєґ]*)/iu.test(raw)) {
     return { kind: 'next_month', month: nextCalendarMonth(now), raw };
   }
   return { kind: 'billing_schedule', month: null, raw };
