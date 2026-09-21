@@ -117,7 +117,7 @@ export function normalizeActiveServices(values = []) {
     const rawName = clean(item?.rawName || item?.name, 220);
     let kind = 'additional_service';
     let displayName = rawName;
-    if (/\b(?:ктв|ktv)\b|кабельн\w*\s+(?:телевид|тв|тб)/i.test(rawName)) {
+    if (/\b(?:ктв|ktv)\b|кабельн[а-яёіїєґ]*\s+(?:телевид|тв|тб)/iu.test(rawName)) {
       kind = 'cable_tv';
       displayName = 'Кабельное телевидение';
     } else if (/omega\s*tv|омега\s*(?:тв|тб)/i.test(rawName)) {
