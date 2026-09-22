@@ -7,6 +7,7 @@ import {
   compactRuntimeAnalysis,
   compactRuntimeTranscript
 } from './runtime-projection.js';
+import { extractStandaloneSubscriberIdentity, identityToolArgs } from './subscriber-identity.js';
 
 export * from './semantic-tool-broker-core-runtime-base.js';
 
@@ -27,6 +28,14 @@ function usageTotal(...items) {
     total.total_tokens += Number(usage.total_tokens || 0);
     return total;
   }, { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+}
+
+export function extractIdentityHints(transcript = [], analysis = {}) {
+  const standard = base.extractIdentityHints(transcript, analysis);
+  if (standard && typeof standard === 'object' && !Array.isArray(standard) && Object.keys(standard).length) {
+    return standard;
+  }
+  return identityToolArgs(extractStandaloneSubscriberIdentity(transcript));
 }
 
 function canonicalTrace(factResolution = null) {
