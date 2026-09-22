@@ -46,7 +46,7 @@ function userRequestedAction(requestText = '') {
 function isQuestionLike(requestText = '') {
   const request = lower(requestText);
   return /\?/.test(requestText)
-    || /^(?:а\s+)?(?:сколько|скільки|какой|який|какие|які|когда|коли|где|де|почему|чому|можно|можна|есть\s+ли|чи\s+є|что|що|как|як)\b/iu.test(request);
+    || /^(?:а\s+)?(?:сколько|скільки|какой|який|какие|які|когда|коли|где|де|почему|чому|можно|можна|есть\s+ли|чи\s+є|что|що|как|як)(?=$|\s|[?.!,;:])/iu.test(request);
 }
 function safeLeakFallback(requestText = '') {
   return isQuestionLike(requestText)
@@ -56,18 +56,20 @@ function safeLeakFallback(requestText = '') {
 
 function hasAffirmativeActionOffer(value = '') {
   const source = text(value, 4000);
-  const modal = /\b(?:могу|можем|можу|можемо)\s+(?:зарегистрир[\p{L}\p{M}]*|оформ[\p{L}\p{M}]*|созда[\p{L}\p{M}]*|створ[\p{L}\p{M}]*|остав[\p{L}\p{M}]*|залиш[\p{L}\p{M}]*|откр[\p{L}\p{M}]*|відкр[\p{L}\p{M}]*|сформир[\p{L}\p{M}]*|переда[\p{L}\p{M}]*|направ[\p{L}\p{M}]*|скерув[\p{L}\p{M}]*|зафиксир[\p{L}\p{M}]*|зафіксу[\p{L}\p{M}]*|заказ[\p{L}\p{M}]*|замов[\p{L}\p{M}]*|постав[\p{L}\p{M}]*)/giu;
+  const modal = /(?:^|[^\p{L}\p{N}_])((?:могу|можем|можу|можемо)\s+(?:зарегистрир[\p{L}\p{M}]*|оформ[\p{L}\p{M}]*|созда[\p{L}\p{M}]*|створ[\p{L}\p{M}]*|остав[\p{L}\p{M}]*|залиш[\p{L}\p{M}]*|откр[\p{L}\p{M}]*|відкр[\p{L}\p{M}]*|сформир[\p{L}\p{M}]*|переда[\p{L}\p{M}]*|направ[\p{L}\p{M}]*|скерув[\p{L}\p{M}]*|зафиксир[\p{L}\p{M}]*|зафіксу[\p{L}\p{M}]*|заказ[\p{L}\p{M}]*|замов[\p{L}\p{M}]*|постав[\p{L}\p{M}]*))/giu;
   for (const match of source.matchAll(modal)) {
-    const prefix = source.slice(Math.max(0, Number(match.index || 0) - 12), Number(match.index || 0)).toLowerCase();
+    const phrase = String(match[1] || '');
+    const start = Number(match.index || 0) + String(match[0] || '').length - phrase.length;
+    const prefix = source.slice(Math.max(0, start - 12), start).toLowerCase();
     if (!/не\s*$/.test(prefix)) return true;
   }
-  return /\b(?:давайте\s+я|если\s+хотите[, ]+я|при\s+необходимости[, ]+я)\s+(?:зарегистрир[\p{L}\p{M}]*|оформ[\p{L}\p{M}]*|создам|створю|оставлю|залишу|передам|направлю|зафиксирую|зафіксую|закажу|замовлю)/iu.test(source);
+  return /(?:^|[^\p{L}\p{N}_])(?:давайте\s+я|если\s+хотите[, ]+я|при\s+необходимости[, ]+я)\s+(?:зарегистрир[\p{L}\p{M}]*|оформ[\p{L}\p{M}]*|создам|створю|оставлю|залишу|передам|направлю|зафиксирую|зафіксую|закажу|замовлю)/iu.test(source);
 }
 
 function hasActionCommitment(value = '') {
   const source = text(value, 4000);
-  return /\bя\s+(?:зарегистрирую|оформлю|создам|створю|оставлю|залишу|открою|відкрию|сформирую|передам|направлю|скерую|зафиксирую|зафіксую|закажу|замовлю|поставлю)\b/iu.test(source)
-    || /\bвам\s+(?:перезвонят|зателефонують)\b/iu.test(source);
+  return /(?:^|[^\p{L}\p{N}_])я\s+(?:зарегистрирую|оформлю|создам|створю|оставлю|залишу|открою|відкрию|сформирую|передам|направлю|скерую|зафиксирую|зафіксую|закажу|замовлю|поставлю)(?=$|[^\p{L}\p{N}_])/iu.test(source)
+    || /(?:^|[^\p{L}\p{N}_])вам\s+(?:перезвонят|зателефонують)(?=$|[^\p{L}\p{N}_])/iu.test(source);
 }
 
 function hasCorporateBotPhrase(value = '') {
@@ -126,7 +128,7 @@ export function evaluateDialoguePolicy({ reply = '', requestText = '', labState 
   }
 
   const corporateBotPhrase = hasCorporateBotPhrase(body);
-  if (corporateBotPhrase && !/^\s*(?:да|нет|так|ні)\b/iu.test(request)) violations.push({ code: DIALOGUE_VIOLATION.CORPORATE_BOT_PHRASE, reason: 'Unnecessary corporate clarification/offer phrasing' });
+  if (corporateBotPhrase && !/^\s*(?:да|нет|так|ні)(?=$|\s|[?.!,;:])/iu.test(request)) violations.push({ code: DIALOGUE_VIOLATION.CORPORATE_BOT_PHRASE, reason: 'Unnecessary corporate clarification/offer phrasing' });
 
   const rawKnowledgeLeak = /(?:договор\s*=\s*лицевой|login\s*abon\+\d|внутренняя\s+статья|KB\s*article|encyclopedia-v|канон\s+финансовых\s+полей)/iu.test(body)
     || /(?:^|\n)\s*#{1,3}\s+\w/.test(reply);
