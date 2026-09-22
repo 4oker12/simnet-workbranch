@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { applyDialoguePolicy, DIALOGUE_VIOLATION } from '../src/features/ai-operator/dialogue-policy.js';
-import { deriveDiscourseAct, DISCOURSE_ACT, isConsumptionStartQuestion } from '../src/features/ai-operator/dialogue-runtime-state.js';
+import { deriveDiscourseAct, DISCOURSE_ACT, isConsumptionStartQuestion, updateDialogueMemory } from '../src/features/ai-operator/dialogue-runtime-state.js';
 import { extractStandaloneSubscriberIdentity, resolveSubscriberIdentityHints } from '../src/features/ai-operator/subscriber-identity.js';
 import { compactTurnOutcome } from '../src/features/ai-operator/scenario-replay.js';
 import { augmentRequiredFactsForTurn } from '../src/features/ai-operator/semantic-tool-broker-impl.js';
@@ -30,6 +30,13 @@ assert.deepEqual(resolveSubscriberIdentityHints(ethernetQuestion, { probe: { ids
 assert.equal(extractStandaloneSubscriberIdentity([{ role: 'customer', text: 'giv1984' }]).login, 'giv1984');
 assert.equal(extractStandaloneSubscriberIdentity([{ role: 'customer', text: 'giv1984 номер договора' }]).login, 'giv1984');
 assert.equal(extractStandaloneSubscriberIdentity([{ role: 'customer', text: 'логин giv1984' }]).login, 'giv1984');
+
+// Literal address rebind accepts a normal one-word street + house number, but
+// cannot switch to a different house/address invented by a parser.
+const addressTurn = [{ role: 'customer', text: 'Адрес Кикабидзе 9' }];
+assert.deepEqual(resolveSubscriberIdentityHints(addressTurn, {}, { address: 'Кикабидзе 9' }), { address: 'Кикабидзе 9' });
+assert.deepEqual(resolveSubscriberIdentityHints(addressTurn, {}, { address: 'Кикабидзе 19' }), {});
+assert.deepEqual(resolveSubscriberIdentityHints(addressTurn, {}, { address: 'Салютная 9' }), {});
 
 // Unknown support/bundle fields are diagnostic only; only requested unknowns may make a turn incomplete.
 const replayOutcome = compactTurnOutcome({
@@ -81,6 +88,31 @@ assert.ok(leakedQuestion.dialoguePolice.violations.includes(DIALOGUE_VIOLATION.R
 assert.ok(leakedQuestion.dialoguePolice.violations.includes(DIALOGUE_VIOLATION.NON_ANSWER));
 assert.ok(!/Канон финансовых/.test(leakedQuestion.reply));
 
+// Unsolicited operational offers are removed even when phrased with verbs that
+// used to slip through the narrower guard.
+const unsolicitedCreate = applyDialoguePolicy({
+  requestText: 'Какой у меня тариф?',
+  reply: 'Текущий тариф — Безліміт 250. Если хотите, могу создать заявку на смену.'
+});
+assert.ok(unsolicitedCreate.dialoguePolice.violations.includes(DIALOGUE_VIOLATION.UNSOLICITED_ACTION_OFFER));
+assert.ok(unsolicitedCreate.dialoguePolice.violations.includes(DIALOGUE_VIOLATION.CAPABILITY_OVERCLAIM));
+assert.match(unsolicitedCreate.reply, /Безліміт 250/);
+assert.ok(!/могу создать|заявк/i.test(unsolicitedCreate.reply));
+
+const explicitUnsupportedAction = applyDialoguePolicy({
+  requestText: 'Создайте заявку.',
+  reply: 'Могу создать заявку прямо сейчас.'
+});
+assert.ok(explicitUnsupportedAction.dialoguePolice.violations.includes(DIALOGUE_VIOLATION.CAPABILITY_OVERCLAIM));
+assert.equal(explicitUnsupportedAction.reply, 'Сейчас я не могу выполнить это действие из чата.');
+
+const honestCapabilityBoundary = applyDialoguePolicy({
+  requestText: 'Создайте заявку.',
+  reply: 'Сейчас я не могу создать заявку из этого чата.'
+});
+assert.ok(!honestCapabilityBoundary.dialoguePolice.violations.includes(DIALOGUE_VIOLATION.CAPABILITY_OVERCLAIM));
+assert.equal(honestCapabilityBoundary.reply, 'Сейчас я не могу создать заявку из этого чата.');
+
 // Consumption-start date is a distinct business fact and cannot fall back to contract date.
 const consumptionText = 'А день начала потребления услуги какой указан по договору?';
 assert.equal(isConsumptionStartQuestion(consumptionText), true);
@@ -92,6 +124,25 @@ const consumptionFacts = augmentRequiredFactsForTurn({
 });
 assert.ok(!consumptionFacts.includes('subscriber.contract.date'));
 assert.ok(consumptionFacts.includes('subscriber.contract.number'));
+
+// Resolving a canonical fact is not proof that the final answer actually told it
+// to the customer. Do not poison DELTA memory with merely fetched facts.
+const memoryAfterResolution = updateDialogueMemory({
+  labState: { domainContext: { dialogue: { alreadyExplainedFacts: [] } } },
+  analysis: {
+    probe: {
+      requiredFacts: ['subscriber.finance.balance.account'],
+      unresolvedRequests: ['Какой баланс?']
+    }
+  },
+  requestText: 'Какой баланс?',
+  factResolution: {
+    requestedFacts: ['subscriber.finance.balance.account'],
+    evidence: [{ path: 'subscriber.finance.balance.account', status: 'known', value: 500 }]
+  }
+});
+assert.deepEqual(memoryAfterResolution.domainContext.dialogue.alreadyExplainedFacts, []);
+assert.deepEqual(memoryAfterResolution.domainContext.dialogue.activeRequiredFacts, []);
 
 // When synthesis fails after canonical facts are already known, fallback must
 // surface the facts instead of asking the operator/customer to repeat the turn.
@@ -128,5 +179,18 @@ const simpleBalanceFallback = canonicalEvidenceFallbackResult({
 });
 assert.equal(simpleBalanceFallback.complete, true);
 assert.match(simpleBalanceFallback.reply, /500/);
+
+const absentFactFallback = canonicalEvidenceFallbackResult({
+  requestText: 'Какой баланс и состояние услуги?',
+  factResolution: {
+    requestedFacts: ['subscriber.finance.balance.account', 'subscriber.service.serviceState'],
+    evidence: [
+      { path: 'subscriber.finance.balance.account', status: 'known', value: 500 },
+      { path: 'subscriber.service.serviceState', status: 'absent', value: null }
+    ]
+  }
+});
+assert.equal(absentFactFallback.complete, false, 'an absent fact that was not rendered cannot count as a complete fallback answer');
+assert.deepEqual(absentFactFallback.representedRequestedFacts, ['subscriber.finance.balance.account']);
 
 console.log('ai_operator_scenario_audit_regressions_test: ok');
