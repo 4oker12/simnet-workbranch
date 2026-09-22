@@ -1,0 +1,151 @@
+{
+  "version": 1,
+  "domain": "finance",
+  "level": "L3",
+  "id": "l3-finance-long-dialogue",
+  "purpose": "Multi-turn dialogue replay fixture. Assert meaning continuity, field discipline, and no invention across topic switch and return.",
+  "turns": [
+    {
+      "index": 1,
+      "role": "customer",
+      "text": "Сколько у меня на счету?",
+      "taskClass": "direct_balance",
+      "evidenceAfter": {
+        "subscriber.finance.balance.account": { "status": "known", "value": 320.99 },
+        "subscriber.finance.balance.afterTariff": { "status": "known", "value": 0.99 },
+        "subscriber.finance.totalDue": { "status": "known", "value": 320 },
+        "subscriber.finance.temporaryPayment": { "status": "absent", "value": null },
+        "subscriber.service.accessState": { "status": "known", "value": "разрешён" }
+      },
+      "expect": {
+        "replyMode": "simple",
+        "mustUseAccountBalance": true,
+        "mustNotUseAfterTariffAsCurrent": true
+      }
+    },
+    {
+      "index": 2,
+      "role": "customer",
+      "text": "А последний платёж какой был?",
+      "taskClass": "payment_history",
+      "evidenceAfter": {
+        "subscriber.finance.payments": {
+          "status": "known",
+          "value": [
+            { "date": "2026-09-18", "description": "Пополнение", "amount": "300" },
+            { "date": "2026-08-28", "description": "Пополнение", "amount": "320" }
+          ]
+        }
+      },
+      "expect": {
+        "replyMode": "simple",
+        "mayUsePayments": true,
+        "customerClaimAsFact": false
+      }
+    },
+    {
+      "index": 3,
+      "role": "customer",
+      "text": "Почему тогда интернет не работает, я же платил?",
+      "taskClass": "expectation_mismatch",
+      "evidenceAfter": {
+        "subscriber.service.accessState": { "status": "known", "value": "запрещён" },
+        "subscriber.finance.balance.account": { "status": "known", "value": 12.4 },
+        "subscriber.finance.balance.afterTariff": { "status": "known", "value": -307.6 }
+      },
+      "expect": {
+        "replyMode": "contextual",
+        "customerClaimAsFact": false,
+        "mustNotInventPaymentPosting": true,
+        "mustNotConfirmDebtFromAfterTariffAlone": true,
+        "mayCombineAccessAndFinance": true
+      }
+    },
+    {
+      "index": 4,
+      "role": "customer",
+      "text": "А что это за временный платёж?",
+      "taskClass": "temporary_payment_explain",
+      "evidenceAfter": {
+        "subscriber.finance.temporaryPayment": { "status": "known", "value": 150 },
+        "subscriber.finance.balance.withoutTemporary": { "status": "known", "value": -157.6 },
+        "subscriber.finance.balance.afterTariff": { "status": "known", "value": -7.6 }
+      },
+      "expect": {
+        "replyMode": "contextual",
+        "mayUseTemporaryPaymentInExplanation": true,
+        "mustNotTreatTemporaryAsOwnMoney": true
+      }
+    },
+    {
+      "index": 5,
+      "role": "customer",
+      "text": "То есть с 1-го числа снова всё по-новому?",
+      "taskClass": "settlement_period",
+      "evidenceAfter": {
+        "subscriber.finance.totalDue": { "status": "known", "value": 320 },
+        "subscriber.tariff.current.price": { "status": "known", "value": 320 }
+      },
+      "expect": {
+        "replyMode": "contextual",
+        "mayUseSettlementCycleKnowledge": true,
+        "mustNotInventExactProrate": true
+      }
+    },
+    {
+      "index": 6,
+      "role": "customer",
+      "text": "Но вчера же работало",
+      "taskClass": "expectation_mismatch",
+      "evidenceAfter": {
+        "subscriber.finance.temporaryPayment": { "status": "known", "value": 150 },
+        "subscriber.service.accessState": { "status": "known", "value": "запрещён" }
+      },
+      "expect": {
+        "replyMode": "contextual",
+        "mayUseTemporaryPaymentInExplanation": true,
+        "mustNotInventTemporaryIfAbsent": true,
+        "retainPriorFinanceContext": true
+      }
+    },
+    {
+      "index": 7,
+      "role": "customer",
+      "text": "Ладно, а какой у меня сейчас тариф по скорости?",
+      "taskClass": "topic_switch_tariff",
+      "evidenceAfter": {
+        "subscriber.tariff.current.name": { "status": "known", "value": "Безліміт 320 (100 Mbit)" },
+        "subscriber.tariff.current.speed": { "status": "known", "value": 100 }
+      },
+      "expect": {
+        "replyMode": "simple",
+        "mustNotRehashFullFinanceUnlessAsked": true,
+        "topicSwitchAllowed": true
+      }
+    },
+    {
+      "index": 8,
+      "role": "customer",
+      "text": "Вернёмся: сколько всё-таки надо, чтобы интернет включился?",
+      "taskClass": "return_to_finance",
+      "evidenceAfter": {
+        "subscriber.finance.balance.account": { "status": "known", "value": 12.4 },
+        "subscriber.finance.balance.withoutTemporary": { "status": "known", "value": -157.6 },
+        "subscriber.finance.temporaryPayment": { "status": "known", "value": 150 },
+        "subscriber.service.accessState": { "status": "known", "value": "запрещён" }
+      },
+      "expect": {
+        "replyMode": "contextual",
+        "retainPriorFinanceContext": true,
+        "mustNotInventRequiredForAccessFormulaAsConfirmedLaw": true,
+        "customerClaimAsFact": false,
+        "priorAssistantIsNotEvidence": true
+      }
+    }
+  ],
+  "sessionExpect": {
+    "meaningContinuity": true,
+    "noHardcodedScenarioMatrix": true,
+    "noResolverRewriteRequired": true
+  }
+}
