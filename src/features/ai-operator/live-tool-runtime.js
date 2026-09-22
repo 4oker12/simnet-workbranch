@@ -43,7 +43,7 @@ function billingIdFromLab(labState = {}) {
   if (caseId.startsWith(LIVE_CASE_PREFIX)) return caseId.slice(LIVE_CASE_PREFIX.length).replace(/\D+/g, '').slice(0, 12);
   return '';
 }
-function mergePresent(base = {}, overlay = {}) {
+export function mergePresent(base = {}, overlay = {}) {
   const merged = { ...(base && typeof base === 'object' && !Array.isArray(base) ? base : {}) };
   for (const [key, value] of Object.entries(overlay && typeof overlay === 'object' && !Array.isArray(overlay) ? overlay : {})) {
     if (value === null || value === undefined || value === '') continue;
@@ -51,15 +51,28 @@ function mergePresent(base = {}, overlay = {}) {
   }
   return merged;
 }
-function hasOwnPath(root, path) {
+function readOwnPath(root, path) {
   const parts = String(path || '').split('.').filter(Boolean);
-  if (!parts.length) return false;
+  if (!parts.length) return { observed: false, value: undefined };
   let node = root;
   for (const part of parts) {
-    if (!node || typeof node !== 'object' || !Object.hasOwn(node, part)) return false;
+    if (!node || typeof node !== 'object' || !Object.hasOwn(node, part)) return { observed: false, value: undefined };
     node = node[part];
   }
+  return { observed: true, value: node };
+}
+function canonicalRawValueObserved(data, rawPath, spec = {}) {
+  const raw = readOwnPath(data, rawPath);
+  if (!raw.observed) return false;
+  if (spec.type === 'money' || spec.type === 'number') {
+    if (raw.value === null || raw.value === undefined || raw.value === '') return false;
+    const normalized = String(raw.value).replace(/[\s\u00a0]/g, '').replace(',', '.');
+    return /^-?\d+(?:\.\d+)?$/.test(normalized);
+  }
   return true;
+}
+function isObservedValue(value) {
+  return !(value === null || value === undefined || value === '');
 }
 function requestedCanonicalFacts(toolArgs = {}) {
   const seen = new Set();
@@ -72,11 +85,11 @@ function requestedCanonicalFacts(toolArgs = {}) {
   }
   return facts;
 }
-function missingBillingMainFacts(facts = [], data = {}) {
+export function missingBillingMainFacts(facts = [], data = {}) {
   return facts.filter(path => {
     const spec = CANONICAL_FACT_CATALOG[path];
     if (!spec || spec.source !== 'billing.mainSummary') return true;
-    return !(spec.paths || []).some(rawPath => hasOwnPath(data, rawPath));
+    return !(spec.paths || []).some(rawPath => canonicalRawValueObserved(data, rawPath, spec));
   });
 }
 function fallbackToolArgs(toolArgs = {}) {
@@ -178,8 +191,8 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
       fallbackReason = 'legacy-call-without-required-facts';
       base = await baseRead();
     } else if (missingFacts.length) {
-      // The dedicated a=user parser did not expose at least one requested raw path.
-      // Only then pay for the broader customer.snapshot fallback.
+      // A present key with null/unparseable money is NOT observed evidence.
+      // Fall back to the full Billing snapshot instead of silently returning null.
       fallbackReason = 'missing-canonical-facts';
       base = await baseRead();
     }
@@ -213,15 +226,21 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
   const baseData = base?.data || {};
 
   if (name === 'billing.main_summary') {
-    // The single a=user page owns every field it actually exposes. Broader cached
-    // snapshots are fallback only for canonical fields absent from that page.
-    const mergedIdentity = { ...(baseData.identity || {}), ...identity };
-    const mergedService = { ...(baseData.service || {}), ...service };
-    const mergedFinance = { ...(baseData.finance || {}), ...finance };
+    // Dedicated a=user values win only when actually present. A null/empty live
+    // value must never erase a real value recovered by the broader fallback.
+    const mergedIdentity = mergePresent(baseData.identity || {}, identity);
+    const mergedService = mergePresent(baseData.service || {}, service);
+    const mergedFinance = mergePresent(baseData.finance || {}, finance);
     const liveFieldObservedAt = {};
-    for (const key of Object.keys(identity)) liveFieldObservedAt[`identity.${key}`] = live.observedAt;
-    for (const key of Object.keys(service)) liveFieldObservedAt[`service.${key}`] = live.observedAt;
-    for (const key of Object.keys(finance)) liveFieldObservedAt[`finance.${key}`] = live.observedAt;
+    for (const [key, value] of Object.entries(identity)) {
+      if (isObservedValue(value)) liveFieldObservedAt[`identity.${key}`] = live.observedAt;
+    }
+    for (const [key, value] of Object.entries(service)) {
+      if (isObservedValue(value)) liveFieldObservedAt[`service.${key}`] = live.observedAt;
+    }
+    for (const [key, value] of Object.entries(finance)) {
+      if (isObservedValue(value)) liveFieldObservedAt[`finance.${key}`] = live.observedAt;
+    }
     if (payments !== null) liveFieldObservedAt.payments = live.observedAt;
     const hasData = Object.keys(identity).length > 0
       || Object.keys(service).length > 0
