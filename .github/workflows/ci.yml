@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["main", "feat/**", "fix/**", "chore/**"]
+    branches: ["main", "feat/**", "fix/**", "chore/**", "research/**"]
   pull_request:
 
 permissions:
@@ -81,6 +81,17 @@ jobs:
           node --test \
             tests/ai_provider_deepseek_json_repair_test.mjs \
             tests/ai_provider_router_bootstrap_order_test.mjs
+      - name: Contextual finance regression
+        if: always()
+        shell: bash
+        run: |
+          node --test \
+            tests/ai_operator_billing_balance_fallback_regression_test.mjs \
+            tests/ai_operator_named_login_finance_integration_test.mjs \
+            tests/ai_operator_finance_semantics_test.mjs \
+            tests/ai_operator_settlement_cycle_knowledge_test.mjs \
+            tests/ai_operator_contextual_finance_eval_fixtures_test.mjs \
+            tests/ai_operator_contextual_finance_behavior_eval_test.mjs
       - name: Run npm test
         if: always()
         shell: bash
