@@ -26,7 +26,7 @@ export function isBalanceCoverageQuestion(requestText = '') {
 
 export function financeRequiredFacts(requestText = '') {
   return isBalanceCoverageQuestion(requestText)
-    ? ['subscriber.finance.balance.account', 'subscriber.finance.recurringTotal']
+    ? ['subscriber.finance.balance.account', 'subscriber.tariff.current.price']
     : [];
 }
 
@@ -37,7 +37,7 @@ export function deriveFinanceDecisionEvidence({ requestText = '', evidence = [] 
   if (!isBalanceCoverageQuestion(requestText)) return { decision: null, evidence: [] };
   const map = evidenceMap(evidence);
   const balance = knownValue(map, 'subscriber.finance.balance.account');
-  const recurringAmount = knownValue(map, 'subscriber.finance.recurringTotal') ?? knownValue(map, 'subscriber.tariff.current.price');
+  const recurringAmount = knownValue(map, 'subscriber.tariff.current.price');
   const decision = calculateBalanceCoverage({ balance, recurringAmount });
   if (decision.status !== 'known') return { decision, evidence: [] };
   const source = 'deterministic.finance.coverage';
@@ -45,7 +45,6 @@ export function deriveFinanceDecisionEvidence({ requestText = '', evidence = [] 
     { path: 'derived.finance.coverage.fullCharges', status: 'known', observed: true, value: decision.fullCharges, source, derived: true },
     { path: 'derived.finance.coverage.remainder', status: 'known', observed: true, value: decision.remainder, source, derived: true },
     { path: 'derived.finance.coverage.recurringAmount', status: 'known', observed: true, value: decision.recurringAmount, source, derived: true },
-    { path: 'derived.finance.coverage.calendarMappingAllowed', status: 'known', observed: true, value: false, source, derived: true,
-      provenance: 'No source-backed next-charge calendar anchor is supplied by this arithmetic node' }
+    { path: 'derived.finance.coverage.calendarMappingAllowed', status: 'known', observed: true, value: false, source, derived: true, provenance: 'No source-backed next-charge calendar anchor is supplied by this arithmetic node' }
   ]};
 }
