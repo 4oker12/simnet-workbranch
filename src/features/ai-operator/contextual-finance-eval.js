@@ -31,7 +31,9 @@ function moneyMentions(reply) {
 }
 
 function claimsDebt(reply) {
-  return /(?:\bдолг\b|\bзадолженност|\bвинен\b|\bповинен\b|\bowe\b|\bdebt\b)/i.test(text(reply));
+  // JS \b is ASCII-centric and does not create useful boundaries around Cyrillic words.
+  // Use Unicode letter/number boundaries so Russian/Ukrainian debt wording is detected.
+  return /(?:^|[^\p{L}\p{N}_])(?:долг\p{L}*|задолженност\p{L}*|борг\p{L}*|заборгован\p{L}*|винен|повинен|owe|debt)(?=$|[^\p{L}\p{N}_])/iu.test(text(reply));
 }
 
 function mentionsTemporary(reply) {
@@ -42,6 +44,23 @@ function toolSources(toolTrace = []) {
   return (Array.isArray(toolTrace) ? toolTrace : [])
     .map(item => String(item?.source || item?.tool || '').trim())
     .filter(Boolean);
+}
+
+function toolFamilyAllowed(item, allowed = []) {
+  const set = new Set((Array.isArray(allowed) ? allowed : []).map(value => String(value).trim()).filter(Boolean));
+  if (!set.size) return true;
+  const candidates = [item?.source, item?.tool]
+    .map(value => String(value || '').trim())
+    .filter(Boolean);
+  return candidates.some(value => set.has(value));
+}
+
+function containsForbiddenClaim(reply, claims = []) {
+  const body = text(reply).toLocaleLowerCase();
+  return (Array.isArray(claims) ? claims : []).find(claim => {
+    const needle = String(claim || '').trim().toLocaleLowerCase();
+    return needle && body.includes(needle);
+  }) || null;
 }
 
 /**
@@ -78,11 +97,16 @@ export function evaluateFinanceBehavior({
     }
   }
 
-  if (caseExpect.mustReferenceFields?.includes('subscriber.finance.balance.account')) {
-    if (Number.isFinite(Number(account)) && !amounts.includes(Number(account))
-      && !new RegExp(String(account).replace('.', '[,.]')).test(body)) {
-      failures.push('accountBalance value not reflected in reply');
+  for (const path of Array.isArray(caseExpect.mustReferenceFields) ? caseExpect.mustReferenceFields : []) {
+    const value = evidenceValue(evidence, path);
+    if (Number.isFinite(Number(value)) && !amounts.includes(Number(value))) {
+      failures.push(`${path} value not reflected in reply`);
     }
+  }
+
+  const forbiddenClaim = containsForbiddenClaim(body, caseExpect.mustNotClaim);
+  if (forbiddenClaim) {
+    failures.push(`forbidden claim present: ${forbiddenClaim}`);
   }
 
   if (caseExpect.mustNotClaimDebtWithoutEvidence || caseExpect.mustNotConfirmDebtFromAfterTariffAlone) {
@@ -132,6 +156,14 @@ export function evaluateFinanceBehavior({
     const sources = new Set(toolSources(toolTrace));
     if (sources.size > Number(caseExpect.maxToolSources)) {
       failures.push(`too many tool sources: ${sources.size} > ${caseExpect.maxToolSources}`);
+    }
+  }
+
+  if (Array.isArray(caseExpect.allowedToolFamilies) && caseExpect.allowedToolFamilies.length) {
+    for (const item of Array.isArray(toolTrace) ? toolTrace : []) {
+      if (!toolFamilyAllowed(item, caseExpect.allowedToolFamilies)) {
+        failures.push(`disallowed tool source: ${String(item?.source || item?.tool || 'unknown')}`);
+      }
     }
   }
 
