@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   test:
+    if: github.ref != 'refs/heads/research/contextual-reasoning-finance-spike'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -106,3 +107,32 @@ jobs:
           path: test-output.txt
           if-no-files-found: error
           retention-days: 14
+
+  contextual-finance-research:
+    if: github.ref == 'refs/heads/research/contextual-reasoning-finance-spike'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Finance · balance fallback
+        run: node --test tests/ai_operator_billing_balance_fallback_regression_test.mjs
+      - name: Finance · named login integration
+        if: always()
+        run: node --test tests/ai_operator_named_login_finance_integration_test.mjs
+      - name: Finance · semantics
+        if: always()
+        run: node --test tests/ai_operator_finance_semantics_test.mjs
+      - name: Finance · settlement-cycle knowledge
+        if: always()
+        run: node --test tests/ai_operator_settlement_cycle_knowledge_test.mjs
+      - name: Finance · L2/L3 fixture contracts
+        if: always()
+        run: node --test tests/ai_operator_contextual_finance_eval_fixtures_test.mjs
+      - name: Finance · behavior evaluator
+        if: always()
+        run: node --test tests/ai_operator_contextual_finance_behavior_eval_test.mjs
+      - name: Finance · token measurement regression
+        if: always()
+        run: node --test tests/ai_operator_measure_lab_token_usage_test.mjs
