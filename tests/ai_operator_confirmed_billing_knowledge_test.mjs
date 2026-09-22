@@ -4,7 +4,7 @@ import { BILLING_KNOWLEDGE } from '../src/features/ai-operator/knowledge/billing
 import { TARIFF_CONTEXT_KNOWLEDGE } from '../src/features/ai-operator/knowledge/tariff-context.js';
 import { SIMNET_KNOWLEDGE_VERSION, searchKnowledgeLibrary } from '../src/features/ai-operator/knowledge/index.js';
 
-assert.equal(SIMNET_KNOWLEDGE_VERSION, 'simnet-encyclopedia-v3.2');
+assert.equal(SIMNET_KNOWLEDGE_VERSION, 'simnet-encyclopedia-v3.3');
 
 const balance = BILLING_FINANCE_KNOWLEDGE.find(item => item.id === 'billing.balance');
 assert.ok(balance);
