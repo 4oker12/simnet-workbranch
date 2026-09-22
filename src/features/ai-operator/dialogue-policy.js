@@ -41,7 +41,7 @@ function hasConfirmedServiceAddress(labState = {}) {
 }
 function userRequestedAction(requestText = '') {
   const request = lower(requestText);
-  return /(?:зарегистрир|оформ|созда|створ|остав|залиш|откр(?:ы|и)|відкр|переда|направ|скерув|перезвон|зателефон|заявк|зафиксир|зафіксу|підключ(?:ить|іть)|включите|увімкніть)/iu.test(request);
+  return /(?:зарегистрируйте|зарегистрировать|оформите|оформить|создайте|создать|створіть|створити|оставьте|оставить|залишіть|залишити|откройте|открыть|відкрийте|відкрити|передайте|передать|передати|направьте|направить|скерувати|перезвоните|перезвонить|зателефонуйте|зателефонувати|зафиксируйте|зафиксировать|зафіксуйте|зафіксувати|подключите|подключить|підключіть|підключити|включите|включить|увімкніть|увімкнути)/iu.test(request);
 }
 function isQuestionLike(requestText = '') {
   const request = lower(requestText);
@@ -74,13 +74,29 @@ function hasCorporateBotPhrase(value = '') {
   return /(?:извините,?\s+я\s+не\s+совсем\s+понял|уточните,?\s+пожалуйста|я\s+могу\s+передать\s+информацию|могу\s+зафиксировать\s+обращение)/iu.test(text(value, 4000));
 }
 
+function danglingOfferLead(value = '') {
+  return /^(?:а\s+)?(?:если\s+хотите|при\s+необходимости|заодно)[,;]?$/iu.test(text(value, 300));
+}
+
 function stripForbiddenActionSentences(value = '') {
   const sentences = text(value, 4000).split(/(?<=[.!?])\s+/u).filter(Boolean);
-  return sentences.filter(sentence => (
-    !hasAffirmativeActionOffer(sentence)
-    && !hasActionCommitment(sentence)
-    && !hasCorporateBotPhrase(sentence)
-  )).join(' ').trim();
+  const kept = [];
+  for (const sentence of sentences) {
+    const forbidden = hasAffirmativeActionOffer(sentence) || hasActionCommitment(sentence) || hasCorporateBotPhrase(sentence);
+    if (!forbidden) {
+      kept.push(sentence);
+      continue;
+    }
+    const clauses = sentence.split(/(?<=[,;])\s+/u).filter(Boolean);
+    const remainder = clauses
+      .filter(clause => !danglingOfferLead(clause))
+      .filter(clause => !hasAffirmativeActionOffer(clause) && !hasActionCommitment(clause) && !hasCorporateBotPhrase(clause))
+      .join(' ')
+      .replace(/[,;]\s*$/u, '')
+      .trim();
+    if (remainder) kept.push(remainder);
+  }
+  return kept.join(' ').trim();
 }
 
 export function evaluateDialoguePolicy({ reply = '', requestText = '', labState = {}, alreadyExplainedFacts = [], offeredActions = [], actionToolsCalled = [], hasWriteCapability = false } = {}) {
