@@ -88,13 +88,6 @@ export function requiredFactsForDialogueTurn({ analysis = {}, requestText = '', 
   return current;
 }
 
-function knownRequestedFacts(factResolution = {}) {
-  const requested = new Set(Array.isArray(factResolution?.requestedFacts) ? factResolution.requestedFacts : []);
-  return unique((Array.isArray(factResolution?.evidence) ? factResolution.evidence : [])
-    .filter(item => requested.has(item?.path) && ['known', 'absent'].includes(String(item?.status || '')))
-    .map(item => item.path), 32);
-}
-
 function unresolvedRequestedFacts(factResolution = {}, fallback = []) {
   if (!factResolution) return unique(fallback, 16);
   const evidence = new Map((Array.isArray(factResolution?.evidence) ? factResolution.evidence : []).map(item => [item?.path, item]));
@@ -151,7 +144,10 @@ export function updateDialogueMemory({ labState = {}, analysis = {}, requestText
   else if (discourseAct === DISCOURSE_ACT.CORRECT && currentRequests.length === 0) activeRequests = previous.activeRequests;
   else if (currentRequests.length) activeRequests = currentRequests;
   const activeRequiredFacts = discourseAct === DISCOURSE_ACT.CANCEL ? [] : unresolvedRequestedFacts(factResolution, requiredFacts);
-  const explained = unique([...previous.alreadyExplainedFacts, ...knownRequestedFacts(factResolution || {})], 32);
+  // Resolving a fact is not the same thing as telling it to the customer.
+  // Until post-reply tracking explicitly marks rendered facts, preserve only
+  // facts that were already known to have been communicated on prior turns.
+  const explained = unique(previous.alreadyExplainedFacts, 32);
   state.domainContext = { ...domain, dialogue: {
     version: 1, activeRequests, activeRequiredFacts, alreadyExplainedFacts: explained,
     offeredActions: previous.offeredActions, lastDiscourseAct: discourseAct, lastRequest: text(requestText, 700)
