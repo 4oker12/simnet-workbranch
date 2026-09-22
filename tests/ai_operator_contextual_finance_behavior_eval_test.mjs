@@ -38,6 +38,18 @@ const byId = Object.fromEntries(cases.map(item => [item.id, item]));
 }
 
 {
+  const item = byId['l2-balance-direct'];
+  const result = evaluateFinanceBehavior({
+    caseExpect: item.expect,
+    evidence: item.evidence,
+    reply: 'На счету 320,99 грн., задолженность отсутствует.',
+    toolTrace: [{ tool: 'billing.main_summary', source: 'billing.mainSummary' }]
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.some(f => /forbidden claim/i.test(f)));
+}
+
+{
   const item = byId['l2-yesterday-worked-without-temporary'];
   const result = evaluateFinanceBehavior({
     caseExpect: item.expect,
@@ -73,6 +85,41 @@ const byId = Object.fromEntries(cases.map(item => [item.id, item]));
 }
 
 {
+  const item = byId['l2-so-i-owe-170'];
+  const result = evaluateFinanceBehavior({
+    caseExpect: item.expect,
+    evidence: item.evidence,
+    reply: 'Так, у вас борг 170 грн.',
+    toolTrace: []
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.some(f => /debt/i.test(f)));
+}
+
+{
+  const item = byId['l2-why-099-vs-320'];
+  const result = evaluateFinanceBehavior({
+    caseExpect: item.expect,
+    evidence: item.evidence,
+    reply: 'На счёте 320,99 грн. После учёта тарифа расчётный остаток — 0,99 грн.',
+    toolTrace: []
+  });
+  assert.equal(result.ok, true, result.failures.join('; '));
+}
+
+{
+  const item = byId['l2-why-099-vs-320'];
+  const result = evaluateFinanceBehavior({
+    caseExpect: item.expect,
+    evidence: item.evidence,
+    reply: 'На счёте 320,99 грн.',
+    toolTrace: []
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.some(f => /balance\.afterTariff/i.test(f)));
+}
+
+{
   const item = byId['l2-balance-colloquial'];
   const result = evaluateFinanceBehavior({
     caseExpect: item.expect,
@@ -85,6 +132,18 @@ const byId = Object.fromEntries(cases.map(item => [item.id, item]));
   });
   assert.equal(result.ok, false);
   assert.ok(result.failures.some(f => /too many tool/i.test(f)));
+}
+
+{
+  const item = byId['l2-balance-direct'];
+  const result = evaluateFinanceBehavior({
+    caseExpect: item.expect,
+    evidence: item.evidence,
+    reply: 'На счету 320,99 грн.',
+    toolTrace: [{ tool: 'network.session', source: 'network.session' }]
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.some(f => /disallowed tool source/i.test(f)));
 }
 
 console.log('ai_operator_contextual_finance_behavior_eval_test: PASS');
