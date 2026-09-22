@@ -115,8 +115,6 @@ export function identityFromAnalysisHints(analysis = {}) {
     || (analysis.ids && typeof analysis.ids === 'object' ? analysis.ids : null)
     || {};
 
-  // Only the rigid abon form is safe to accept from semantic hints. A generic
-  // named login must be present literally in customer text and is handled above.
   const rawLogin = String(ids.login || '').trim().replace(/\s+/g, '');
   if (/^abon\d{3,12}$/i.test(rawLogin)) return { login: rawLogin };
 
@@ -135,11 +133,10 @@ export function identityToolArgs(identity = {}) {
 }
 
 export function resolveSubscriberIdentityHints(transcript = [], analysis = {}, secondary = null) {
+  const messages = customerMessages(transcript);
   const fromText = identityToolArgs(extractStandaloneSubscriberIdentity(transcript));
   if (Object.keys(fromText).length) return fromText;
 
-  // A secondary/base parser may still provide IP/address, but generic login or
-  // contract cannot bypass literal extraction. This is the rebind safety gate.
   if (secondary && typeof secondary === 'object' && !Array.isArray(secondary)) {
     const ip = literalIp(transcript, secondary.ip);
     if (ip) return { ip };
@@ -148,7 +145,10 @@ export function resolveSubscriberIdentityHints(transcript = [], analysis = {}, s
   }
 
   const hinted = identityToolArgs(identityFromAnalysisHints(analysis));
-  if (hinted.login && customerMessages(transcript).some(item => new RegExp(`\\b${hinted.login.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b`, 'i').test(oneLine(item?.text, 1200)))) return hinted;
-  if (hinted.contract && customerMessages(transcript).some(item => oneLine(item?.text, 1200).includes(hinted.contract))) return hinted;
+  if (hinted.login) {
+    const login = hinted.login.toLowerCase();
+    if (messages.some(item => oneLine(item?.text, 1200).toLowerCase().includes(login))) return hinted;
+  }
+  if (hinted.contract && messages.some(item => oneLine(item?.text, 1200).includes(hinted.contract))) return hinted;
   return {};
 }
