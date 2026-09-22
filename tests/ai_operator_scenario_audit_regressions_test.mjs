@@ -4,6 +4,7 @@ import { deriveDiscourseAct, DISCOURSE_ACT, isConsumptionStartQuestion } from '.
 import { extractStandaloneSubscriberIdentity, resolveSubscriberIdentityHints } from '../src/features/ai-operator/subscriber-identity.js';
 import { compactTurnOutcome } from '../src/features/ai-operator/scenario-replay.js';
 import { augmentRequiredFactsForTurn } from '../src/features/ai-operator/semantic-tool-broker-impl.js';
+import { canonicalEvidenceFallbackResult } from '../src/features/ai-operator/semantic-tool-broker-core.js';
 
 // "договор" contains the letters "оговор" but is NOT a correction discourse act.
 assert.notEqual(
@@ -91,5 +92,41 @@ const consumptionFacts = augmentRequiredFactsForTurn({
 });
 assert.ok(!consumptionFacts.includes('subscriber.contract.date'));
 assert.ok(consumptionFacts.includes('subscriber.contract.number'));
+
+// When synthesis fails after canonical facts are already known, fallback must
+// surface the facts instead of asking the operator/customer to repeat the turn.
+const ambiguousRestoreFallback = canonicalEvidenceFallbackResult({
+  requestText: 'Сколько нужно оплатить, чтобы интернет снова работал?',
+  factResolution: {
+    requestedFacts: [
+      'subscriber.finance.totalDue',
+      'subscriber.finance.balance.account',
+      'subscriber.service.accessState',
+      'subscriber.service.serviceState'
+    ],
+    evidence: [
+      { path: 'subscriber.finance.totalDue', status: 'known', value: 0 },
+      { path: 'subscriber.finance.balance.account', status: 'known', value: -132.33 },
+      { path: 'subscriber.service.accessState', status: 'known', value: 'Запрещен' },
+      { path: 'subscriber.service.serviceState', status: 'known', value: 'ПАУЗА' }
+    ]
+  }
+});
+assert.equal(ambiguousRestoreFallback.used, true);
+assert.equal(ambiguousRestoreFallback.complete, false, 'conflicting finance/service facts must not become an invented activation amount');
+assert.match(ambiguousRestoreFallback.reply, /-132[,.]33|132[,.]33/);
+assert.match(ambiguousRestoreFallback.reply, /ПАУЗА/);
+assert.match(ambiguousRestoreFallback.reply, /однозначно определить нельзя/);
+assert.ok(!/повторите.*ход/i.test(ambiguousRestoreFallback.reply));
+
+const simpleBalanceFallback = canonicalEvidenceFallbackResult({
+  requestText: 'Какой у меня баланс?',
+  factResolution: {
+    requestedFacts: ['subscriber.finance.balance.account'],
+    evidence: [{ path: 'subscriber.finance.balance.account', status: 'known', value: 500 }]
+  }
+});
+assert.equal(simpleBalanceFallback.complete, true);
+assert.match(simpleBalanceFallback.reply, /500/);
 
 console.log('ai_operator_scenario_audit_regressions_test: ok');
