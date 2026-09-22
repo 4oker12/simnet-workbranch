@@ -25,6 +25,10 @@ const NON_LOGIN_WORDS = new Set([
   'guest', 'root', 'simnet', 'standard', 'premium', 'basic', 'support', 'operator', 'client',
   'ethernet', 'gpon', 'epon', 'pon', 'onu', 'olt', 'optical', 'fiber', 'fibre'
 ]);
+const GENERIC_ADDRESS_WORDS = new Set([
+  'ул', 'улица', 'вул', 'вулиця', 'дом', 'будинок', 'д', 'кв', 'квартира', 'apt', 'apartment',
+  'адрес', 'адреса', 'город', 'місто', 'г', 'м'
+]);
 const CONTRACT_WORD = '(?:договор(?:а|у|ом|е)?|договір(?:у|ом|і)?|лицев(?:ой|ого|ому|ым|ий)?\\s*сч[её]т|особов(?:ий|ого|ому|им)?\\s*рахунок)';
 const LOGIN_WORD = '(?:login|логин(?:а|у|ом|е)?|логін(?:у|ом|і)?)';
 const IDENTITY_WORD = `(?:${CONTRACT_WORD}|${LOGIN_WORD})`;
@@ -76,8 +80,11 @@ function literalAddress(transcript = [], candidate = '') {
   const address = oneLine(candidate, 260);
   if (!address) return '';
   const source = customerMessages(transcript).map(item => oneLine(item?.text, 1200).toLowerCase()).join(' | ');
-  const meaningful = address.toLowerCase().split(/\s+/).filter(part => part.length >= 3).slice(0, 3);
-  return meaningful.length >= 2 && meaningful.every(part => source.includes(part)) ? address : '';
+  const tokens = address.toLowerCase().match(/[\p{L}\p{N}.-]+/gu) || [];
+  const street = tokens.find(token => /\p{L}/u.test(token) && token.length >= 3 && !GENERIC_ADDRESS_WORDS.has(token));
+  const house = tokens.find(token => /\d/u.test(token));
+  if (!street || !house) return '';
+  return source.includes(street) && source.includes(house) ? address : '';
 }
 
 export function extractStandaloneSubscriberIdentity(transcript = []) {
