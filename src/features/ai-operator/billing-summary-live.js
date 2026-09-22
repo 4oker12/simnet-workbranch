@@ -52,11 +52,9 @@ async function executeRead(tabId, id) {
         return compact(node.options?.[node.selectedIndex]?.textContent || node.value || '', 260);
       };
       const input = (root, name) => compact(root?.querySelector?.(`[name="${CSS.escape(name)}"]`)?.value || '', 260);
-      const indexSummaryTable = root => {
+      const indexRows = root => {
         const byLabel = new Map();
         if (!root) return byLabel;
-        // Billing nests finance/tariff rows inside the summary table. Using
-        // HTMLTableElement.rows misses those nested rows and can hide accountBalance.
         const rows = root.querySelectorAll('tr');
         for (let i = 0; i < rows.length; i += 1) {
           const row = rows[i];
@@ -64,8 +62,13 @@ async function executeRead(tabId, id) {
           if (!cells || cells.length < 2) continue;
           const label = compact(cells[0].textContent || '', 260).toLowerCase();
           if (!label) continue;
-          const value = compact(cells[cells.length - 1].textContent || '', 500);
-          // Prefer first non-empty value for a repeated label.
+          const last = cells[cells.length - 1];
+          const control = last.querySelector('select,input:not([type="hidden"]),textarea');
+          let value = '';
+          if (control?.tagName === 'SELECT') value = compact(control.options?.[control.selectedIndex]?.textContent || control.value || '', 500);
+          else if (control) value = compact(control.value || '', 500);
+          else value = compact(last.textContent || '', 500);
+          // Prefer the first non-empty value when Billing repeats a label.
           if (!byLabel.has(label) || (!byLabel.get(label) && value)) byLabel.set(label, value);
         }
         return byLabel;
@@ -105,12 +108,39 @@ async function executeRead(tabId, id) {
       const parseMainPage = root => {
         const table = root?.querySelector?.(summarySelector);
         if (!table) return null;
-        const index = indexSummaryTable(table);
+        // The right summary table owns tariff/total rows, but "На счету, грн."
+        // lives elsewhere on a=user. Index the whole page as an authoritative
+        // fallback so current balance can never be confused with derived balances.
+        const index = indexRows(table);
+        const pageIndex = indexRows(root);
         const tariffDisplay = rowValueFromIndex(index, [/^тарифи\s+на\s+інтернет/i, /^тарифы\s+на\s+интернет/i]);
         const tariffMatch = tariffDisplay.match(/^\[(\d+)\]\s*(.+)$/);
         const currentTariff = compact(tariffMatch?.[2] || tariffDisplay || selected(root, 'paket') || '', 260);
         const tariffId = compact(tariffMatch?.[1] || '', 40);
         const nextTariffNode = root.querySelector('select[name="next_paket"]');
+        const finance = {
+          priceSemantics: 'internet_tariff_price_from_main_summary_table',
+          totalDueSemantics: 'current_total_due_from_main_summary_table_not_future_charge'
+        };
+        const observedMoney = [
+          ['accountBalance', rowValueFromIndex(pageIndex, [/^на\s+счету,?\s*грн/i, /^на\s+рахунку,?\s*грн/i])],
+          ['price', rowValueFromIndex(index, [/^ціна,?\s*грн/i, /^цена,?\s*грн/i])],
+          ['totalDue', rowValueFromIndex(index, [/^разом\s+до\s+сплати/i, /^итого\s+к\s+оплате/i])],
+          ['balanceAfterTariff', rowValueFromIndex(index, [
+            /на\s+счете\s+с\s+учетом\s+стоимости\s+тарифного\s+плана/i,
+            /на\s+рахунку\s+з\s+урахуванням\s+вартості\s+тарифного\s+плану/i
+          ])],
+          ['balanceWithoutTemporary', rowValueFromIndex(pageIndex, [
+            /на\s+счете\s+без\s+учета\s+временных\s+платежей/i,
+            /на\s+рахунку\s+без\s+урахування\s+тимчасових\s+платежів/i
+          ])]
+        ];
+        for (const [key, raw] of observedMoney) {
+          const value = money(raw);
+          // 0 is a real observed balance. A missing/unparseable row is omitted so
+          // canonical runtime can mark it UNKNOWN and invoke broader fallback.
+          if (Number.isFinite(value)) finance[key] = value;
+        }
         return {
           identity: {
             billingId: String(targetBillingId),
@@ -128,21 +158,7 @@ async function executeRead(tabId, id) {
             group: selected(root, 'grp'),
             activeServices: readActiveServices(root)
           },
-          finance: {
-            accountBalance: money(rowValueFromIndex(index, [/^на\s+счету,?\s*грн/i, /^на\s+рахунку,?\s*грн/i])),
-            price: money(rowValueFromIndex(index, [/^ціна,?\s*грн/i, /^цена,?\s*грн/i])),
-            totalDue: money(rowValueFromIndex(index, [/^разом\s+до\s+сплати/i, /^итого\s+к\s+оплате/i])),
-            balanceAfterTariff: money(rowValueFromIndex(index, [
-              /на\s+счете\s+с\s+учетом\s+стоимости\s+тарифного\s+плана/i,
-              /на\s+рахунку\s+з\s+урахуванням\s+вартості\s+тарифного\s+плану/i
-            ])),
-            balanceWithoutTemporary: money(rowValueFromIndex(index, [
-              /на\s+счете\s+без\s+учета\s+временных\s+платежей/i,
-              /на\s+рахунку\s+без\s+урахування\s+тимчасових\s+платежів/i
-            ])),
-            priceSemantics: 'internet_tariff_price_from_main_summary_table',
-            totalDueSemantics: 'current_total_due_from_main_summary_table_not_future_charge'
-          },
+          finance,
           payments: readPayments(root),
           network: {
             trafficIncomingBytes: rowValueFromIndex(index, [/^інтернет\s+входящий,?\s*байт/i, /^интернет\s+входящий,?\s*байт/i]),

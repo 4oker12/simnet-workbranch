@@ -46,7 +46,7 @@ export function normalizeInterpretation(raw = {}) {
   const freeLogin = String(ids.login || '').trim();
   return {
     questions, language: raw.language === 'uk' ? 'uk' : 'ru',
-    speechAct: ['new', 'follow_up', 'confirm', 'deny', 'correct', 'request_human'].includes(raw.speechAct) ? raw.speechAct : 'new',
+    speechAct: ['new', 'follow_up', 'confirm', 'deny', 'correct', 'request_human', 'cancel', 'joke', 'frustration'].includes(raw.speechAct) ? raw.speechAct : 'new',
     confirmation: raw.confirmation === true ? true : raw.confirmation === false ? false : null,
     refresh: ['finance', 'network', 'all'].includes(raw.refresh) ? raw.refresh : '',
     // In SIMNET abonNNN and NNN identify the same subscriber contract. Free-text login is preserved as supplied.
@@ -59,13 +59,17 @@ export function normalizeInterpretation(raw = {}) {
 
 export function newConversationState(raw = {}) {
   return {
-    version: 2, confirmedCaseId: String(raw.confirmedCaseId || ''),
+    version: 3, confirmedCaseId: String(raw.confirmedCaseId || ''),
     confirmedSubscriber: raw.confirmedSubscriber || null, pendingCandidate: raw.pendingCandidate || null,
     facts: raw.facts && typeof raw.facts === 'object' ? { ...raw.facts } : {},
     reads: raw.reads && typeof raw.reads === 'object' ? { ...raw.reads } : {},
     topic: Array.isArray(raw.topic) ? raw.topic.slice(0, 4) : [],
     language: raw.language === 'uk' ? 'uk' : 'ru', invalidatedAt: Number(raw.invalidatedAt || 0),
-    derived: []
+    derived: [],
+    activeIntents: Array.isArray(raw.activeIntents) ? raw.activeIntents.slice(0, 12) : [],
+    alreadyExplainedFacts: Array.isArray(raw.alreadyExplainedFacts) ? raw.alreadyExplainedFacts.slice(0, 40) : [],
+    offeredActions: Array.isArray(raw.offeredActions) ? raw.offeredActions.slice(0, 20) : [],
+    lastDiscourseAct: String(raw.lastDiscourseAct || '')
   };
 }
 
@@ -119,4 +123,147 @@ export function lookupFromText(ids = {}, text = '') {
   }
   if (ids.address && source.includes(String(ids.address).toLowerCase().replace(/\s/g, ''))) return { address: String(ids.address).trim().slice(0, 260) };
   return null;
+}
+
+/** Discourse acts for dialogue state (minimal, no extra LLM stage). */
+export const DISCOURSE_ACTS = Object.freeze([
+  'NEW_INTENT',
+  'CONTINUE',
+  'REFINE',
+  'CORRECT',
+  'CONFIRM',
+  'REJECT',
+  'CANCEL',
+  'CHANGE_TOPIC',
+  'JOKE',
+  'IRONY',
+  'FRUSTRATION'
+]);
+
+const SPEECH_TO_DISCOURSE = Object.freeze({
+  new: 'NEW_INTENT',
+  follow_up: 'CONTINUE',
+  confirm: 'CONFIRM',
+  deny: 'REJECT',
+  correct: 'CORRECT',
+  cancel: 'CANCEL',
+  joke: 'JOKE',
+  frustration: 'FRUSTRATION',
+  request_human: 'CHANGE_TOPIC'
+});
+
+export function discourseActFromSpeechAct(speechAct = 'new') {
+  return SPEECH_TO_DISCOURSE[String(speechAct || 'new')] || 'NEW_INTENT';
+}
+
+/**
+ * Map interpretation speechAct onto conversation active intents.
+ * CORRECT updates entity/term but preserves parent unresolved intent.
+ */
+export function applyDiscourseToState(state = {}, interpretation = {}, options = {}) {
+  const next = {
+    ...newConversationState(state),
+    activeIntents: Array.isArray(state.activeIntents) ? state.activeIntents.map(item => ({ ...item })) : [],
+    alreadyExplainedFacts: Array.isArray(state.alreadyExplainedFacts) ? [...state.alreadyExplainedFacts] : [],
+    offeredActions: Array.isArray(state.offeredActions) ? [...state.offeredActions] : []
+  };
+
+  const speechAct = interpretation.speechAct || 'new';
+  const discourseAct = discourseActFromSpeechAct(speechAct);
+  const questions = Array.isArray(interpretation.questions) ? interpretation.questions : [];
+  const parent = next.activeIntents.find(item => item.status === 'unresolved') || null;
+
+  if (discourseAct === 'CORRECT') {
+    if (parent) {
+      parent.corrections = Array.isArray(parent.corrections) ? parent.corrections : [];
+      parent.corrections.push({
+        at: Number(options.now || Date.now()),
+        speechAct: 'correct',
+        questions,
+        ids: interpretation.ids || {}
+      });
+      parent.updatedAt = Number(options.now || Date.now());
+      if (parent.questions?.length) next.topic = parent.questions.slice(0, 4);
+    } else if (questions.length) {
+      next.activeIntents.push({
+        id: `intent-${Number(options.now || Date.now())}`,
+        status: 'unresolved',
+        discourseAct: 'NEW_INTENT',
+        questions: questions.slice(0, 4),
+        corrections: [],
+        createdAt: Number(options.now || Date.now()),
+        updatedAt: Number(options.now || Date.now())
+      });
+      next.topic = questions.slice(0, 4);
+    }
+    next.lastDiscourseAct = 'CORRECT';
+    return next;
+  }
+
+  if (discourseAct === 'CANCEL') {
+    for (const intent of next.activeIntents) {
+      if (intent.status === 'unresolved') intent.status = 'cancelled';
+    }
+    next.topic = [];
+    next.lastDiscourseAct = 'CANCEL';
+    return next;
+  }
+
+  if (discourseAct === 'CONFIRM' || discourseAct === 'REJECT') {
+    next.lastDiscourseAct = discourseAct;
+    return next;
+  }
+
+  if (discourseAct === 'CONTINUE' || discourseAct === 'REFINE') {
+    if (parent && questions.length) {
+      parent.questions = questions.slice(0, 4);
+      parent.updatedAt = Number(options.now || Date.now());
+      next.topic = questions.slice(0, 4);
+    } else if (questions.length) {
+      next.topic = questions.slice(0, 4);
+    }
+    next.lastDiscourseAct = discourseAct;
+    return next;
+  }
+
+  if (questions.length) {
+    if (discourseAct === 'CHANGE_TOPIC') {
+      for (const intent of next.activeIntents) {
+        if (intent.status === 'unresolved') intent.status = 'superseded';
+      }
+    }
+    next.activeIntents.push({
+      id: `intent-${Number(options.now || Date.now())}`,
+      status: 'unresolved',
+      discourseAct: discourseAct === 'CHANGE_TOPIC' ? 'NEW_INTENT' : discourseAct,
+      questions: questions.slice(0, 4),
+      corrections: [],
+      createdAt: Number(options.now || Date.now()),
+      updatedAt: Number(options.now || Date.now())
+    });
+    next.topic = questions.slice(0, 4);
+  }
+  next.lastDiscourseAct = discourseAct;
+  return next;
+}
+
+export function markIntentResolved(state = {}, predicate = null) {
+  const next = {
+    ...newConversationState(state),
+    activeIntents: Array.isArray(state.activeIntents) ? state.activeIntents.map(item => ({ ...item })) : [],
+    alreadyExplainedFacts: Array.isArray(state.alreadyExplainedFacts) ? [...state.alreadyExplainedFacts] : [],
+    offeredActions: Array.isArray(state.offeredActions) ? [...state.offeredActions] : []
+  };
+  for (const intent of next.activeIntents) {
+    if (intent.status !== 'unresolved') continue;
+    if (typeof predicate === 'function' ? predicate(intent) : true) {
+      intent.status = 'resolved';
+      intent.updatedAt = Date.now();
+    }
+  }
+  return next;
+}
+
+export function unresolvedActiveIntents(state = {}) {
+  return (Array.isArray(state.activeIntents) ? state.activeIntents : []).filter(item => item.status === 'unresolved');
 }
