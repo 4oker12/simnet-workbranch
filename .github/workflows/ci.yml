@@ -8,9 +8,12 @@ on:
 permissions:
   contents: read
 
+env:
+  CONTEXTUAL_FINANCE_RESEARCH_BRANCH: research/contextual-reasoning-finance-spike
+
 jobs:
   test:
-    if: github.ref != 'refs/heads/research/contextual-reasoning-finance-spike'
+    if: github.ref != 'refs/heads/research/contextual-reasoning-finance-spike' && github.head_ref != 'research/contextual-reasoning-finance-spike'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -109,7 +112,7 @@ jobs:
           retention-days: 14
 
   contextual-finance-research:
-    if: github.ref == 'refs/heads/research/contextual-reasoning-finance-spike'
+    if: github.ref == 'refs/heads/research/contextual-reasoning-finance-spike' || github.head_ref == 'research/contextual-reasoning-finance-spike'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
