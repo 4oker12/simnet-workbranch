@@ -1,0 +1,39 @@
+--- a/src/features/ai-operator/tool-runtime.js
++++ b/src/features/ai-operator/tool-runtime.js
+@@ -8,6 +8,7 @@
+ 
+ const ACCOUNT_TOOLS = new Set([
+   'customer.snapshot',
++  'billing.main_summary',
+   'billing.balance',
+   'billing.tariff',
+   'billing.payments',
+@@ -306,6 +307,8 @@
+   if (resolved.error) return resolved.error;
+   const { caseId, caseData, snapshot, sourceKey } = resolved;
+   if (name === 'customer.snapshot') return snapshotResult(caseId, caseData, snapshot, sourceKey);
++  // Canonical source alias: billing.mainSummary → billing.main_summary (must not UNKNOWN_TOOL).
++  if (name === 'billing.main_summary') return snapshotResult(caseId, caseData, snapshot, sourceKey);
+   if (name === 'billing.balance') return balanceResult(caseId, caseData, snapshot, sourceKey);
+   if (name === 'billing.tariff') return tariffResult(caseId, caseData, snapshot, sourceKey);
+   if (name === 'billing.payments') return paymentsResult(snapshot);
+--- a/src/features/ai-operator/live-tool-runtime-core.js
++++ b/src/features/ai-operator/live-tool-runtime-core.js
+@@ -251,7 +251,7 @@
+   const finance = snapshot?.finance || {};
+   const network = snapshot?.network || {};
+   const source = 'billing-live-read-only';
+-  if (tool === 'customer.snapshot') {
++  if (tool === 'customer.snapshot' || tool === 'billing.main_summary') {
+     return result(tool, true, 'OK', {
+       identity,
+       address,
+@@ -541,7 +541,7 @@
+   const name = String(tool || '').trim();
+   if (name === 'customer.lookup') return liveLookup(toolArgs);
+ 
+-  if (['customer.snapshot', 'billing.balance', 'billing.tariff', 'billing.payments', 'billing.next_charge'].includes(name)) {
++  if (['customer.snapshot', 'billing.main_summary', 'billing.balance', 'billing.tariff', 'billing.payments', 'billing.next_charge'].includes(name)) {
+     if (!String(labState.confirmedCaseId || '').trim()) return result(name, false, 'IDENTITY_REQUIRED');
+     let liveSnapshot = await liveBillingSnapshotForLab(labState);
+     if (toolArgs.refresh) {

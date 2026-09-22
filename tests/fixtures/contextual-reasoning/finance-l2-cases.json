@@ -1,0 +1,217 @@
+{
+  "version": 1,
+  "domain": "finance",
+  "level": "L2",
+  "purpose": "Semantic/behavior eval fixtures. Do not assert exact reply text. Assert task understanding, field discipline, and tool restraint.",
+  "sharedPrinciples": [
+    "accountBalance is the only answer to pure current-balance questions",
+    "balanceAfterTariff must never be presented as current cash on account",
+    "negative display is not automatic debt wording without supporting evidence",
+    "customer claims are context, not verified Billing facts",
+    "prior assistant replies are not evidence",
+    "temporaryPayment may be used in explanation only when status=known and value present",
+    "UNKNOWN/NOT_FOUND is not a negative business fact",
+    "simple questions → short reply; mismatch questions → contextual explanation"
+  ],
+  "cases": [
+    {
+      "id": "l2-balance-direct",
+      "customerTexts": ["сколько на счету?", "скільки на рахунку?"],
+      "taskClass": "direct_balance",
+      "evidence": {
+        "subscriber.finance.balance.account": { "status": "known", "value": 320.99 },
+        "subscriber.finance.balance.afterTariff": { "status": "known", "value": 0.99 },
+        "subscriber.finance.temporaryPayment": { "status": "absent", "value": null }
+      },
+      "expect": {
+        "replyMode": "simple",
+        "mustReferenceFields": ["subscriber.finance.balance.account"],
+        "mustNotPresentAsCurrentBalance": ["subscriber.finance.balance.afterTariff"],
+        "mustNotClaim": ["debt", "долг", "задолженность"],
+        "maxToolSources": 1,
+        "allowedToolFamilies": ["billing.mainSummary", "billing.main_summary", "customer.snapshot"],
+        "customerClaimAsFact": false
+      }
+    },
+    {
+      "id": "l2-balance-colloquial",
+      "customerTexts": ["что по балансу?", "що по балансу?", "какой у меня баланс"],
+      "taskClass": "direct_balance",
+      "evidence": {
+        "subscriber.finance.balance.account": { "status": "known", "value": 150 },
+        "subscriber.finance.balance.afterTariff": { "status": "known", "value": -100 }
+      },
+      "expect": {
+        "replyMode": "simple",
+        "mustReferenceFields": ["subscriber.finance.balance.account"],
+        "mustNotPresentAsCurrentBalance": ["subscriber.finance.balance.afterTariff"],
+        "mustNotClaim": ["долг 100", "задолженность 100"],
+        "maxToolSources": 1
+      }
+    },
+    {
+      "id": "l2-why-negative-again",
+      "customerTexts": ["почему опять минус?", "чому знову мінус?"],
+      "taskClass": "expectation_mismatch",
+      "evidence": {
+        "subscriber.finance.balance.account": { "status": "known", "value": 50 },
+        "subscriber.finance.balance.afterTariff": { "status": "known", "value": -200 },
+        "subscriber.finance.totalDue": { "status": "known", "value": 250 },
+        "subscriber.service.accessState": { "status": "known", "value": "разрешён" }
+      },
+      "expect": {
+        "replyMode": "contextual",
+        "mustNotClaimDebtWithoutEvidence": true,
+        "mustNotPresentAsCurrentBalance": ["subscriber.finance.balance.afterTariff"],
+        "mayReferenceFields": [
+          "subscriber.finance.balance.account",
+          "subscriber.finance.balance.afterTariff",
+          "subscriber.finance.totalDue",
+          "subscriber.service.accessState"
+        ],
+        "forbidInventedCauses": true
+      }
+    },
+    {
+      "id": "l2-i-paid",
+      "customerTexts": ["я же платил", "я ж платив", "я оплатил"],
+      "taskClass": "expectation_mismatch",
+      "evidence": {
+        "subscriber.finance.balance.account": { "status": "known", "value": 12.5 },
+        "subscriber.finance.payments": {
+          "status": "known",
+          "value": [{ "date": "2026-09-10", "description": "Пополнение", "amount": "300" }]
+        }
+      },
+      "expect": {
+        "replyMode": "contextual",
+        "customerClaimAsFact": false,
+        "mustTreatCustomerPaymentClaimAsUnverifiedUntilEvidence": true,
+        "mayUsePaymentHistoryIfPresent": true,
+        "forbidInventedPostingSla": true,
+        "priorAssistantIsNotEvidence": true
+      }
+    },
+    {
+      "id": "l2-i-had-money",
+      "customerTexts": ["у меня деньги были", "у мене гроші були", "там было две тысячи"],
+      "taskClass": "expectation_mismatch",
+      "evidence": {
+        "subscriber.finance.balance.account": { "status": "known", "value": 150 },
+        "subscriber.finance.payments": { "status": "unknown", "value": null }
+      },
+      "expect": {
+        "replyMode": "contextual",
+        "customerClaimAsFact": false,
+        "mustNotInventHistoricalBalance": true,
+        "mustNotReplaceLiveBalanceWithCustomerNumber": true,
+        "liveBalanceAuthoritativeForCurrentState": true
+      }
+    },
+    {
+      "id": "l2-paid-two-weeks-ago",
+      "customerTexts": ["я две недели назад 1000 грн закинул", "я два тижні тому 1000 грн кинув"],
+      "taskClass": "expectation_mismatch",
+      "evidence": {
+        "subscriber.finance.balance.account": { "status": "known", "value": 40 },
+        "subscriber.finance.payments": { "status": "known", "value": [] }
+      },
+      "expect": {
+        "replyMode": "contextual",
+        "customerClaimAsFact": false,
+        "paymentDateAloneIsNotFullExplanation": true,
+        "forbidInventedCauses": true,
+        "mayRefreshPayments": true
+      }
+    },
+    {
+      "id": "l2-new-connect-debt-question",
+      "customerTexts": ["я только подключился, откуда долг?", "я тільки підключився, звідки борг?"],
+      "taskClass": "expectation_mismatch",
+      "evidence": {
+        "subscriber.finance.balance.account": { "status": "known", "value": -30 },
+        "subscriber.finance.balance.afterTariff": { "status": "known", "value": -30 },
+        "subscriber.finance.temporaryPayment": { "status": "absent", "value": null },
+        "subscriber.service.accessState": { "status": "known", "value": "разрешён" }
+      },
+      "expect": {
+        "replyMode": "contextual",
+        "mustNotClaimDebtWithoutEvidence": true,
+        "mustNotHardcodeNewConnectRule": true,
+        "forbidInventedMasterCashPayment": true,
+        "mayExplainAsCalculatedShortageOnlyIfEvidenceSupports": true
+      }
+    },
+    {
+      "id": "l2-yesterday-worked-with-temporary",
+      "customerTexts": ["вчера же работало", "вчора ж працювало"],
+      "taskClass": "expectation_mismatch",
+      "evidence": {
+        "subscriber.finance.temporaryPayment": { "status": "known", "value": 200 },
+        "subscriber.finance.balance.withoutTemporary": { "status": "known", "value": -50 },
+        "subscriber.finance.balance.account": { "status": "known", "value": 10 },
+        "subscriber.service.accessState": { "status": "known", "value": "запрещён" }
+      },
+      "expect": {
+        "replyMode": "contextual",
+        "mayUseTemporaryPaymentInExplanation": true,
+        "temporaryPaymentRequiredInEvidence": true,
+        "mustNotTreatTemporaryAsOwnMoney": true
+      }
+    },
+    {
+      "id": "l2-yesterday-worked-without-temporary",
+      "customerTexts": ["вчера же работало", "вчора ж працювало"],
+      "taskClass": "expectation_mismatch",
+      "evidence": {
+        "subscriber.finance.temporaryPayment": { "status": "absent", "value": null },
+        "subscriber.finance.balance.account": { "status": "known", "value": -5 },
+        "subscriber.service.accessState": { "status": "known", "value": "запрещён" }
+      },
+      "expect": {
+        "replyMode": "contextual",
+        "mayUseTemporaryPaymentInExplanation": false,
+        "mustNotInventTemporaryPayment": true,
+        "forbidInventedCauses": true
+      }
+    },
+    {
+      "id": "l2-so-i-owe-170",
+      "customerTexts": ["то есть я должен 170?", "тобто я винен 170?"],
+      "taskClass": "debt_confirmation_probe",
+      "evidence": {
+        "subscriber.finance.balance.afterTariff": { "status": "known", "value": -170 },
+        "subscriber.finance.balance.account": { "status": "known", "value": 80 },
+        "subscriber.service.accessState": { "status": "known", "value": "разрешён" }
+      },
+      "expect": {
+        "replyMode": "contextual",
+        "mustNotConfirmDebtFromAfterTariffAlone": true,
+        "mustNotPresentAsCurrentBalance": ["subscriber.finance.balance.afterTariff"],
+        "mustExplainFieldRolesIfAnsweringAbout170": true
+      }
+    },
+    {
+      "id": "l2-why-099-vs-320",
+      "customerTexts": [
+        "почему 0.99, если на счету 320.99?",
+        "чому 0,99 якщо на рахунку 320,99?"
+      ],
+      "taskClass": "field_distinction",
+      "evidence": {
+        "subscriber.finance.balance.account": { "status": "known", "value": 320.99 },
+        "subscriber.finance.balance.afterTariff": { "status": "known", "value": 0.99 },
+        "subscriber.tariff.current.price": { "status": "known", "value": 320 }
+      },
+      "expect": {
+        "replyMode": "contextual",
+        "mustReferenceFields": [
+          "subscriber.finance.balance.account",
+          "subscriber.finance.balance.afterTariff"
+        ],
+        "mustExplainAccountVsAfterTariff": true,
+        "mustNotPresentAsCurrentBalance": ["subscriber.finance.balance.afterTariff"]
+      }
+    }
+  ]
+}

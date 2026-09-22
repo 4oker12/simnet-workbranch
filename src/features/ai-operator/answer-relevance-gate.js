@@ -1,5 +1,10 @@
 'use strict';
 
+import {
+  isTariffCatalogScope,
+  isSubscriberCurrentTariffScope
+} from './fact-evidence-gate.js';
+
 function oneLine(value, max = 600) {
   const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
@@ -94,6 +99,7 @@ function requestedFactCovered(item = {}) {
   }
 
   if (tool === 'billing.tariff') {
+    if (isTariffCatalogScope(request)) return false;
     if (/smart\s*tv|смарт\s*тв|телевид|\bтв\b|\btv\b/iu.test(request)) {
       return hasAny(data, ['smartTv', 'smartTV', 'tv', 'tvPackage', 'television', 'services']);
     }
@@ -105,7 +111,9 @@ function requestedFactCovered(item = {}) {
       return hasOwn(data, 'price') || /^\s*тариф\s+\d+(?:[.,]\d+)?\b/iu.test(tariffText(data));
     }
     if (/следующ|наступн|next|future/iu.test(request)) return hasOwn(data, 'nextTariff', { allowEmpty: true });
-    if (/тариф|tariff|пакет/iu.test(request)) return hasAny(data, ['currentTariff', 'tariffDisplay']);
+    if (isSubscriberCurrentTariffScope(request) || /тариф|tariff|пакет/iu.test(request)) {
+      return hasAny(data, ['currentTariff', 'tariffDisplay']);
+    }
     return hasAny(data, ['currentTariff', 'tariffDisplay', 'price', 'nextTariff'], { allowEmpty: true });
   }
 
@@ -133,8 +141,8 @@ function requestedFactCovered(item = {}) {
   }
 
   if (tool === 'pon.signal') {
-    if (/\brx\b|прием|прийом/iu.test(request)) return hasAny(data, ['onuRx', 'oltRx', 'rx']);
-    if (/\btx\b|передач/iu.test(request)) return hasAny(data, ['onuTx', 'tx']);
+    if (/\brx\b/iu.test(request) || /прием|прийом/iu.test(request)) return hasAny(data, ['onuRx', 'oltRx', 'rx']);
+    if (/\btx\b/iu.test(request) || /передач/iu.test(request)) return hasAny(data, ['onuTx', 'tx']);
     return hasAny(data, ['onuRx', 'onuTx', 'oltRx', 'rx', 'tx']);
   }
 
@@ -264,9 +272,9 @@ function deterministicConfirmedFactsRecovery({ analysis = {}, latestCustomer = {
   const request = requestFrom({ analysis, latestCustomer }).toLowerCase();
   const wantsBalance = /баланс|balance|рахун/.test(request);
   const wantsTariffPrice = /(?:тариф|пакет).{0,40}(?:цен|стоим|варт|абонплат|сколько\s+стоит|скільки\s+кошту)|(?:цен|стоим|варт|абонплат|сколько\s+стоит|скільки\s+кошту).{0,40}(?:тариф|пакет)/iu.test(request);
-  const wantsTariffName = !wantsTariffPrice && (
-    /(?:какой|який|мой|мій|текущ|поточн).{0,40}(?:тариф|пакет)|(?:тариф|пакет).{0,30}(?:сейчас|зараз|у\s+меня|у\s+мене)|(?:что|що).{0,20}по\s+(?:тариф|пакет)/iu.test(request)
-    || (/(?:тариф|tariff|пакет)/iu.test(request) && !/скорост|швидк|speed/iu.test(request))
+  const wantsTariffName = !wantsTariffPrice && !isTariffCatalogScope(request) && (
+    isSubscriberCurrentTariffScope(request)
+    || (/(?:тариф|tariff|пакет)/iu.test(request) && !/скорост|швидк|speed/iu.test(request) && !isTariffCatalogScope(request))
   );
   if (!wantsBalance && !wantsTariffName && !wantsTariffPrice) return null;
 
@@ -348,3 +356,5 @@ export async function applyAnswerRelevanceGate({
     }
   };
 }
+
+export { requestedFactCovered };

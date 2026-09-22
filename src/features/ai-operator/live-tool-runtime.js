@@ -152,11 +152,22 @@ async function executeGenericLoginLookup(toolArgs = {}) {
 }
 
 async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
+  // Subscriber-scoped Billing tools require established identity.
+  // Do not fall through to local tool-runtime with a canonical alias that
+  // historically was missing from ACCOUNT_TOOLS (UNKNOWN_TOOL divergence).
   if (!String(labState?.confirmedCaseId || '').trim()) {
-    return core.executeOperatorTool({ tool: name, toolArgs, labState });
+    return result(name, false, 'IDENTITY_REQUIRED', {
+      message: 'Нужен подтверждённый subscriber case перед Billing READ.',
+      source: 'billing-main-summary-live-read-only'
+    });
   }
   const id = billingIdFromLab(labState);
-  if (!id) return core.executeOperatorTool({ tool: name, toolArgs, labState });
+  if (!id) {
+    return result(name, false, 'IDENTITY_REQUIRED', {
+      message: 'Не удалось извлечь Billing ID из подтверждённого кейса.',
+      source: 'billing-main-summary-live-read-only'
+    });
+  }
 
   const baseTool = name === 'billing.main_summary' ? 'customer.snapshot' : name;
   const liveRead = () => readBillingSummaryLive({

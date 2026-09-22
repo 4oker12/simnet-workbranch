@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import { calculateBalanceCoverage, deriveFinanceDecisionEvidence, financeRequiredFacts, isBalanceCoverageQuestion } from '../src/features/ai-operator/finance-decision-nodes.js';
+assert.deepEqual(calculateBalanceCoverage({ balance: 500, recurringAmount: 250 }), { status: 'known', fullCharges: 2, remainder: 0, balance: 500, recurringAmount: 250 });
+assert.deepEqual(calculateBalanceCoverage({ balance: 775.5, recurringAmount: 300 }), { status: 'known', fullCharges: 2, remainder: 175.5, balance: 775.5, recurringAmount: 300 });
+assert.equal(isBalanceCoverageQuestion('до какого у меня проплачено?'), true);
+assert.deepEqual(financeRequiredFacts('на сколько месяцев хватит денег?'), ['subscriber.finance.balance.account', 'subscriber.finance.recurringTotal']);
+const derived = deriveFinanceDecisionEvidence({ requestText: 'на сколько месяцев хватит денег?', evidence: [{ path: 'subscriber.finance.balance.account', status: 'known', value: 500 }, { path: 'subscriber.finance.recurringTotal', status: 'known', value: 250 }] });
+assert.equal(derived.decision.fullCharges, 2);
+assert.equal(derived.evidence.find(item => item.path === 'derived.finance.coverage.calendarMappingAllowed')?.value, false);
+console.log('ai_operator_finance_decision_nodes_test: ok');
