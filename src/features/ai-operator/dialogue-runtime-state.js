@@ -38,6 +38,12 @@ function explicitAct(probe = {}) {
   return ACT_ALIASES[raw] || '';
 }
 
+export function isConsumptionStartQuestion(requestText = '') {
+  const request = text(requestText, 700).toLowerCase();
+  return /(?:день|дата).{0,35}(?:начала|початку).{0,35}(?:потреблен|споживан|услуг|послуг)/iu.test(request)
+    || /(?:начала|початку).{0,35}(?:потреблен|споживан)/iu.test(request);
+}
+
 export function deriveDiscourseAct({ analysis = {}, requestText = '' } = {}) {
   const probe = analysis?.probe || analysis || {};
   const explicit = explicitAct(probe);
@@ -45,7 +51,9 @@ export function deriveDiscourseAct({ analysis = {}, requestText = '' } = {}) {
   const semantic = [probe.latestMessageMeans, probe.whatUserWants, probe.refersTo, probe.underlyingGoal]
     .map(v => text(v, 700).toLowerCase()).filter(Boolean).join(' | ');
   const request = text(requestText, 700).toLowerCase();
-  if (/(?:исправ|поправ|корректир|перепут|оговор|имел[аи]?\s+в\s+виду|виправ|помил|мав\s+на\s+увазі)/iu.test(`${semantic} ${request}`)) return DISCOURSE_ACT.CORRECT;
+  // Important: never use the bare substring "оговор" here — it also matches "договор".
+  const correctionSignal = /(?:исправ|поправ|корректир|перепут|оговор(?:ил|илась|ился|ка)|имел[аи]?\s+в\s+виду|виправ|помил|мав\s+на\s+увазі)/iu;
+  if (correctionSignal.test(`${semantic} ${request}`)) return DISCOURSE_ACT.CORRECT;
   if (/(?:отмен|отзыва|не\s+надо|забудь|скасов|відмін)/iu.test(semantic)) return DISCOURSE_ACT.CANCEL;
   if (/(?:смен|другая\s+тема|другой\s+вопрос|інше\s+питан|змінює\s+тему)/iu.test(semantic)) return DISCOURSE_ACT.CHANGE_TOPIC;
   if (/(?:сарказ|ирони|ірон)/iu.test(semantic)) return DISCOURSE_ACT.IRONY;
@@ -104,6 +112,7 @@ export function buildDialoguePolicyContext({ analysis = {}, requestText = '', la
     || text(labState?.domainContext?.activeServiceAddress?.fullAddress, 260)
     || text(labState?.domainContext?.activeBuildingAddress, 260));
   const followUp = [DISCOURSE_ACT.CONTINUE, DISCOURSE_ACT.REFINE, DISCOURSE_ACT.CORRECT, DISCOURSE_ACT.CONFIRM, DISCOURSE_ACT.REJECT, DISCOURSE_ACT.FRUSTRATION].includes(discourseAct);
+  const consumptionStartQuestion = isConsumptionStartQuestion(requestText);
   return {
     discourseAct,
     responseMode: followUp ? 'DELTA' : 'NORMAL',
@@ -115,6 +124,7 @@ export function buildDialoguePolicyContext({ analysis = {}, requestText = '', la
     addressKnown,
     generalProductQuestion: isGeneralProductQuestion(requestText),
     addressSpecificAvailability: isAddressSpecificAvailabilityQuestion(requestText),
+    consumptionStartQuestion,
     unresolvedFacts: unresolvedRequestedFacts(factResolution, requiredFacts),
     constraints: [
       'Answer the active request directly; do not replace an answer with a generic handoff.',
@@ -122,7 +132,8 @@ export function buildDialoguePolicyContext({ analysis = {}, requestText = '', la
       addressKnown ? 'The service address is already known; do not ask for it again.' : '',
       followUp ? 'Use shared dialogue context and answer only the new delta; do not repeat background already explained.' : '',
       discourseAct === DISCOURSE_ACT.CORRECT ? 'This is a correction: preserve the parent unresolved intent unless the user explicitly cancels it.' : '',
-      [DISCOURSE_ACT.JOKE, DISCOURSE_ACT.IRONY].includes(discourseAct) ? 'A light human reaction is allowed, but still answer the underlying request.' : ''
+      [DISCOURSE_ACT.JOKE, DISCOURSE_ACT.IRONY].includes(discourseAct) ? 'A light human reaction is allowed, but still answer the underlying request.' : '',
+      consumptionStartQuestion ? 'Service-consumption start day/date is NOT the contract-signing date. Never substitute subscriber.contract.date for this fact; if no dedicated source-backed fact exists, say it is not confirmed.' : ''
     ].filter(Boolean)
   };
 }
@@ -145,7 +156,6 @@ export function updateDialogueMemory({ labState = {}, analysis = {}, requestText
     version: 1, activeRequests, activeRequiredFacts, alreadyExplainedFacts: explained,
     offeredActions: previous.offeredActions, lastDiscourseAct: discourseAct, lastRequest: text(requestText, 700)
   }};
-  // Compatibility mirrors for the post-synthesis Dialogue Police already wired in the broker.
   state.alreadyExplainedFacts = explained;
   state.offeredActions = previous.offeredActions;
   return state;
