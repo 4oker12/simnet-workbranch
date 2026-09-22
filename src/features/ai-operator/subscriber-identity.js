@@ -2,13 +2,15 @@
 
 /**
  * Deterministic subscriber identity extraction from customer text.
- * Supports the general identifier class:
+ * Supports:
  *   - abonNNNN
  *   - numeric contract / personal account
- *   - named login (latin alphanumeric)
- *   - labeled forms (договор/login/…)
+ *   - explicitly labelled named login
+ *   - standalone named login
  *
- * Production logic must not depend on any specific fixture login string.
+ * Important: arbitrary latin words inside a conversational sentence are NOT
+ * identity candidates. This prevents words such as Ethernet/GPON/router from
+ * switching the active subscriber.
  */
 
 function oneLine(value, max = 500) {
@@ -20,7 +22,8 @@ const GENERIC_LOGIN_RE = /^(?=.{3,64}$)(?=.*[A-Za-z])[A-Za-z][A-Za-z0-9._-]*$/;
 const NON_LOGIN_WORDS = new Set([
   'internet', 'wifi', 'wi-fi', 'router', 'balance', 'tariff', 'speed', 'help', 'hello', 'privet',
   'test', 'online', 'offline', 'login', 'account', 'contract', 'address', 'admin', 'user',
-  'guest', 'root', 'simnet', 'standard', 'premium', 'basic', 'support', 'operator', 'client'
+  'guest', 'root', 'simnet', 'standard', 'premium', 'basic', 'support', 'operator', 'client',
+  'ethernet', 'gpon', 'epon', 'pon', 'onu', 'olt', 'optical', 'fiber', 'fibre'
 ]);
 const CONTRACT_WORD = '(?:договор|договір|лицев(?:ой|ий)?\\s*сч[её]т|особов(?:ий|ого)?\\s*рахунок)';
 const LOGIN_WORD = '(?:login|логин|логін)';
@@ -56,15 +59,11 @@ function labeledTextIdentity(source) {
   const before = genericLogin(beforeLabel || '');
   if (before) return before;
 
-  return '';
-}
+  const leadingWithIdentityContext = normalized.match(new RegExp(`^([A-Za-z][A-Za-z0-9._-]{2,63})(?=\\s+(?:номер\\s+)?${IDENTITY_WORD}\\b)`, 'i'))?.[1];
+  const leading = genericLogin(leadingWithIdentityContext || '');
+  if (leading) return leading;
 
-function identityCandidateTokens(source) {
-  return oneLine(source, 500)
-    .split(/[\s,;:/\\|]+/)
-    .map(part => standaloneToken(part))
-    .filter(Boolean)
-    .slice(0, 24);
+  return '';
 }
 
 export function extractStandaloneSubscriberIdentity(transcript = []) {
@@ -80,28 +79,20 @@ export function extractStandaloneSubscriberIdentity(transcript = []) {
     if (explicitContract) return { contract: explicitContract, sourceTurn: index, confidence: 'explicit-contract' };
 
     const labeledLogin = labeledTextIdentity(source);
-    if (labeledLogin) {
-      return { login: labeledLogin, sourceTurn: index, confidence: 'labeled-text-identity' };
-    }
+    if (labeledLogin) return { login: labeledLogin, sourceTurn: index, confidence: 'labeled-text-identity' };
 
     const token = standaloneToken(source);
-    if (/^\d{3,12}$/.test(token)) {
-      return { contract: token, sourceTurn: index, confidence: 'standalone-contract' };
-    }
+    if (/^\d{3,12}$/.test(token)) return { contract: token, sourceTurn: index, confidence: 'standalone-contract' };
+
     const wholeLogin = genericLogin(token);
-    if (wholeLogin) {
+    if (wholeLogin && !/\s/.test(source)) {
       return { login: wholeLogin, sourceTurn: index, confidence: 'standalone-login' };
     }
 
-    for (const part of identityCandidateTokens(source)) {
-      if (/^abon\d{3,12}$/i.test(part)) {
-        return { login: part, sourceTurn: index, confidence: 'token-abon-login' };
-      }
-      const partLogin = genericLogin(part);
-      if (partLogin) {
-        return { login: partLogin, sourceTurn: index, confidence: 'token-login' };
-      }
-    }
+    // Only abonNNNN is allowed as an unlabeled identity token inside free text.
+    // A generic latin token inside a sentence is semantic content, not identity.
+    const embeddedAbon = source.match(/(?:^|[\s,;:/\\|])(abon\d{3,12})(?=$|[\s,;:/\\|.!?])/i)?.[1];
+    if (embeddedAbon) return { login: embeddedAbon, sourceTurn: index, confidence: 'token-abon-login' };
   }
   return {};
 }
@@ -113,9 +104,7 @@ export function identityFromAnalysisHints(analysis = {}) {
     || {};
 
   const rawLogin = String(ids.login || '').trim().replace(/\s+/g, '');
-  if (/^abon\d{3,12}$/i.test(rawLogin)) {
-    return { login: rawLogin };
-  }
+  if (/^abon\d{3,12}$/i.test(rawLogin)) return { login: rawLogin };
   const login = genericLogin(rawLogin);
   if (login) return { login };
 
