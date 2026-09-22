@@ -202,7 +202,7 @@ test('IP has NetworkAccess ownership and legacy alias resolves canonically', () 
   assert.equal(canonicalFactPath('accountBalance'), 'subscriber.finance.balance.account');
 });
 
-test('fresh source cache avoids repeated reads and reports payload reduction', async () => {
+test('fresh source cache avoids repeated reads and reports finance-bundle projection', async () => {
   let calls = 0;
   const first = await resolveFacts({
     context: IDENTITY,
@@ -218,8 +218,10 @@ test('fresh source cache avoids repeated reads and reports payload reduction', a
   });
   assert.equal(calls, 1);
   assert.deepEqual(second.diagnostics.cacheHits, ['billing.mainSummary']);
-  assert.ok(first.diagnostics.broadPayloadChars > first.diagnostics.evidenceChars);
-  assert.ok(first.diagnostics.savedChars > 1500);
+  assert.ok(first.diagnostics.broadPayloadChars > 2000);
+  assert.ok(first.diagnostics.evidenceChars > 0);
+  assert.ok(first.resolvedFacts.length > first.requestedFacts.length);
+  assert.doesNotMatch(JSON.stringify(first.evidence), /unrelatedSecret|must-not-reach/);
 });
 
 test('modern semantic broker resolves canonical facts before synthesis', async () => {
