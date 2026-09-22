@@ -9,7 +9,9 @@ export const BILLING_SETTLEMENT_CYCLE_KNOWLEDGE = Object.freeze([
       'пауза', 'перерасчёт', 'перерасчет', 'минус', 'нехватка', 'доступ', '1 число',
       'временный платеж', 'balanceAfterTariff', 'accountBalance', 'totalDue'
     ],
-    text: `Это предметная модель финансового цикла SIMNET для рассуждения. Это не готовые фразы и не набор сценариев по ключевым словам.
+    text: `Краткая модель для synthesis. CONFIRMED_BY_BILLING: accountBalance — деньги сейчас; balanceAfterTariff, balanceWithoutTemporary и totalDue — отдельные расчётные поля, не текущие деньги и не автоматический долг. CONFIRMED_BY_OPERATOR: покрытие доступа и окончательный расчёт за период — разные роли; месяц календарный. temporaryPayment — не собственные деньги; не прибавлять к balance. Причина работы вчера, срок и окончание временного платежа требуют evidence. absent/unknown/stale/error не доказывают отсутствие. Слова клиента и старый ответ AI не факты: при конфликте сверить свежие поля, accessState и payments; без истории не выдумывать списание. NEEDS SIMNET VERIFICATION: формула requiredForAccess, триггер блока, срок temporaryPayment, prorate и сумма перерасчёта. Прямой вопрос о балансе → accountBalance, коротко.
+
+Это предметная модель финансового цикла SIMNET для рассуждения. Это не готовые фразы и не набор сценариев по ключевым словам.
 
 Маркировка утверждений:
 - CONFIRMED_BY_BILLING — подтверждено названием/значением поля и live/parser evidence.

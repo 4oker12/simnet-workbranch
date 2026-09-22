@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { compactRuntimeAnalysis } from '../src/features/ai-operator/runtime-projection.js';
 import {
   BILLING_SETTLEMENT_CYCLE_KNOWLEDGE
 } from '../src/features/ai-operator/knowledge/billing-settlement-cycle.js';
@@ -41,5 +42,17 @@ assert.match(article.text, /предыдущий ответ AI не/i);
 
 const retrieval = searchKnowledgeLibrary('почему минус после оплаты расчётный период временный платёж', { limit: 6 });
 assert.ok(retrieval.some(item => item.id === 'billing.settlement-cycle'));
+
+// Audit the actual retrieval budget and final projection, not only the full KB.
+const candidates = searchKnowledgeLibrary('почему минус после оплаты расчётный период временный платёж', { limit: 3, minScore: 4 });
+const projected = compactRuntimeAnalysis({ knowledge: { articleEvidence: candidates } });
+const delivered = projected.knowledge.articleEvidence.find(item => item.id === article.id);
+assert.ok(delivered, 'settlement model must survive the final article limit for this query');
+assert.ok(delivered.text.length <= 900);
+for (const concept of ['accountBalance', 'balanceAfterTariff', 'totalDue', 'temporaryPayment', 'accessState', 'payments', 'unknown', 'окончательный', 'NEEDS SIMNET VERIFICATION']) {
+  assert.ok(delivered.text.includes(concept), `synthesis lost ${concept} through truncation`);
+}
+assert.match(delivered.text, /не автоматический долг/);
+assert.match(delivered.text, /старый ответ AI не факты/);
 
 console.log('ai_operator_settlement_cycle_knowledge_test: PASS');
