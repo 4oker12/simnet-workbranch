@@ -7,7 +7,7 @@ import { TECHNICAL_KNOWLEDGE } from './technical.js';
 import { SERVICE_KNOWLEDGE } from './services.js';
 import { CONNECTION_KNOWLEDGE } from './connection.js';
 
-export const SIMNET_KNOWLEDGE_VERSION = 'simnet-encyclopedia-v3.2';
+export const SIMNET_KNOWLEDGE_VERSION = 'simnet-encyclopedia-v3.3';
 export const SIMNET_KNOWLEDGE = Object.freeze([
   ...BILLING_FINANCE_KNOWLEDGE,
   ...BILLING_KNOWLEDGE,
