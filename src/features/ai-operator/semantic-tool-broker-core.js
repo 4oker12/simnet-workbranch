@@ -72,9 +72,15 @@ export function canonicalEvidenceFallbackResult({ requestText = '', factResoluti
   const requested = Array.isArray(factResolution?.requestedFacts) ? factResolution.requestedFacts : [];
   const map = factMap(factResolution || {});
   const requestedEvidence = requested.map(path => map.get(path)).filter(Boolean);
-  const allRequestedResolved = requested.length > 0 && requested.every(path => ['known', 'absent'].includes(String(map.get(path)?.status || 'unknown')));
   const uk = String(language || '').toLowerCase() === 'uk';
   const parts = [];
+  const represented = new Set();
+  const add = (path, value) => {
+    const rendered = oneLine(value, 600);
+    if (!rendered || !requested.includes(path)) return;
+    parts.push(rendered);
+    represented.add(path);
+  };
 
   const balance = known(map, 'subscriber.finance.balance.account');
   const totalDue = known(map, 'subscriber.finance.totalDue');
@@ -86,26 +92,44 @@ export function canonicalEvidenceFallbackResult({ requestText = '', factResoluti
   const buildingGpon = known(map, 'building.gpon');
   const contractNumber = known(map, 'subscriber.contract.number');
 
-  if (balance !== undefined && requested.includes('subscriber.finance.balance.account')) {
+  if (balance !== undefined) {
     const value = moneyText(balance);
-    if (value) parts.push(uk ? `Баланс: ${value} грн.` : `Баланс: ${value} грн.`);
+    if (value) add('subscriber.finance.balance.account', `Баланс: ${value} грн.`);
   }
-  if (totalDue !== undefined && requested.includes('subscriber.finance.totalDue')) {
+  if (totalDue !== undefined) {
     const value = moneyText(totalDue);
-    if (value) parts.push(uk ? `Поле «до сплати» в Billing: ${value} грн.` : `Поле «к оплате» в Billing: ${value} грн.`);
+    if (value) add('subscriber.finance.totalDue', uk ? `До сплати: ${value} грн.` : `К оплате: ${value} грн.`);
   }
-  if (serviceState !== undefined && requested.includes('subscriber.service.serviceState')) parts.push(uk ? `Стан послуги: ${humanState(serviceState)}.` : `Состояние услуги: ${humanState(serviceState)}.`);
-  if (accessState !== undefined && requested.includes('subscriber.service.accessState')) parts.push(uk ? `Доступ: ${humanState(accessState)}.` : `Доступ: ${humanState(accessState)}.`);
-  if (tariffName !== undefined && requested.includes('subscriber.tariff.current.name')) parts.push(uk ? `Поточний тариф: ${humanState(tariffName)}.` : `Текущий тариф: ${humanState(tariffName)}.`);
-  if (tariffPrice !== undefined && requested.includes('subscriber.tariff.current.price')) {
+  if (serviceState !== undefined) {
+    const value = humanState(serviceState);
+    if (value) add('subscriber.service.serviceState', uk ? `Стан послуги: ${value}.` : `Состояние услуги: ${value}.`);
+  }
+  if (accessState !== undefined) {
+    const value = humanState(accessState);
+    if (value) add('subscriber.service.accessState', uk ? `Доступ: ${value}.` : `Доступ: ${value}.`);
+  }
+  if (tariffName !== undefined) {
+    const value = humanState(tariffName);
+    if (value) add('subscriber.tariff.current.name', uk ? `Поточний тариф: ${value}.` : `Текущий тариф: ${value}.`);
+  }
+  if (tariffPrice !== undefined) {
     const value = moneyText(tariffPrice);
-    if (value) parts.push(uk ? `Ціна: ${value} грн.` : `Цена: ${value} грн.`);
+    if (value) add('subscriber.tariff.current.price', uk ? `Ціна: ${value} грн.` : `Цена: ${value} грн.`);
   }
-  if (connectionFamily !== undefined && requested.includes('subscriber.access.connectionFamily')) parts.push(uk ? `Тип підключення: ${humanState(connectionFamily)}.` : `Тип подключения: ${humanState(connectionFamily)}.`);
-  if (buildingGpon !== undefined && requested.includes('building.gpon')) parts.push(uk ? `GPON по будинку: ${humanState(buildingGpon)}.` : `GPON по дому: ${humanState(buildingGpon)}.`);
-  if (contractNumber !== undefined && requested.includes('subscriber.contract.number')) parts.push(uk ? `Договір: ${humanState(contractNumber)}.` : `Договор: ${humanState(contractNumber)}.`);
+  if (connectionFamily !== undefined) {
+    const value = humanState(connectionFamily);
+    if (value) add('subscriber.access.connectionFamily', uk ? `Тип підключення: ${value}.` : `Тип подключения: ${value}.`);
+  }
+  if (buildingGpon !== undefined) {
+    const value = humanState(buildingGpon);
+    if (value) add('building.gpon', uk ? `GPON по будинку: ${value}.` : `GPON по дому: ${value}.`);
+  }
+  if (contractNumber !== undefined) {
+    const value = humanState(contractNumber);
+    if (value) add('subscriber.contract.number', uk ? `Договір: ${value}.` : `Договор: ${value}.`);
+  }
 
-  let complete = allRequestedResolved && parts.length > 0;
+  let complete = requested.length > 0 && requested.every(path => represented.has(path));
   let note = '';
   if (isRestorePaymentQuestion(requestText)) {
     const balanceNumber = numberValue(balance);
@@ -114,11 +138,9 @@ export function canonicalEvidenceFallbackResult({ requestText = '', factResoluti
     // to infer the business amount that will restore a paused/blocked service.
     if (balanceNumber !== null && balanceNumber < 0 && (dueNumber === null || dueNumber === 0)) {
       note = uk
-        ? 'Точну суму саме для відновлення послуги з цих полів однозначно визначити не можна.'
-        : 'Точную сумму именно для восстановления услуги по этим полям однозначно определить нельзя.';
+        ? 'Точну суму саме для відновлення послуги з цих даних однозначно визначити не можна.'
+        : 'Точную сумму именно для восстановления услуги по этим данным однозначно определить нельзя.';
       complete = false;
-    } else if (dueNumber !== null && dueNumber > 0) {
-      note = uk ? `До сплати: ${moneyText(dueNumber)} грн.` : `К оплате: ${moneyText(dueNumber)} грн.`;
     }
   }
 
@@ -129,7 +151,8 @@ export function canonicalEvidenceFallbackResult({ requestText = '', factResoluti
     complete,
     requestedFacts: [...requested],
     resolvedRequestedFacts: requestedEvidence.filter(item => ['known', 'absent'].includes(String(item?.status || ''))).map(item => item.path),
-    reason: note ? 'source-backed-facts-with-business-ambiguity' : (complete ? 'all-requested-facts-resolved' : 'partial-canonical-evidence')
+    representedRequestedFacts: [...represented],
+    reason: note ? 'source-backed-facts-with-business-ambiguity' : (complete ? 'all-requested-facts-rendered' : 'partial-canonical-evidence')
   };
 }
 
