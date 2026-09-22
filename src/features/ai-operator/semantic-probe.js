@@ -9,7 +9,8 @@ import {
 import {
   compactRuntimeAnalysis,
   compactRuntimeCapabilities,
-  compactRuntimeTranscript
+  compactRuntimeTranscript,
+  projectRuntimeConversationContext
 } from './runtime-projection.js';
 
 export {
@@ -76,28 +77,43 @@ function directKnowledge(probe = {}, candidateArticles = [], mode = 'auto') {
 
 export async function analyzeSubscriberIntent(options = {}) {
   const requestedMode = knowledgeMode(options?.knowledgeMode);
+  const conversationContext = projectRuntimeConversationContext(options?.transcript, {
+    maxActiveTurns: 18,
+    maxGeneralTurns: 16
+  });
   const compactTranscript = compactRuntimeTranscript(options?.transcript, { maxTurns: 10, maxChars: 420 });
   const semanticOnly = await base.analyzeSubscriberIntent({
     ...options,
     transcript: compactTranscript,
     knowledgeMode: 'off'
   });
+  const semanticWithContext = {
+    ...semanticOnly,
+    conversationContext,
+    decision: {
+      ...(semanticOnly?.decision || {}),
+      diagnostic: {
+        ...(semanticOnly?.decision?.diagnostic || {}),
+        conversationContext
+      }
+    }
+  };
 
   const shouldRetrieve = requestedMode === 'on'
-    || (requestedMode === 'auto' && base.shouldReadKnowledge(semanticOnly?.probe || {}));
+    || (requestedMode === 'auto' && base.shouldReadKnowledge(semanticWithContext?.probe || {}));
   if (!shouldRetrieve) {
     return {
-      ...semanticOnly,
+      ...semanticWithContext,
       knowledgeMode: requestedMode,
       decision: {
-        ...(semanticOnly?.decision || {}),
+        ...(semanticWithContext?.decision || {}),
         reason: `Свободное понимание обращения; knowledge retrieval пропущен (${requestedMode}).`,
         diagnostic: {
-          ...(semanticOnly?.decision?.diagnostic || {}),
+          ...(semanticWithContext?.decision?.diagnostic || {}),
           knowledgeGate: {
             mode: requestedMode,
-            need: semanticOnly?.probe?.knowledgeNeed || '',
-            reason: semanticOnly?.probe?.knowledgeReason || '',
+            need: semanticWithContext?.probe?.knowledgeNeed || '',
+            reason: semanticWithContext?.probe?.knowledgeReason || '',
             skipped: true,
             strategy: 'direct_retrieval'
           }
@@ -106,34 +122,34 @@ export async function analyzeSubscriberIntent(options = {}) {
     };
   }
 
-  const query = knowledgeQueryFromUnderstanding({ probe: semanticOnly?.probe || {}, latestCustomer: options?.latestCustomer || {} });
+  const query = knowledgeQueryFromUnderstanding({ probe: semanticWithContext?.probe || {}, latestCustomer: options?.latestCustomer || {} });
   const candidateArticles = searchKnowledgeLibrary(query, { limit: 3, minScore: 4 });
-  const knowledge = directKnowledge(semanticOnly?.probe || {}, candidateArticles, requestedMode);
+  const knowledge = directKnowledge(semanticWithContext?.probe || {}, candidateArticles, requestedMode);
   const candidates = candidateArticles.map(({ id, title, summary, score }) => ({ id, title, summary, score }));
   const ids = candidates.map(item => item.id).filter(Boolean);
 
   return {
-    ...semanticOnly,
+    ...semanticWithContext,
     knowledge,
     knowledgeMode: requestedMode,
     candidates,
     decision: {
-      ...(semanticOnly?.decision || {}),
+      ...(semanticWithContext?.decision || {}),
       action: 'semantic_direct_knowledge_retrieval',
       reply: [
-        semanticOnly?.probe?.whatUserWants ? `1. Что хочет абонент: ${semanticOnly.probe.whatUserWants}` : '',
-        semanticOnly?.probe?.latestMessageMeans ? `2. Смысл последней реплики: ${semanticOnly.probe.latestMessageMeans}` : '',
+        semanticWithContext?.probe?.whatUserWants ? `1. Что хочет абонент: ${semanticWithContext.probe.whatUserWants}` : '',
+        semanticWithContext?.probe?.latestMessageMeans ? `2. Смысл последней реплики: ${semanticWithContext.probe.latestMessageMeans}` : '',
         ids.length ? `3. KB candidates: ${ids.join(', ')}` : '3. KB: релевантных статей не найдено.'
       ].filter(Boolean).join('\n'),
       reason: ids.length
         ? `Semantic understanding → deterministic ${SIMNET_KNOWLEDGE_VERSION} retrieval → final synthesis. Отдельный LLM knowledge-reflection этап не запускается.`
         : `Semantic understanding → deterministic ${SIMNET_KNOWLEDGE_VERSION} retrieval; релевантных статей не найдено.`,
       diagnostic: {
-        ...(semanticOnly?.decision?.diagnostic || {}),
+        ...(semanticWithContext?.decision?.diagnostic || {}),
         knowledgeGate: {
           mode: requestedMode,
-          need: semanticOnly?.probe?.knowledgeNeed || '',
-          reason: semanticOnly?.probe?.knowledgeReason || '',
+          need: semanticWithContext?.probe?.knowledgeNeed || '',
+          reason: semanticWithContext?.probe?.knowledgeReason || '',
           skipped: knowledge.skipped,
           strategy: 'direct_retrieval'
         },
