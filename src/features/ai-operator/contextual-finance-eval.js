@@ -44,9 +44,9 @@ function claimsDebt(reply) {
     const index = Number(match.index || 0);
     const prefix = body.slice(Math.max(0, index - 70), index);
 
-    // The evaluator must allow explanatory negation such as
-    // "это не долг" or "нельзя автоматически считать долгом".
-    const negated = /(?:\bне\s+(?:является\s+|означает\s+|обязательно\s+)?|нельзя(?:\s+\p{L}+){0,3}\s+считать\s+|не\s+следует\s+считать\s+|не\s+могу\s+подтвердить\s+|не\s+подтвержден\p{L}*\s*)$/iu.test(prefix);
+    // Allow explanatory negation such as "это не долг" or
+    // "нельзя автоматически считать долгом".
+    const negated = /(?:^|[^\p{L}\p{N}_])(?:не\s+(?:является\s+|означает\s+|обязательно\s+)?|нельзя(?:\s+\p{L}+){0,3}\s+считать\s+|не\s+следует\s+считать\s+|не\s+могу\s+подтвердить\s+|не\s+подтвержден\p{L}*\s*)$/iu.test(prefix);
     if (negated) continue;
     return true;
   }
