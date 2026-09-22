@@ -2,14 +2,18 @@ name: CI
 
 on:
   push:
-    branches: ["main", "feat/**", "fix/**", "chore/**"]
+    branches: ["main", "feat/**", "fix/**", "chore/**", "research/**"]
   pull_request:
 
 permissions:
   contents: read
 
+env:
+  CONTEXTUAL_FINANCE_RESEARCH_BRANCH: research/contextual-reasoning-finance-spike
+
 jobs:
   test:
+    if: github.ref != 'refs/heads/research/contextual-reasoning-finance-spike' && github.head_ref != 'research/contextual-reasoning-finance-spike'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +33,27 @@ jobs:
       - name: Autonomous AI evidence recovery regression
         shell: bash
         run: node --test tests/ai_operator_evidence_first_recovery_test.mjs
+      - name: AI behavior profile v2 regression
+        if: always()
+        shell: bash
+        run: |
+          node --input-type=module --check < src/features/ai-operator/behavior-profile.js
+          node --input-type=module --check < src/features/ai-operator/lab-background.js
+          node --check src/ui/ai-operator-behavior-v2.js
+          node --test tests/ai_operator_behavior_profile_v2_test.mjs
+      - name: AI semantic runtime v2 regression
+        if: always()
+        shell: bash
+        run: |
+          node --check src/features/ai-operator/semantic-probe.js
+          node --test tests/ai_operator_semantic_runtime_v2_contract_test.mjs
+      - name: AI Lab batch regression
+        if: always()
+        shell: bash
+        run: |
+          node --check src/features/ai-operator/lab-batch-background.js
+          node --check src/ui/ai-operator-batch.js
+          node tests/ai_operator_batch_lab_contract_test.mjs
       - name: Relevance · semantic JSON repair
         if: always()
         shell: bash
@@ -53,10 +78,24 @@ jobs:
         if: always()
         shell: bash
         run: node --test --test-name-pattern="Lab exposes CLEAN MODEL" tests/ai_operator_relevance_clean_json_test.mjs
-      - name: DeepSeek adapter regression
+      - name: AI provider adapter regression
         if: always()
         shell: bash
-        run: node --test tests/ai_provider_deepseek_json_repair_test.mjs
+        run: |
+          node --test \
+            tests/ai_provider_deepseek_json_repair_test.mjs \
+            tests/ai_provider_router_bootstrap_order_test.mjs
+      - name: Contextual finance regression
+        if: always()
+        shell: bash
+        run: |
+          node --test \
+            tests/ai_operator_billing_balance_fallback_regression_test.mjs \
+            tests/ai_operator_named_login_finance_integration_test.mjs \
+            tests/ai_operator_finance_semantics_test.mjs \
+            tests/ai_operator_settlement_cycle_knowledge_test.mjs \
+            tests/ai_operator_contextual_finance_eval_fixtures_test.mjs \
+            tests/ai_operator_contextual_finance_behavior_eval_test.mjs
       - name: Run npm test
         if: always()
         shell: bash
@@ -71,3 +110,35 @@ jobs:
           path: test-output.txt
           if-no-files-found: error
           retention-days: 14
+
+  contextual-finance-research:
+    if: github.ref == 'refs/heads/research/contextual-reasoning-finance-spike' || github.head_ref == 'research/contextual-reasoning-finance-spike'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Finance · balance fallback
+        run: node --test tests/ai_operator_billing_balance_fallback_regression_test.mjs
+      - name: Finance · named login integration
+        if: always()
+        run: node --test tests/ai_operator_named_login_finance_integration_test.mjs
+      - name: Finance · semantics
+        if: always()
+        run: node --test tests/ai_operator_finance_semantics_test.mjs
+      - name: Finance · settlement-cycle knowledge
+        if: always()
+        run: node --test tests/ai_operator_settlement_cycle_knowledge_test.mjs
+      - name: Finance · reconciled Billing knowledge
+        if: always()
+        run: node --test tests/ai_operator_confirmed_billing_knowledge_test.mjs
+      - name: Finance · L2/L3 fixture contracts
+        if: always()
+        run: node --test tests/ai_operator_contextual_finance_eval_fixtures_test.mjs
+      - name: Finance · behavior evaluator
+        if: always()
+        run: node --test tests/ai_operator_contextual_finance_behavior_eval_test.mjs
+      - name: Finance · token measurement regression
+        if: always()
+        run: node --test tests/ai_operator_measure_lab_token_usage_test.mjs

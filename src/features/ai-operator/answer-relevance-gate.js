@@ -1,5 +1,10 @@
 'use strict';
 
+import {
+  isTariffCatalogScope,
+  isSubscriberCurrentTariffScope
+} from './fact-evidence-gate.js';
+
 function oneLine(value, max = 600) {
   const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
@@ -17,19 +22,30 @@ function block(value, max = 2600) {
 function requestFrom({ analysis = {}, latestCustomer = {} } = {}) {
   const probe = analysis?.probe || {};
   const unresolved = Array.isArray(probe?.unresolvedRequests) ? probe.unresolvedRequests : [];
-  return oneLine(unresolved.join(' ') || probe?.whatUserWants || latestCustomer?.text || '', 800);
+  return oneLine(probe?.whatUserWants || latestCustomer?.text || unresolved[0] || '', 800);
+}
+
+function isCanonicalSourceTrace(item = {}) {
+  return Array.isArray(item?.requestedFacts) && item.requestedFacts.length > 0;
 }
 
 function successfulTrace(toolTrace = []) {
   return (Array.isArray(toolTrace) ? toolTrace : []).filter(item => item?.ok);
 }
 
+function successfulLegacyTrace(toolTrace = []) {
+  return successfulTrace(toolTrace).filter(item => !isCanonicalSourceTrace(item));
+}
+
 function failedTrace(toolTrace = []) {
-  return (Array.isArray(toolTrace) ? toolTrace : []).filter(item => !item?.ok);
+  return (Array.isArray(toolTrace) ? toolTrace : []).filter(item => !item?.ok && !isCanonicalSourceTrace(item));
 }
 
 function nonIdentityTrace(toolTrace = []) {
-  return (Array.isArray(toolTrace) ? toolTrace : []).filter(item => !['customer.lookup', 'customer.confirm'].includes(String(item?.tool || '')));
+  return (Array.isArray(toolTrace) ? toolTrace : []).filter(item => (
+    !isCanonicalSourceTrace(item)
+    && !['customer.lookup', 'customer.confirm'].includes(String(item?.tool || ''))
+  ));
 }
 
 function requestedText(item = {}) {
@@ -65,7 +81,7 @@ function tariffText(data = {}) {
 }
 
 function requestedFactCovered(item = {}) {
-  if (!item?.ok) return false;
+  if (!item?.ok || isCanonicalSourceTrace(item)) return false;
   const tool = String(item?.tool || '');
   if (['customer.lookup', 'customer.confirm'].includes(tool)) return true;
 
@@ -83,6 +99,10 @@ function requestedFactCovered(item = {}) {
   }
 
   if (tool === 'billing.tariff') {
+    if (isTariffCatalogScope(request)) return false;
+    if (/smart\s*tv|смарт\s*тв|телевид|\bтв\b|\btv\b/iu.test(request)) {
+      return hasAny(data, ['smartTv', 'smartTV', 'tv', 'tvPackage', 'television', 'services']);
+    }
     if (/скорост|швидк|speed/iu.test(request)) {
       return hasAny(data, ['speed', 'tariffSpeed', 'speedMbit', 'speedMbps'])
         || /\b\d+(?:[.,]\d+)?\s*(?:m(?:bit|bps)|мб(?:ит|іт)(?:\/с)?|гб(?:ит|іт)(?:\/с)?)/iu.test(tariffText(data));
@@ -91,15 +111,19 @@ function requestedFactCovered(item = {}) {
       return hasOwn(data, 'price') || /^\s*тариф\s+\d+(?:[.,]\d+)?\b/iu.test(tariffText(data));
     }
     if (/следующ|наступн|next|future/iu.test(request)) return hasOwn(data, 'nextTariff', { allowEmpty: true });
-    if (/тариф|tariff|пакет/iu.test(request)) return hasAny(data, ['currentTariff', 'tariffDisplay']);
+    if (isSubscriberCurrentTariffScope(request) || /тариф|tariff|пакет/iu.test(request)) {
+      return hasAny(data, ['currentTariff', 'tariffDisplay']);
+    }
     return hasAny(data, ['currentTariff', 'tariffDisplay', 'price', 'nextTariff'], { allowEmpty: true });
   }
 
   if (tool === 'billing.payments') {
+    if (/кешбек|кэшбек|cashback/iu.test(request) && /услов|правил|начисл|зачисл|положен|належ|будет|буде/iu.test(request)) return false;
     return Array.isArray(data.payments) || hasOwn(data, 'count', { allowEmpty: true });
   }
 
   if (tool === 'building.snapshot') {
+    if (/стоим|цен|варт|оборуд|аренд|покуп|комплект/iu.test(request)) return false;
     if (/gpon|epon|\bpon\b|оптик|fiber|покрыт|покрит|coverage/iu.test(request)) {
       const fields = data?.fields && typeof data.fields === 'object' && !Array.isArray(data.fields) ? data.fields : {};
       if (Object.keys(fields).some(key => /^(?:gpon|epon|pon|оптика)$/iu.test(String(key).trim()))) return true;
@@ -117,8 +141,8 @@ function requestedFactCovered(item = {}) {
   }
 
   if (tool === 'pon.signal') {
-    if (/\brx\b|прием|прийом/iu.test(request)) return hasAny(data, ['onuRx', 'oltRx', 'rx']);
-    if (/\btx\b|передач/iu.test(request)) return hasAny(data, ['onuTx', 'tx']);
+    if (/\brx\b/iu.test(request) || /прием|прийом/iu.test(request)) return hasAny(data, ['onuRx', 'oltRx', 'rx']);
+    if (/\btx\b/iu.test(request) || /передач/iu.test(request)) return hasAny(data, ['onuTx', 'tx']);
     return hasAny(data, ['onuRx', 'onuTx', 'oltRx', 'rx', 'tx']);
   }
 
@@ -133,11 +157,11 @@ function requestedFactCovered(item = {}) {
 }
 
 function confirmedTrace(toolTrace = []) {
-  return successfulTrace(toolTrace).filter(requestedFactCovered);
+  return successfulLegacyTrace(toolTrace).filter(requestedFactCovered);
 }
 
 function uncoveredSuccessfulTrace(toolTrace = []) {
-  return successfulTrace(toolTrace).filter(item => !requestedFactCovered(item));
+  return successfulLegacyTrace(toolTrace).filter(item => !requestedFactCovered(item));
 }
 
 function injectedKnowledgePrefixes(analysis = {}) {
@@ -156,7 +180,7 @@ function injectedKnowledgePrefixes(analysis = {}) {
 
 function stripAutoInjectedKnowledgePrefix(reply = '', analysis = {}, toolTrace = []) {
   let text = block(reply, 2200);
-  if (!text || !successfulTrace(toolTrace).length) return text;
+  if (!text || !successfulLegacyTrace(toolTrace).length) return text;
 
   for (const prefix of injectedKnowledgePrefixes(analysis)) {
     if (!text.startsWith(prefix)) continue;
@@ -248,9 +272,9 @@ function deterministicConfirmedFactsRecovery({ analysis = {}, latestCustomer = {
   const request = requestFrom({ analysis, latestCustomer }).toLowerCase();
   const wantsBalance = /баланс|balance|рахун/.test(request);
   const wantsTariffPrice = /(?:тариф|пакет).{0,40}(?:цен|стоим|варт|абонплат|сколько\s+стоит|скільки\s+кошту)|(?:цен|стоим|варт|абонплат|сколько\s+стоит|скільки\s+кошту).{0,40}(?:тариф|пакет)/iu.test(request);
-  const wantsTariffName = !wantsTariffPrice && (
-    /(?:какой|який|мой|мій|текущ|поточн).{0,40}(?:тариф|пакет)|(?:тариф|пакет).{0,30}(?:сейчас|зараз|у\s+меня|у\s+мене)|(?:что|що).{0,20}по\s+(?:тариф|пакет)/iu.test(request)
-    || (/(?:тариф|tariff|пакет)/iu.test(request) && !/скорост|швидк|speed/iu.test(request))
+  const wantsTariffName = !wantsTariffPrice && !isTariffCatalogScope(request) && (
+    isSubscriberCurrentTariffScope(request)
+    || (/(?:тариф|tariff|пакет)/iu.test(request) && !/скорост|швидк|speed/iu.test(request) && !isTariffCatalogScope(request))
   );
   if (!wantsBalance && !wantsTariffName && !wantsTariffPrice) return null;
 
@@ -298,6 +322,7 @@ export async function applyAnswerRelevanceGate({
   latestCustomer = {}
 } = {}) {
   const request = requestFrom({ analysis, latestCustomer });
+  const canonicalSourceActivity = (Array.isArray(toolTrace) ? toolTrace : []).some(isCanonicalSourceTrace);
   const cleanedReply = stripAutoInjectedKnowledgePrefix(reply, analysis, toolTrace) || block(reply, 2200);
   const recoveryCandidate = deterministicConfirmedFactsRecovery({ analysis, latestCustomer, toolTrace });
   const recovered = Boolean(
@@ -315,15 +340,21 @@ export async function applyAnswerRelevanceGate({
       kept,
       dropped,
       completeness: completeness(toolTrace, finalReply),
-      conclusion: recovered
-        ? 'Запрошенные и реально возвращённые READ-факты восстановлены локально без соседних Billing-полей.'
-        : 'Локальная relevance-проверка: semantic frame не переосмысляется отдельной LLM; ok=true считается evidence только когда конкретно запрошенный факт присутствует в результате READ.'
+      conclusion: canonicalSourceActivity && !nonIdentityTrace(toolTrace).length
+        ? 'Canonical fact path активен: source-trace является диагностикой Resolver и не переоценивается legacy relevance-проверкой. Фактические значения должны оцениваться по factEvidence.'
+        : recovered
+          ? 'Запрошенные и реально возвращённые READ-факты восстановлены локально без соседних Billing-полей.'
+          : 'Локальная relevance-проверка: semantic frame не переосмысляется отдельной LLM; ok=true считается evidence только когда конкретно запрошенный legacy READ-факт присутствует в результате.'
     },
     gate: {
       skipped: true,
-      reason: recovered ? 'deterministic_confirmed_facts_recovery' : 'deterministic_local_relevance_boundary',
+      reason: canonicalSourceActivity && !nonIdentityTrace(toolTrace).length
+        ? 'canonical_fact_evidence_boundary'
+        : (recovered ? 'deterministic_confirmed_facts_recovery' : 'deterministic_local_relevance_boundary'),
       degraded: false,
       usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
     }
   };
 }
+
+export { requestedFactCovered };

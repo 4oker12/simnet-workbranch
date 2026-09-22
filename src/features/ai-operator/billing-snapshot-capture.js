@@ -25,19 +25,42 @@
     return clean(node?.value || '');
   }
 
-  function rowValue(patterns) {
-    for (const row of document.querySelectorAll('tr')) {
-      const cells = [...row.querySelectorAll(':scope > td, :scope > th')];
-      if (cells.length < 2) continue;
-      const label = clean(cells[0]?.innerText || cells[0]?.textContent || '', 220).toLowerCase();
-      if (!patterns.some(pattern => pattern.test(label))) continue;
-      const last = cells[cells.length - 1];
-      const control = last.querySelector('select,input:not([type="hidden"]),textarea');
-      if (control?.tagName === 'SELECT') {
-        return clean(control.options?.[control.selectedIndex]?.textContent || control.value || '');
+  let _rowIndex = null;
+  function rowIndex() {
+    if (_rowIndex) return _rowIndex;
+    const map = [];
+    const tables = document.querySelectorAll('table');
+    for (let t = 0; t < tables.length; t += 1) {
+      const rows = tables[t].rows;
+      if (!rows) continue;
+      for (let i = 0; i < rows.length; i += 1) {
+        const row = rows[i];
+        const cells = row.cells;
+        if (!cells || cells.length < 2) continue;
+        const label = clean(cells[0].textContent || '', 220).toLowerCase();
+        if (!label) continue;
+        const last = cells[cells.length - 1];
+        const control = last.querySelector('select,input:not([type="hidden"]),textarea');
+        let value = '';
+        if (control?.tagName === 'SELECT') {
+          value = clean(control.options?.[control.selectedIndex]?.textContent || control.value || '');
+        } else if (control) {
+          value = clean(control.value || '');
+        } else {
+          value = clean(last.textContent || '');
+        }
+        map.push([label, value]);
       }
-      if (control) return clean(control.value || '');
-      return clean(last.innerText || last.textContent || '');
+    }
+    _rowIndex = map;
+    return map;
+  }
+
+  function rowValue(patterns) {
+    const index = rowIndex();
+    for (let i = 0; i < index.length; i += 1) {
+      const [label, value] = index[i];
+      if (patterns.some(pattern => pattern.test(label))) return value;
     }
     return '';
   }
@@ -59,7 +82,12 @@
   }
 
   function loginFromPage() {
-    return clean(input('name') || document.body?.innerText?.match(/\babon\d{3,12}\b/i)?.[0] || '', 80).toLowerCase();
+    const fromInput = input('name');
+    if (fromInput) return fromInput.toLowerCase();
+    const fromAuth = document.querySelector('table.usrlist tbody tr td:nth-child(5)');
+    const authLogin = clean(fromAuth?.textContent || '', 80);
+    if (authLogin) return authLogin.toLowerCase();
+    return '';
   }
 
   function composeAddress(address = {}) {
@@ -74,10 +102,23 @@
   }
 
   function temporaryPaymentText() {
-    return [...document.querySelectorAll('.modified,td,span,p,div')]
-      .map(node => clean(node.textContent || '', 260))
-      .filter(value => value.length <= 240 && /временн(?:ый|ого)\s+плат[её]ж/i.test(value))
-      .sort((a, b) => a.length - b.length)[0] || '';
+    const candidates = document.querySelectorAll('.modified, .alert, .warning, font[color], b, strong');
+    let best = '';
+    for (let i = 0; i < candidates.length; i += 1) {
+      const value = clean(candidates[i].textContent || '', 260);
+      if (value.length > 240 || value.length < 8) continue;
+      if (!/временн(?:ый|ого)\s+плат[её]ж/i.test(value)) continue;
+      if (!best || value.length < best.length) best = value;
+    }
+    if (best) return best;
+    const index = rowIndex();
+    for (let i = 0; i < index.length; i += 1) {
+      const value = index[i][1];
+      if (value.length <= 240 && /временн(?:ый|ого)\s+плат[её]ж/i.test(value)) {
+        if (!best || value.length < best.length) best = value;
+      }
+    }
+    return best;
   }
 
   function readPayments() {
@@ -252,6 +293,7 @@
   }
 
   async function capture() {
+    _rowIndex = null;
     const id = billingId();
     if (!id) return;
     let patch = {};

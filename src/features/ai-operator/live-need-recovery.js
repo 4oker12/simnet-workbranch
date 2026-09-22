@@ -1,5 +1,7 @@
 'use strict';
 
+import { normalizeCanonicalFacts } from './canonical-fact-catalog.js';
+
 function line(value, max = 500) {
   const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
@@ -22,6 +24,26 @@ function semanticEvidenceNeeds(analysis = {}) {
     .map(normalizeNeed)
     .filter(item => item.system || item.field || item.why)
     .slice(0, 6);
+}
+
+function semanticRequiredFacts(analysis = {}) {
+  const probe = analysis?.probe || {};
+  const source = Array.isArray(probe.requiredFacts)
+    ? probe.requiredFacts
+    : (Array.isArray(probe.required_facts) ? probe.required_facts : []);
+  const facts = normalizeCanonicalFacts(source);
+  return facts.map(path => ({
+    system: 'Domain',
+    field: line(path, 180),
+    why: 'Semantic understanding определил этот канонический факт как необходимый для текущего ответа.'
+  })).filter(item => item.field).slice(0, 16);
+}
+
+function hasSemanticFactContract(analysis = {}) {
+  const probe = analysis?.probe;
+  if (!probe || typeof probe !== 'object' || Array.isArray(probe)) return false;
+  return Object.prototype.hasOwnProperty.call(probe, 'requiredFacts')
+    || Object.prototype.hasOwnProperty.call(probe, 'required_facts');
 }
 
 function requestList(analysis = {}) {
@@ -58,8 +80,8 @@ function derivedNeedsForRequest(request = '') {
   const add = (tool, system, why) => needs.push(explicitNeed(tool, system, request, why));
 
   // Recovery only: semantic understanding is the primary source of evidence needs.
-  // These patterns remain as a safety net when an older/failed semantic response
-  // does not provide evidence_needs yet. They are not the primary intent system.
+  // These patterns remain as a safety net only for older/failed semantic outputs
+  // that do not expose the canonical requiredFacts contract at all.
   const accessTechnology = /оптик|fiber|gpon|epon|\bpon\b/i.test(text);
   const availability = /подключ|підключ|перейти|переход|перехід|переключ|перемкн|можно|можна|возмож|можлив|доступн|покрыт|покрит|coverage/i.test(text);
   if (accessTechnology && availability) {
@@ -107,18 +129,24 @@ export function recoverLiveDataNeeds({ analysis = {}, draft = {} } = {}) {
     .map(normalizeNeed)
     .filter(item => item.system || item.field || item.why);
   const semantic = semanticEvidenceNeeds(analysis);
+  const canonical = semanticRequiredFacts(analysis);
+  const semanticFactContract = hasSemanticFactContract(analysis);
   const liveNeed = line(analysis?.probe?.liveDataNeed || analysis?.probe?.live_data_need, 20).toLowerCase();
   const requests = requestList(analysis);
 
-  // Regex derivation is strictly fallback. If UNDERSTANDING already produced a
-  // semantic evidence plan, do not rebuild the user's meaning from keywords.
-  const derived = semantic.length ? [] : requests.flatMap(derivedNeedsForRequest);
-  const recoveryAllowed = existing.length > 0 || semantic.length > 0 || liveNeed === 'needed' || derived.length > 0;
+  // Once UNDERSTANDING returned the canonical fact contract, an empty requiredFacts
+  // list is authoritative. Do not reinterpret unresolved text with keyword routing.
+  // Regex derivation remains only for legacy/failed semantic outputs that have no
+  // requiredFacts contract at all.
+  const derived = semantic.length || canonical.length || semanticFactContract
+    ? []
+    : requests.flatMap(derivedNeedsForRequest);
+  const recoveryAllowed = existing.length > 0 || semantic.length > 0 || canonical.length > 0 || liveNeed === 'needed' || derived.length > 0;
   if (!recoveryAllowed) return existing;
 
   const merged = [];
   const seen = new Set();
-  for (const need of [...existing, ...semantic, ...derived]) {
+  for (const need of [...existing, ...canonical, ...semantic, ...derived]) {
     const normalized = normalizeNeed(need);
     const key = toolFromField(normalized.field) || `${normalized.system.toLowerCase()}|${normalized.field.toLowerCase()}`;
     if (!key || seen.has(key)) continue;
@@ -132,7 +160,7 @@ export function recoverLiveDataNeeds({ analysis = {}, draft = {} } = {}) {
       'customer.snapshot',
       'Billing',
       request,
-      'Semantic understanding пометил запрос как зависящий от live-данных; нужен общий подтверждённый snapshot текущего абонента.'
+      'Semantic understanding пометил запрос как зависящий от live-данных, но не выбрал поддерживаемый canonical fact; используем общий snapshot только как degraded fallback.'
     ));
   }
 
@@ -147,4 +175,4 @@ export function hasLiveDataNeeds(analysis = {}) {
   return planLiveDataNeeds(analysis).length > 0;
 }
 
-export const LIVE_NEED_RECOVERY_VERSION = 6;
+export const LIVE_NEED_RECOVERY_VERSION = 7;

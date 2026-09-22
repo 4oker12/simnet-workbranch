@@ -5,6 +5,7 @@ import { readNetworkSessionLive } from './network-live-search.js';
 import { readBillingSummaryLive } from './billing-summary-live.js';
 import { classifyStandaloneBillingLogin, searchBillingLoginLive } from './billing-login-live.js';
 import { readBuildingSnapshot } from './building-snapshot-tool.js';
+import { CANONICAL_FACT_CATALOG, canonicalFactPath } from './canonical-fact-catalog.js';
 
 const LIVE_CASE_PREFIX = 'billing-live:';
 
@@ -42,13 +43,58 @@ function billingIdFromLab(labState = {}) {
   if (caseId.startsWith(LIVE_CASE_PREFIX)) return caseId.slice(LIVE_CASE_PREFIX.length).replace(/\D+/g, '').slice(0, 12);
   return '';
 }
-function mergePresent(base = {}, overlay = {}) {
+export function mergePresent(base = {}, overlay = {}) {
   const merged = { ...(base && typeof base === 'object' && !Array.isArray(base) ? base : {}) };
   for (const [key, value] of Object.entries(overlay && typeof overlay === 'object' && !Array.isArray(overlay) ? overlay : {})) {
     if (value === null || value === undefined || value === '') continue;
     merged[key] = value;
   }
   return merged;
+}
+function readOwnPath(root, path) {
+  const parts = String(path || '').split('.').filter(Boolean);
+  if (!parts.length) return { observed: false, value: undefined };
+  let node = root;
+  for (const part of parts) {
+    if (!node || typeof node !== 'object' || !Object.hasOwn(node, part)) return { observed: false, value: undefined };
+    node = node[part];
+  }
+  return { observed: true, value: node };
+}
+function canonicalRawValueObserved(data, rawPath, spec = {}) {
+  const raw = readOwnPath(data, rawPath);
+  if (!raw.observed) return false;
+  if (spec.type === 'money' || spec.type === 'number') {
+    if (raw.value === null || raw.value === undefined || raw.value === '') return false;
+    const normalized = String(raw.value).replace(/[\s\u00a0]/g, '').replace(',', '.');
+    return /^-?\d+(?:\.\d+)?$/.test(normalized);
+  }
+  return true;
+}
+function isObservedValue(value) {
+  return !(value === null || value === undefined || value === '');
+}
+function requestedCanonicalFacts(toolArgs = {}) {
+  const seen = new Set();
+  const facts = [];
+  for (const value of Array.isArray(toolArgs?.requiredCanonicalFacts) ? toolArgs.requiredCanonicalFacts : []) {
+    const path = canonicalFactPath(value);
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    facts.push(path);
+  }
+  return facts;
+}
+export function missingBillingMainFacts(facts = [], data = {}) {
+  return facts.filter(path => {
+    const spec = CANONICAL_FACT_CATALOG[path];
+    if (!spec || spec.source !== 'billing.mainSummary') return true;
+    return !(spec.paths || []).some(rawPath => canonicalRawValueObserved(data, rawPath, spec));
+  });
+}
+function fallbackToolArgs(toolArgs = {}) {
+  const { requiredCanonicalFacts: _requiredCanonicalFacts, ...rest } = toolArgs || {};
+  return rest;
 }
 function liveLookupCandidate(candidate = {}) {
   const billingId = String(candidate.billingId || '').replace(/\D+/g, '').slice(0, 12);
@@ -106,16 +152,64 @@ async function executeGenericLoginLookup(toolArgs = {}) {
 }
 
 async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
+  // Subscriber-scoped Billing tools require established identity.
+  // Do not fall through to local tool-runtime with a canonical alias that
+  // historically was missing from ACCOUNT_TOOLS (UNKNOWN_TOOL divergence).
   if (!String(labState?.confirmedCaseId || '').trim()) {
-    return core.executeOperatorTool({ tool: name, toolArgs, labState });
+    return result(name, false, 'IDENTITY_REQUIRED', {
+      message: 'Нужен подтверждённый subscriber case перед Billing READ.',
+      source: 'billing-main-summary-live-read-only'
+    });
   }
   const id = billingIdFromLab(labState);
-  if (!id) return core.executeOperatorTool({ tool: name, toolArgs, labState });
+  if (!id) {
+    return result(name, false, 'IDENTITY_REQUIRED', {
+      message: 'Не удалось извлечь Billing ID из подтверждённого кейса.',
+      source: 'billing-main-summary-live-read-only'
+    });
+  }
 
-  const [live, base] = await Promise.all([
-    readBillingSummaryLive({ billingId: id, refresh: Boolean(toolArgs.refresh), maxAgeMs: toolArgs.maxAgeMs || 30000 }),
-    core.executeOperatorTool({ tool: name, toolArgs: { ...toolArgs, refresh: false }, labState })
-  ]);
+  const baseTool = name === 'billing.main_summary' ? 'customer.snapshot' : name;
+  const liveRead = () => readBillingSummaryLive({
+    billingId: id,
+    refresh: Boolean(toolArgs.refresh),
+    maxAgeMs: toolArgs.maxAgeMs || 30000
+  });
+  const baseRead = () => core.executeOperatorTool({
+    tool: baseTool,
+    toolArgs: { ...fallbackToolArgs(toolArgs), refresh: false },
+    labState
+  });
+
+  let live;
+  let base = null;
+  let requiredFacts = [];
+  let missingFacts = [];
+  let fallbackReason = '';
+
+  if (name === 'billing.main_summary') {
+    live = await liveRead();
+    requiredFacts = requestedCanonicalFacts(toolArgs);
+    if (live?.ok && requiredFacts.length) {
+      missingFacts = missingBillingMainFacts(requiredFacts, live.data || {});
+    }
+    if (!live?.ok) {
+      fallbackReason = 'dedicated-reader-unavailable';
+      base = await baseRead();
+    } else if (!requiredFacts.length) {
+      // Legacy/direct callers did not declare canonical intent. Keep the previous
+      // broad snapshot merge until they migrate to requiredCanonicalFacts.
+      fallbackReason = 'legacy-call-without-required-facts';
+      base = await baseRead();
+    } else if (missingFacts.length) {
+      // A present key with null/unparseable money is NOT observed evidence.
+      // Fall back to the full Billing snapshot instead of silently returning null.
+      fallbackReason = 'missing-canonical-facts';
+      base = await baseRead();
+    }
+  } else {
+    [live, base] = await Promise.all([liveRead(), baseRead()]);
+  }
 
   if (!live?.ok) {
     if (base?.ok) {
@@ -128,17 +222,64 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
       };
     }
     return result(name, false, String(live?.code || base?.code || 'BILLING_SUMMARY_READ_FAILED'), {
-      message: 'Не удалось прочитать основной финансово-тарифный блок Billing.',
+      message: 'Не удалось прочитать основную карточку Billing.',
       source: 'billing-main-summary-live-read-only',
       billingId: id
     });
   }
 
+  const identity = live.data?.identity || {};
   const service = live.data?.service || {};
   const finance = live.data?.finance || {};
+  const payments = Array.isArray(live.data?.payments) ? live.data.payments : null;
   const network = live.data?.network || {};
   const evidence = live.data?.evidence || {};
   const baseData = base?.data || {};
+
+  if (name === 'billing.main_summary') {
+    // Dedicated a=user values win only when actually present. A null/empty live
+    // value must never erase a real value recovered by the broader fallback.
+    const mergedIdentity = mergePresent(baseData.identity || {}, identity);
+    const mergedService = mergePresent(baseData.service || {}, service);
+    const mergedFinance = mergePresent(baseData.finance || {}, finance);
+    const liveFieldObservedAt = {};
+    for (const [key, value] of Object.entries(identity)) {
+      if (isObservedValue(value)) liveFieldObservedAt[`identity.${key}`] = live.observedAt;
+    }
+    for (const [key, value] of Object.entries(service)) {
+      if (isObservedValue(value)) liveFieldObservedAt[`service.${key}`] = live.observedAt;
+    }
+    for (const [key, value] of Object.entries(finance)) {
+      if (isObservedValue(value)) liveFieldObservedAt[`finance.${key}`] = live.observedAt;
+    }
+    if (payments !== null) liveFieldObservedAt.payments = live.observedAt;
+    const hasData = Object.keys(identity).length > 0
+      || Object.keys(service).length > 0
+      || Object.keys(finance).length > 0
+      || payments !== null
+      || Object.keys(network).length > 0;
+    if (!hasData) return result(name, false, 'DATA_NOT_AVAILABLE', { source: 'billing-main-summary-live-read-only', evidence });
+    return result(name, true, 'OK', {
+      identity: mergedIdentity,
+      service: mergedService,
+      finance: mergedFinance,
+      ...(payments !== null ? { payments } : (Array.isArray(baseData.payments) ? { payments: baseData.payments } : {})),
+      network: mergePresent(baseData.network || {}, network),
+      source: 'billing-main-summary-live-read-only',
+      evidence: {
+        ...evidence,
+        fieldObservedAt: {
+          ...(baseData?.evidence?.fieldObservedAt || {}),
+          ...liveFieldObservedAt
+        },
+        broadFallbackUsed: Boolean(base),
+        fallbackReason,
+        requestedCanonicalFacts: requiredFacts,
+        missingCanonicalFacts: missingFacts
+      },
+      cache: live.cache || ''
+    });
+  }
 
   if (name === 'billing.balance') {
     const mergedFinance = mergePresent(baseData, finance);
@@ -154,8 +295,8 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
     return result(name, true, 'OK', {
       ...mergedFinance,
       currentTariff: service.currentTariff || baseData.currentTariff || '',
-      accessState: baseData.accessState || '',
-      serviceState: baseData.serviceState || '',
+      accessState: service.accessState ?? baseData.accessState ?? '',
+      serviceState: service.serviceState ?? baseData.serviceState ?? '',
       trafficIncomingBytes: network.trafficIncomingBytes || '',
       trafficOutgoingBytes: network.trafficOutgoingBytes || '',
       source: 'billing-main-summary-live-read-only',
@@ -166,17 +307,43 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
 
   if (name === 'billing.tariff') {
     const currentTariff = service.currentTariff || baseData.currentTariff || '';
-    if (!currentTariff && !baseData.nextTariff) return result(name, false, 'DATA_NOT_AVAILABLE', { source: 'billing-main-summary-live-read-only', evidence });
+    const nextTariff = service.nextTariff ?? baseData.nextTariff ?? '';
+    if (!currentTariff && !nextTariff) return result(name, false, 'DATA_NOT_AVAILABLE', { source: 'billing-main-summary-live-read-only', evidence });
     return result(name, true, 'OK', {
       ...baseData,
       currentTariff,
+      nextTariff,
+      nextTariffDelay: service.nextTariffDelay ?? baseData.nextTariffDelay ?? '',
+      accessState: service.accessState ?? baseData.accessState ?? '',
+      serviceState: service.serviceState ?? baseData.serviceState ?? '',
+      group: service.group ?? baseData.group ?? '',
+      activeServices: service.activeServices ?? baseData.activeServices ?? [],
       tariffId: service.tariffId || '',
       tariffDisplay: service.tariffDisplay || '',
       price: finance.price ?? baseData.price ?? '',
       totalDue: finance.totalDue ?? baseData.totalDue ?? '',
-      balanceAfterTariff: finance.balanceAfterTariff ?? '',
+      balanceAfterTariff: finance.balanceAfterTariff ?? baseData.balanceAfterTariff ?? '',
       trafficIncomingBytes: network.trafficIncomingBytes || '',
       trafficOutgoingBytes: network.trafficOutgoingBytes || '',
+      source: 'billing-main-summary-live-read-only',
+      evidence,
+      cache: live.cache || ''
+    });
+  }
+
+  if (name === 'billing.payments') {
+    const fallbackPayments = Array.isArray(baseData.payments) ? baseData.payments : [];
+    const observedPayments = payments ?? fallbackPayments;
+    if (!observedPayments.length) {
+      return result(name, false, 'DATA_NOT_AVAILABLE', {
+        message: 'На основной карточке Billing нет доступных записей платежей.',
+        source: 'billing-main-summary-live-read-only',
+        evidence
+      });
+    }
+    return result(name, true, 'OK', {
+      payments: observedPayments,
+      count: observedPayments.length,
       source: 'billing-main-summary-live-read-only',
       evidence,
       cache: live.cache || ''
@@ -234,7 +401,7 @@ export async function executeOperatorTool({ tool, toolArgs = {}, labState = {} }
   if (name === 'building.snapshot') {
     return readBuildingSnapshot({ toolArgs, labState });
   }
-  if (name === 'billing.balance' || name === 'billing.tariff') {
+  if (['billing.main_summary', 'billing.balance', 'billing.tariff', 'billing.payments'].includes(name)) {
     return executeBillingSummaryTool(name, toolArgs, labState);
   }
   if (name === 'network.session' || name === 'network.last_session') {

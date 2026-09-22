@@ -1,14 +1,20 @@
+import { BILLING_FINANCE_KNOWLEDGE } from './billing-finance.js';
+import { BILLING_SETTLEMENT_CYCLE_KNOWLEDGE } from './billing-settlement-cycle.js';
 import { BILLING_KNOWLEDGE } from './billing.js';
 import { TARIFF_KNOWLEDGE } from './tariffs.js';
+import { TARIFF_CONTEXT_KNOWLEDGE } from './tariff-context.js';
 import { PROMOTION_KNOWLEDGE } from './promotions.js';
 import { TECHNICAL_KNOWLEDGE } from './technical.js';
 import { SERVICE_KNOWLEDGE } from './services.js';
 import { CONNECTION_KNOWLEDGE } from './connection.js';
 
-export const SIMNET_KNOWLEDGE_VERSION = 'simnet-encyclopedia-v2';
+export const SIMNET_KNOWLEDGE_VERSION = 'simnet-encyclopedia-v3.3';
 export const SIMNET_KNOWLEDGE = Object.freeze([
+  ...BILLING_FINANCE_KNOWLEDGE,
+  ...BILLING_SETTLEMENT_CYCLE_KNOWLEDGE,
   ...BILLING_KNOWLEDGE,
   ...TARIFF_KNOWLEDGE,
+  ...TARIFF_CONTEXT_KNOWLEDGE,
   ...PROMOTION_KNOWLEDGE,
   ...TECHNICAL_KNOWLEDGE,
   ...SERVICE_KNOWLEDGE,
@@ -49,15 +55,14 @@ function scoreArticle(article, queryText) {
   return score;
 }
 
-export function knowledgeQueryFromUnderstanding({ probe = {}, transcript = [], latestCustomer = {} } = {}) {
-  const recent = (Array.isArray(transcript) ? transcript : []).slice(-8).map(item => item?.text || '').join(' ');
+export function knowledgeQueryFromUnderstanding({ probe = {}, latestCustomer = {} } = {}) {
   return [
     probe.whatUserWants,
     probe.latestMessageMeans,
+    probe.refersTo,
     probe.underlyingGoal,
     ...(probe.factsSaidByUser || []),
-    latestCustomer?.text,
-    recent
+    latestCustomer?.text
   ].filter(Boolean).join(' ');
 }
 
