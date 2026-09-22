@@ -104,4 +104,24 @@ const repeatedParsed = runJson(repeatedFile);
 assert.equal(repeatedParsed.session.calls, 2);
 assert.equal(repeatedParsed.session.total, 220);
 
+// The real export exposed more metered tokens than experiment_result totals.
+// Surface the difference without inventing an attribution to customer turns.
+for (const [name, ledger, status, difference] of [
+  ['matched', { input: 22000, output: 350 }, 'matched', 0],
+  ['extra-metered', { input: 38036, output: 350 }, 'mismatch', 16036],
+  ['lower-metered', { input: 21000, output: 350 }, 'mismatch', -1000],
+  ['zero-metered', { input: 0, output: 0 }, 'mismatch', -22350],
+  ['missing-output', { input: 22000 }, 'unavailable', null],
+  ['null-output', { input: 22000, output: null }, 'unavailable', null]
+]) {
+  const sample = structuredClone(realShape);
+  sample.apiCost.session = ledger;
+  const result = runJson(writeSample(`reconcile-${name}.json`, sample));
+  assert.equal(result.reconciliation.status, status, name);
+  assert.equal(result.reconciliation.difference, difference, name);
+  assert.equal(result.session.total, 22350, 'ledger must not manufacture customer calls');
+  assert.equal(result.session.turns, 2);
+  if (status === 'mismatch') assert.ok(result.notes.some(note => /Cause and per-turn allocation are unknown/.test(note)));
+}
+
 console.log('ai_operator_measure_lab_token_usage_test: PASS');

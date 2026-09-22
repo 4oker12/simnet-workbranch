@@ -349,7 +349,19 @@ function payloadBreakdownNote(root) {
   return notes;
 }
 
-function printHuman(turns, session, notes) {
+function reconcileSession(root, reconstructedTotal) {
+  const ledger = root?.apiCost?.session;
+  const valid = value => value !== null && value !== '' && value !== undefined
+    && Number.isFinite(Number(value)) && Number(value) >= 0;
+  if (!valid(ledger?.input) || !valid(ledger?.output)) {
+    return { status: 'unavailable', reconstructedTotal, meteredTotal: null, difference: null };
+  }
+  const meteredTotal = Number(ledger.input) + Number(ledger.output);
+  const difference = meteredTotal - reconstructedTotal;
+  return { status: difference === 0 ? 'matched' : 'mismatch', reconstructedTotal, meteredTotal, difference };
+}
+
+function printHuman(turns, session, notes, reconciliation) {
   for (const [turnId, calls] of turns) {
     const total = calls.reduce((sum, item) => sum + item.total, 0);
     console.log(`TURN ${turnId}`);
@@ -380,7 +392,11 @@ function printHuman(turns, session, notes) {
   console.log(`average per turn: ${session.average}`);
   console.log(`median per turn: ${session.median}`);
   console.log(`max per turn: ${session.max}`);
-  console.log(`total session tokens: ${session.total}`);
+  console.log(`reconstructed total session tokens: ${session.total}`);
+  if (reconciliation.meteredTotal !== null) {
+    console.log(`apiCost.session tokens: ${reconciliation.meteredTotal}`);
+    console.log(`reconciliation: ${reconciliation.status}; difference: ${reconciliation.difference}`);
+  }
   console.log(`calls: ${session.calls}`);
   console.log('');
   for (const note of notes) console.log(`NOTE: ${note}`);
@@ -410,6 +426,13 @@ function main() {
   };
 
   const notes = payloadBreakdownNote(root);
+  const reconciliation = reconcileSession(root, total);
+  if (reconciliation.status === 'mismatch') {
+    notes.push(`Session usage mismatch: apiCost.session minus reconstructed turns = ${reconciliation.difference} tokens. Cause and per-turn allocation are unknown; do not treat reconstructed turns as complete session billing.`);
+  }
+  if (reconciliation.status === 'unavailable') {
+    notes.push('apiCost.session input/output unavailable; session reconciliation cannot be verified.');
+  }
   if (!unique.length) {
     notes.push('No token usage records found. Export apiCost.turnCalls, events[].experiment_result.totalTokens, or Lab lastExperiment usage.');
   }
@@ -420,12 +443,13 @@ function main() {
       calls: unique,
       turns: Object.fromEntries([...turns.entries()].map(([id, list]) => [id, list])),
       session,
+      reconciliation,
       notes
     }, null, 2));
     return;
   }
 
-  printHuman(turns, session, notes);
+  printHuman(turns, session, notes, reconciliation);
 }
 
 main();
