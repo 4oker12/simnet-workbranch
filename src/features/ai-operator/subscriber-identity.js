@@ -9,8 +9,8 @@
  *   - standalone named login
  *
  * Important: arbitrary latin words inside a conversational sentence are NOT
- * identity candidates. This prevents words such as Ethernet/GPON/router from
- * switching the active subscriber.
+ * identity candidates. Named login requires literal textual evidence; LLM hints
+ * cannot invent a generic login and rebind the active subscriber.
  */
 
 function oneLine(value, max = 500) {
@@ -25,8 +25,8 @@ const NON_LOGIN_WORDS = new Set([
   'guest', 'root', 'simnet', 'standard', 'premium', 'basic', 'support', 'operator', 'client',
   'ethernet', 'gpon', 'epon', 'pon', 'onu', 'olt', 'optical', 'fiber', 'fibre'
 ]);
-const CONTRACT_WORD = '(?:договор|договір|лицев(?:ой|ий)?\\s*сч[её]т|особов(?:ий|ого)?\\s*рахунок)';
-const LOGIN_WORD = '(?:login|логин|логін)';
+const CONTRACT_WORD = '(?:договор(?:а|у|ом|е)?|договір(?:у|ом|і)?|лицев(?:ой|ого|ому|ым|ий)?\\s*сч[её]т|особов(?:ий|ого|ому|им)?\\s*рахунок)';
+const LOGIN_WORD = '(?:login|логин(?:а|у|ом|е)?|логін(?:у|ом|і)?)';
 const IDENTITY_WORD = `(?:${CONTRACT_WORD}|${LOGIN_WORD})`;
 const IDENTITY_BOUNDARY = '(?=$|[\\s.,;:!?])';
 
@@ -59,11 +59,25 @@ function labeledTextIdentity(source) {
   const before = genericLogin(beforeLabel || '');
   if (before) return before;
 
-  const leadingWithIdentityContext = normalized.match(new RegExp(`^([A-Za-z][A-Za-z0-9._-]{2,63})(?=\\s+(?:номер\\s+)?${IDENTITY_WORD}\\b)`, 'i'))?.[1];
+  const leadingWithIdentityContext = normalized.match(new RegExp(`^([A-Za-z][A-Za-z0-9._-]{2,63})(?=\\s+(?:номер\\s+)?${IDENTITY_WORD}${IDENTITY_BOUNDARY})`, 'i'))?.[1];
   const leading = genericLogin(leadingWithIdentityContext || '');
   if (leading) return leading;
 
   return '';
+}
+
+function literalIp(transcript = [], candidate = '') {
+  const ip = String(candidate || '').trim();
+  if (!/^(?:\d{1,3}\.){3}\d{1,3}$/.test(ip)) return '';
+  return customerMessages(transcript).some(item => oneLine(item?.text, 1200).includes(ip)) ? ip : '';
+}
+
+function literalAddress(transcript = [], candidate = '') {
+  const address = oneLine(candidate, 260);
+  if (!address) return '';
+  const source = customerMessages(transcript).map(item => oneLine(item?.text, 1200).toLowerCase()).join(' | ');
+  const meaningful = address.toLowerCase().split(/\s+/).filter(part => part.length >= 3).slice(0, 3);
+  return meaningful.length >= 2 && meaningful.every(part => source.includes(part)) ? address : '';
 }
 
 export function extractStandaloneSubscriberIdentity(transcript = []) {
@@ -89,8 +103,6 @@ export function extractStandaloneSubscriberIdentity(transcript = []) {
       return { login: wholeLogin, sourceTurn: index, confidence: 'standalone-login' };
     }
 
-    // Only abonNNNN is allowed as an unlabeled identity token inside free text.
-    // A generic latin token inside a sentence is semantic content, not identity.
     const embeddedAbon = source.match(/(?:^|[\s,;:/\\|])(abon\d{3,12})(?=$|[\s,;:/\\|.!?])/i)?.[1];
     if (embeddedAbon) return { login: embeddedAbon, sourceTurn: index, confidence: 'token-abon-login' };
   }
@@ -103,10 +115,10 @@ export function identityFromAnalysisHints(analysis = {}) {
     || (analysis.ids && typeof analysis.ids === 'object' ? analysis.ids : null)
     || {};
 
+  // Only the rigid abon form is safe to accept from semantic hints. A generic
+  // named login must be present literally in customer text and is handled above.
   const rawLogin = String(ids.login || '').trim().replace(/\s+/g, '');
   if (/^abon\d{3,12}$/i.test(rawLogin)) return { login: rawLogin };
-  const login = genericLogin(rawLogin);
-  if (login) return { login };
 
   const contract = String(ids.contract || '').replace(/\D+/g, '');
   if (/^\d{3,12}$/.test(contract)) return { contract };
@@ -126,9 +138,17 @@ export function resolveSubscriberIdentityHints(transcript = [], analysis = {}, s
   const fromText = identityToolArgs(extractStandaloneSubscriberIdentity(transcript));
   if (Object.keys(fromText).length) return fromText;
 
-  if (secondary && typeof secondary === 'object' && !Array.isArray(secondary) && Object.keys(secondary).length) {
-    return secondary;
+  // A secondary/base parser may still provide IP/address, but generic login or
+  // contract cannot bypass literal extraction. This is the rebind safety gate.
+  if (secondary && typeof secondary === 'object' && !Array.isArray(secondary)) {
+    const ip = literalIp(transcript, secondary.ip);
+    if (ip) return { ip };
+    const address = literalAddress(transcript, secondary.address);
+    if (address) return { address };
   }
 
-  return identityToolArgs(identityFromAnalysisHints(analysis));
+  const hinted = identityToolArgs(identityFromAnalysisHints(analysis));
+  if (hinted.login && customerMessages(transcript).some(item => new RegExp(`\\b${hinted.login.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b`, 'i').test(oneLine(item?.text, 1200)))) return hinted;
+  if (hinted.contract && customerMessages(transcript).some(item => oneLine(item?.text, 1200).includes(hinted.contract))) return hinted;
+  return {};
 }
