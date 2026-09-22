@@ -4,6 +4,7 @@ import * as impl from './semantic-tool-broker-impl.js';
 import { recoverLiveDataNeeds } from './live-need-recovery.js';
 import { extractStandaloneSubscriberIdentity, identityToolArgs } from './subscriber-identity.js';
 import { applyAnswerRelevanceGate } from './answer-relevance-gate.js';
+import { applyDialoguePolicy } from './dialogue-policy.js';
 
 const BILLING_SUMMARY_ENDPOINT = '/cgi-bin/adm/adm.pl?a=user&id=<billingId>';
 const BILLING_SUMMARY_EVIDENCE = 'Единый DOM-блок главной Billing-карточки table.tbg1.nav3.width100; один fresh GET даёт тариф, цену, сумму к оплате, баланс после тарифа и трафик. Повторные billing.balance/billing.tariff в коротком окне используют тот же cached summary snapshot.';
@@ -459,11 +460,34 @@ export async function groundSubscriberReply(options = {}) {
     && delegated?.evidenceFallback?.complete
   );
 
+  const gatedReply = relevance.reply || preliminaryReply || '';
+  const requestText = String(
+    options.latestCustomer?.text
+    || latestCustomerTurn(transcript)?.text
+    || ''
+  ).trim();
+  const toolState = delegated?.toolState || pre.labState || {};
+  const actionToolsCalled = (Array.isArray(toolTrace) ? toolTrace : [])
+    .filter(item => item?.ok)
+    .map(item => String(item?.tool || ''))
+    .filter(Boolean);
+  // AI Operator is READ-only: write capability stays false unless a real action tool succeeds.
+  const policed = applyDialoguePolicy({
+    reply: gatedReply,
+    requestText,
+    labState: toolState,
+    alreadyExplainedFacts: Array.isArray(toolState.alreadyExplainedFacts) ? toolState.alreadyExplainedFacts : [],
+    offeredActions: Array.isArray(toolState.offeredActions) ? toolState.offeredActions : [],
+    actionToolsCalled,
+    hasWriteCapability: false
+  });
+
   return {
     ...delegated,
-    reply: relevance.reply || preliminaryReply,
+    reply: policed.reply || gatedReply,
     answerRelevance: relevance.answerRelevance || null,
     relevanceGate: relevance.gate || null,
+    dialoguePolice: policed.dialoguePolice || null,
     usage: mergeUsage(delegated?.usage || {}, relevance?.gate?.usage || {}),
     toolTrace,
     toolEvidence,
@@ -472,6 +496,6 @@ export async function groundSubscriberReply(options = {}) {
     recoveredFromGenerationFailure,
     generationDegraded,
     generationDegradationReason: generationDegraded ? String(delegated?.degradationReason || draft?.degradationReason || '') : '',
-    toolState: delegated?.toolState || pre.labState
+    toolState
   };
 }
