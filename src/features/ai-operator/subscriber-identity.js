@@ -89,6 +89,20 @@ function literalAddress(transcript = [], candidate = '') {
   return source.includes(street) && source.includes(house) ? address : '';
 }
 
+function containsLiteralLogin(messages = [], login = '') {
+  const value = String(login || '').trim().toLowerCase();
+  if (!/^abon\d{3,12}$/.test(value)) return false;
+  const pattern = new RegExp(`(?:^|[^a-z0-9])${value}(?=$|[^a-z0-9])`, 'i');
+  return messages.some(item => pattern.test(oneLine(item?.text, 1200)));
+}
+
+function containsLiteralContract(messages = [], contract = '') {
+  const value = String(contract || '').replace(/\D+/g, '');
+  if (!/^\d{3,12}$/.test(value)) return false;
+  const pattern = new RegExp(`(?:^|\\D)${value}(?=$|\\D)`);
+  return messages.some(item => pattern.test(oneLine(item?.text, 1200)));
+}
+
 export function extractStandaloneSubscriberIdentity(transcript = []) {
   const messages = customerMessages(transcript);
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -154,10 +168,7 @@ export function resolveSubscriberIdentityHints(transcript = [], analysis = {}, s
   }
 
   const hinted = identityToolArgs(identityFromAnalysisHints(analysis));
-  if (hinted.login) {
-    const login = hinted.login.toLowerCase();
-    if (messages.some(item => oneLine(item?.text, 1200).toLowerCase().includes(login))) return hinted;
-  }
-  if (hinted.contract && messages.some(item => oneLine(item?.text, 1200).includes(hinted.contract))) return hinted;
+  if (hinted.login && containsLiteralLogin(messages, hinted.login)) return hinted;
+  if (hinted.contract && containsLiteralContract(messages, hinted.contract)) return hinted;
   return {};
 }
