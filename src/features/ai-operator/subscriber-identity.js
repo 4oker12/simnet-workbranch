@@ -12,6 +12,7 @@ const NON_LOGIN_WORDS = new Set([
 const CONTRACT_WORD = '(?:договор|договір|лицев(?:ой|ий)?\\s*сч[её]т|особов(?:ий|ого)?\\s*рахунок)';
 const LOGIN_WORD = '(?:login|логин|логін)';
 const IDENTITY_WORD = `(?:${CONTRACT_WORD}|${LOGIN_WORD})`;
+const IDENTITY_BOUNDARY = '(?=$|[\\s.,;:!?])';
 
 function customerMessages(transcript = []) {
   return (Array.isArray(transcript) ? transcript : [])
@@ -39,7 +40,7 @@ function labeledTextIdentity(source) {
   const after = genericLogin(afterLabel || '');
   if (after) return after;
 
-  const beforeLabel = normalized.match(new RegExp(`\\b([A-Za-z][A-Za-z0-9._-]{2,63})\\b\\s*(?:[-—:=]\\s*)?(?:(?:это|це)\\s+)?(?:(?:и\\s+есть|і\\s+є)\\s+)?(?:(?:мой|мій)\\s+)?${IDENTITY_WORD}\\b`, 'i'))?.[1];
+  const beforeLabel = normalized.match(new RegExp(`\\b([A-Za-z][A-Za-z0-9._-]{2,63})\\b\\s*(?:[-—:=]\\s*)?(?:(?:это|це)\\s+)?(?:(?:и\\s+есть|і\\s+є)\\s+)?(?:(?:мой|мій)\\s+)?${IDENTITY_WORD}${IDENTITY_BOUNDARY}`, 'i'))?.[1];
   const before = genericLogin(beforeLabel || '');
   if (before) return before;
 
