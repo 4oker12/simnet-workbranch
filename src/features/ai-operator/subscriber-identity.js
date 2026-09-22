@@ -1,5 +1,16 @@
 'use strict';
 
+/**
+ * Deterministic subscriber identity extraction from customer text.
+ * Supports the general identifier class:
+ *   - abonNNNN
+ *   - numeric contract / personal account
+ *   - named login (latin alphanumeric)
+ *   - labeled forms (договор/login/…)
+ *
+ * Production logic must not depend on any specific fixture login string.
+ */
+
 function oneLine(value, max = 500) {
   const normalized = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
   return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
@@ -7,7 +18,9 @@ function oneLine(value, max = 500) {
 
 const GENERIC_LOGIN_RE = /^(?=.{3,64}$)(?=.*[A-Za-z])[A-Za-z][A-Za-z0-9._-]*$/;
 const NON_LOGIN_WORDS = new Set([
-  'internet', 'wifi', 'wi-fi', 'router', 'balance', 'tariff', 'speed', 'help', 'hello', 'privet', 'test', 'online', 'offline'
+  'internet', 'wifi', 'wi-fi', 'router', 'balance', 'tariff', 'speed', 'help', 'hello', 'privet',
+  'test', 'online', 'offline', 'login', 'account', 'contract', 'address', 'admin', 'user',
+  'guest', 'root', 'simnet', 'standard', 'premium', 'basic', 'support', 'operator', 'client'
 ]);
 const CONTRACT_WORD = '(?:договор|договір|лицев(?:ой|ий)?\\s*сч[её]т|особов(?:ий|ого)?\\s*рахунок)';
 const LOGIN_WORD = '(?:login|логин|логін)';
@@ -28,7 +41,6 @@ function genericLogin(value) {
   const token = standaloneToken(value).replace(/\s+/g, '');
   const lower = token.toLowerCase();
   if (!GENERIC_LOGIN_RE.test(token) || NON_LOGIN_WORDS.has(lower)) return '';
-  // Billing's native name= search may be case-sensitive. Preserve exactly what the subscriber supplied.
   return token;
 }
 
@@ -45,6 +57,14 @@ function labeledTextIdentity(source) {
   if (before) return before;
 
   return '';
+}
+
+function identityCandidateTokens(source) {
+  return oneLine(source, 500)
+    .split(/[\s,;:/\\|]+/)
+    .map(part => standaloneToken(part))
+    .filter(Boolean)
+    .slice(0, 24);
 }
 
 export function extractStandaloneSubscriberIdentity(transcript = []) {
@@ -68,12 +88,40 @@ export function extractStandaloneSubscriberIdentity(transcript = []) {
     if (/^\d{3,12}$/.test(token)) {
       return { contract: token, sourceTurn: index, confidence: 'standalone-contract' };
     }
+    const wholeLogin = genericLogin(token);
+    if (wholeLogin) {
+      return { login: wholeLogin, sourceTurn: index, confidence: 'standalone-login' };
+    }
 
-    const login = genericLogin(token);
-    if (login) {
-      return { login, sourceTurn: index, confidence: 'standalone-login' };
+    for (const part of identityCandidateTokens(source)) {
+      if (/^abon\d{3,12}$/i.test(part)) {
+        return { login: part, sourceTurn: index, confidence: 'token-abon-login' };
+      }
+      const partLogin = genericLogin(part);
+      if (partLogin) {
+        return { login: partLogin, sourceTurn: index, confidence: 'token-login' };
+      }
     }
   }
+  return {};
+}
+
+export function identityFromAnalysisHints(analysis = {}) {
+  const probe = analysis?.probe && typeof analysis.probe === 'object' ? analysis.probe : {};
+  const ids = (probe.ids && typeof probe.ids === 'object' ? probe.ids : null)
+    || (analysis.ids && typeof analysis.ids === 'object' ? analysis.ids : null)
+    || {};
+
+  const rawLogin = String(ids.login || '').trim().replace(/\s+/g, '');
+  if (/^abon\d{3,12}$/i.test(rawLogin)) {
+    return { login: rawLogin };
+  }
+  const login = genericLogin(rawLogin);
+  if (login) return { login };
+
+  const contract = String(ids.contract || '').replace(/\D+/g, '');
+  if (/^\d{3,12}$/.test(contract)) return { contract };
+
   return {};
 }
 
@@ -83,4 +131,15 @@ export function identityToolArgs(identity = {}) {
   if (identity.ip) return { ip: String(identity.ip) };
   if (identity.address) return { address: String(identity.address) };
   return {};
+}
+
+export function resolveSubscriberIdentityHints(transcript = [], analysis = {}, secondary = null) {
+  const fromText = identityToolArgs(extractStandaloneSubscriberIdentity(transcript));
+  if (Object.keys(fromText).length) return fromText;
+
+  if (secondary && typeof secondary === 'object' && !Array.isArray(secondary) && Object.keys(secondary).length) {
+    return secondary;
+  }
+
+  return identityToolArgs(identityFromAnalysisHints(analysis));
 }
