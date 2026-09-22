@@ -62,11 +62,23 @@ const byId = Object.fromEntries(cases.map(item => [item.id, item]));
 }
 
 {
+  const item = byId['l2-yesterday-worked-without-temporary'];
+  const result = evaluateFinanceBehavior({
+    caseExpect: item.expect,
+    evidence: item.evidence,
+    reply: 'Вчора доступ працював через тимчасовий платіж 200 грн.',
+    toolTrace: []
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.some(f => /temporaryPayment/i.test(f)));
+}
+
+{
   const item = byId['l2-yesterday-worked-with-temporary'];
   const result = evaluateFinanceBehavior({
     caseExpect: item.expect,
     evidence: item.evidence,
-    reply: 'Вчера доступ мог держаться за счёт временного платежа 200 грн; это короткий кредит, не обычное пополнение.',
+    reply: 'Вчера доступ мог держаться за счёт временного платежа 200 грн; это временная сумма, не обычное пополнение.',
     toolTrace: []
   });
   assert.equal(result.ok, true, result.failures.join('; '));
@@ -94,6 +106,29 @@ const byId = Object.fromEntries(cases.map(item => [item.id, item]));
   });
   assert.equal(result.ok, false);
   assert.ok(result.failures.some(f => /debt/i.test(f)));
+}
+
+{
+  const item = byId['l2-so-i-owe-170'];
+  const result = evaluateFinanceBehavior({
+    caseExpect: item.expect,
+    evidence: item.evidence,
+    reply: 'Да, вы должны 170 грн.',
+    toolTrace: []
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.some(f => /debt/i.test(f)));
+}
+
+{
+  const item = byId['l2-so-i-owe-170'];
+  const result = evaluateFinanceBehavior({
+    caseExpect: item.expect,
+    evidence: item.evidence,
+    reply: 'Нет. 170 грн нельзя автоматически считать долгом: это расчётное значение после тарифа; на счёте сейчас 80 грн.',
+    toolTrace: []
+  });
+  assert.equal(result.ok, true, result.failures.join('; '));
 }
 
 {
