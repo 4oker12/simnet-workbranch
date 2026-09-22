@@ -1,7 +1,6 @@
 'use strict';
 
 import {
-  isRequestedLegacyFactCovered,
   isTariffCatalogScope,
   isSubscriberCurrentTariffScope
 } from './fact-evidence-gate.js';
@@ -100,7 +99,6 @@ function requestedFactCovered(item = {}) {
   }
 
   if (tool === 'billing.tariff') {
-    // Catalog / available-line requests are not closed by subscriber current tariff (any label).
     if (isTariffCatalogScope(request)) return false;
     if (/smart\s*tv|смарт\s*тв|телевид|\bтв\b|\btv\b/iu.test(request)) {
       return hasAny(data, ['smartTv', 'smartTV', 'tv', 'tvPackage', 'television', 'services']);
@@ -274,7 +272,6 @@ function deterministicConfirmedFactsRecovery({ analysis = {}, latestCustomer = {
   const request = requestFrom({ analysis, latestCustomer }).toLowerCase();
   const wantsBalance = /баланс|balance|рахун/.test(request);
   const wantsTariffPrice = /(?:тариф|пакет).{0,40}(?:цен|стоим|варт|абонплат|сколько\s+стоит|скільки\s+кошту)|(?:цен|стоим|варт|абонплат|сколько\s+стоит|скільки\s+кошту).{0,40}(?:тариф|пакет)/iu.test(request);
-  // Do not treat general catalog questions as "subscriber current tariff" recovery.
   const wantsTariffName = !wantsTariffPrice && !isTariffCatalogScope(request) && (
     isSubscriberCurrentTariffScope(request)
     || (/(?:тариф|tariff|пакет)/iu.test(request) && !/скорост|швидк|speed/iu.test(request) && !isTariffCatalogScope(request))
@@ -360,5 +357,4 @@ export async function applyAnswerRelevanceGate({
   };
 }
 
-// Test / diagnostics surface (pure coverage predicate).
 export { requestedFactCovered };
