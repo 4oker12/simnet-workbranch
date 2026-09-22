@@ -7,6 +7,20 @@ import {
   normalizeCanonicalFacts
 } from './canonical-fact-catalog.js';
 
+const FINANCE_BUNDLE_FACTS = Object.freeze([
+  'subscriber.finance.balance.account',
+  'subscriber.finance.balance.afterTariff',
+  'subscriber.finance.balance.withoutTemporary',
+  'subscriber.finance.temporaryPayment',
+  'subscriber.finance.totalDue',
+  'subscriber.finance.recurringTotal',
+  'subscriber.finance.payments',
+  'subscriber.tariff.current.name',
+  'subscriber.tariff.current.price',
+  'subscriber.service.accessState',
+  'subscriber.service.serviceState'
+]);
+
 function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
@@ -80,6 +94,16 @@ function normalizedValue(value, type) {
   if (type === 'object') return value && typeof value === 'object' && !Array.isArray(value) ? clone(value) : null;
   const text = typeof value === 'string' ? value.trim() : value;
   return text === '' || text === null || text === undefined ? null : text;
+}
+
+function expandFinanceBundleFacts(paths = []) {
+  const normalized = normalizeCanonicalFacts(paths);
+  if (!normalized.some(path => path.startsWith('subscriber.finance.'))) return normalized;
+  return normalizeCanonicalFacts([...normalized, ...FINANCE_BUNDLE_FACTS]);
+}
+
+function sourceSemanticFacts(source, requestedFacts = []) {
+  return requestedFacts.filter(path => CANONICAL_FACT_CATALOG[path]?.source === source);
 }
 
 function entityKey(source, context = {}, request = {}) {
@@ -229,11 +253,12 @@ export function createCanonicalDomainContext(value = {}) {
 export async function resolveFacts({ context: inputContext = {}, facts = [], execute, now = Date.now(), request = {} } = {}) {
   if (typeof execute !== 'function') throw new Error('Canonical Fact Resolver requires execute(tool)');
   const requestedFacts = normalizeCanonicalFacts(facts);
+  const resolvedFacts = expandFinanceBundleFacts(requestedFacts);
   const rawRequested = (Array.isArray(facts) ? facts : []).map(item => String(typeof item === 'string' ? item : item?.path || '').trim()).filter(Boolean);
   const unsupportedFacts = rawRequested.filter(path => !canonicalFactPath(path));
   const context = createCanonicalDomainContext(inputContext);
   const groups = new Map();
-  for (const path of requestedFacts) {
+  for (const path of resolvedFacts) {
     const spec = CANONICAL_FACT_CATALOG[path];
     if (!groups.has(spec.source)) groups.set(spec.source, []);
     groups.get(spec.source).push(path);
@@ -252,6 +277,8 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
     const cached = context.factSourceCache[key];
     const cachedAt = Number(cached?.cachedAt || 0);
     const fresh = !request.refresh && cached?.ok && cachedAt > 0 && now - cachedAt < ttlMs && cachedAt >= Number(context.invalidatedAt || 0);
+    const semanticFactsForSource = sourceSemanticFacts(source, requestedFacts);
+    const adapterFacts = source === 'billing.mainSummary' && semanticFactsForSource.length ? semanticFactsForSource : paths;
     let result;
     let fromCache = false;
 
@@ -260,7 +287,7 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
       fromCache = true;
       cacheHits.push(source);
     } else {
-      const toolArgs = adapterArgs(source, context, request, ttlMs, paths);
+      const toolArgs = adapterArgs(source, context, request, ttlMs, adapterFacts);
       try {
         result = await execute({ tool: sourceSpec.tool, toolArgs, labState: context });
       } catch (error) {
@@ -297,7 +324,8 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
       tool: sourceSpec.tool,
       source,
       requestedFacts: [...paths],
-      args: adapterArgs(source, context, request, ttlMs, paths),
+      semanticRequestedFacts: [...semanticFactsForSource],
+      args: adapterArgs(source, context, request, ttlMs, adapterFacts),
       ok: Boolean(result?.ok),
       code: clean(result?.code || (result?.ok ? 'OK' : 'ERROR'), 100),
       observedAt,
@@ -321,6 +349,7 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
   const evidenceChars = projectionChars(compactFacts);
   return {
     requestedFacts,
+    resolvedFacts,
     unsupportedFacts,
     facts: returned,
     evidence: compactFacts,
@@ -328,6 +357,7 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
     context,
     diagnostics: {
       requestedFacts,
+      resolvedFacts,
       sourceReads,
       cacheHits,
       returnedFacts: returned.filter(item => item.status !== 'unknown').map(item => item.path),
@@ -341,4 +371,4 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
   };
 }
 
-export const CANONICAL_FACT_RESOLVER_VERSION = 3;
+export const CANONICAL_FACT_RESOLVER_VERSION = 4;
