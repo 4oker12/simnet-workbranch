@@ -6,13 +6,10 @@
  *   node scripts/measure-lab-token-usage.mjs path/to/export.json
  *   node scripts/measure-lab-token-usage.mjs path/to/export.json --json
  *
- * Accepted shapes (best-effort):
- * 1) Full lab blob: { messages, events, lastExperiment, apiCost, ... }
- * 2) apiCost summary: { turnCalls, turns, total, ... }
- * 3) Array of turns with { calls|llmCalls|usage, ... }
- * 4) Generic object with nested usage / prompt_tokens fields
- *
- * Payload-block sizes are reported only when the export contains them.
+ * Important Lab detail: historic `experiment_result` events contain `totalTokens`
+ * but often no `customerMessageId`. We associate them with the active customer turn
+ * while walking the ordered event stream. Detailed data for the current turn wins
+ * over its aggregate `experiment_result`, so that turn is never counted twice.
  */
 
 import fs from 'node:fs';
@@ -50,9 +47,11 @@ function usageFrom(value = {}) {
     value.total
     ?? value.total_tokens
     ?? value.totalTokens
+    ?? value.tokens
     ?? value.usage?.total
     ?? value.usage?.total_tokens
     ?? value.usage?.totalTokens
+    ?? value.usage?.tokens
   ) || (input + output);
   return { input, output, total };
 }
@@ -63,20 +62,21 @@ function stageName(value = {}) {
   const lower = stage.toLowerCase();
   if (/prompt.?guard|guard/.test(lower)) return 'prompt_guard';
   if (/understand|semantic_analysis|intent|nlu|probe/.test(lower)) return 'understanding';
-  // A reply variant may contain "knowledge" in its label; it is still a reply LLM call.
-  if (/reply|synthesis|answer|generatesubscriberreply|final/.test(lower)) return 'reply';
+  // `reply_with_knowledge` / `with_knowledge` are reply calls, not a separate KB LLM stage.
+  if (/reply|synthesis|answer|generatesubscriberreply|final|with_knowledge|without_knowledge/.test(lower)) return 'reply';
   if (/knowledge|reflection/.test(lower)) return 'knowledge';
   if (/ground|tool.?broker|tool_execution/.test(lower)) return 'tool_grounding';
   return stage;
 }
 
-function makeCall({ turnId, stage, model, usage, source, aggregate = false }) {
+function makeCall({ turnId, stage, model, usage, source, aggregate = false, sequence = null }) {
   return {
     turnId: String(turnId || 'turn'),
     stage: String(stage || 'unknown'),
     model: String(model || 'unknown'),
     source: String(source || 'unknown'),
     aggregate: Boolean(aggregate),
+    sequence: sequence == null ? null : String(sequence),
     ...usage
   };
 }
@@ -94,7 +94,8 @@ function collectCallsFromApiCost(apiCost = {}, fallbackTurnId = null) {
         stage: stageName(item),
         model: item.model,
         usage,
-        source: 'apiCost.turnCalls'
+        source: 'apiCost.turnCalls',
+        sequence: item.sequence ?? item.seq ?? item.id
       }));
     }
   }
@@ -109,7 +110,8 @@ function collectCallsFromApiCost(apiCost = {}, fallbackTurnId = null) {
           stage: stageName(item),
           model: item.model,
           usage,
-          source: 'apiCost.turns'
+          source: 'apiCost.turns',
+          sequence: item.sequence ?? item.seq ?? item.id
         }));
       }
     }
@@ -130,12 +132,13 @@ function collectExperimentDetails(experiment = {}) {
         stage: 'understanding',
         model: experiment.analysis.model || experiment.model,
         usage,
-        source: 'lastExperiment.analysis'
+        source: 'lastExperiment.analysis',
+        sequence: 'understanding'
       }));
     }
   }
 
-  for (const variant of Array.isArray(experiment.variants) ? experiment.variants : []) {
+  for (const [index, variant] of (Array.isArray(experiment.variants) ? experiment.variants : []).entries()) {
     const usage = usageFrom(variant);
     if (!usage.total && !usage.input && !usage.output) continue;
     calls.push(makeCall({
@@ -143,7 +146,8 @@ function collectExperimentDetails(experiment = {}) {
       stage: 'reply',
       model: variant.model || experiment.model,
       usage,
-      source: `lastExperiment.variant:${String(variant.label || 'reply')}`
+      source: `lastExperiment.variant:${String(variant.label || 'reply')}`,
+      sequence: variant.sequence ?? variant.id ?? `variant-${index + 1}`
     }));
   }
 
@@ -155,7 +159,8 @@ function collectExperimentDetails(experiment = {}) {
         stage: 'reply',
         model: experiment.model,
         usage,
-        source: 'lastExperiment.usage'
+        source: 'lastExperiment.usage',
+        sequence: 'reply'
       }));
     }
   }
@@ -163,9 +168,18 @@ function collectExperimentDetails(experiment = {}) {
   return calls;
 }
 
-function collectEventTotals(events = []) {
+function collectEventTotals(events = [], { currentExperimentId = null, currentTurnId = null } = {}) {
   const calls = [];
+  let activeCustomerMessageId = null;
+
   for (const event of Array.isArray(events) ? events : []) {
+    if (event?.type === 'customer_message' && event?.messageId) {
+      activeCustomerMessageId = String(event.messageId);
+    }
+    if (event?.customerMessageId) {
+      activeCustomerMessageId = String(event.customerMessageId);
+    }
+
     const hasUsage = Boolean(
       event?.usage
       || event?.tokens != null
@@ -184,13 +198,23 @@ function collectEventTotals(events = []) {
     );
     if (!usage.total && !usage.input && !usage.output) continue;
 
+    const belongsToCurrentExperiment = Boolean(
+      currentExperimentId
+      && event?.experimentId
+      && String(event.experimentId) === String(currentExperimentId)
+    );
+    const turnId = belongsToCurrentExperiment && currentTurnId
+      ? currentTurnId
+      : (event.customerMessageId || event.turnId || activeCustomerMessageId || event.id || 'event');
+
     calls.push(makeCall({
-      turnId: event.customerMessageId || event.turnId || event.id || 'event',
+      turnId,
       stage: event.type === 'experiment_result' ? 'turn_total' : stageName(event),
       model: event.model,
       usage,
       source: `events:${String(event.type || 'event')}`,
-      aggregate: event.type === 'experiment_result' || (!usage.input && !usage.output && usage.total > 0)
+      aggregate: event.type === 'experiment_result' || (!usage.input && !usage.output && usage.total > 0),
+      sequence: event.id || event.experimentId
     }));
   }
   return calls;
@@ -201,18 +225,22 @@ function collectCallsFromLab(lab = {}) {
   const experimentTurnId = experiment
     ? String(experiment.customerMessageId || experiment.turnId || experiment.id || 'last')
     : null;
+  const experimentId = experiment?.id || experiment?.experimentId || null;
 
   const apiCalls = lab.apiCost
     ? collectCallsFromApiCost(lab.apiCost, experimentTurnId)
     : [];
 
-  // apiCost is the most structured source for the live/current turn. If it exists,
-  // do not also count lastExperiment analysis/variants for that same turn.
+  // apiCost is the richest current-turn source. If it exists, do not also count
+  // lastExperiment analysis/variants for the same current turn.
   const detailCalls = apiCalls.length
     ? apiCalls
     : (experiment ? collectExperimentDetails(experiment) : []);
 
-  const eventCalls = collectEventTotals(lab.events);
+  const eventCalls = collectEventTotals(lab.events, {
+    currentExperimentId: experimentId,
+    currentTurnId: experimentTurnId
+  });
   return [...detailCalls, ...eventCalls];
 }
 
@@ -226,12 +254,19 @@ function collectCallsGeneric(root) {
         for (const call of list) {
           const usage = usageFrom(call);
           if (!usage.total && !usage.input && !usage.output) continue;
-          calls.push(makeCall({ turnId, stage: stageName(call), model: call.model, usage, source: 'array.calls' }));
+          calls.push(makeCall({
+            turnId,
+            stage: stageName(call),
+            model: call.model,
+            usage,
+            source: 'array.calls',
+            sequence: call.sequence ?? call.seq ?? call.id
+          }));
         }
-      } else if (item.usage || item.prompt_tokens != null || item.total_tokens != null || item.totalTokens != null) {
+      } else if (item.usage || item.prompt_tokens != null || item.total_tokens != null || item.totalTokens != null || item.tokens != null) {
         const usage = usageFrom(item);
         if (!usage.total && !usage.input && !usage.output) return;
-        calls.push(makeCall({ turnId, stage: stageName(item), model: item.model, usage, source: 'array.item' }));
+        calls.push(makeCall({ turnId, stage: stageName(item), model: item.model, usage, source: 'array.item', sequence: item.sequence ?? item.id }));
       }
     });
     return calls;
@@ -244,14 +279,15 @@ function collectCallsGeneric(root) {
 
   if (root.turnCalls || root.turns) return collectCallsFromApiCost(root, root.turnId || null);
 
-  if (root.usage || root.prompt_tokens != null || root.total_tokens != null || root.totalTokens != null) {
+  if (root.usage || root.prompt_tokens != null || root.total_tokens != null || root.totalTokens != null || root.tokens != null) {
     const usage = usageFrom(root);
     return [makeCall({
       turnId: root.turnId || root.customerMessageId || root.id || 'turn',
       stage: stageName(root),
       model: root.model,
       usage,
-      source: 'root'
+      source: 'root',
+      sequence: root.sequence ?? root.id
     })];
   }
 
@@ -259,28 +295,20 @@ function collectCallsGeneric(root) {
 }
 
 function normalizeCalls(calls) {
-  const detailedTurns = new Set(
-    calls.filter(call => !call.aggregate).map(call => call.turnId)
-  );
+  const detailedTurns = new Set(calls.filter(call => !call.aggregate).map(call => call.turnId));
 
-  // Aggregate experiment_result is useful for historic turns, but must not be added
-  // on top of detailed apiCost/lastExperiment calls for the same turn.
+  // Historic experiment_result totals are valuable, but an aggregate for a turn
+  // with stage-level details is verification metadata, not an extra call.
   const preferred = calls.filter(call => !(call.aggregate && detailedTurns.has(call.turnId)));
 
   const seen = new Set();
   const unique = [];
   for (const call of preferred) {
-    const key = [
-      call.turnId,
-      call.stage,
-      call.model,
-      call.input,
-      call.output,
-      call.total,
-      call.aggregate ? 'aggregate' : 'detail'
-    ].join('|');
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const identity = call.sequence
+      ? `${call.turnId}|${call.sequence}|${call.stage}|${call.model}|${call.input}|${call.output}|${call.total}`
+      : `${call.turnId}|${call.stage}|${call.model}|${call.input}|${call.output}|${call.total}|${call.aggregate ? 'aggregate' : 'detail'}`;
+    if (seen.has(identity)) continue;
+    seen.add(identity);
     unique.push(call);
   }
   return unique;
