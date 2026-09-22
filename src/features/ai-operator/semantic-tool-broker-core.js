@@ -7,7 +7,11 @@ import {
   compactRuntimeAnalysis,
   compactRuntimeTranscript
 } from './runtime-projection.js';
-import { extractStandaloneSubscriberIdentity, identityToolArgs } from './subscriber-identity.js';
+import {
+  extractStandaloneSubscriberIdentity,
+  identityToolArgs,
+  resolveSubscriberIdentityHints
+} from './subscriber-identity.js';
 
 export * from './semantic-tool-broker-core-runtime-base.js';
 
@@ -31,11 +35,12 @@ function usageTotal(...items) {
 }
 
 export function extractIdentityHints(transcript = [], analysis = {}) {
+  // Literal customer text first (incl. named login tokens), then base heuristics, then validated probe ids.
   const standard = base.extractIdentityHints(transcript, analysis);
-  if (standard && typeof standard === 'object' && !Array.isArray(standard) && Object.keys(standard).length) {
-    return standard;
-  }
-  return identityToolArgs(extractStandaloneSubscriberIdentity(transcript));
+  const secondary = (standard && typeof standard === 'object' && !Array.isArray(standard) && Object.keys(standard).length)
+    ? standard
+    : null;
+  return resolveSubscriberIdentityHints(transcript, analysis, secondary);
 }
 
 function canonicalTrace(factResolution = null) {
