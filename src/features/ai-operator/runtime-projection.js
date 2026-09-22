@@ -1,5 +1,7 @@
 'use strict';
 
+import { buildConversationContext, compactConversationContext } from './conversation-context.js';
+
 /**
  * Stage-aware defaults for dialogue tail passed into LLM stages.
  * understanding — needs a bit more context for referent resolution
@@ -27,14 +29,31 @@ function objectList(value, mapper, maxItems = 6) {
   return (Array.isArray(value) ? value : []).slice(0, maxItems).map(mapper).filter(Boolean);
 }
 
+/**
+ * Runtime dialogue projection.
+ *
+ * Context comes before token trimming: first select the active subscriber/thread,
+ * then apply the stage budget. This prevents facts from a previous subscriber
+ * from leaking into a new turn while still allowing an explicit return to a
+ * parked subscriber to recover that subscriber's earlier raw dialogue.
+ */
 export function compactRuntimeTranscript(transcript = [], { maxTurns = 10, maxChars = 420 } = {}) {
-  return (Array.isArray(transcript) ? transcript : [])
+  const context = buildConversationContext(transcript, {
+    maxActiveTurns: Math.max(18, Number(maxTurns) || 10),
+    maxGeneralTurns: Math.max(16, Number(maxTurns) || 10)
+  });
+  return context.selectedTranscript
     .slice(-maxTurns)
     .map(item => ({
       role: item?.role === 'customer' ? 'customer' : 'operator',
       text: text(item?.text, maxChars)
     }))
     .filter(item => item.text);
+}
+
+/** Structured diagnostics for the same projection used by LLM stages. */
+export function projectRuntimeConversationContext(transcript = [], options = {}) {
+  return compactConversationContext(buildConversationContext(transcript, options));
 }
 
 /** Convenience: compact dialogue for a named stage. */
