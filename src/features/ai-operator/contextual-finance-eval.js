@@ -31,13 +31,12 @@ function moneyMentions(reply) {
 }
 
 function claimsDebt(reply) {
-  // JS \b is ASCII-centric and does not create useful boundaries around Cyrillic words.
-  // Use Unicode letter/number boundaries so Russian/Ukrainian debt wording is detected.
+  // JS \b / \w are ASCII-centric. Use Unicode letter/number boundaries for RU/UA text.
   return /(?:^|[^\p{L}\p{N}_])(?:долг\p{L}*|задолженност\p{L}*|борг\p{L}*|заборгован\p{L}*|винен|повинен|owe|debt)(?=$|[^\p{L}\p{N}_])/iu.test(text(reply));
 }
 
 function mentionsTemporary(reply) {
-  return /временн\w*\s*плат|тимчасов\w*\s*плат|temporary\s*payment/i.test(text(reply));
+  return /(?:временн\p{L}*|тимчасов\p{L}*)\s*плат\p{L}*|temporary\s*payment/iu.test(text(reply));
 }
 
 function toolSources(toolTrace = []) {
@@ -131,7 +130,7 @@ export function evaluateFinanceBehavior({
   }
 
   if (caseExpect.mustNotTreatTemporaryAsOwnMoney && mentionsTemporary(body)) {
-    if (/(?:ваши|твои|власн\w+)\s+деньг|(?:ваши|твои)\s+грош|own\s+money/i.test(body)) {
+    if (/(?:ваши|твои|власн\p{L}*)\s+деньг|(?:ваши|твои|ваші)\s+грош|own\s+money/iu.test(body)) {
       failures.push('temporaryPayment treated as subscriber own money');
     }
   }
