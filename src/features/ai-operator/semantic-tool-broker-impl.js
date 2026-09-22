@@ -4,6 +4,7 @@ import * as base from './semantic-tool-broker-impl-base.js';
 import { normalizeCanonicalFacts } from './canonical-fact-catalog.js';
 import { isConsumptionStartQuestion, requiredFactsForDialogueTurn } from './dialogue-runtime-state.js';
 import { financeRequiredFacts } from './finance-decision-nodes.js';
+import { canonicalEvidenceFallbackResult } from './semantic-tool-broker-core.js';
 
 export * from './semantic-tool-broker-impl-base.js';
 
@@ -31,10 +32,11 @@ export function augmentRequiredFactsForTurn({ analysis = {}, transcript = [], re
 
 export async function groundSubscriberReply(options = {}) {
   const analysis = options?.analysis && typeof options.analysis === 'object' ? options.analysis : {};
+  const requestText = String(options?.latestCustomer?.text || latestCustomerText(options?.transcript || []) || '').trim();
   const requiredFacts = augmentRequiredFactsForTurn({
     analysis,
     transcript: options?.transcript || [],
-    requestText: options?.latestCustomer?.text || '',
+    requestText,
     labState: options?.labState || {}
   });
   const nextAnalysis = {
@@ -44,5 +46,23 @@ export async function groundSubscriberReply(options = {}) {
       requiredFacts
     }
   };
-  return base.groundSubscriberReply({ ...options, analysis: nextAnalysis });
+
+  const result = await base.groundSubscriberReply({ ...options, analysis: nextAnalysis });
+  if (!result?.degraded || !requiredFacts.length || !Array.isArray(result?.factEvidence) || !result.factEvidence.length) return result;
+
+  // semantic-tool-broker-impl-base still owns a legacy tool-trace fallback.
+  // Reconstruct the canonical fallback here so its metadata/reply cannot be
+  // overwritten while crossing that compatibility bridge.
+  const fallback = canonicalEvidenceFallbackResult({
+    requestText,
+    factResolution: { requestedFacts: requiredFacts, evidence: result.factEvidence },
+    language: nextAnalysis?.probe?.language || ''
+  });
+  if (!fallback.used) return result;
+
+  return {
+    ...result,
+    reply: fallback.reply,
+    evidenceFallback: fallback
+  };
 }
