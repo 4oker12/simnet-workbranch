@@ -80,7 +80,9 @@ function literalAddress(transcript = [], candidate = '') {
   const address = oneLine(candidate, 260);
   if (!address) return '';
   const source = customerMessages(transcript).map(item => oneLine(item?.text, 1200).toLowerCase()).join(' | ');
-  const tokens = address.toLowerCase().match(/[\p{L}\p{N}.-]+/gu) || [];
+  const tokens = (address.toLowerCase().match(/[\p{L}\p{N}.-]+/gu) || [])
+    .map(token => token.replace(/^[.-]+|[.-]+$/g, ''))
+    .filter(Boolean);
   const street = tokens.find(token => /\p{L}/u.test(token) && token.length >= 3 && !GENERIC_ADDRESS_WORDS.has(token));
   const house = tokens.find(token => /\d/u.test(token));
   if (!street || !house) return '';
