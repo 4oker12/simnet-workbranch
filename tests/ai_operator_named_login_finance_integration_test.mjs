@@ -15,12 +15,12 @@ const CONFIRMED = {
   }
 };
 
-function billingMainSummary() {
+function billingMainSummary(observedAt = NOW) {
   return {
     ok: true,
     tool: 'billing.main_summary',
     code: 'OK',
-    observedAt: new Date(NOW).toISOString(),
+    observedAt: new Date(observedAt).toISOString(),
     data: {
       service: {
         currentTariffDisplay: 'Інтернет+ТБ 330 (100 Мбит/с)',
@@ -79,7 +79,7 @@ test('named login bootstraps customer.lookup before canonical subscriber reads',
           ok: true,
           tool,
           code: 'OK',
-          observedAt: new Date(NOW).toISOString(),
+          observedAt: new Date().toISOString(),
           data: {
             source: 'billing-live-read-only',
             candidate: {
@@ -94,7 +94,7 @@ test('named login bootstraps customer.lookup before canonical subscriber reads',
       }
       assert.equal(tool, 'billing.main_summary');
       assert.equal(labState.confirmedCaseId, CONFIRMED.confirmedCaseId);
-      return billingMainSummary();
+      return billingMainSummary(Date.now());
     },
     coreGround: async options => {
       capturedResolution = options.factResolution;
