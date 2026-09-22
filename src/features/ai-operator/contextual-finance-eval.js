@@ -34,19 +34,20 @@ function claimsDebt(reply) {
   const body = text(reply);
 
   // Explicit "you owe N" is an affirmative debt claim even without the noun "debt".
-  if (/(?:^|[^\p{L}\p{N}_])(?:вы\s+должны|ви\s+винні)\s+(?:оплатить\s+|сплатити\s+)?-?\d/iu.test(body)) {
+  if (/(?<![\p{L}\p{N}_])(?:вы\s+должны|ви\s+винні)\s+(?:оплатить\s+|сплатити\s+)?-?\d/iu.test(body)) {
     return true;
   }
 
-  // JS \b / \w are ASCII-centric. Use Unicode boundaries for RU/UA debt words.
-  const debtRe = /(?:^|[^\p{L}\p{N}_])(?:долг\p{L}*|задолженност\p{L}*|борг\p{L}*|заборгован\p{L}*|винен|повинен|owe|debt)(?=$|[^\p{L}\p{N}_])/giu;
+  // Keep the boundary outside the match so the left context still contains
+  // whitespace used by negation phrases such as "не долг" and
+  // "нельзя автоматически считать долгом".
+  const debtRe = /(?<![\p{L}\p{N}_])(?:долг\p{L}*|задолженност\p{L}*|борг\p{L}*|заборгован\p{L}*|винен|повинен|owe|debt)(?![\p{L}\p{N}_])/giu;
   for (const match of body.matchAll(debtRe)) {
     const index = Number(match.index || 0);
-    const prefix = body.slice(Math.max(0, index - 70), index);
+    const prefix = body.slice(Math.max(0, index - 90), index);
 
-    // Allow explanatory negation such as "это не долг" or
-    // "нельзя автоматически считать долгом".
-    const negated = /(?:^|[^\p{L}\p{N}_])(?:не\s+(?:является\s+|означает\s+|обязательно\s+)?|нельзя(?:\s+\p{L}+){0,3}\s+считать\s+|не\s+следует\s+считать\s+|не\s+могу\s+подтвердить\s+|не\s+подтвержден\p{L}*\s*)$/iu.test(prefix);
+    // Explanatory negation is not an affirmative debt claim.
+    const negated = /(?:^|[^\p{L}\p{N}_])(?:не\s+(?:является\s+|означает\s+|обязательно\s+)?|нельзя(?:\s+\p{L}+){0,3}\s+считать\s*|не\s+следует\s+считать\s*|не\s+могу\s+подтвердить\s*|не\s+подтвержден\p{L}*\s*)$/iu.test(prefix);
     if (negated) continue;
     return true;
   }
