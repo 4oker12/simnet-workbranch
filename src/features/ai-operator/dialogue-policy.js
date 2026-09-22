@@ -75,7 +75,7 @@ function hasCorporateBotPhrase(value = '') {
 }
 
 function danglingOfferLead(value = '') {
-  return /^(?:а\s+)?(?:если\s+хотите|при\s+необходимости|заодно)[,;]?$/iu.test(text(value, 300));
+  return /^(?:(?:а\s+)?(?:если\s+хотите|при\s+необходимости|заодно)|да|так|ага|угу|конечно|звісно)[,;]?$/iu.test(text(value, 300));
 }
 
 function stripForbiddenActionSentences(value = '') {
