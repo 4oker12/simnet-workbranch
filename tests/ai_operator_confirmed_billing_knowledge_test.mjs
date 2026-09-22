@@ -13,22 +13,27 @@ assert.match(balance.text, /totalDue/);
 assert.match(balance.text, /balanceAfterTariff/);
 assert.match(balance.text, /balanceWithoutTemporary/);
 assert.match(balance.text, /temporaryPayment/);
-assert.match(balance.text, /balanceWithoutTemporary \+ temporaryPayment ≈ balanceAfterTariff/);
+assert.match(balance.text, /accountBalance.*фактическ|фактическ.*accountBalance/is);
+assert.match(balance.text, /balanceAfterTariff.*НЕ фактический|НЕ фактический.*balanceAfterTariff/is);
 
 const temporaryPayment = BILLING_FINANCE_KNOWLEDGE.find(item => item.id === 'billing.temporary-payment');
 assert.ok(temporaryPayment);
-assert.match(temporaryPayment.text, /короткий кредит/i);
-assert.match(temporaryPayment.text, /любой отрицательной сумме/i);
+assert.match(temporaryPayment.text, /не является обычным платежом|не обычное пополнение/i);
+assert.match(temporaryPayment.text, /не выдумывать срок/i);
+assert.doesNotMatch(temporaryPayment.text, /несколько дней/i);
+assert.doesNotMatch(temporaryPayment.text, /любой отрицательной сумме/i);
 
 const autoBlock = BILLING_FINANCE_KNOWLEDGE.find(item => item.id === 'billing.auto-block');
 assert.ok(autoBlock);
-assert.match(autoBlock.text, /−0\.01 грн/);
-assert.match(autoBlock.text, /блокируется автоматически/i);
+assert.match(autoBlock.text, /accessState\/serviceState/i);
+assert.match(autoBlock.text, /не доказывает.*заблокирована/is);
+assert.match(autoBlock.text, /требует подтверждения|должен быть подтверждён/i);
+assert.doesNotMatch(autoBlock.text, /−0\.01 грн/);
 
 const insufficientFunds = BILLING_FINANCE_KNOWLEDGE.find(item => item.id === 'billing.insufficient-funds');
 assert.ok(insufficientFunds);
-assert.match(insufficientFunds.text, /не хватает примерно Y−Z/);
-assert.match(insufficientFunds.text, /заявление клиента ≠ факт в Billing/);
+assert.match(insufficientFunds.text, /не называть автоматически «долгом»/i);
+assert.match(insufficientFunds.text, /заявление клиента не равно Billing-факту/i);
 
 const identification = BILLING_KNOWLEDGE.find(item => item.id === 'billing.identification');
 assert.ok(identification);
@@ -37,7 +42,9 @@ assert.match(identification.text, /Именной login латиницей/);
 
 const serviceState = BILLING_KNOWLEDGE.find(item => item.id === 'billing.service-state');
 assert.ok(serviceState);
-assert.match(serviceState.text, /Любой минус на релевантном балансе приводит к автоблоку/);
+assert.match(serviceState.text, /accessState\/serviceState/);
+assert.match(serviceState.text, /не доказывает текущую блокировку/i);
+assert.doesNotMatch(serviceState.text, /Любой минус.*автоблок/i);
 
 const priceVsName = TARIFF_CONTEXT_KNOWLEDGE.find(item => item.id === 'tariff.price-vs-name');
 assert.ok(priceVsName);
@@ -50,9 +57,10 @@ assert.ok(bundleKtv);
 assert.match(bundleKtv.text, /330 грн\/месяц/);
 assert.match(bundleKtv.text, /не IPTV\/Omega/);
 
-const balanceHits = searchKnowledgeLibrary('временный платеж минус без учета временных заблокируют', { limit: 6 });
+const balanceHits = searchKnowledgeLibrary('временный платеж минус без учета временных заблокируют', { limit: 8 });
 assert.ok(balanceHits.some(item => item.id === 'billing.temporary-payment'));
 assert.ok(balanceHits.some(item => item.id === 'billing.auto-block'));
+assert.ok(balanceHits.some(item => item.id === 'billing.settlement-cycle'));
 
 const promoHits = searchKnowledgeLibrary('почему сейчас 89 грн а пакет безлимит 310 и что будет потом', { limit: 6 });
 assert.ok(promoHits.some(item => item.id === 'tariff.price-vs-name'));
