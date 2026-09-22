@@ -127,6 +127,9 @@ jobs:
       - name: Finance · settlement-cycle knowledge
         if: always()
         run: node --test tests/ai_operator_settlement_cycle_knowledge_test.mjs
+      - name: Finance · reconciled Billing knowledge
+        if: always()
+        run: node --test tests/ai_operator_confirmed_billing_knowledge_test.mjs
       - name: Finance · L2/L3 fixture contracts
         if: always()
         run: node --test tests/ai_operator_contextual_finance_eval_fixtures_test.mjs
