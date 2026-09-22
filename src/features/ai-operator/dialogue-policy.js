@@ -56,12 +56,12 @@ function safeLeakFallback(requestText = '') {
 
 function hasAffirmativeActionOffer(value = '') {
   const source = text(value, 4000);
-  const modal = /\b(?:могу|можем|можу|можемо)\s+(?:зарегистрир\w*|оформ\w*|созда\w*|створ\w*|остав\w*|залиш\w*|откр\w*|відкр\w*|сформир\w*|переда\w*|передати|направ\w*|скерув\w*|зафиксир\w*|зафіксу\w*|заказ\w*|замов\w*|постав\w*)/giu;
+  const modal = /\b(?:могу|можем|можу|можемо)\s+(?:зарегистрир[\p{L}\p{M}]*|оформ[\p{L}\p{M}]*|созда[\p{L}\p{M}]*|створ[\p{L}\p{M}]*|остав[\p{L}\p{M}]*|залиш[\p{L}\p{M}]*|откр[\p{L}\p{M}]*|відкр[\p{L}\p{M}]*|сформир[\p{L}\p{M}]*|переда[\p{L}\p{M}]*|направ[\p{L}\p{M}]*|скерув[\p{L}\p{M}]*|зафиксир[\p{L}\p{M}]*|зафіксу[\p{L}\p{M}]*|заказ[\p{L}\p{M}]*|замов[\p{L}\p{M}]*|постав[\p{L}\p{M}]*)/giu;
   for (const match of source.matchAll(modal)) {
     const prefix = source.slice(Math.max(0, Number(match.index || 0) - 12), Number(match.index || 0)).toLowerCase();
     if (!/не\s*$/.test(prefix)) return true;
   }
-  return /\b(?:давайте\s+я|если\s+хотите[, ]+я|при\s+необходимости[, ]+я)\s+(?:зарегистрир\w*|оформ\w*|создам|створю|оставлю|залишу|передам|направлю|зафиксирую|зафіксую|закажу|замовлю)/iu.test(source);
+  return /\b(?:давайте\s+я|если\s+хотите[, ]+я|при\s+необходимости[, ]+я)\s+(?:зарегистрир[\p{L}\p{M}]*|оформ[\p{L}\p{M}]*|создам|створю|оставлю|залишу|передам|направлю|зафиксирую|зафіксую|закажу|замовлю)/iu.test(source);
 }
 
 function hasActionCommitment(value = '') {
