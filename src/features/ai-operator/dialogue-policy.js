@@ -41,7 +41,7 @@ function hasConfirmedServiceAddress(labState = {}) {
 }
 function userRequestedAction(requestText = '') {
   const request = lower(requestText);
-  return /(?:зарегистрир|оформ|передайте|перезвон|заявк|зафиксир|підключ(ить|іть)|включите|увімкніть)/iu.test(request);
+  return /(?:зарегистрир|оформ|созда|створ|остав|залиш|откр(?:ы|и)|відкр|переда|направ|скерув|перезвон|зателефон|заявк|зафиксир|зафіксу|підключ(?:ить|іть)|включите|увімкніть)/iu.test(request);
 }
 function isQuestionLike(requestText = '') {
   const request = lower(requestText);
@@ -54,6 +54,35 @@ function safeLeakFallback(requestText = '') {
     : 'Понял.';
 }
 
+function hasAffirmativeActionOffer(value = '') {
+  const source = text(value, 4000);
+  const modal = /\b(?:могу|можем|можу|можемо)\s+(?:зарегистрир\w*|оформ\w*|созда\w*|створ\w*|остав\w*|залиш\w*|откр\w*|відкр\w*|сформир\w*|переда\w*|передати|направ\w*|скерув\w*|зафиксир\w*|зафіксу\w*|заказ\w*|замов\w*|постав\w*)/giu;
+  for (const match of source.matchAll(modal)) {
+    const prefix = source.slice(Math.max(0, Number(match.index || 0) - 12), Number(match.index || 0)).toLowerCase();
+    if (!/не\s*$/.test(prefix)) return true;
+  }
+  return /\b(?:давайте\s+я|если\s+хотите[, ]+я|при\s+необходимости[, ]+я)\s+(?:зарегистрир\w*|оформ\w*|создам|створю|оставлю|залишу|передам|направлю|зафиксирую|зафіксую|закажу|замовлю)/iu.test(source);
+}
+
+function hasActionCommitment(value = '') {
+  const source = text(value, 4000);
+  return /\bя\s+(?:зарегистрирую|оформлю|создам|створю|оставлю|залишу|открою|відкрию|сформирую|передам|направлю|скерую|зафиксирую|зафіксую|закажу|замовлю|поставлю)\b/iu.test(source)
+    || /\bвам\s+(?:перезвонят|зателефонують)\b/iu.test(source);
+}
+
+function hasCorporateBotPhrase(value = '') {
+  return /(?:извините,?\s+я\s+не\s+совсем\s+понял|уточните,?\s+пожалуйста|я\s+могу\s+передать\s+информацию|могу\s+зафиксировать\s+обращение)/iu.test(text(value, 4000));
+}
+
+function stripForbiddenActionSentences(value = '') {
+  const sentences = text(value, 4000).split(/(?<=[.!?])\s+/u).filter(Boolean);
+  return sentences.filter(sentence => (
+    !hasAffirmativeActionOffer(sentence)
+    && !hasActionCommitment(sentence)
+    && !hasCorporateBotPhrase(sentence)
+  )).join(' ').trim();
+}
+
 export function evaluateDialoguePolicy({ reply = '', requestText = '', labState = {}, alreadyExplainedFacts = [], offeredActions = [], actionToolsCalled = [], hasWriteCapability = false } = {}) {
   const violations = [];
   let body = text(reply, 4000);
@@ -62,12 +91,12 @@ export function evaluateDialoguePolicy({ reply = '', requestText = '', labState 
   const explained = Array.isArray(alreadyExplainedFacts) ? alreadyExplainedFacts.map(item => lower(item)) : [];
   const actionsCalled = new Set((Array.isArray(actionToolsCalled) ? actionToolsCalled : []).map(item => String(item || '')));
 
-  const actionOffer = /(?:могу\s+)?(?:зарегистрир\w*|оформ\w*|передать\s+(?:вопрос|информац|в\s+отдел)|передати\s+|заказать\s+звонок|замовити\s+дзвінок|зафиксир\w*|зафіксу\w*|создам\s+заявк|створю\s+заявк)/iu.test(body);
+  const actionOffer = hasAffirmativeActionOffer(body) || hasActionCommitment(body);
   if (actionOffer && !userRequestedAction(request)) violations.push({ code: DIALOGUE_VIOLATION.UNSOLICITED_ACTION_OFFER, reason: 'Reply offers registration/transfer/callback without user requesting an action' });
   if (actionOffer && offered.some(item => /register|transfer|callback|ticket|заявк/i.test(String(item)))) violations.push({ code: DIALOGUE_VIOLATION.UNSOLICITED_ACTION_OFFER, reason: 'Same action class was already offered earlier in the dialogue' });
 
-  const overclaim = /(?:я\s+зарегистрирую|я\s+оформлю|я\s+передам|вам\s+перезвон|я\s+поставлю\s+заявк|я\s+створю\s+заявк|я\s+включу\s+вам)/iu.test(body);
-  if (overclaim && (!hasWriteCapability || actionsCalled.size === 0)) violations.push({ code: DIALOGUE_VIOLATION.CAPABILITY_OVERCLAIM, reason: 'Reply promises an action without write capability or successful action tool' });
+  const capabilityClaim = hasAffirmativeActionOffer(body) || hasActionCommitment(body);
+  if (capabilityClaim && (!hasWriteCapability || actionsCalled.size === 0)) violations.push({ code: DIALOGUE_VIOLATION.CAPABILITY_OVERCLAIM, reason: 'Reply claims an operational action without write capability and successful action tool' });
 
   const asksAddress = /(?:уточн[а-яА-ЯіІїЇєЄґҐa-z]*\s+.{0,40}адрес|назов[а-яА-ЯіІїЇєЄґҐa-z]*\s+.{0,40}адрес|нужен\s+ваш\s+адрес|потрібн[а-яА-ЯіІїЇєЄґҐa-z]*\s+.{0,20}адрес|скажите\s+адрес|вкажіть\s+адрес|ваш\s+адрес)/iu.test(body);
   if (asksAddress) {
@@ -80,8 +109,8 @@ export function evaluateDialoguePolicy({ reply = '', requestText = '', labState 
     if (hits >= 2 && /(?:как\s+я\s+(?:уже\s+)?(?:говорил|писал)|напомню|повторю|як\s+я\s+(?:вже\s+)?(?:казав|писав))/iu.test(body)) violations.push({ code: DIALOGUE_VIOLATION.REPEATED_INFORMATION, reason: 'Reply re-explains multiple already shared facts on a short follow-up path' });
   }
 
-  if (/(?:извините,?\s+я\s+не\s+совсем\s+понял|уточните,?\s+пожалуйста|я\s+могу\s+передать\s+информацию|могу\s+зафиксировать\s+обращение)/iu.test(body)
-    && !/^\s*(?:да|нет|так|ні)\b/iu.test(request)) violations.push({ code: DIALOGUE_VIOLATION.CORPORATE_BOT_PHRASE, reason: 'Unnecessary corporate clarification/offer phrasing' });
+  const corporateBotPhrase = hasCorporateBotPhrase(body);
+  if (corporateBotPhrase && !/^\s*(?:да|нет|так|ні)\b/iu.test(request)) violations.push({ code: DIALOGUE_VIOLATION.CORPORATE_BOT_PHRASE, reason: 'Unnecessary corporate clarification/offer phrasing' });
 
   const rawKnowledgeLeak = /(?:договор\s*=\s*лицевой|login\s*abon\+\d|внутренняя\s+статья|KB\s*article|encyclopedia-v|канон\s+финансовых\s+полей)/iu.test(body)
     || /(?:^|\n)\s*#{1,3}\s+\w/.test(reply);
@@ -97,11 +126,18 @@ export function evaluateDialoguePolicy({ reply = '', requestText = '', labState 
   }
 
   if (!rawKnowledgeLeak && violations.some(item => item.code === DIALOGUE_VIOLATION.UNSOLICITED_ACTION_OFFER || item.code === DIALOGUE_VIOLATION.CAPABILITY_OVERCLAIM || item.code === DIALOGUE_VIOLATION.CORPORATE_BOT_PHRASE)) {
-    const stripped = body
-      .replace(/(?:^|\.\s+)(?:[^.]*?(?:зарегистрир\w*|оформ\w*|зафиксир\w*|зафіксу\w*|передать\s+(?:вопрос|информац)|заказать\s+звонок|вам\s+перезвон)[^.]*\.?)/giu, '. ')
-      .replace(/(?:извините,?\s+я\s+не\s+совсем\s+понял[^.]*\.?|уточните,?\s+пожалуйста[^.]*\.?)/giu, ' ')
-      .replace(/\s{2,}/g, ' ').replace(/\s+\./g, '.').trim();
-    if (stripped && stripped.length + 20 < body.length) { body = stripped; cleaned = true; }
+    const stripped = stripForbiddenActionSentences(body);
+    if (stripped !== body) cleaned = true;
+    if (stripped) {
+      body = stripped;
+    } else if (userRequestedAction(request)) {
+      body = 'Сейчас я не могу выполнить это действие из чата.';
+    } else {
+      body = safeLeakFallback(request);
+      if (isQuestionLike(request) && !violations.some(item => item.code === DIALOGUE_VIOLATION.NON_ANSWER)) {
+        violations.push({ code: DIALOGUE_VIOLATION.NON_ANSWER, reason: 'Only an unsolicited/capability-overclaim action sentence remained after cleanup' });
+      }
+    }
   }
 
   return { violations, reply: body, cleaned };
