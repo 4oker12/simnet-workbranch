@@ -168,8 +168,10 @@ async function lookupCustomer(toolArgs = {}) {
   const [{ key, state }, snapshots] = await Promise.all([loadWorkbenchState(), loadBillingSnapshots()]);
   const entries = Object.entries(state?.cases || {});
   const explicitContract = normalizeContract(toolArgs.contract) || normalizeContract(toolArgs.query);
-  const hasQuery = Boolean(explicitContract || text(toolArgs.login, 80) || normalizeAddress(toolArgs.address) || normalizeIp(toolArgs.ip) || text(toolArgs.query, 300));
-  if (!hasQuery) return result('customer.lookup', false, 'IDENTITY_QUERY_REQUIRED', { message: 'Нужен номер договора, IP или полный адрес подключения.' });
+  const explicitLogin = text(toolArgs.login, 80).replace(/\s/g, '').toLowerCase();
+  const explicitIp = normalizeIp(toolArgs.ip);
+  const hasQuery = Boolean(explicitContract || explicitLogin || normalizeAddress(toolArgs.address) || explicitIp || text(toolArgs.query, 300));
+  if (!hasQuery) return result('customer.lookup', false, 'IDENTITY_QUERY_REQUIRED', { message: 'Нужен номер договора, login, IP или полный адрес подключения.' });
   const matches = entries.map(([caseId, caseData]) => {
     const snapshot = snapshotForCase(caseId, caseData, snapshots);
     const summary = caseSummary(caseId, caseData, snapshot);
@@ -185,7 +187,9 @@ async function lookupCustomer(toolArgs = {}) {
     count: matches.length, candidates: matches.map(item => item.summary), source: key
   }, ['Нужно уточнить один идентификатор, чтобы выбрать конкретного абонента.']);
   const candidate = top[0].summary;
-  if (explicitContract) return result('customer.lookup', true, 'OK', { count: 1, candidate, requiresConfirmation: false, source: key }, [], {
+  // Exact unique identifiers are sufficient to bind the subscriber case.
+  // Address search stays confirmation-gated because one address can map to multiple/historical contracts.
+  if (explicitContract || explicitLogin || explicitIp) return result('customer.lookup', true, 'OK', { count: 1, candidate, requiresConfirmation: false, source: key }, [], {
     pendingCandidate: null, confirmedCaseId: String(candidate.caseId), confirmedSubscriber: candidate
   });
   return result('customer.lookup', true, 'OK', { count: 1, candidate, requiresConfirmation: true, source: key }, [
@@ -240,7 +244,8 @@ function richSubscriberSnapshot(caseId, caseData = {}, snapshot = null, sourceKe
       connectionFamily: text(firstValue(caseData, ['network.connectionFamily']), 80), connectionRaw: text(firstValue(caseData, ['network.connectionRaw']), 160) },
     finance: { accountBalance: firstDefined(finance.accountBalance, ''), price: firstDefined(finance.price, ''), totalDue: firstDefined(finance.totalDue, ''),
       balanceAfterTariff: firstDefined(finance.balanceAfterTariff, firstValue(caseData, ['profile.balance'])), balanceWithoutTemporary: firstDefined(finance.balanceWithoutTemporary, ''),
-      temporaryPayment: firstDefined(finance.temporaryPayment, ''), temporaryPaymentText: text(finance.temporaryPaymentText, 260) },
+      temporaryPayment: firstDefined(finance.temporaryPayment, ''), temporaryPaymentText: text(finance.temporaryPaymentText, 260),
+      discount: finance.discount && typeof finance.discount === 'object' ? compactObject(finance.discount) : null },
     network: { ip: text(firstDefined(network.ip, firstValue(caseData, ['network.ip'])), 80), mac: text(firstDefined(technical.subscriberMac, firstValue(caseData, ['network.mac'])), 100),
       authStatus: text(auth.title, 180), authorized: auth.authorized === true ? true : auth.authorized === false ? false : null,
       accessAllowed: auth.accessAllowed === true ? true : auth.accessAllowed === false ? false : null, lastActivity: text(auth.lastActivity, 100),

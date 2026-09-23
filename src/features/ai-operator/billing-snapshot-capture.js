@@ -121,6 +121,38 @@
     return best;
   }
 
+  function readDiscount() {
+    const rows = document.querySelectorAll('tr');
+    for (let r = 0; r < rows.length; r += 1) {
+      const row = rows[r];
+      const cells = [...row.querySelectorAll(':scope > td, :scope > th')].map(cell => {
+        const control = cell.querySelector('select,input:not([type="hidden"]),textarea');
+        let value = '';
+        if (control?.tagName === 'SELECT') {
+          value = clean(control.options?.[control.selectedIndex]?.textContent || control.value || '', 260);
+        } else if (control) {
+          value = clean(control.value || '', 260);
+        }
+        return { text: clean(cell.textContent || '', 260), value };
+      }).filter(cell => cell.text || cell.value);
+      const labelIndex = cells.findIndex(cell => /(?:скидк|знижк)/iu.test(cell.text || ''));
+      if (labelIndex < 0) continue;
+      const label = clean(cells[labelIndex]?.text || '', 260);
+      const tail = cells.slice(labelIndex + 1).map(cell => clean(cell.value || cell.text || '', 260)).filter(Boolean);
+      const raw = clean(row.textContent || '', 700);
+      const value = clean(tail.join(' | ') || raw || label, 500);
+      const percentMatch = `${value} ${raw}`.match(/(-?\d+(?:[.,]\d+)?)\s*%/u);
+      const percent = percentMatch ? Number(String(percentMatch[1]).replace(',', '.')) : null;
+      return {
+        label,
+        value,
+        raw,
+        ...(Number.isFinite(percent) ? { percent } : {})
+      };
+    }
+    return null;
+  }
+
   function readPayments() {
     const table = document.querySelector('#my_x_16');
     if (!table) return [];
@@ -214,7 +246,8 @@
         balanceAfterTariff: money(rowValue([/на счете с учетом стоимости тарифного плана/i, /на рахунку з урахуванням вартості тарифного плану/i])),
         balanceWithoutTemporary: money(rowValue([/на счете без учета временных платежей/i, /на рахунку без урахування тимчасових платежів/i])),
         temporaryPayment: money(temporaryText),
-        temporaryPaymentText: temporaryText
+        temporaryPaymentText: temporaryText,
+        discount: readDiscount()
       },
       network: {
         ip: clean(input('ip') || auth.ip, 80),
