@@ -3,22 +3,24 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const broker = fs.readFileSync(new URL('../src/features/ai-operator/semantic-tool-broker.js', import.meta.url), 'utf8');
+const brokerRuntimeBase = fs.readFileSync(new URL('../src/features/ai-operator/semantic-tool-broker-runtime-base.js', import.meta.url), 'utf8');
+const brokerSources = `${broker}\n${brokerRuntimeBase}`;
 const semantic = fs.readFileSync(new URL('../src/features/ai-operator/semantic-probe.js', import.meta.url), 'utf8');
 
 test('live degraded path never prepends knowledge reflection', () => {
-  assert.match(broker, /const hasLiveToolActivity = toolTrace\.length > 0/);
-  assert.match(broker, /generationDegraded && !hasLiveToolActivity/);
-  assert.doesNotMatch(broker, /\$\{knowledgeReply\}\\n\\n\$\{String\(delegated\.reply\)/);
+  assert.match(brokerSources, /const hasLiveToolActivity = toolTrace\.length > 0/);
+  assert.match(brokerSources, /generationDegraded && !hasLiveToolActivity/);
+  assert.doesNotMatch(brokerSources, /\$\{knowledgeReply\}\\n\\n\$\{String\(delegated\.reply\)/);
 });
 
 test('fully covered requested live facts can recover generation failure', () => {
-  assert.doesNotMatch(broker, /function allRequestedLiveFactsConfirmed/);
-  assert.doesNotMatch(broker, /relevance\?\.gate\?\.reason === 'deterministic_confirmed_facts_recovery'/);
-  assert.match(broker, /delegated\?\.evidenceFallback\?\.used/);
-  assert.match(broker, /delegated\?\.evidenceFallback\?\.complete/);
-  assert.match(broker, /degraded: recoveredFromGenerationFailure \? false/);
-  assert.match(broker, /generationDegraded/);
-  assert.match(broker, /generationDegradationReason/);
+  assert.doesNotMatch(brokerSources, /function allRequestedLiveFactsConfirmed/);
+  assert.doesNotMatch(brokerSources, /relevance\?\.gate\?\.reason === 'deterministic_confirmed_facts_recovery'/);
+  assert.match(brokerSources, /delegated\?\.evidenceFallback\?\.used/);
+  assert.match(brokerSources, /delegated\?\.evidenceFallback\?\.complete/);
+  assert.match(brokerSources, /degraded: recoveredFromGenerationFailure \? false/);
+  assert.match(brokerSources, /generationDegraded/);
+  assert.match(brokerSources, /generationDegradationReason/);
 });
 
 test('UNDERSTANDING owns semantic evidence planning without choosing tools', () => {
