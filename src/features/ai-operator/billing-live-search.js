@@ -131,11 +131,12 @@ async function executeSearch(tabId, request) {
           if (control?.tagName === 'SELECT') return compact(control.options?.[control.selectedIndex]?.textContent || control.value || '');
           if (control) return compact(control.value || '');
           const visible = compact(last.textContent || '');
-          if (visible) return visible;
           const hiddenValues = [...last.querySelectorAll('input[type="hidden"]')]
             .map(node => compact(node.value || ''))
             .filter(Boolean);
-          return hiddenValues.length === 1 ? hiddenValues[0] : '';
+          const discountRow = /^(?:скидк|знижк|discount)/i.test(label);
+          if (hiddenValues.length === 1 && (discountRow || !visible)) return hiddenValues[0];
+          return visible;
         }
         return '';
       };
