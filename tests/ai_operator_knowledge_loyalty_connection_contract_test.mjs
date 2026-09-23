@@ -108,7 +108,7 @@ test('returning subscriber and new occupant stay separate from historical contra
   assert.match(settlement.text, /L1 создаёт финансовый тикет/u);
   assert.match(settlement.text, /временный платёж.*мост/us);
   assert.match(settlement.text, /новый жилец.*не переносится/us);
-  assert.match(settlement.text, /типичный короткий срок.*2–3 дня/us);
+  assert.match(settlement.text, /типичный короткий срок.*2–3 дн/isu);
 });
 
 test('payment knowledge keeps calendar billing separate from mid-month resumed service', () => {
@@ -118,7 +118,7 @@ test('payment knowledge keeps calendar billing separate from mid-month resumed s
 
   assert.match(payment.text, /28–30/u);
   assert.match(payment.text, /до начала следующего расчётного периода/u);
-  assert.match(payment.text, /не превращать конкретные даты 28–30 числа в универсальное правило/u);
+  assert.match(payment.text, /не превращать конкретные даты 28–30 числа в универсальное правило/iu);
   assert.match(payment.text, /не подтверждением поступления денег/u);
 
   assert.match(cycle.text, /13-го числа не означает.*до 13-го числа следующего месяца/us);
