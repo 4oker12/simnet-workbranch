@@ -103,7 +103,6 @@
               <div class="actions ai-lab-head-actions">
                 <button id="aiLabDownloadTxt" class="secondary compact-button" type="button">Скачать TXT</button>
                 <button id="aiLabDownloadJson" class="secondary compact-button" type="button">Скачать JSON</button>
-                <button id="aiLabReset" class="secondary compact-button" type="button">Новый диалог</button>
               </div>
             </div>
 
@@ -131,13 +130,16 @@
 
             <div class="ai-lab-compose">
               <textarea id="aiLabInput" rows="3" placeholder="Сообщение от имени абонента…"></textarea>
-              <button id="aiLabSend" type="button">Отправить как абонент</button>
+              <div class="ai-lab-compose-actions">
+                <button id="aiLabSend" type="button">Отправить</button>
+                <button id="aiLabReset" class="secondary compact-button" type="button">Новый диалог</button>
+              </div>
             </div>
             <div id="aiLabStatus" class="status ai-lab-status">Готово. Ты пишешь как абонент; AI сам выбирает READ-проверки.</div>
             <p class="note ai-lab-safety"><b>Сейчас:</b> Billing/UserSide/сеть остаются READ-only; HelpCrunch SEND заблокирован.</p>
 
             <details class="ai-lab-log" open>
-              <summary>Цепочка решения и raw tool logs</summary>
+              <summary>Как AI пришёл к ответу</summary>
               <div id="aiLabEvents" class="ai-lab-events">
                 <div class="ai-lab-log-empty">Ходов пока нет.</div>
               </div>
@@ -269,10 +271,7 @@
   <script src="settings-accordion.js"></script>
   <script src="settings.js"></script>
   <script src="ai-operator-lab.js"></script>
-  <script src="ai-operator-token-meter.js"></script>
-  <script src="ai-operator-behavior-v2.js"></script>
   <script src="ai-operator-lab-trace.js"></script>
-  <script src="ai-operator-kb-curator.js"></script>
   <script src="ai-operator-batch.js"></script>
   <script type="module" src="ai-operator-replay.js"></script>
 </body>
