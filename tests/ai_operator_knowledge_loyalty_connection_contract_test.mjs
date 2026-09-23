@@ -5,6 +5,7 @@ import { PROMOTION_KNOWLEDGE } from '../src/features/ai-operator/knowledge/promo
 import { CONNECTION_KNOWLEDGE } from '../src/features/ai-operator/knowledge/connection.js';
 import { BILLING_KNOWLEDGE } from '../src/features/ai-operator/knowledge/billing.js';
 import { SERVICE_KNOWLEDGE } from '../src/features/ai-operator/knowledge/services.js';
+import { BILLING_SETTLEMENT_CYCLE_KNOWLEDGE } from '../src/features/ai-operator/knowledge/billing-settlement-cycle.js';
 
 function byId(items, id) {
   const article = items.find(item => item.id === id);
@@ -81,6 +82,33 @@ test('first-connection advance is not conflated with optical installation price'
   assert.match(prewire.text, /повторно эти же 500\s*грн не взимаются/u);
   assert.match(prewire.text, /кабель без установки\/оставления терминала.*500\s*грн.*при окончательном подключении/us);
   assert.match(prewire.text, /не следует путать .*«паузой»/u);
+});
+
+test('returning subscriber and new occupant stay separate from historical contract debt', () => {
+  const returning = byId(CONNECTION_KNOWLEDGE, 'connection.returning-after-inactivity');
+  assert.match(returning.text, /нет фиксированного правила|не вводи жёсткий порог/u);
+  assert.match(returning.text, /финансовый тикет/u);
+  assert.match(returning.text, /не.*автоматически.*сначала погасите/us);
+  assert.match(returning.text, /2–3 лет/u);
+
+  const occupant = byId(CONNECTION_KNOWLEDGE, 'connection.new-occupant-existing-line');
+  assert.match(occupant.text, /не подтверждает принадлежность договора новому человеку/u);
+  assert.match(occupant.text, /MAC\/ONU/u);
+  assert.match(occupant.text, /не переносится/u);
+
+  const owner = byId(CONNECTION_KNOWLEDGE, 'connection.contract-owner');
+  assert.match(owner.text, /не нужно автоматически навязывать переоформление/u);
+  assert.match(owner.text, /не.*обязательный отдельный звонок владельца/us);
+
+  const pause = byId(SERVICE_KNOWLEDGE, 'service.pause');
+  assert.match(pause.text, /С даты вступления паузы в силу.*начисление.*прекращается/us);
+  assert.match(pause.text, /если паузу не поставили.*начисления могли продолжаться/us);
+
+  const settlement = byId(BILLING_SETTLEMENT_CYCLE_KNOWLEDGE, 'billing.settlement-cycle');
+  assert.match(settlement.text, /L1 создаёт финансовый тикет/u);
+  assert.match(settlement.text, /временный платёж.*мост/us);
+  assert.match(settlement.text, /новый жилец.*не переносится/us);
+  assert.match(settlement.text, /типичный короткий срок.*2–3 дня/us);
 });
 
 test('payment knowledge keeps calendar billing separate from mid-month resumed service', () => {

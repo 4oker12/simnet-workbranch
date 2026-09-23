@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { runScenario, compareScenarioRuns, checkpointForTurn, firstRetryableTurn } from '../src/features/ai-operator/scenario-replay.js';
 import { SCENARIO_REPLAY_CASES } from '../src/features/ai-operator/scenario-replay-cases.js';
 
-assert.equal(SCENARIO_REPLAY_CASES.length, 10);
+assert.equal(SCENARIO_REPLAY_CASES.length, 12);
 for (const scenarioCase of SCENARIO_REPLAY_CASES) {
   assert.equal(scenarioCase.turns.length, 8, scenarioCase.id);
   const fixtureText = scenarioCase.turns.map(turn => turn.user).join('\n');
