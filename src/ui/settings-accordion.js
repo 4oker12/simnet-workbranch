@@ -199,5 +199,4 @@
   });
 })();
 
-void import('./ai-quota-dashboard.js').catch(error => console.warn('[AI QUOTA]', error));
 void import('./ai-operator-scenario-replay.js').catch(error => console.warn('[AI SCENARIO REPLAY]', error));

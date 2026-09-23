@@ -64,10 +64,21 @@ async function executeRead(tabId, id) {
           if (!label) continue;
           const last = cells[cells.length - 1];
           const control = last.querySelector('select,input:not([type="hidden"]),textarea');
+          const hiddenControls = [...last.querySelectorAll('input[type="hidden"]')]
+            .map(node => compact(node.value || '', 500))
+            .filter(Boolean);
           let value = '';
           if (control?.tagName === 'SELECT') value = compact(control.options?.[control.selectedIndex]?.textContent || control.value || '', 500);
           else if (control) value = compact(control.value || '', 500);
-          else value = compact(last.textContent || '', 500);
+          else {
+            value = compact(last.textContent || '', 500);
+            const discountRow = /^(?:скидк|знижк|discount)/i.test(label);
+            // Billing can keep the numeric discount in a hidden input while rendering
+            // only decoration/unit text in the cell. Prefer that single hidden value
+            // only for a clearly labelled discount row; elsewhere hidden values stay
+            // a fallback so technical ids cannot override normal Billing content.
+            if (hiddenControls.length === 1 && (discountRow || !value)) value = hiddenControls[0];
+          }
           // Prefer the first non-empty value when Billing repeats a label.
           if (!byLabel.has(label) || (!byLabel.get(label) && value)) byLabel.set(label, value);
         }
@@ -140,6 +151,15 @@ async function executeRead(tabId, id) {
           // 0 is a real observed balance. A missing/unparseable row is omitted so
           // canonical runtime can mark it UNKNOWN and invoke broader fallback.
           if (Number.isFinite(value)) finance[key] = value;
+        }
+        const discountText = rowValueFromIndex(pageIndex, [
+          /^скидк/i,
+          /^знижк/i,
+          /^discount/i
+        ]);
+        if (discountText) {
+          finance.discountText = discountText;
+          finance.discountSemantics = 'billing_observed_discount_field_raw_units_not_assumed';
         }
         return {
           identity: {

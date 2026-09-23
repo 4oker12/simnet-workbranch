@@ -36,7 +36,7 @@ assert.doesNotMatch(html, /id="modelAvailability"/, 'removed call-analysis avail
 assert.match(html, /data-accordion-panel="chat-model"/);
 assert.match(html, /settings-panel-compact-model/);
 assert.match(html, /<h2>Модель AI<\/h2>/);
-assert.match(html, /Для A\/B и диагностики различий Qwen \/ GPT-OSS/);
+assert.match(html, /Провайдер можно менять для A\/B/, 'model/provider A/B control should remain available');
 assert.match(settingsJs, /saveChatModelButton/);
 assert.match(settingsJs, /chatModel:/);
 assert.doesNotMatch(settingsJs, /querySelector\(`\[data-accordion-group="settings"\]/, 'settings JS must not hide removed panels after page load');
@@ -57,29 +57,29 @@ assert.match(workspace, /hypotheses/, 'review CSV must expose AI hypotheses for 
 assert.match(css, /\.settings-panel-summary/, 'accordion must have dedicated visual styling');
 assert.match(css, /\.replay-workspace-block/, 'Replay run/current/review areas must have dedicated visual grouping');
 
-assert.match(lab, /Без энциклопедии/, 'Manual Lab must expose KB OFF');
-assert.match(lab, /A\/B сравнение/, 'Manual Lab must expose A/B comparison');
-assert.match(lab, /Только ответ/, 'Manual Lab must expose answer-only view');
-assert.match(lab, /Ответ \+ разбор/, 'Manual Lab must expose answer plus diagnostics view');
-assert.match(lab, /Только разбор/, 'Manual Lab must expose analysis-only view');
-for (const label of ['Решительность', 'Любопытство', 'Инициативность', 'Скепсис к фактам', 'Краткость']) {
-  assert.match(lab, new RegExp(label), `Manual Lab must expose ${label} behavior control`);
-}
-assert.match(lab, /AI_OPERATOR_LAB_REPEAT/, 'Manual Lab must be able to repeat the same pre-turn state');
-assert.match(lab, /AI_OPERATOR_LAB_SNAPSHOT/, 'Manual Lab must save experiment snapshots');
-assert.match(lab, /Экспорт слепков/, 'Manual Lab must export experiment snapshots');
-assert.match(lab, /BILLING: \$\{caps\.billing \? 'ON' : 'OFF'\}/, 'Manual Lab must render Billing capability from runtime state');
-assert.match(lab, /USERSIDE: \$\{caps\.userside \? 'ON' : 'OFF'\}/, 'Manual Lab must render UserSide capability from runtime state');
-assert.match(lab, /NETWORK: \$\{caps\.network \? 'ON' : 'OFF'\}/, 'Manual Lab must render network capability from runtime state');
-assert.match(lab, /READ-tools/, 'Manual Lab diagnostics must expose executed read tools');
-assert.match(lab, /Подтверждено tools/, 'Manual Lab diagnostics must expose verified tool evidence');
-assert.match(lab, /Нужны live-данные/, 'Manual Lab diagnostics must separate subscriber data needs from KB gaps');
-assert.match(lab, /Пересчитать последний ход/, 'Manual Lab must expose live retuning workflow');
-assert.match(lab, /UserSide-контекст не выдаётся за свежий глобальный поиск/, 'Manual Lab must disclose UserSide freshness limitations');
-assert.match(labCss, /\.ai-lab-sliders/, 'behavior controls must have dedicated layout');
-assert.match(lightCss, /\.ai-lab-sliders\{display:grid!important/, 'behavior tuning scale must remain visible in the light Lab UI');
-assert.match(lightCss, /\.ai-lab-experiment-head>div:first-child\{display:flex/, 'behavior tuning scale must keep its explanatory heading visible');
-assert.match(labCss, /\.ai-lab-comparison-grid/, 'A/B answers must have dedicated comparison layout');
-assert.match(labCss, /\.ai-lab-diagnostic-row/, 'live diagnostics must have dedicated visual rows');
+// Manual Lab MVP: keep the real runtime and diagnostics, but remove low-signal tuning/telemetry UI.
+assert.doesNotMatch(html, /src="ai-operator-token-meter\.js"/, 'per-request token meter must stay out of the normal Lab UI');
+assert.doesNotMatch(html, /src="ai-operator-behavior-v2\.js"/, 'behavior sliders must stay out of the normal Lab UI');
+assert.doesNotMatch(html, /src="ai-operator-kb-curator\.js"/, 'KB curation form must stay out of the normal Lab UI');
+assert.doesNotMatch(workspace, /ai-quota-dashboard\.js/, 'quota dashboard must not be injected into the normal Lab UI');
+assert.match(html, /class="ai-lab-compose-actions"/, 'chat actions must live next to the message composer');
+assert.ok(
+  html.indexOf('id="aiLabReset"') > html.indexOf('id="aiLabInput"'),
+  'new-dialog/reset must be placed by the chat composer rather than in the page header'
+);
+assert.match(html, />Как AI пришёл к ответу</, 'decision trace must be described in operator language');
+assert.match(lightCss, /--ai-accent:#2563eb/, 'normal Lab accent must use calm blue instead of burgundy');
+assert.doesNotMatch(lightCss, /#94003f/i, 'legacy burgundy accent must not remain in the light Lab theme');
+assert.match(lightCss, /\.ai-lab-sliders,[\s\S]*?display:none!important/, 'behavior tuning must be hidden in the MVP UI');
+
+// Runtime support is deliberately retained behind the simplified UI.
+assert.match(lab, /AI_OPERATOR_LAB_REPEAT/, 'same-turn replay runtime must remain available');
+assert.match(lab, /AI_OPERATOR_LAB_SNAPSHOT/, 'experiment snapshot runtime must remain available');
+assert.match(lab, /BILLING: \$\{caps\.billing \? 'ON' : 'OFF'\}/, 'Manual Lab must keep Billing capability evidence');
+assert.match(lab, /USERSIDE: \$\{caps\.userside \? 'ON' : 'OFF'\}/, 'Manual Lab must keep UserSide capability evidence');
+assert.match(lab, /NETWORK: \$\{caps\.network \? 'ON' : 'OFF'\}/, 'Manual Lab must keep network capability evidence');
+assert.match(lab, /READ-tools/, 'Manual Lab runtime diagnostics must retain executed read tools');
+assert.match(labCss, /\.ai-lab-comparison-grid/, 'A/B runtime layout may remain available for diagnostics');
+assert.match(labCss, /\.ai-lab-diagnostic-row/, 'diagnostic row styles must remain available');
 
 console.log('ai_operator_settings_workspace_test: PASS');
