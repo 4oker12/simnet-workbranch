@@ -51,6 +51,8 @@ input::placeholder,textarea::placeholder{color:#667085}
    token/quota dashboards and KB curation from the operator-facing workspace. */
 button:not(.secondary):not(.danger){background:#2563eb;border-color:#1d4ed8}
 button:not(.secondary):not(.danger):hover{background:#1d4ed8}
+.ai-lab-quick button:not(.danger){background:#fff;border-color:#cbd5e1;color:#334155}
+.ai-lab-quick button:not(.danger):hover{background:#eff6ff;border-color:#bfdbfe}
 .key-row input:focus,.text-input:focus,select:focus,textarea:focus{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.12)}
 .toggle-label input{accent-color:#2563eb}
 .ai-lab-experiment{padding:8px 10px}
