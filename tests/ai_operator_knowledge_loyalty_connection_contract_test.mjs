@@ -116,6 +116,8 @@ test('returning subscriber and new occupant stay separate from historical contra
   assert.match(settlement.text, /новый жилец.*не переносится/us);
   assert.match(settlement.text, /от 1 до 5 суток/u);
   assert.match(settlement.text, /1–3 суток/u);
+  assert.match(settlement.text, /Лимита по сумме temporaryPayment нет/u);
+  assert.match(settlement.text, /не ограничивай её искусственным потолком/u);
   assert.match(settlement.text, /в течение 3 суток/u);
   assert.match(settlement.text, /Billing рассчитывает сумму пропорционально/u);
 });
