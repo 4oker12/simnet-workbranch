@@ -130,6 +130,13 @@ jobs:
       - name: Finance · settlement-cycle knowledge
         if: always()
         run: node --test tests/ai_operator_settlement_cycle_knowledge_test.mjs
+      - name: Finance · inactive return and new occupant
+        if: always()
+        run: |
+          node --test \
+            tests/ai_operator_finance_decision_nodes_test.mjs \
+            tests/ai_operator_knowledge_loyalty_connection_contract_test.mjs \
+            tests/ai_operator_scenario_replay_test.mjs
       - name: Finance · reconciled Billing knowledge
         if: always()
         run: node --test tests/ai_operator_confirmed_billing_knowledge_test.mjs
