@@ -72,10 +72,12 @@ async function executeRead(tabId, id) {
           else if (control) value = compact(control.value || '', 500);
           else {
             value = compact(last.textContent || '', 500);
-            // Billing stores some observed values (notably discount) only in a hidden
-            // input. Use that value only when the row has no visible value, so
-            // technical hidden ids cannot override normal Billing text/controls.
-            if (!value && hiddenControls.length === 1) value = hiddenControls[0];
+            const discountRow = /^(?:скидк|знижк|discount)/i.test(label);
+            // Billing can keep the numeric discount in a hidden input while rendering
+            // only decoration/unit text in the cell. Prefer that single hidden value
+            // only for a clearly labelled discount row; elsewhere hidden values stay
+            // a fallback so technical ids cannot override normal Billing content.
+            if (hiddenControls.length === 1 && (discountRow || !value)) value = hiddenControls[0];
           }
           // Prefer the first non-empty value when Billing repeats a label.
           if (!byLabel.has(label) || (!byLabel.get(label) && value)) byLabel.set(label, value);
