@@ -131,6 +131,33 @@ test('guest access is a hard remote-recovery split for the old-line scenario', (
   const occupant = byId(CONNECTION_KNOWLEDGE, 'connection.new-occupant-existing-line');
   assert.match(occupant.text, /guest-доступа.*достаточным операционным признаком/us);
   assert.match(occupant.text, /guest-доступ не появляется.*вызову мастера/us);
+  assert.match(occupant.text, /MAC.*закреплён за другим договором.*можно отвязать.*привязать к новому/us);
+});
+
+test('master handoff and returning-customer data reuse stay operationally lightweight', () => {
+  const newCustomer = byId(CONNECTION_KNOWLEDGE, 'connection.new-customer');
+  assert.match(newCustomer.text, /мастер.*сам доводит подключение.*создаёт новый договор/us);
+
+  const reuse = byId(CONNECTION_KNOWLEDGE, 'connection.reuse-personal-data');
+  assert.match(reuse.text, /можно скопировать\/перенести в новый договор/u);
+  assert.match(reuse.text, /не должен.*переносить финансовую историю/us);
+
+  const guest = byId(TECHNICAL_KNOWLEDGE, 'technical.guest-access-recovery');
+  assert.match(guest.text, /L1 не обязан продолжать удалённое оформление/us);
+  assert.match(guest.text, /мастер.*сам создаёт\/оформляет новый договор/us);
+});
+
+test('pause removal and finance-ticket handoff have explicit ownership', () => {
+  const pause = byId(SERVICE_KNOWLEDGE, 'service.pause');
+  assert.match(pause.text, /Снять паузу можно раньше установленного срока/u);
+  assert.match(pause.text, /L1 снимает паузу по просьбе клиента/u);
+  assert.match(pause.text, /восстановили 20-го числа.*Billing/us);
+  assert.match(pause.text, /Если средств на счёте достаточно.*доступ восстанавливается автоматически/us);
+
+  const settlement = byId(BILLING_SETTLEMENT_CYCLE_KNOWLEDGE, 'billing.settlement-cycle');
+  assert.match(settlement.text, /L1 не обязан отдельно контролировать его исполнение/u);
+  assert.match(settlement.text, /финансовый отдел доводит переданный вопрос до результата/u);
+  assert.match(settlement.text, /клиент позже сам обращается.*проверяет актуальное состояние/us);
 });
 
 test('payment knowledge keeps calendar billing separate from mid-month resumed service', () => {
