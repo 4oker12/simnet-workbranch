@@ -18,42 +18,30 @@ test('canonical autonomous instruction generated artifact exactly matches MD sou
   assert.equal(AUTONOMOUS_OPERATOR_INSTRUCTION_SHA256, expectedHash, 'instruction hash must identify exact canonical content');
   assert.deepEqual(AUTONOMOUS_OPERATOR_INSTRUCTION_META, {
     name: 'AUTONOMOUS_OPERATOR',
-    version: 3,
+    version: 9,
     hash: expectedHash
   });
 });
 
-test('canonical instruction protects common knowledge and reasoning without allowing invented live facts', () => {
-  assert.match(md, /не заменяют её собственные общеизвестные знания, семантическое понимание и логическое рассуждение/i);
-  assert.match(md, /технические, математические, логические, бытовые, языковые, физические, географические/i);
-  assert.match(md, /ABSENCE FROM SIMNET KB != ABSENCE OF KNOWLEDGE/i);
-  assert.match(md, /Отсутствие утверждения в SIMNET knowledge.*не означает, что модель этого не знает/is);
-  assert.match(md, /Если вопрос можно нормально и достоверно закрыть общеизвестными знаниями модели, ответь из своих знаний/i);
-  assert.match(md, /не запрещай общеизвестный ответ только потому, что SIMNET KB его не дублирует/i);
+test('canonical instruction keeps general reasoning and evidence boundaries', () => {
+  assert.match(md, /СМЫСЛ → ЛОГИКА → EVIDENCE → ОТВЕТ → ПОДАЧА/i);
   assert.match(md, /RULES CONSTRAIN REASONING; RULES DO NOT REPLACE REASONING/i);
   assert.match(md, /TOOLS PROVIDE EVIDENCE, NOT CONCLUSIONS/i);
-  assert.match(md, /LLM свободна использовать общеизвестные знания.*LLM не свободна в изобретении текущих или внутренних фактов SIMNET/is);
-  assert.match(md, /Отсутствие ожидаемого поля.*не является отрицательным доказательством/is);
-  assert.match(md, /UNKNOWN != NO/i);
-  assert.match(md, /ok=false.*NOT_FOUND.*DATA_NOT_AVAILABLE.*не превращаются автоматически в `NO`/is);
-  assert.match(md, /Предыдущий ответ AI не является новым источником истины/i);
+  assert.match(md, /ABSENCE FROM SIMNET KB ≠ ABSENCE OF KNOWLEDGE/i);
+  assert.match(md, /UNKNOWN ≠ NO\. NOT OBSERVED ≠ ABSENT/i);
+  assert.match(md, /Display text ≠ semantic authority/i);
+  assert.match(md, /текущий.*исторический.*производный.*заявленный/is);
+  assert.match(md, /не останавливайся на нём как на готовом ответе/i);
 });
 
-test('common knowledge and SIMNET live facts have an explicit evidence boundary', () => {
-  assert.match(md, /«что такое ONU\?».+«какие преимущества у оптоволокна\?».+модель может ответить сама/is);
-  assert.match(md, /«SIMNET выдаёт ONU бесплатно\?».+«есть ли GPON по этому адресу\?».+требуется подтверждённое внутреннее\/live evidence/is);
-  assert.match(md, /COMMON KNOWLEDGE.*общеизвестные знания модели/is);
-  assert.match(md, /локальная стадия не может объявить отсутствие статьи\/READ-result запретом на общеизвестные знания модели/i);
-});
-
-test('reason-first is a global invariant rather than a finance-specific exception', () => {
-  assert.match(md, /KNOWN FACTS → REASON FIRST/i);
-  assert.match(md, /READ MORE ONLY WHEN NECESSARY/i);
-  assert.match(md, /подтверждённых фактов и\/или общеизвестных знаний достаточно/i);
-  assert.match(md, /Не запрашивай новые данные только потому, что теоретически может существовать неизвестное исключение/i);
-  assert.match(md, /Гипотетическая скидка, особое условие, редкий сценарий, возможная неисправность.*не являются причиной блокировать прямой вывод/is);
-  assert.match(md, /Новый READ или уточняющий вопрос нужен только тогда, когда отсутствует конкретный факт/i);
-  assert.match(md, /Эти примеры иллюстрируют общий принцип и не являются отдельными сценариями/i);
+test('canonical instruction defines concise contextual subscriber communication', () => {
+  assert.match(md, /follow-up продолжает текущую мысль/i);
+  assert.match(md, /Не превращай ответ в сводку карточки\/состояния/i);
+  assert.match(md, /Простой факт\/да-нет — одно предложение/i);
+  assert.match(md, /Без markdown, списков и заголовков/i);
+  assert.match(md, /Без «сверхвежливости» и дежурных фраз службы поддержки/i);
+  assert.match(md, /Шаблонность выдаёт AI-оператора быстрее всего/i);
+  assert.match(md, /Разнообразие никогда не важнее ясности/i);
 });
 
 test('central instruction stays a protected system message separate from local stage work', () => {
