@@ -130,7 +130,12 @@ async function executeSearch(tabId, request) {
           const control = last.querySelector('select,input:not([type="hidden"]),textarea');
           if (control?.tagName === 'SELECT') return compact(control.options?.[control.selectedIndex]?.textContent || control.value || '');
           if (control) return compact(control.value || '');
-          return compact(last.textContent || '');
+          const visible = compact(last.textContent || '');
+          if (visible) return visible;
+          const hiddenValues = [...last.querySelectorAll('input[type="hidden"]')]
+            .map(node => compact(node.value || ''))
+            .filter(Boolean);
+          return hiddenValues.length === 1 ? hiddenValues[0] : '';
         }
         return '';
       };
@@ -277,7 +282,9 @@ async function executeSearch(tabId, request) {
             balanceAfterTariff: money(rowValue(doc, [/на счете с учетом стоимости тарифного плана/i, /на рахунку з урахуванням вартості тарифного плану/i])),
             balanceWithoutTemporary: money(rowValue(doc, [/на счете без учета временных платежей/i, /на рахунку без урахування тимчасових платежів/i])),
             temporaryPayment: money(temporaryText),
-            temporaryPaymentText: temporaryText
+            temporaryPaymentText: temporaryText,
+            discountText: rowValue(doc, [/^скидк/i, /^знижк/i, /^discount/i]) || '',
+            discountSemantics: 'billing_observed_discount_field_raw_units_not_assumed'
           },
           network: {
             ip: compact(input(doc, 'ip') || auth.ip, 80),
