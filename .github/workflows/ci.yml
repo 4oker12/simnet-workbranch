@@ -135,6 +135,7 @@ jobs:
         run: |
           node --test \
             tests/ai_operator_finance_decision_nodes_test.mjs \
+            tests/ai_operator_dialogue_runtime_state_test.mjs \
             tests/ai_operator_knowledge_loyalty_connection_contract_test.mjs \
             tests/ai_operator_scenario_replay_test.mjs
       - name: Finance · reconciled Billing knowledge
