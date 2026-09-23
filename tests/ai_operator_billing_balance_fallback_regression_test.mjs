@@ -62,7 +62,8 @@ test('dedicated Billing parser searches the whole a=user page for На счет�
     'utf8'
   );
 
-  assert.match(source, /const pageIndex = indexRows\(root\)/);
+  assert.match(source, /const pageRows = readRows\(root\)/);
+  assert.match(source, /const pageIndex = indexRows\(pageRows\)/);
   assert.match(
     source,
     /\['accountBalance',\s*rowValueFromIndex\(pageIndex,\s*\[\/\^на\\s\+счету/s
