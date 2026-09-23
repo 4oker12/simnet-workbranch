@@ -19,6 +19,22 @@ export function calculateBalanceCoverage({ balance, recurringAmount } = {}) {
   return { status: 'known', fullCharges, remainder: remainderCents / 100, balance: balanceCents / 100, recurringAmount: recurringCents / 100 };
 }
 
+
+export function calculateConnectionUpfrontPayment({ firstConnection, optical } = {}) {
+  if (typeof firstConnection !== 'boolean' || typeof optical !== 'boolean') {
+    return { status: 'unknown', total: null, items: [], includesTariffCharge: false };
+  }
+  const items = [];
+  if (firstConnection) items.push({ code: 'initial_advance', label: 'Стартовый аванс', amount: 300 });
+  if (optical) items.push({ code: 'optical_terminal', label: 'Оптический терминал ONU/ONT', amount: 500 });
+  return {
+    status: 'known',
+    total: items.reduce((sum, item) => sum + item.amount, 0),
+    items,
+    includesTariffCharge: false
+  };
+}
+
 export function isBalanceCoverageQuestion(requestText = '') {
   const request = String(requestText || '').toLowerCase();
   return /(?:до\s+какого|на\s+сколько|на\s+скільки|сколько\s+месяц|скільки\s+місяц|хватит|вистачить|проплачен|оплачен.*(?:до|на)|покрыва.*месяц|покрива.*місяц)/iu.test(request);
@@ -26,7 +42,7 @@ export function isBalanceCoverageQuestion(requestText = '') {
 
 export function financeRequiredFacts(requestText = '') {
   return isBalanceCoverageQuestion(requestText)
-    ? ['subscriber.finance.balance.account', 'subscriber.tariff.current.price']
+    ? ['subscriber.finance.balance.account', 'subscriber.finance.recurringTotal']
     : [];
 }
 
@@ -37,7 +53,7 @@ export function deriveFinanceDecisionEvidence({ requestText = '', evidence = [] 
   if (!isBalanceCoverageQuestion(requestText)) return { decision: null, evidence: [] };
   const map = evidenceMap(evidence);
   const balance = knownValue(map, 'subscriber.finance.balance.account');
-  const recurringAmount = knownValue(map, 'subscriber.tariff.current.price');
+  const recurringAmount = knownValue(map, 'subscriber.finance.recurringTotal');
   const decision = calculateBalanceCoverage({ balance, recurringAmount });
   if (decision.status !== 'known') return { decision, evidence: [] };
   const source = 'deterministic.finance.coverage';
