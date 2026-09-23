@@ -71,6 +71,7 @@ export const CANONICAL_FACT_CATALOG = Object.freeze({
   'subscriber.finance.balance.afterTariff': billingMain('finance.balanceAfterTariff', 'money'),
   'subscriber.finance.balance.withoutTemporary': billingMain('finance.balanceWithoutTemporary', 'money'),
   'subscriber.finance.temporaryPayment': billingMain('finance.temporaryPayment', 'money'),
+  'subscriber.finance.discount': billingMain('finance.discountText', 'optionalText'),
   'subscriber.finance.payments': billingMain('payments', 'array'),
 
   'subscriber.service.accessState': billingMain('service.accessState'),
