@@ -90,6 +90,8 @@ test('returning subscriber and new occupant stay separate from historical contra
   assert.match(returning.text, /финансовый тикет/u);
   assert.match(returning.text, /не.*автоматически.*сначала погасите/us);
   assert.match(returning.text, /2–3 лет/u);
+  assert.match(returning.text, /может восстановить старый договор.*либо зарегистрировать новый договор/us);
+  assert.match(returning.text, /это ориентир, а не запрет на восстановление/u);
 
   const occupant = byId(CONNECTION_KNOWLEDGE, 'connection.new-occupant-existing-line');
   assert.match(occupant.text, /не подтверждает принадлежность договора новому человеку/u);

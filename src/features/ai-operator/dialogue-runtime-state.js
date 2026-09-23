@@ -163,7 +163,7 @@ export function buildDialoguePolicyContext({ analysis = {}, requestText = '', la
       consumptionStartQuestion ? 'Service-consumption start day/date is NOT the contract-signing date. Never substitute subscriber.contract.date for this fact; if no dedicated source-backed fact exists, say it is not confirmed.' : '',
       contractRelationshipClaim === CONTRACT_RELATIONSHIP.NEW_OCCUPANT ? 'The caller explicitly presents as a new occupant/tenant. An existing contract lookup is address/line context only: do not call it the caller\'s contract, do not transfer its negative balance, and prefer a new contract unless an owner-retained exception is explicitly stated.' : '',
       contractRelationshipClaim === CONTRACT_RELATIONSHIP.OWNER_RETAINED ? 'The caller says the owner wants the existing contract to remain with the owner. Do not automatically force re-registration or require a separate owner call unless a real restriction/note or owner-only action requires it.' : '',
-      contractRelationshipClaim === CONTRACT_RELATIONSHIP.RETURNING_SUBSCRIBER ? 'The caller presents as a returning subscriber after inactivity. Treat the old contract as their return context, but do not infer that an old negative balance must be paid before the finance-review rules are applied.' : ''
+      contractRelationshipClaim === CONTRACT_RELATIONSHIP.RETURNING_SUBSCRIBER ? 'The caller presents as a returning subscriber after inactivity. This is context, not a routing restriction: the old contract may be restored or a new contract may be created. Do not force either path solely because the old contract exists, and do not infer that an old negative balance must be paid before the finance-review rules are applied.' : ''
     ].filter(Boolean)
   };
 }

@@ -35,5 +35,12 @@ assert.equal(
   deriveContractRelationshipClaim({ requestText: 'мой договор, два года отсутствовал, хочу восстановить интернет' }),
   CONTRACT_RELATIONSHIP.RETURNING_SUBSCRIBER
 );
+const returningContext = buildDialoguePolicyContext({
+  analysis: { probe: { whatUserWants: 'мой договор, два года отсутствовал, хочу восстановить интернет' } },
+  requestText: 'мой договор, два года отсутствовал, хочу восстановить интернет',
+  labState: {}
+});
+assert.ok(returningContext.constraints.some(item => /old contract may be restored or a new contract may be created/i.test(item)));
+assert.ok(returningContext.constraints.some(item => /Do not force either path/i.test(item)));
 
 console.log('ai_operator_dialogue_runtime_state_test: ok');
