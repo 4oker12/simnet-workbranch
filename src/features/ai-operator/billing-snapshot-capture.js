@@ -51,7 +51,8 @@
           value = clean(control.value || '');
         } else {
           value = clean(last.textContent || '');
-          if (!value && hiddenValues.length === 1) value = hiddenValues[0];
+          const discountRow = /^(?:скидк|знижк|discount)/i.test(label);
+          if (hiddenValues.length === 1 && (discountRow || !value)) value = hiddenValues[0];
         }
         map.push([label, value]);
       }
