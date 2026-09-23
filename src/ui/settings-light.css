@@ -1,16 +1,16 @@
 /* Whole settings page: light surfaces, readable text, SIMNET plum actions. */
-:root{color-scheme:light;background:#e9edf3;color:#111827}
+:root{color-scheme:light;background:#e9edf3;color:#111827;--ai-plum:#2563eb;--ai-accent:#2563eb;--ai-accent-strong:#1d4ed8;--ai-accent-soft:#eff6ff}
 body{background:linear-gradient(180deg,#f4f6f9,#e9edf3);color:#111827}
 .card{background:#fff;border-color:#cbd3df;box-shadow:0 8px 26px rgba(30,41,59,.08)}
 .top h1,.card h2,.card h3,.case-head strong{color:#111827}
-.eyebrow{color:#94003f}.version,.muted,.case-meta,.correction-count,.routes li span,.profile p{color:#475569!important}
+.eyebrow{color:#2563eb}.version,.muted,.case-meta,.correction-count,.routes li span,.profile p{color:#475569!important}
 .card p,.field-label,.toggle-label{color:#334155}
 .badge{background:#f5e8ef;border-color:#cfb6c3;color:#6f173e}
 .badge.ok,.status.ok,.profile span{background:#e7f6ed;border-color:#91caa8;color:#14532d}
 .key-row input,.text-input,select,textarea{background:#fff;color:#0f172a;border-color:#aeb8c7;box-shadow:inset 0 0 0 1px rgba(15,23,42,.02)}
 input::placeholder,textarea::placeholder{color:#667085}
 .toggle-row,.case-item,.routes li,.ai-lab-identity,.ai-lab-log{background:#f8fafc;border-color:#cbd3df}
-.secondary{background:#f7eaf1;border-color:#cfafbf;color:#7a1743}.secondary:hover{background:#ecd6e2}
+.secondary{background:#f8fafc;border-color:#cbd5e1;color:#334155}.secondary:hover{background:#eef2f7}
 .danger{background:#9f2233;border-color:#851c2b;color:white}.danger:hover{background:#861827}
 .status,.case-summary{background:#e9eef5;color:#263548;border-color:#cbd3df}
 .status.bad,.case-error{background:#fff0f1;color:#8f1d2f;border-color:#efb7c0}
@@ -25,50 +25,47 @@ input::placeholder,textarea::placeholder{color:#667085}
 .ai-lab-chat{background:#eef2f7;border-color:#bcc6d4;box-shadow:inset 0 1px 4px rgba(15,23,42,.04)}
 .ai-lab-empty,.ai-lab-empty strong,.ai-lab-message-label,.ai-lab-log-empty{color:#475569}
 .ai-lab-message.agent .ai-lab-message-bubble{background:#fff;color:#172033;border-color:#c7d0dc;box-shadow:0 2px 8px rgba(15,23,42,.05)}
-.ai-lab-message.customer .ai-lab-message-bubble{background:#94003f;color:#fff}
-.ai-lab-quick button{background:#fff;color:#54263d;border-color:#c8b2be}.ai-lab-quick button:hover{background:#f3e5ec}
+.ai-lab-message.customer .ai-lab-message-bubble{background:#2563eb;color:#fff}
+.ai-lab-quick button{background:#fff;color:#334155;border-color:#cbd5e1}.ai-lab-quick button:hover{background:#eff6ff;border-color:#bfdbfe}
 .ai-lab-event>summary,.ai-replay-panel strong,.ai-lab-safety b,.ai-replay-file{color:#263548}
 .ai-lab-event.tool_call>summary{color:#5b2690}.ai-lab-event.tool_result>summary{color:#17613a}.ai-lab-event.error>summary{color:#922234}
 .ai-lab-event pre,.ai-replay-panel pre{color:#263548;border-color:#cbd3df}
-.ai-api-cost{margin-top:12px;padding:12px;border:1px solid #cbaebe;border-radius:10px;background:#fcf5f8}
-.ai-api-cost>strong{font-size:12px;color:#74183e}
+.ai-api-cost{margin-top:12px;padding:12px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc}
+.ai-api-cost>strong{font-size:12px;color:#1e3a5f}
 .ai-api-cost-summary{margin-top:7px;font-size:12px;line-height:1.7;color:#1f2d40;font-variant-numeric:tabular-nums}
-.ai-api-pricing{margin-top:8px}.ai-api-pricing summary{font-size:11px;color:#60253f;cursor:pointer}
+.ai-api-pricing{margin-top:8px}.ai-api-pricing summary{font-size:11px;color:#334155;cursor:pointer}
 .ai-api-price-grid{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:8px;margin-bottom:8px}
 .ai-api-price-grid input,.ai-api-price-grid select{margin-top:5px;min-width:0}.ai-api-price-grid label{min-width:0}
-.settings-panel-summary:hover,.lab-section-summary:hover{background:#f8f4f6}
+.settings-panel-summary:hover,.lab-section-summary:hover{background:#f8fafc}
 .settings-panel[open]>.settings-panel-summary,.lab-section[open]>.lab-section-summary{border-color:#cbd3df}
-.settings-panel-kicker{color:#82244c}
+.settings-panel-kicker{color:#315a9e}
 .settings-chevron{border-color:#c5ccd6;color:#526174;background:#fff}
-.settings-panel-summary-lab{background:linear-gradient(90deg,#f8eaf1,#fff 62%)}
-.settings-live-badge{border-color:#d0adbd;background:#f7e6ee;color:#7a244b}
+.settings-panel-summary-lab{background:linear-gradient(90deg,#eff6ff,#fff 62%)}
+.settings-live-badge{border-color:#bfdbfe;background:#eff6ff;color:#1d4ed8}
 .lab-section{background:#f4f6f9;border-color:#cbd3df}
 .lab-section-summary strong,.replay-workspace-head strong{color:#1f2937}
 .lab-section-summary span,.replay-workspace-head span{color:#526174}
 .replay-workspace-block{background:#fff;border-color:#cbd3df}
 
-/* Restore the live behavior scale. The controls already persist and affect reply generation;
-   the compact Lab redesign had only hidden them with display:none. */
-.ai-lab-experiment{padding:12px 13px}
-.ai-lab-experiment-head{align-items:flex-start}
-.ai-lab-experiment-head>div:first-child{display:flex;flex-direction:column;gap:2px}
-.ai-lab-experiment-head>div:first-child strong{color:#1f2937;font-size:12px}
-.ai-lab-experiment-head>div:first-child span{color:#526174;font-size:10px;line-height:1.4}
-.ai-lab-sliders{display:grid!important;grid-template-columns:1fr 1fr;gap:8px 14px;margin-top:12px;padding-top:11px;border-top:1px solid #dbe1e9}
-.ai-lab-slider-label b{color:#263548}.ai-lab-slider-label small{color:#667085}.ai-lab-slider-value{background:#eef2f7;color:#263548}
-.ai-lab-followups{color:#475569}
-
-/* High-contrast knowledge-gap inbox for Manual Lab. */
-.ai-kb-curator{margin-top:10px;padding:12px;border:1px solid #b9c3d1;border-left:4px solid #64748b;border-radius:10px;background:#fff;color:#172033;box-shadow:0 3px 12px rgba(15,23,42,.05)}
-.ai-kb-curator.has-gap{border-color:#d8b35a;border-left-color:#b97800;background:#fffaf0}
-.ai-kb-curator-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:9px}.ai-kb-curator-head>div{display:flex;flex-direction:column;gap:2px}.ai-kb-curator-head strong{color:#172033;font-size:12px}.ai-kb-curator-head span{color:#475569;font-size:10px;line-height:1.4}
-.ai-kb-curator-count{flex:none;padding:4px 7px;border:1px solid #c5ceda;border-radius:999px;background:#eef2f7!important;color:#334155!important;font:800 9px/1 ui-monospace,monospace}
-.ai-kb-curator-gap{margin-bottom:8px;padding:9px 10px;border:1px solid #d8dee8;border-radius:8px;background:#f8fafc}.ai-kb-curator.has-gap .ai-kb-curator-gap{border-color:#e3c778;background:#fff4d6}.ai-kb-curator-gap b{display:block;margin-bottom:4px;color:#6f4a00;font-size:10px;text-transform:uppercase;letter-spacing:.04em}.ai-kb-curator-gap-text{display:grid;gap:3px;color:#253044;font-size:11px;line-height:1.45}.ai-kb-curator.has-gap .ai-kb-curator-gap-text{color:#3d2c00;font-weight:650}
-.ai-kb-curator-input,.ai-kb-curator-source{display:block;width:100%;box-sizing:border-box;border:1px solid #aeb8c7;border-radius:8px;background:#fff;color:#0f172a}.ai-kb-curator-input{min-height:88px;padding:9px 10px;resize:vertical;font:11px/1.5 system-ui,sans-serif}.ai-kb-curator-source{margin-top:7px;padding:8px 10px;font-size:10px}.ai-kb-curator-input:focus,.ai-kb-curator-source:focus{outline:2px solid rgba(148,0,63,.16);border-color:#94003f}
-.ai-kb-curator-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px}.ai-kb-curator-actions button{padding:7px 10px;border-radius:8px;font-size:10px}.ai-kb-curator-state{color:#334155;font-size:10px;font-weight:650}
+/* Lab MVP: keep runtime behavior/telemetry mechanisms, but remove low-signal tuning,
+   token/quota dashboards and KB curation from the operator-facing workspace. */
+button:not(.secondary):not(.danger){background:#2563eb;border-color:#1d4ed8}
+button:not(.secondary):not(.danger):hover{background:#1d4ed8}
+.key-row input:focus,.text-input:focus,select:focus,textarea:focus{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+.toggle-label input{accent-color:#2563eb}
+.ai-lab-experiment{padding:8px 10px}
+.ai-lab-experiment-head>div:first-child,
+.ai-lab-modes,
+.ai-lab-sliders,
+.ai-lab-experiment-actions,
+.ai-lab-comparison,
+.ai-lab-diagnostics{display:none!important}
+.ai-lab-capability.on{color:#1d4ed8;background:#eff6ff;border-color:#bfdbfe}
+.ai-lab-compose-actions{display:grid;grid-template-rows:1fr auto;gap:7px;min-width:0}
+.ai-lab-compose-actions button{width:100%}
+.ai-lab-compose-actions .compact-button{padding:8px 10px}
 
 /* Diagnostic colors: warnings must look like warnings, not washed-out metadata. */
 .ai-lab-diagnostic-row{color:#263548}.ai-lab-diagnostic-row b{color:#475569!important}.ai-lab-diagnostic-row span{color:#1f2937!important}.ai-lab-diagnostic-row.warn{padding:7px 8px;border-radius:6px;background:#fff4d6}.ai-lab-diagnostic-row.warn b,.ai-lab-diagnostic-row.warn span{color:#6f4a00!important}.ai-lab-diagnostic-row.live{background:#eef5ff}.ai-lab-diagnostic-row.live span{color:#174ea6!important}
 
-@media(max-width:900px){.ai-lab-sliders{grid-template-columns:1fr!important}}
-@media(max-width:640px){.ai-api-price-grid{grid-template-columns:1fr 1fr}.ai-kb-curator-head{flex-direction:column}.ai-kb-curator-actions{align-items:stretch}.ai-kb-curator-actions button{width:100%}}
+@media(max-width:640px){.ai-api-price-grid{grid-template-columns:1fr 1fr}.ai-lab-compose-actions{grid-template-columns:1fr 1fr;grid-template-rows:auto}}
