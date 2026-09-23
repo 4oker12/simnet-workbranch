@@ -102,7 +102,7 @@ test('returning subscriber and new occupant stay separate from historical contra
 
   const pause = byId(SERVICE_KNOWLEDGE, 'service.pause');
   assert.match(pause.text, /С даты вступления паузы в силу.*начисление.*прекращается/us);
-  assert.match(pause.text, /если паузу не поставили.*начисления могли продолжаться/us);
+  assert.match(pause.text, /если паузу не поставили.*начисления могли продолжаться/isu);
 
   const settlement = byId(BILLING_SETTLEMENT_CYCLE_KNOWLEDGE, 'billing.settlement-cycle');
   assert.match(settlement.text, /L1 создаёт финансовый тикет/u);
@@ -117,7 +117,8 @@ test('payment knowledge keeps calendar billing separate from mid-month resumed s
   const state = byId(BILLING_KNOWLEDGE, 'billing.service-state');
 
   assert.match(payment.text, /28–30/u);
-  assert.match(payment.text, /к 1-му числу/u);
+  assert.match(payment.text, /до начала следующего расчётного периода/u);
+  assert.match(payment.text, /не превращать конкретные даты 28–30 числа в универсальное правило/u);
   assert.match(payment.text, /не подтверждением поступления денег/u);
 
   assert.match(cycle.text, /13-го числа не означает.*до 13-го числа следующего месяца/us);
@@ -143,5 +144,5 @@ test('credit days and Omega TV preserve operational practice without inventing a
   assert.match(omega.text, /без отдельной абонплаты/u);
   assert.match(omega.text, /личный кабинет/u);
   assert.match(omega.text, /предпочтительно.*оператор\/поддержка/us);
-  assert.match(omega.text, /нельзя изображать Omega TV активированной/u);
+  assert.match(omega.text, /Факт уже выполненной активации Omega TV.*должен подтверждаться/us);
 });
