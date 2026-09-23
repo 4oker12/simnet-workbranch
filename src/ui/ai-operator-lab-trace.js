@@ -7,7 +7,7 @@
   const IMPORTANT_JSON_KEYS = new Set(['field', 'why', 'tool', 'ok', 'code', 'source', 'data', 'requestedBy', 'system', 'request', 'kept', 'dropped', 'completeness', 'conclusion']);
   const FACT_KEYS = new Set([
     'billingId', 'contract', 'login', 'address', 'fullName', 'connectionFamily',
-    'accountBalance', 'balanceAfterTariff', 'balanceWithoutTemporary', 'temporaryPayment', 'price', 'totalDue',
+    'accountBalance', 'balanceAfterTariff', 'balanceWithoutTemporary', 'temporaryPayment', 'price', 'totalDue', 'discountText', 'discount',
     'accessState', 'serviceState', 'currentTariff', 'tariffDisplay', 'nextTariff',
     'subscriberIp', 'ip', 'subscriberMac', 'mac', 'bras', 'status', 'isOnline', 'isActive', 'vlan',
     'onuSerial', 'onuMac', 'oltName', 'oltIp', 'port', 'foundOnOlt', 'rx', 'tx', 'oltRx', 'onuLanLinkState'
@@ -66,7 +66,7 @@
       .ai-trace-body{min-width:0;color:#243044;font-size:10px;line-height:1.5}.ai-trace-body b{color:#172033}.ai-trace-body .muted{color:#7b8798}
       .ai-trace-step.intent .ai-trace-index{background:#ede9fe;color:#6d28d9}.ai-trace-step.need .ai-trace-index{background:#e0f2fe;color:#0369a1}
       .ai-trace-step.tool .ai-trace-index{background:#dbeafe;color:#1d4ed8}.ai-trace-step.fact .ai-trace-index{background:#dcfce7;color:#166534}
-      .ai-trace-step.relevance .ai-trace-index{background:#fce7f3;color:#9d174d}.ai-trace-step.verify .ai-trace-index{background:#fef3c7;color:#92400e}.ai-trace-step.answer .ai-trace-index{background:#fbe7ef;color:#8c1646}
+      .ai-trace-step.relevance .ai-trace-index{background:#eef2ff;color:#4338ca}.ai-trace-step.verify .ai-trace-index{background:#fef3c7;color:#92400e}.ai-trace-step.answer .ai-trace-index{background:#dbeafe;color:#1d4ed8}
       .ai-trace-line{margin:1px 0}.ai-trace-chip{display:inline-block;margin:2px 4px 2px 0;padding:2px 5px;border-radius:6px;background:#f2f5f8;color:#475569;font:700 9px ui-monospace,monospace}
       .ai-trace-chip.ok{background:#ecfdf3;color:#067647}.ai-trace-chip.bad{background:#fff1f1;color:#b42318}.ai-trace-chip.warn{background:#fff7e6;color:#9a6700}
       .ai-trace-mismatch{margin-top:5px;padding:6px 8px;border:1px solid #f7b4b4;border-radius:7px;background:#fff5f5;color:#b42318;font:800 9px/1.4 ui-monospace,monospace}
@@ -82,7 +82,7 @@
       .ai-trace-json-line.key-status{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#ecfdf3;color:#067647;font-weight:800}
       .ai-trace-json-line.key-source{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#f3e8ff;color:#6b21a8;font-weight:800}
       .ai-trace-json-line.key-data{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#f0f9ff;color:#075985;font-weight:800}
-      .ai-trace-json-line.key-relevance{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#fdf2f8;color:#9d174d;font-weight:800}
+      .ai-trace-json-line.key-relevance{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#eef2ff;color:#4338ca;font-weight:800}
       .ai-trace-history-label{margin:10px 0 5px;color:#8a95a5;font:800 8px ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase}
       @media(max-width:760px){.ai-trace-step{grid-template-columns:26px 88px minmax(0,1fr)}}
     `;
@@ -172,7 +172,7 @@
       if (why) row.append(document.createTextNode(` · ${why}`));
       wrap.append(row);
       const mismatch = toolMismatch(trace);
-      if (mismatch) wrap.append(create('div', 'ai-trace-mismatch', `НЕСООТВЕТСТВИЕ: запросил ${mismatch.expected}, но вызван ${mismatch.actual}`));
+      if (mismatch) wrap.append(create('div', 'ai-trace-mismatch', `План не совпал с проверкой: ожидался ${mismatch.expected}, но запущен ${mismatch.actual}`));
     }
     return wrap;
   }
@@ -183,13 +183,13 @@
       const card = create('div', 'ai-trace-tool');
       const head = create('div', 'ai-trace-tool-head');
       head.append(create('strong', '', trace?.tool || '—'));
-      head.append(create('span', `ai-trace-chip ${trace?.ok ? 'ok' : 'bad'}`, trace?.ok ? 'OK ✓' : `ERROR ${trace?.code || ''}`.trim()));
+      head.append(create('span', `ai-trace-chip ${trace?.ok ? 'ok' : 'bad'}`, trace?.ok ? 'ПОЛУЧЕНО ✓' : `ОШИБКА ${trace?.code || ''}`.trim()));
       if (trace?.source) head.append(create('span', 'ai-trace-chip', trace.source));
       card.append(head);
       if (trace?.requestedBy?.field) card.append(create('div', 'ai-trace-line', `Нужно: ${trace.requestedBy.field}`));
       if (trace?.requestedBy?.why) card.append(create('div', 'ai-trace-line muted', `Зачем: ${trace.requestedBy.why}`));
       const mismatch = toolMismatch(trace);
-      if (mismatch) card.append(create('div', 'ai-trace-mismatch', `ОЖИДАЛСЯ ${mismatch.expected} → ФАКТИЧЕСКИ ${mismatch.actual}`));
+      if (mismatch) card.append(create('div', 'ai-trace-mismatch', `План: ${mismatch.expected} → фактически: ${mismatch.actual}`));
       card.append(jsonBlock(trace));
       wrap.append(card);
     }
@@ -225,7 +225,7 @@
       title.append(create('b', '', `${trace.tool}: `), document.createTextNode(facts.join(' · ')));
       wrap.append(title);
     }
-    if (!count) wrap.append(create('div', 'ai-trace-line muted', 'Tool отработал, но компактные ключевые поля для сводки не выделены — смотри RAW JSON выше.'));
+    if (!count) wrap.append(create('div', 'ai-trace-line muted', 'Проверка выполнена, но короткую сводку полей собрать не удалось. Технические детали есть в RAW JSON.'));
     return wrap;
   }
 
@@ -247,7 +247,7 @@
       group.append(create('b', '', `ИСПОЛЬЗОВАНО (${kept.length})`));
       for (const item of kept) {
         const row = create('div', 'ai-trace-filter-item');
-        row.append(create('span', 'ai-trace-chip ok', 'KEEP'), document.createTextNode(` ${short(item?.fact || '', 300)}`));
+        row.append(create('span', 'ai-trace-chip ok', 'В ОТВЕТ'), document.createTextNode(` ${short(item?.fact || '', 300)}`));
         if (item?.source) row.append(create('span', 'ai-trace-chip', item.source));
         if (item?.reason) row.append(create('span', 'ai-trace-filter-reason', `— ${short(item.reason, 320)}`));
         group.append(row);
@@ -260,7 +260,7 @@
       group.append(create('b', '', `ОТБРОШЕНО (${dropped.length})`));
       for (const item of dropped) {
         const row = create('div', 'ai-trace-filter-item');
-        row.append(create('span', 'ai-trace-chip bad', 'DROP'), document.createTextNode(` ${short(item?.fact || '', 300)}`));
+        row.append(create('span', 'ai-trace-chip bad', 'НЕ ИСПОЛЬЗУЮ'), document.createTextNode(` ${short(item?.fact || '', 300)}`));
         if (item?.source) row.append(create('span', 'ai-trace-chip', item.source));
         if (item?.reason) row.append(create('span', 'ai-trace-filter-reason', `— ${short(item.reason, 320)}`));
         group.append(row);
@@ -274,7 +274,7 @@
     }
 
     if (relevance.completeness) wrap.append(create('span', `ai-trace-chip ${relevance.completeness === 'complete' ? 'ok' : 'warn'}`, `Полнота: ${relevance.completeness}`));
-    if (relevance.conclusion) wrap.append(create('div', 'ai-trace-line', `Вывод фильтра: ${relevance.conclusion}`));
+    if (relevance.conclusion) wrap.append(create('div', 'ai-trace-line', `Почему так: ${relevance.conclusion}`));
     wrap.append(jsonBlock({ answerRelevance: relevance, gate }));
     return wrap;
   }
@@ -284,8 +284,8 @@
     const warnings = [];
     for (const trace of toolTrace) {
       const mismatch = toolMismatch(trace);
-      if (mismatch) warnings.push(`План/tool расходятся: нужно ${mismatch.expected}, вызван ${mismatch.actual}.`);
-      if (!trace?.ok) warnings.push(`${trace?.tool || 'tool'} не дал подтверждённых данных: ${trace?.code || 'unknown'}.`);
+      if (mismatch) warnings.push(`План и фактическая проверка расходятся: нужно ${mismatch.expected}, запущен ${mismatch.actual}.`);
+      if (!trace?.ok) warnings.push(`${trace?.tool || 'Проверка'} не дала подтверждённых данных: ${trace?.code || 'unknown'}.`);
     }
     warnings.push(...asArray(variant?.verificationNeeded).map(item => String(item)));
     warnings.push(...asArray(variant?.unresolvedRequests).map(item => `Не закрыто: ${item}`));
@@ -307,14 +307,14 @@
       wrap.append(create('span', 'ai-trace-chip bad', 'DEGRADED'));
       if (variant?.degradationReason) wrap.append(document.createTextNode(` ${short(variant.degradationReason, 360)}`));
     } else if (failedTools || unresolved) {
-      wrap.append(create('span', 'ai-trace-chip warn', 'Частичный вывод'));
-      wrap.append(document.createTextNode(` подтверждено tools: ${okTools}/${toolTrace.length}; остаются пробелы: ${unresolved + failedTools}`));
+      wrap.append(create('span', 'ai-trace-chip warn', 'Есть пробелы'));
+      wrap.append(document.createTextNode(` · успешных проверок: ${okTools}/${toolTrace.length}; нерешённых пунктов: ${unresolved + failedTools}`));
     } else {
-      wrap.append(create('span', 'ai-trace-chip ok', toolTrace.length ? `Подтверждено tools: ${okTools}/${toolTrace.length}` : 'Live-проверки не требовались'));
+      wrap.append(create('span', 'ai-trace-chip ok', toolTrace.length ? `Подтверждено проверками: ${okTools}/${toolTrace.length}` : 'Дополнительные проверки не требовались'));
     }
-    if (relevanceConclusion) wrap.append(create('div', 'ai-trace-line', `По релевантности: ${relevanceConclusion}`));
+    if (relevanceConclusion) wrap.append(create('div', 'ai-trace-line', `Отбор данных: ${relevanceConclusion}`));
     const next = short(variant?.nextStepOffered || '', 260);
-    if (next) wrap.append(create('div', 'ai-trace-line', `Следующий шаг: ${next}`));
+    if (next) wrap.append(create('div', 'ai-trace-line', `Что дальше: ${next}`));
     return wrap;
   }
 
@@ -332,8 +332,8 @@
     const root = create('section', 'ai-trace-root');
     root.id = TRACE_ID;
     const head = create('div', 'ai-trace-head');
-    head.append(create('strong', '', 'ЦЕПОЧКА ПОСЛЕДНЕГО ХОДА'));
-    head.append(create('span', '', `${experiment?.knowledgeMode === 'clean' ? 'CLEAN · ' : ''}${Math.round(Number(probe?.confidence || 0) * 100)}% semantic · ${toolTrace.length} tool · ${Number(experiment?.elapsedMs || 0)} ms`));
+    head.append(create('strong', '', 'КАК AI ПРИШЁЛ К ОТВЕТУ'));
+    head.append(create('span', '', `${experiment?.knowledgeMode === 'clean' ? 'CLEAN · ' : ''}${Math.round(Number(probe?.confidence || 0) * 100)}% понял запрос · ${toolTrace.length} проверок · ${Number(experiment?.elapsedMs || 0)} мс`));
     root.append(head);
 
     const list = create('div', 'ai-trace-list');
@@ -352,28 +352,28 @@
       confidence: probe?.confidence || 0,
       semanticDiagnostics: experiment?.analysis?.semanticDiagnostics || {}
     }));
-    list.append(step(index++, 'ПОНЯЛ', understood, 'intent'));
+    list.append(step(index++, 'ЧТО ПОНЯЛ', understood, 'intent'));
 
     const context = contextLines(state, probe, experiment);
     const kbArticles = asArray(knowledge?.usedArticles).map(item => typeof item === 'string' ? item : item?.id).filter(Boolean);
     if (kbArticles.length) context.push(`KB: ${kbArticles.join(', ')}`);
-    if (context.length) list.append(step(index++, 'КОНТЕКСТ', lines(context), 'intent'));
+    if (context.length) list.append(step(index++, 'ЧТО УЖЕ ЗНАЕМ', lines(context), 'intent'));
 
     const needs = needsLines(variant);
-    if (needs.length) list.append(step(index++, 'НУЖНО УЗНАТЬ', lines(needs), 'need'));
+    if (needs.length) list.append(step(index++, 'ЧЕГО НЕ ХВАТАЕТ', lines(needs), 'need'));
 
     if (toolTrace.length) {
-      list.append(step(index++, 'ПЛАН', planNode(toolTrace), 'need'));
-      list.append(step(index++, 'TOOL', toolsNode(toolTrace), 'tool'));
-      list.append(step(index++, 'ФАКТЫ', factsNode(toolTrace), 'fact'));
+      list.append(step(index++, 'ЧТО РЕШИЛ ПРОВЕРИТЬ', planNode(toolTrace), 'need'));
+      list.append(step(index++, 'ЧТО ПРОВЕРИЛ', toolsNode(toolTrace), 'tool'));
+      list.append(step(index++, 'ЧТО ПОДТВЕРДИЛОСЬ', factsNode(toolTrace), 'fact'));
     }
 
     if (variant?.answerRelevance || variant?.relevanceGate) {
-      list.append(step(index++, 'ФИЛЬТР ОТВЕТА', relevanceNode(variant), 'relevance'));
+      list.append(step(index++, 'ЧТО ВЗЯЛ В ОТВЕТ', relevanceNode(variant), 'relevance'));
     }
 
-    list.append(step(index++, 'ПРОВЕРКА', verifyNode(variant, toolTrace), 'verify'));
-    list.append(step(index++, 'ВЫВОД', conclusionNode(variant, toolTrace), 'verify'));
+    list.append(step(index++, 'ЧТО ЕЩЁ НЕЯСНО', verifyNode(variant, toolTrace), 'verify'));
+    list.append(step(index++, 'РЕШЕНИЕ', conclusionNode(variant, toolTrace), 'verify'));
 
     const answer = create('div');
     answer.append(create('div', 'ai-trace-line', variant?.reply || state?.lastDecision?.reply || 'Ответ не сформирован.'));
@@ -385,9 +385,9 @@
       degradationReason: variant?.degradationReason || '',
       answerRelevance: variant?.answerRelevance || null
     }));
-    list.append(step(index++, 'ОТВЕТ', answer, 'answer'));
+    list.append(step(index++, 'ОТВЕТ КЛИЕНТУ', answer, 'answer'));
 
-    root.append(list, create('div', 'ai-trace-history-label', 'Сырой журнал событий ниже'));
+    root.append(list, create('div', 'ai-trace-history-label', 'Технический журнал ниже — только если нужна детализация'));
 
     rendering = true;
     observer?.disconnect();
