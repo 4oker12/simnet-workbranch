@@ -6,6 +6,7 @@ import { CONNECTION_KNOWLEDGE } from '../src/features/ai-operator/knowledge/conn
 import { BILLING_KNOWLEDGE } from '../src/features/ai-operator/knowledge/billing.js';
 import { SERVICE_KNOWLEDGE } from '../src/features/ai-operator/knowledge/services.js';
 import { BILLING_SETTLEMENT_CYCLE_KNOWLEDGE } from '../src/features/ai-operator/knowledge/billing-settlement-cycle.js';
+import { TECHNICAL_KNOWLEDGE } from '../src/features/ai-operator/knowledge/technical.js';
 
 function byId(items, id) {
   const article = items.find(item => item.id === id);
@@ -105,12 +106,31 @@ test('returning subscriber and new occupant stay separate from historical contra
   const pause = byId(SERVICE_KNOWLEDGE, 'service.pause');
   assert.match(pause.text, /С даты вступления паузы в силу.*начисление.*прекращается/us);
   assert.match(pause.text, /если паузу не поставили.*начисления могли продолжаться/isu);
+  assert.match(pause.text, /автоматическая пауза.*один месяц/isu);
+  assert.match(pause.text, /снимается автоматически/u);
+  assert.match(pause.text, /вплоть до 6 месяцев/u);
 
   const settlement = byId(BILLING_SETTLEMENT_CYCLE_KNOWLEDGE, 'billing.settlement-cycle');
   assert.match(settlement.text, /L1 создаёт финансовый тикет/u);
   assert.match(settlement.text, /временный платёж.*мост/us);
   assert.match(settlement.text, /новый жилец.*не переносится/us);
-  assert.match(settlement.text, /типичный короткий срок.*2–3 дн/isu);
+  assert.match(settlement.text, /от 1 до 5 суток/u);
+  assert.match(settlement.text, /1–3 суток/u);
+  assert.match(settlement.text, /в течение 3 суток/u);
+  assert.match(settlement.text, /Billing рассчитывает сумму пропорционально/u);
+});
+
+test('guest access is a hard remote-recovery split for the old-line scenario', () => {
+  const guest = byId(TECHNICAL_KNOWLEDGE, 'technical.guest-access-recovery');
+  assert.match(guest.text, /WAN Link.*предварительный признак/us);
+  assert.match(guest.text, /Если гостевой доступ появился.*удалённого решения/us);
+  assert.match(guest.text, /выезд мастера.*не нужен/us);
+  assert.match(guest.text, /гостевой доступ не появляется.*вызов мастера/us);
+  assert.match(guest.text, /отвязать этот MAC от старого договора.*привязать к новому/us);
+
+  const occupant = byId(CONNECTION_KNOWLEDGE, 'connection.new-occupant-existing-line');
+  assert.match(occupant.text, /guest-доступа.*достаточным операционным признаком/us);
+  assert.match(occupant.text, /guest-доступ не появляется.*вызову мастера/us);
 });
 
 test('payment knowledge keeps calendar billing separate from mid-month resumed service', () => {
