@@ -122,7 +122,8 @@ export function extractStandaloneSubscriberIdentity(transcript = []) {
     if (/^\d{3,12}$/.test(token)) return { contract: token, sourceTurn: index, confidence: 'standalone-contract' };
 
     const wholeLogin = genericLogin(token);
-    if (wholeLogin && !/\s/.test(source)) {
+    const containsEmbeddedAbon = /abon\d/i.test(wholeLogin) && !/^abon\d{3,12}$/i.test(wholeLogin);
+    if (wholeLogin && !containsEmbeddedAbon && !/\s/.test(source)) {
       return { login: wholeLogin, sourceTurn: index, confidence: 'standalone-login' };
     }
 
