@@ -52,26 +52,52 @@ async function executeRead(tabId, id) {
         return compact(node.options?.[node.selectedIndex]?.textContent || node.value || '', 260);
       };
       const input = (root, name) => compact(root?.querySelector?.(`[name="${CSS.escape(name)}"]`)?.value || '', 260);
-      const indexRows = root => {
+      const readRows = root => {
+        if (!root?.querySelectorAll) return [];
+        return [...root.querySelectorAll('tr')].map(row => {
+          const cells = [...row.querySelectorAll(':scope > td, :scope > th')].map(cell => {
+            const text = compact(cell.textContent || '', 500);
+            const control = cell.querySelector('select,input:not([type="hidden"]),textarea');
+            let value = '';
+            if (control?.tagName === 'SELECT') value = compact(control.options?.[control.selectedIndex]?.textContent || control.value || '', 500);
+            else if (control) value = compact(control.value || '', 500);
+            else value = text;
+            return { text, value };
+          }).filter(cell => cell.text || cell.value);
+          return { cells, text: compact(row.textContent || '', 700) };
+        }).filter(row => row.cells.length);
+      };
+      const indexRows = rows => {
         const byLabel = new Map();
-        if (!root) return byLabel;
-        const rows = root.querySelectorAll('tr');
-        for (let i = 0; i < rows.length; i += 1) {
-          const row = rows[i];
-          const cells = row.querySelectorAll(':scope > td, :scope > th');
-          if (!cells || cells.length < 2) continue;
-          const label = compact(cells[0].textContent || '', 260).toLowerCase();
+        for (const row of Array.isArray(rows) ? rows : []) {
+          if (row.cells.length < 2) continue;
+          const label = compact(row.cells[0]?.text || '', 260).toLowerCase();
           if (!label) continue;
-          const last = cells[cells.length - 1];
-          const control = last.querySelector('select,input:not([type="hidden"]),textarea');
-          let value = '';
-          if (control?.tagName === 'SELECT') value = compact(control.options?.[control.selectedIndex]?.textContent || control.value || '', 500);
-          else if (control) value = compact(control.value || '', 500);
-          else value = compact(last.textContent || '', 500);
+          const value = compact(row.cells.at(-1)?.value || row.cells.at(-1)?.text || '', 500);
           // Prefer the first non-empty value when Billing repeats a label.
           if (!byLabel.has(label) || (!byLabel.get(label) && value)) byLabel.set(label, value);
         }
         return byLabel;
+      };
+      const discountFromRows = rows => {
+        for (const row of Array.isArray(rows) ? rows : []) {
+          const labelIndex = row.cells.findIndex(cell => /(?:скидк|знижк)/iu.test(cell.text || ''));
+          if (labelIndex < 0) continue;
+          const label = compact(row.cells[labelIndex]?.text || '', 260);
+          const tail = row.cells.slice(labelIndex + 1)
+            .map(cell => compact(cell.value || cell.text || '', 260))
+            .filter(Boolean);
+          const value = compact(tail.join(' | ') || row.text || label, 500);
+          const percentMatch = `${value} ${row.text}`.match(/(-?\d+(?:[.,]\d+)?)\s*%/u);
+          const percent = percentMatch ? Number(String(percentMatch[1]).replace(',', '.')) : null;
+          return {
+            label,
+            value,
+            raw: compact(row.text || '', 700),
+            ...(Number.isFinite(percent) ? { percent } : {})
+          };
+        }
+        return null;
       };
       const rowValueFromIndex = (index, patterns) => {
         for (const [label, value] of index) {
@@ -111,8 +137,11 @@ async function executeRead(tabId, id) {
         // The right summary table owns tariff/total rows, but "На счету, грн."
         // lives elsewhere on a=user. Index the whole page as an authoritative
         // fallback so current balance can never be confused with derived balances.
-        const index = indexRows(table);
-        const pageIndex = indexRows(root);
+        const tableRows = readRows(table);
+        const pageRows = readRows(root);
+        const index = indexRows(tableRows);
+        const pageIndex = indexRows(pageRows);
+        const discount = discountFromRows(pageRows);
         const tariffDisplay = rowValueFromIndex(index, [/^тарифи\s+на\s+інтернет/i, /^тарифы\s+на\s+интернет/i]);
         const tariffMatch = tariffDisplay.match(/^\[(\d+)\]\s*(.+)$/);
         const currentTariff = compact(tariffMatch?.[2] || tariffDisplay || selected(root, 'paket') || '', 260);
@@ -141,6 +170,7 @@ async function executeRead(tabId, id) {
           // canonical runtime can mark it UNKNOWN and invoke broader fallback.
           if (Number.isFinite(value)) finance[key] = value;
         }
+        if (discount) finance.discount = discount;
         return {
           identity: {
             billingId: String(targetBillingId),

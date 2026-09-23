@@ -69,6 +69,27 @@ test('balance and total due share one Billing main-summary source read', async (
   assert.deepEqual(out.diagnostics.sourceReads, ['billing.mainSummary']);
 });
 
+test('discount is a canonical finance fact and is carried with the finance bundle', async () => {
+  const discount = { label: 'Знижка', value: '50 %', raw: 'Знижка 50 %', percent: 50 };
+  const out = await resolveFacts({
+    context: IDENTITY,
+    facts: ['subscriber.finance.totalDue'],
+    execute: async () => mainSummary({
+      finance: {
+        accountBalance: 550,
+        totalDue: 200,
+        price: 250,
+        balanceAfterTariff: 350,
+        discount
+      }
+    }),
+    now: NOW
+  });
+  assert.ok(out.resolvedFacts.includes('subscriber.finance.discount'));
+  assert.equal(value(out, 'subscriber.finance.discount').status, 'known');
+  assert.deepEqual(value(out, 'subscriber.finance.discount').value, discount);
+});
+
 test('successful empty next tariff is observed no, not unknown', async () => {
   const out = await resolveFacts({
     context: IDENTITY,
@@ -262,6 +283,7 @@ test('semantic understanding requests canonical facts without choosing tools', (
   const prompt = messages.map(item => item.content).join('\n');
   assert.match(prompt, /"required_facts"/);
   assert.match(prompt, /subscriber\.tariff\.current\.name/);
+  assert.match(prompt, /subscriber\.finance\.discount/);
   assert.match(prompt, /не выбирай tools/i);
 
   const needs = planLiveDataNeeds({ probe: { requiredFacts: ['subscriber.tariff.current.name'], liveDataNeed: 'needed' } });

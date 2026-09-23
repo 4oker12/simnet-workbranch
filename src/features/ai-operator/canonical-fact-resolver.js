@@ -12,6 +12,7 @@ const FINANCE_BUNDLE_FACTS = Object.freeze([
   'subscriber.finance.balance.afterTariff',
   'subscriber.finance.balance.withoutTemporary',
   'subscriber.finance.temporaryPayment',
+  'subscriber.finance.discount',
   'subscriber.finance.totalDue',
   'subscriber.finance.recurringTotal',
   'subscriber.finance.payments',
