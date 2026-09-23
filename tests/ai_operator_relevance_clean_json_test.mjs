@@ -121,14 +121,16 @@ test('clean model path has no SIMNET tool manifest and cannot request live tools
 test('answer relevance boundary is deterministic, uses zero API calls and strips auto-injected KB prefix', async () => {
   const gateSource = fs.readFileSync(new URL('../src/features/ai-operator/answer-relevance-gate.js', import.meta.url), 'utf8');
   const broker = fs.readFileSync(new URL('../src/features/ai-operator/semantic-tool-broker.js', import.meta.url), 'utf8');
+  const brokerRuntimeBase = fs.readFileSync(new URL('../src/features/ai-operator/semantic-tool-broker-runtime-base.js', import.meta.url), 'utf8');
+  const brokerSources = `${broker}\n${brokerRuntimeBase}`;
 
   assert.doesNotMatch(gateSource, /fetch\s*\(/);
   assert.doesNotMatch(gateSource, /readAiRuntimeConfig|AI_OPERATOR_GENERATION_MODEL_POOL|recordApiUsage/);
   assert.match(gateSource, /deterministic_local_relevance_boundary/);
   assert.match(gateSource, /ok=true не считается подтверждением этого факта/);
-  assert.match(broker, /applyAnswerRelevanceGate/);
-  assert.match(broker, /answerRelevance: relevance\.answerRelevance/);
-  assert.match(broker, /relevanceGate: relevance\.gate/);
+  assert.match(brokerSources, /applyAnswerRelevanceGate/);
+  assert.match(brokerSources, /answerRelevance: relevance\.answerRelevance/);
+  assert.match(brokerSources, /relevanceGate: relevance\.gate/);
 
   let fetchCalls = 0;
   globalThis.fetch = async () => {
