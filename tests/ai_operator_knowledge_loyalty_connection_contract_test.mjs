@@ -122,13 +122,13 @@ test('payment knowledge keeps calendar billing separate from mid-month resumed s
   assert.match(payment.text, /не подтверждением поступления денег/u);
 
   assert.match(cycle.text, /13-го числа.*сама по себе не означает.*до 13-го числа следующего месяца/isu);
-  assert.match(cycle.text, /Обычного посуточного или почасового тарифа/u);
-  assert.match(cycle.text, /снимается с паузы/u);
-  assert.match(cycle.text, /начисление рассчитывается пропорционально/u);
-  assert.match(cycle.text, /не возникает автоматически только потому, что клиент поздно оплатил/u);
+  assert.match(cycle.text, /календарного расчётного периода/iu);
+  assert.match(cycle.text, /стояла на паузе.*неполного периода или перерасчёта/isu);
+  assert.match(cycle.text, /точную формулу и сумму не выводить/iu);
+  assert.match(cycle.text, /Поздняя оплата.*не является доказательством права на пропорциональный расчёт/isu);
 
-  assert.match(state.text, /необходимая сумма/u);
-  assert.match(state.text, /не создаёт новый месячный период от даты платежа/u);
+  assert.match(state.text, /Фактическое состояние доступа брать из accessState\/serviceState/iu);
+  assert.match(state.text, /не создаёт новый расчётный период от даты платежа/iu);
 });
 
 test('credit days and Omega TV preserve operational practice without inventing actions', () => {
