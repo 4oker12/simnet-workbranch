@@ -13,14 +13,20 @@ function customer(text) {
   return [{ role: 'customer', text }];
 }
 
-test('standalone named login is extracted as login class', () => {
+test('standalone or explicitly labelled named login is extracted as login class', () => {
   const a = extractStandaloneSubscriberIdentity(customer('alphaUser42'));
   assert.equal(a.login, 'alphaUser42');
   assert.equal(a.confidence, 'standalone-login');
 
-  const b = extractStandaloneSubscriberIdentity(customer('beta_login_9, какой у меня баланс?'));
+  const b = extractStandaloneSubscriberIdentity(customer('логин beta_login_9, какой у меня баланс?'));
   assert.equal(b.login, 'beta_login_9');
-  assert.match(b.confidence, /token-login|standalone/);
+  assert.equal(b.confidence, 'labeled-text-identity');
+
+  assert.deepEqual(
+    extractStandaloneSubscriberIdentity(customer('beta_login_9, какой у меня баланс?')),
+    {},
+    'an arbitrary latin token at the start of a conversational sentence must not silently rebind subscriber identity'
+  );
 });
 
 test('abon and numeric contract remain supported', () => {
@@ -35,10 +41,14 @@ test('common non-login words are not treated as subscriber login', () => {
   assert.deepEqual(extractStandaloneSubscriberIdentity(customer('tariff')), {});
 });
 
-test('analysis probe ids are used only when text has no identity and shape is valid', () => {
+test('analysis probe identity hints cannot invent a generic named login', () => {
   assert.deepEqual(
     identityFromAnalysisHints({ probe: { ids: { login: 'namedLoginX' } } }),
-    { login: 'namedLoginX' }
+    {}
+  );
+  assert.deepEqual(
+    identityFromAnalysisHints({ probe: { ids: { login: 'abon999888' } } }),
+    { login: 'abon999888' }
   );
   assert.deepEqual(
     identityFromAnalysisHints({ probe: { ids: { login: 'internet' } } }),
@@ -46,7 +56,7 @@ test('analysis probe ids are used only when text has no identity and shape is va
   );
   assert.deepEqual(
     resolveSubscriberIdentityHints(customer('просто вопрос'), { probe: { ids: { login: 'namedLoginY' } } }),
-    { login: 'namedLoginY' }
+    {}
   );
   assert.deepEqual(
     resolveSubscriberIdentityHints(customer('abon999888'), { probe: { ids: { login: 'namedLoginY' } } }),
@@ -54,9 +64,10 @@ test('analysis probe ids are used only when text has no identity and shape is va
   );
 });
 
-test('broker extractIdentityHints returns named login from free text', () => {
-  const hints = extractIdentityHints(customer('gammaLogin7 сколько на счету?'));
+test('broker extractIdentityHints returns named login only with literal identity evidence', () => {
+  const hints = extractIdentityHints(customer('логин gammaLogin7, сколько на счету?'));
   assert.equal(hints.login, 'gammaLogin7');
+  assert.deepEqual(extractIdentityHints(customer('gammaLogin7 сколько на счету?')), {});
 });
 
 test('explicit identifier triggers customer.lookup before subscriber snapshot/facts', async () => {
@@ -68,7 +79,7 @@ test('explicit identifier triggers customer.lookup before subscriber snapshot/fa
 
   await groundSubscriberReply({
     draft: { reply: '', subscriberDataNeeded: [], degraded: false },
-    transcript: customer('deltaLogin1, какой у меня тариф?'),
+    transcript: customer('логин deltaLogin1, какой у меня тариф?'),
     analysis: {
       probe: {
         requiredFacts: ['subscriber.tariff.current.name'],
