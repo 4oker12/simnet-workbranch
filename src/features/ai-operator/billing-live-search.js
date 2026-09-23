@@ -252,6 +252,7 @@ async function executeSearch(tabId, request) {
         const activeServicesTotal = activeServices.length === activeAmounts.length ? Math.round(activeAmounts.reduce((sum, value) => sum + value, 0) * 100) / 100 : null;
         const totalDue = money(rowValue(doc, [/^разом до сплати/i, /^итого к оплате/i]));
         const temporaryText = temporaryPaymentText(doc);
+        const discountText = rowValue(doc, [/^скидк/i, /^знижк/i, /^discount/i]);
         return {
           identity: {
             billingId: String(billingId || auth.billingId || ''),
@@ -283,8 +284,10 @@ async function executeSearch(tabId, request) {
             balanceWithoutTemporary: money(rowValue(doc, [/на счете без учета временных платежей/i, /на рахунку без урахування тимчасових платежів/i])),
             temporaryPayment: money(temporaryText),
             temporaryPaymentText: temporaryText,
-            discountText: rowValue(doc, [/^скидк/i, /^знижк/i, /^discount/i]) || '',
-            discountSemantics: 'billing_observed_discount_field_raw_units_not_assumed'
+            ...(discountText ? {
+              discountText,
+              discountSemantics: 'billing_observed_discount_field_raw_units_not_assumed'
+            } : {})
           },
           network: {
             ip: compact(input(doc, 'ip') || auth.ip, 80),
