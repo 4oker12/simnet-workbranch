@@ -1,11 +1,11 @@
-/* Whole settings page: light surfaces, readable text, SIMNET plum actions. */
+/* Whole settings page: light surfaces, readable text, calm blue primary actions. */
 :root{color-scheme:light;background:#e9edf3;color:#111827;--ai-plum:#2563eb;--ai-accent:#2563eb;--ai-accent-strong:#1d4ed8;--ai-accent-soft:#eff6ff}
 body{background:linear-gradient(180deg,#f4f6f9,#e9edf3);color:#111827}
 .card{background:#fff;border-color:#cbd3df;box-shadow:0 8px 26px rgba(30,41,59,.08)}
 .top h1,.card h2,.card h3,.case-head strong{color:#111827}
 .eyebrow{color:#2563eb}.version,.muted,.case-meta,.correction-count,.routes li span,.profile p{color:#475569!important}
 .card p,.field-label,.toggle-label{color:#334155}
-.badge{background:#f5e8ef;border-color:#cfb6c3;color:#6f173e}
+.badge{background:#eef2f7;border-color:#cbd5e1;color:#475569}
 .badge.ok,.status.ok,.profile span{background:#e7f6ed;border-color:#91caa8;color:#14532d}
 .key-row input,.text-input,select,textarea{background:#fff;color:#0f172a;border-color:#aeb8c7;box-shadow:inset 0 0 0 1px rgba(15,23,42,.02)}
 input::placeholder,textarea::placeholder{color:#667085}
