@@ -191,3 +191,15 @@ test('soft broker stays independent of deterministic regulator files and disting
   assert.match(source, /поле reply ОБЯЗАТЕЛЬНО должно быть непустым/i);
   assert.match(source, /ok=false означает.*НЕ доказательство отрицательного факта/i);
 });
+
+
+test('tool synthesis prompt forbids card dumps and treating payment descriptions as service classifiers', () => {
+  const source = fs.readFileSync(
+    new URL('../src/features/ai-operator/semantic-tool-broker-core-runtime-base.js', import.meta.url),
+    'utf8'
+  );
+  assert.match(source, /не превращай ответ в сводку карточки/i);
+  assert.match(source, /статусы услуги\/доступа.*не перечисляй/is);
+  assert.match(source, /description.*не используй.*как доказательство типа услуги/is);
+  assert.match(source, /1–3 короткими предложениями/i);
+});

@@ -15,6 +15,8 @@ assert.match(balance.text, /balanceWithoutTemporary/);
 assert.match(balance.text, /temporaryPayment/);
 assert.match(balance.text, /accountBalance.*фактическ|фактическ.*accountBalance/is);
 assert.match(balance.text, /balanceAfterTariff.*НЕ фактический|НЕ фактический.*balanceAfterTariff/is);
+assert.match(balance.text, /не пересказывай финансовую карточку целиком/i);
+assert.match(balance.text, /Снятие за услуги интернет.*не доказывает.*интернет-тариф/is);
 
 const temporaryPayment = BILLING_FINANCE_KNOWLEDGE.find(item => item.id === 'billing.temporary-payment');
 assert.ok(temporaryPayment);
