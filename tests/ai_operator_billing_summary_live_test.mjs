@@ -18,10 +18,16 @@ test('Billing summary reader refuses to run without a Billing id', async () => {
 });
 
 
-test('Billing summary scans full table rows and preserves an observed discount field', () => {
+test('Billing summary scans nested tariff rows and preserves both discount percent and amount', () => {
   const source = requireSource();
   assert.match(source, /const pageRows = readRows\(root\)/);
   assert.match(source, /discountFromRows\(pageRows\)/);
-  assert.match(source, /\(\?:скидк\|знижк\)/u);
+  assert.match(source, /row\.cells\.length < 2/);
+  assert.match(source, /\^\(\?:скидк\|знижк\)/u);
+  assert.match(source, /%\/u\.test\(label\).*percent = numeric/s);
+  assert.match(source, /грн\/iu\.test\(label\).*adjustmentUAH = numeric/s);
+  assert.match(source, /amountUAH:\s*Math\.abs\(adjustmentUAH\)/);
+  assert.match(source, /adjustmentUAH/);
+  assert.match(source, /entries/);
   assert.match(source, /finance\.discount = discount/);
 });

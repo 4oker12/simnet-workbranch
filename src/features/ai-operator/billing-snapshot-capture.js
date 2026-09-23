@@ -122,6 +122,9 @@
   }
 
   function readDiscount() {
+    const entries = [];
+    let percent = null;
+    let adjustmentUAH = null;
     const rows = document.querySelectorAll('tr');
     for (let r = 0; r < rows.length; r += 1) {
       const row = rows[r];
@@ -135,22 +138,28 @@
         }
         return { text: clean(cell.textContent || '', 260), value };
       }).filter(cell => cell.text || cell.value);
-      const labelIndex = cells.findIndex(cell => /(?:скидк|знижк)/iu.test(cell.text || ''));
-      if (labelIndex < 0) continue;
-      const label = clean(cells[labelIndex]?.text || '', 260);
-      const tail = cells.slice(labelIndex + 1).map(cell => clean(cell.value || cell.text || '', 260)).filter(Boolean);
-      const raw = clean(row.textContent || '', 700);
-      const value = clean(tail.join(' | ') || raw || label, 500);
-      const percentMatch = `${value} ${raw}`.match(/(-?\d+(?:[.,]\d+)?)\s*%/u);
-      const percent = percentMatch ? Number(String(percentMatch[1]).replace(',', '.')) : null;
-      return {
-        label,
-        value,
-        raw,
-        ...(Number.isFinite(percent) ? { percent } : {})
-      };
+      // Ignore wrapper rows around nested tables. A discount row itself has a
+      // direct label cell and a direct value cell.
+      if (cells.length < 2) continue;
+      const label = clean(cells[0]?.text || '', 260);
+      if (!/^(?:скидк|знижк)/iu.test(label)) continue;
+      const value = clean(cells.at(-1)?.value || cells.at(-1)?.text || '', 260);
+      if (!value) continue;
+      const numeric = money(value);
+      const raw = clean(row.textContent || `${label} ${value}`, 700);
+      entries.push({ label, value, raw });
+      if (/%/u.test(label) && Number.isFinite(numeric)) percent = numeric;
+      if (/грн/iu.test(label) && Number.isFinite(numeric)) adjustmentUAH = numeric;
     }
-    return null;
+    if (!entries.length) return null;
+    return {
+      ...(Number.isFinite(percent) ? { percent } : {}),
+      ...(Number.isFinite(adjustmentUAH) ? {
+        amountUAH: Math.abs(adjustmentUAH),
+        adjustmentUAH
+      } : {}),
+      entries
+    };
   }
 
   function readPayments() {

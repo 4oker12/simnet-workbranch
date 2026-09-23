@@ -80,24 +80,32 @@ async function executeRead(tabId, id) {
         return byLabel;
       };
       const discountFromRows = rows => {
+        const entries = [];
+        let percent = null;
+        let adjustmentUAH = null;
         for (const row of Array.isArray(rows) ? rows : []) {
-          const labelIndex = row.cells.findIndex(cell => /(?:скидк|знижк)/iu.test(cell.text || ''));
-          if (labelIndex < 0) continue;
-          const label = compact(row.cells[labelIndex]?.text || '', 260);
-          const tail = row.cells.slice(labelIndex + 1)
-            .map(cell => compact(cell.value || cell.text || '', 260))
-            .filter(Boolean);
-          const value = compact(tail.join(' | ') || row.text || label, 500);
-          const percentMatch = `${value} ${row.text}`.match(/(-?\d+(?:[.,]\d+)?)\s*%/u);
-          const percent = percentMatch ? Number(String(percentMatch[1]).replace(',', '.')) : null;
-          return {
-            label,
-            value,
-            raw: compact(row.text || '', 700),
-            ...(Number.isFinite(percent) ? { percent } : {})
-          };
+          // Nested Billing tables mean a wrapper <tr> can contain the whole
+          // tariff table text. Only a real direct label/value row is evidence.
+          if (!Array.isArray(row.cells) || row.cells.length < 2) continue;
+          const label = compact(row.cells[0]?.text || '', 260);
+          if (!/^(?:скидк|знижк)/iu.test(label)) continue;
+          const value = compact(row.cells.at(-1)?.value || row.cells.at(-1)?.text || '', 260);
+          if (!value) continue;
+          const numeric = money(value);
+          const raw = compact(row.text || `${label} ${value}`, 700);
+          entries.push({ label, value, raw });
+          if (/%/u.test(label) && Number.isFinite(numeric)) percent = numeric;
+          if (/грн/iu.test(label) && Number.isFinite(numeric)) adjustmentUAH = numeric;
         }
-        return null;
+        if (!entries.length) return null;
+        return {
+          ...(Number.isFinite(percent) ? { percent } : {}),
+          ...(Number.isFinite(adjustmentUAH) ? {
+            amountUAH: Math.abs(adjustmentUAH),
+            adjustmentUAH
+          } : {}),
+          entries
+        };
       };
       const rowValueFromIndex = (index, patterns) => {
         for (const [label, value] of index) {
