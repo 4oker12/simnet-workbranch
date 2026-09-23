@@ -121,7 +121,7 @@ test('payment knowledge keeps calendar billing separate from mid-month resumed s
   assert.match(payment.text, /не превращать конкретные даты 28–30 числа в универсальное правило/iu);
   assert.match(payment.text, /не подтверждением поступления денег/u);
 
-  assert.match(cycle.text, /13-го числа не означает.*до 13-го числа следующего месяца/us);
+  assert.match(cycle.text, /13-го числа.*сама по себе не означает.*до 13-го числа следующего месяца/isu);
   assert.match(cycle.text, /Обычного посуточного или почасового тарифа/u);
   assert.match(cycle.text, /снимается с паузы/u);
   assert.match(cycle.text, /начисление рассчитывается пропорционально/u);
