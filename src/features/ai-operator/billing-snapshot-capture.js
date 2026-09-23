@@ -187,6 +187,7 @@
     const derivedBaseTariffAmount = Number.isFinite(totalDue) && Number.isFinite(activeServicesTotal)
       ? Math.max(0, totalDue - activeServicesTotal)
       : null;
+    const discountText = rowValue([/^скидк/i, /^знижк/i, /^discount/i]);
 
     return {
       identity: {
@@ -219,8 +220,10 @@
         balanceWithoutTemporary: money(rowValue([/на счете без учета временных платежей/i, /на рахунку без урахування тимчасових платежів/i])),
         temporaryPayment: money(temporaryText),
         temporaryPaymentText: temporaryText,
-        discountText: rowValue([/^скидк/i, /^знижк/i, /^discount/i]) || '',
-        discountSemantics: 'billing_observed_discount_field_raw_units_not_assumed'
+        ...(discountText ? {
+          discountText,
+          discountSemantics: 'billing_observed_discount_field_raw_units_not_assumed'
+        } : {})
       },
       network: {
         ip: clean(input('ip') || auth.ip, 80),
