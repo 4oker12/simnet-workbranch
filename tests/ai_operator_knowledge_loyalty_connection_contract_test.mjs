@@ -126,7 +126,7 @@ test('guest access is a hard remote-recovery split for the old-line scenario', (
   assert.match(guest.text, /Если гостевой доступ появился.*удалённого решения/us);
   assert.match(guest.text, /выезд мастера.*не нужен/us);
   assert.match(guest.text, /гостевой доступ не появляется.*вызов мастера/us);
-  assert.match(guest.text, /отвязать этот MAC от старого договора.*привязать к новому/us);
+  assert.match(guest.text, /MAC текущего роутера.*закреплён за старым или другим договором.*можно отвязать.*привязать к новому/us);
 
   const occupant = byId(CONNECTION_KNOWLEDGE, 'connection.new-occupant-existing-line');
   assert.match(occupant.text, /guest-доступа.*достаточным операционным признаком/us);
