@@ -131,7 +131,9 @@ test('abon login and numeric contract use the lightweight exact Billing identity
   assert.match(exactLookup, /a:\s*'dopdata',\s*parent_type:\s*'0',\s*id,\s*tmpl:\s*'2'/);
   assert.match(exactLookup, /address\.full\s*=\s*composeAddress\(address\)/);
   assert.match(exactLookup, /candidate\.address\s*=\s*address\.full/);
-  assert.doesNotMatch(exactLookup, /tmpl:\s*'1'/, 'identity enrichment may read address, not technical data');
+  assert.match(exactLookup, /tmpl:\s*'1'/, 'confirmed identity must trigger bounded TechnicalSnapshot bootstrap');
+  assert.match(exactLookup, /TECHNICAL_READ_FAILED/);
+  assert.match(exactLookup, /snapshots\[id\]\s*=\s*snapshot/);
   assert.match(runtime, /classifyBillingExactIdentity\(toolArgs\)/);
   assert.match(runtime, /searchBillingExactIdentityLive\(toolArgs\)/);
   const exactRuntime = runtime.slice(
