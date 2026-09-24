@@ -77,7 +77,7 @@ async function readBillingSnapshots() {
   return readObjectStore(BILLING_SNAPSHOT_KEY);
 }
 
-async function persistBillingSnapshots(patch = {}) {
+export async function persistBillingSnapshots(patch = {}) {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch) || !Object.keys(patch).length) return;
   const current = await readBillingSnapshots();
   const merged = { ...current };
@@ -105,6 +105,8 @@ async function persistBillingSnapshots(patch = {}) {
       service: mergeObject(previous.service, snapshot.service),
       finance: mergeFinance(previous.finance, snapshot.finance),
       network: mergeObject(previous.network, snapshot.network),
+      technical: mergeObject(previous.technical, snapshot.technical),
+      bootstrapMeta: mergeObject(previous.bootstrapMeta, snapshot.bootstrapMeta),
       payments: Array.isArray(snapshot.payments) && snapshot.payments.length ? snapshot.payments : (Array.isArray(previous.payments) ? previous.payments : []),
       billingId: String(snapshot.billingId || billingId),
       observedAt: String(snapshot.observedAt || nowIso()),
@@ -261,6 +263,8 @@ function liveBillingSnapshotResult(tool, snapshot) {
       service,
       finance,
       network,
+      technical: snapshot?.technical || {},
+      bootstrapMeta: snapshot?.bootstrapMeta || {},
       payments: Array.isArray(snapshot?.payments) ? snapshot.payments : [],
       evidence: {
         billingSnapshot: BILLING_SNAPSHOT_KEY,
