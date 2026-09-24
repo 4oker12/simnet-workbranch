@@ -56,7 +56,8 @@ test('Billing exact lookup reproduces the native listuser form through the persi
   assert.match(capture, /SIMNET_AI_BILLING_EXACT_LOOKUP/);
   assert.match(capture, /f:\s*'n',\s*a:\s*'listuser',\s*name:\s*nativeQuery/);
   assert.doesNotMatch(capture, /what_search/);
-  assert.match(capture, /rawValue\.match\(\/\^abon\(\\d\{3,12\}\)\$\/i\)\?\.\[1\]/);
+  assert.match(capture, /nativeQueries\s*=\s*\[\.\.\.new Set\(\[rawValue, abonDigits\]/);
+  assert.match(capture, /for \(const nativeQuery of nativeQueries\)/);
 });
 
 
@@ -122,6 +123,7 @@ test('abon login and numeric contract use the lightweight exact Billing identity
   const runtime = fs.readFileSync(new URL('../src/features/ai-operator/live-tool-runtime.js', import.meta.url), 'utf8');
   assert.match(reader, /sendExactLookup\(tabId, request\)/);
   assert.match(capture, /name:\s*nativeQuery/);
+  assert.match(capture, /\[rawValue, abonDigits\]/, 'literal abon login must be tried before numeric alias');
   assert.doesNotMatch(capture, /a:\s*'dopdata'|tmpl:\s*'1'|tmpl:\s*'2'/);
   assert.match(runtime, /classifyBillingExactIdentity\(toolArgs\)/);
   assert.match(runtime, /searchBillingExactIdentityLive\(toolArgs\)/);
