@@ -510,6 +510,36 @@
           const expected = rawValue.replace(/\D+/g, '');
           if (actual && expected && actual !== expected) continue;
         }
+
+        // Once identity is confirmed by the main card, enrich the same candidate
+        // with the subscriber service address from the dedicated Billing address
+        // page. Address is part of subscriber context, not proof of ownership.
+        try {
+          const addressPage = await fetchDoc(makeUrl({
+            pp,
+            a: 'dopdata',
+            parent_type: '0',
+            id,
+            tmpl: '2'
+          }));
+          if (addressPage.ok && !authPage(addressPage.doc)) {
+            const addressInput = name => clean(addressPage.doc.querySelector(`[name="${CSS.escape(name)}"]`)?.value || '', 240);
+            const addressSelected = name => {
+              const select = addressPage.doc.querySelector(`select[name="${CSS.escape(name)}"]`);
+              const option = select?.options?.[select.selectedIndex];
+              return clean(option?.textContent || select?.value || '', 240);
+            };
+            candidate.address = composeAddress({
+              street: addressSelected('dopfield_5'),
+              building: addressInput('dopfield_6'),
+              block: addressInput('dopfield_11'),
+              entrance: addressInput('dopfield_12'),
+              floor: addressInput('dopfield_7'),
+              apartment: addressInput('dopfield_8')
+            });
+          }
+        } catch {}
+
         candidates.push(candidate);
       } catch {}
     }
