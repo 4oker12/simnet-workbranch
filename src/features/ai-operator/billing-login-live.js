@@ -55,7 +55,7 @@ async function billingTabs() {
   return rankBillingTabs(await chrome.tabs.query({ url: [...BILLING_TAB_URLS] }));
 }
 
-const EXACT_LOOKUP_MESSAGE = 'SIMNET_AI_BILLING_EXACT_LOOKUP';
+const EXACT_LOOKUP_MESSAGE = 'SIMNET_AI_BILLING_EXACT_LOOKUP_V2';
 const BILLING_CAPTURE_SCRIPT = 'src/features/ai-operator/billing-snapshot-capture.js';
 
 async function sendExactLookup(tabId, request) {
