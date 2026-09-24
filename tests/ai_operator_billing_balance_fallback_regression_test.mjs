@@ -56,17 +56,19 @@ test('null dedicated value cannot erase exact account balance recovered by fallb
   });
 });
 
-test('dedicated Billing parser searches the whole a=user page for На счету, грн', () => {
+test('dedicated Billing parser prefers the main form for На счету and keeps whole-page fallback', () => {
   const source = readFileSync(
     new URL('../src/features/ai-operator/billing-summary-live.js', import.meta.url),
     'utf8'
   );
 
+  assert.match(source, /const mainRows = readRows\(mainForm\)/);
+  assert.match(source, /const mainIndex = indexRows\(mainRows\)/);
   assert.match(source, /const pageRows = readRows\(root\)/);
   assert.match(source, /const pageIndex = indexRows\(pageRows\)/);
   assert.match(
     source,
-    /\['accountBalance',\s*rowValueFromIndex\(pageIndex,\s*\[\/\^на\\s\+счету/s
+    /\['accountBalance',\s*rowFrom\(mainIndex, pageIndex,\s*\[\/\^на\\s\+счету/s
   );
   assert.match(source, /if \(Number\.isFinite\(value\)\) finance\[key\] = value/);
 });
