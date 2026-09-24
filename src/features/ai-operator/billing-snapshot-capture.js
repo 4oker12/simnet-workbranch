@@ -2,6 +2,10 @@
 
 (() => {
   const STORE_KEY = 'simnet_ai_operator_billing_snapshots_v1';
+  const MAIN_FORM_SELECTOR = 'form#formedit > table.tbg1.width100';
+  const AUTH_SELECTOR = 'table.usrlist.width100';
+  const SUMMARY_SELECTOR = 'table.tbg1.nav3.width100';
+  const PAYMENTS_SELECTOR = '#my_x_16';
   if (!/^(?:admin\.simnet\.kiev\.ua|admin\.looknet\.kiev\.ua)$/i.test(location.hostname)) return;
 
   const params = new URLSearchParams(location.search);
@@ -13,11 +17,18 @@
     return out.length > max ? `${out.slice(0, max - 1)}…` : out;
   }
 
-  function selected(name) {
+  function selectedOption(name) {
     const node = document.querySelector(`select[name="${CSS.escape(name)}"]`);
-    if (!node) return '';
+    if (!node) return null;
     const option = node.options?.[node.selectedIndex];
-    return clean(option?.textContent || node.value || '');
+    return {
+      value: clean(option?.value ?? node.value ?? '', 80),
+      label: clean(option?.textContent || node.value || '', 260)
+    };
+  }
+
+  function selected(name) {
+    return selectedOption(name)?.label || '';
   }
 
   function input(name) {
@@ -29,18 +40,18 @@
   function rowIndex() {
     if (_rowIndex) return _rowIndex;
     const map = [];
-    const tables = document.querySelectorAll('table');
-    for (let t = 0; t < tables.length; t += 1) {
-      const rows = tables[t].rows;
-      if (!rows) continue;
-      for (let i = 0; i < rows.length; i += 1) {
-        const row = rows[i];
-        const cells = row.cells;
-        if (!cells || cells.length < 2) continue;
+    const roots = action === 'user'
+      ? [document.querySelector(MAIN_FORM_SELECTOR), document.querySelector(SUMMARY_SELECTOR)].filter(Boolean)
+      : [document];
+    for (const root of roots) {
+      const rows = root.querySelectorAll('tr');
+      for (const row of rows) {
+        const cells = [...row.querySelectorAll(':scope > td, :scope > th')];
+        if (cells.length < 2) continue;
         const label = clean(cells[0].textContent || '', 220).toLowerCase();
         if (!label) continue;
         const last = cells[cells.length - 1];
-        const control = last.querySelector('select,input:not([type="hidden"]),textarea');
+        const control = last.querySelector('select,input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),textarea');
         let value = '';
         if (control?.tagName === 'SELECT') {
           value = clean(control.options?.[control.selectedIndex]?.textContent || control.value || '');
@@ -125,7 +136,8 @@
     const entries = [];
     let percent = null;
     let adjustmentUAH = null;
-    const rows = document.querySelectorAll('tr');
+    const roots = [document.querySelector(SUMMARY_SELECTOR), document.querySelector(MAIN_FORM_SELECTOR)].filter(Boolean);
+    const rows = roots.flatMap(root => [...root.querySelectorAll('tr')]);
     for (let r = 0; r < rows.length; r += 1) {
       const row = rows[r];
       const cells = [...row.querySelectorAll(':scope > td, :scope > th')].map(cell => {
@@ -158,12 +170,13 @@
         amountUAH: Math.abs(adjustmentUAH),
         adjustmentUAH
       } : {}),
+      appliesTo: 'internet_tariff',
       entries
     };
   }
 
   function readPayments() {
-    const table = document.querySelector('#my_x_16');
+    const table = document.querySelector(PAYMENTS_SELECTOR);
     if (!table) return [];
     return [...table.querySelectorAll(':scope > tbody > tr, :scope > tr')].map(row => {
       const cells = [...row.querySelectorAll(':scope > td, :scope > th')];
@@ -194,7 +207,7 @@
   }
 
   function readAuthorization() {
-    const row = document.querySelector('table.usrlist tbody tr');
+    const row = document.querySelector(`${AUTH_SELECTOR} tbody tr`);
     if (!row) return {};
     const cells = [...row.querySelectorAll(':scope > td, :scope > th')];
     const title = clean(row.querySelector('img[title]')?.getAttribute('title') || '', 180);
@@ -224,6 +237,15 @@
     const derivedBaseTariffAmount = Number.isFinite(totalDue) && Number.isFinite(activeServicesTotal)
       ? Math.max(0, totalDue - activeServicesTotal)
       : null;
+    const groupOption = selectedOption('grp');
+    const currentTariffOption = selectedOption('paket');
+    const nextTariffOption = selectedOption('next_paket');
+    const tvTariffOption = selectedOption('paket3');
+    const nextTvTariffOption = selectedOption('next_paket3');
+    const accessOption = selectedOption('state');
+    const serviceStateOption = selectedOption('cstate');
+    const discountRemoveOption = selectedOption('discount_remove');
+    const discount = readDiscount();
 
     return {
       identity: {
@@ -231,40 +253,76 @@
         contract,
         login: login || auth.login,
         fullName: clean(input('fio'), 240),
-        contractDate: clean(input('contract_date'), 80)
+        contractDate: clean(input('contract_date'), 80),
+        ppk: rowValue([/^ппк$/i])
       },
       service: {
-        group: selected('grp'),
-        currentTariff: selected('paket'),
-        nextTariff: document.querySelector('select[name="next_paket"]') ? selected('next_paket') : null,
+        group: groupOption?.label || '',
+        groupId: groupOption?.value || '',
+        currentTariff: currentTariffOption?.label || '',
+        currentTariffSelectedId: currentTariffOption?.value || '',
+        currentTariffSelectedLabel: currentTariffOption?.label || '',
+        nextTariff: nextTariffOption?.label ?? null,
+        nextTariffId: nextTariffOption?.value || '',
         nextTariffDelay: selected('next_paket_delay'),
-        accessState: selected('state'),
-        serviceState: selected('cstate'),
+        tvTariff: tvTariffOption?.label || '',
+        tvTariffId: tvTariffOption?.value || '',
+        nextTvTariff: nextTvTariffOption?.label ?? null,
+        nextTvTariffId: nextTvTariffOption?.value || '',
+        nextTvTariffDelay: selected('next_paket3_delay'),
+        accessState: accessOption?.label || '',
+        accessStateCode: accessOption?.value || '',
+        serviceState: serviceStateOption?.label || '',
+        serviceStateCode: serviceStateOption?.value || '',
         startDay: input('start_day'),
         limit: rowValue([/^лимит$/i]),
         activeServices,
         activeServicesTotal,
-        derivedBaseTariffAmount
+        derivedBaseTariffAmount,
+        discountAutoRemove: discountRemoveOption?.label || '',
+        discountAutoRemoveCode: discountRemoveOption?.value || '',
+        comment: input('comment')
       },
       finance: {
         accountBalance: money(rowValue([/^на счету,?\s*грн/i, /^на рахунку,?\s*грн/i])),
+        accountBalanceSemantics: 'billing_displayed_balance_may_include_temporary_payment',
         price: money(rowValue([/^ціна,?\s*грн/i, /^цена,?\s*грн/i])),
         priceSemantics: 'generic_price_row_not_guaranteed_to_be_internet_tariff',
+        displayedPlanCost: money(rowValue([
+          /^підсумкова\s+вартість\s+тарифного\s+плану/i,
+          /^итоговая\s+стоимость\s+тарифного\s+плана/i
+        ])),
         totalDue,
         totalDueSemantics: 'current_billing_total_for_rendered_service_set_not_future_charge',
         balanceAfterTariff: money(rowValue([/на счете с учетом стоимости тарифного плана/i, /на рахунку з урахуванням вартості тарифного плану/i])),
         balanceWithoutTemporary: money(rowValue([/на счете без учета временных платежей/i, /на рахунку без урахування тимчасових платежів/i])),
         temporaryPayment: money(temporaryText),
         temporaryPaymentText: temporaryText,
-        discount: readDiscount()
+        temporaryPaymentSemantics: 'billing_temporary_credit_not_customer_money',
+        discount
       },
       network: {
         ip: clean(input('ip') || auth.ip, 80),
         authorization: auth,
         trafficIncomingBytes: clean(rowValue([/інтернет входящий, байт/i, /интернет входящий, байт/i]), 120),
-        trafficOutgoingBytes: clean(rowValue([/інтернет исходящий, байт/i, /интернет исходящий, байт/i]), 120)
+        trafficOutgoingBytes: clean(rowValue([/інтернет исходящий, байт/i, /интернет исходящий, байт/i]), 120),
+        uaixIncomingBytes: clean(rowValue([/^ua-ix\s+входящий,?\s*байт/i]), 120),
+        uaixOutgoingBytes: clean(rowValue([/^ua-ix\s+исходящий,?\s*байт/i]), 120),
+        internetAccountingMb: clean(rowValue([/^оплата\s+інтернет,?\s*мб:\s*загалом/i, /^оплата\s+интернет,?\s*мб:\s*всего/i]), 120),
+        uaixAccountingMb: clean(rowValue([/^оплата\s+ua-ix,?\s*мб:\s*загалом/i, /^оплата\s+ua-ix,?\s*мб:\s*всего/i]), 120),
+        direction3AccountingMb: clean(rowValue([/^оплата\s+['"]?направление\s+3['"]?,?\s*мб:\s*загалом/i]), 120),
+        direction4AccountingMb: clean(rowValue([/^оплата\s+['"]?направление\s+4['"]?,?\s*мб:\s*загалом/i]), 120)
       },
-      payments: readPayments()
+      payments: readPayments(),
+      parseMeta: {
+        blocks: {
+          mainForm: { selector: MAIN_FORM_SELECTOR, observed: Boolean(document.querySelector(MAIN_FORM_SELECTOR)) },
+          authorization: { selector: AUTH_SELECTOR, observed: Boolean(document.querySelector(AUTH_SELECTOR)) },
+          summary: { selector: SUMMARY_SELECTOR, observed: Boolean(document.querySelector(SUMMARY_SELECTOR)) },
+          recentEvents: { selector: PAYMENTS_SELECTOR, observed: Boolean(document.querySelector(PAYMENTS_SELECTOR)) }
+        },
+        ignored: ['password', 'old_*', 'session_tokens', 'unselected_select_options']
+      }
     };
   }
 

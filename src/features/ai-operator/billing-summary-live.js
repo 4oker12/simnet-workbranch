@@ -6,6 +6,8 @@ const BILLING_TAB_URLS = Object.freeze([
   'https://admin.simnet.kiev.ua/*',
   'https://admin.looknet.kiev.ua/*'
 ]);
+const MAIN_FORM_SELECTOR = 'form#formedit > table.tbg1.width100';
+const AUTH_SELECTOR = 'table.usrlist.width100';
 const SUMMARY_SELECTOR = 'table.tbg1.nav3.width100';
 const PAYMENTS_SELECTOR = '#my_x_16';
 const CACHE = new Map();
@@ -33,8 +35,8 @@ async function billingTabs() {
 async function executeRead(tabId, id) {
   const [execution] = await chrome.scripting.executeScript({
     target: { tabId },
-    args: [id, SUMMARY_SELECTOR, PAYMENTS_SELECTOR],
-    func: async (targetBillingId, summarySelector, paymentsSelector) => {
+    args: [id, MAIN_FORM_SELECTOR, AUTH_SELECTOR, SUMMARY_SELECTOR, PAYMENTS_SELECTOR],
+    func: async (targetBillingId, mainFormSelector, authSelector, summarySelector, paymentsSelector) => {
       const allowedHost = /^(?:admin\.simnet\.kiev\.ua|admin\.looknet\.kiev\.ua)$/i.test(location.hostname);
       if (!allowedHost) return { ok: false, code: 'BILLING_TAB_INVALID' };
 
@@ -46,25 +48,30 @@ async function executeRead(tabId, id) {
         const match = compact(value, 160).replace(/\s/g, '').replace(',', '.').match(/-?\d+(?:\.\d+)?/);
         return match ? Number(match[0]) : null;
       };
-      const selected = (root, name) => {
+      const selectedOption = (root, name) => {
         const node = root?.querySelector?.(`select[name="${CSS.escape(name)}"]`);
         if (!node) return null;
-        return compact(node.options?.[node.selectedIndex]?.textContent || node.value || '', 260);
+        const option = node.options?.[node.selectedIndex];
+        return {
+          value: compact(option?.value ?? node.value ?? '', 80),
+          label: compact(option?.textContent || node.value || '', 260)
+        };
       };
+      const selected = (root, name) => selectedOption(root, name)?.label ?? null;
       const input = (root, name) => compact(root?.querySelector?.(`[name="${CSS.escape(name)}"]`)?.value || '', 260);
       const readRows = root => {
         if (!root?.querySelectorAll) return [];
         return [...root.querySelectorAll('tr')].map(row => {
           const cells = [...row.querySelectorAll(':scope > td, :scope > th')].map(cell => {
-            const text = compact(cell.textContent || '', 500);
-            const control = cell.querySelector('select,input:not([type="hidden"]),textarea');
+            const control = cell.querySelector('select,input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),textarea');
             let value = '';
             if (control?.tagName === 'SELECT') value = compact(control.options?.[control.selectedIndex]?.textContent || control.value || '', 500);
             else if (control) value = compact(control.value || '', 500);
-            else value = text;
+            const text = control ? value : compact(cell.textContent || '', 500);
+            if (!value) value = text;
             return { text, value };
           }).filter(cell => cell.text || cell.value);
-          return { cells, text: compact(row.textContent || '', 700) };
+          return { cells, text: compact(cells.map(cell => cell.value || cell.text).join(' '), 700) };
         }).filter(row => row.cells.length);
       };
       const indexRows = rows => {
@@ -113,6 +120,32 @@ async function executeRead(tabId, id) {
         }
         return '';
       };
+      const readAuthorization = root => {
+        const row = root?.querySelector?.(`${authSelector} tbody tr`);
+        if (!row) return {};
+        const cells = [...row.querySelectorAll(':scope > td, :scope > th')];
+        const title = compact(row.querySelector('img[title]')?.getAttribute('title') || '', 180);
+        return {
+          title,
+          authorized: /авторизован/i.test(title) && !/не\s+авторизован/i.test(title),
+          accessAllowed: /доступ\s+разреш/i.test(title),
+          lastActivity: compact(cells[2]?.textContent || '', 80),
+          billingId: compact(cells[3]?.textContent || '', 80),
+          login: compact(cells[4]?.textContent || '', 80).toLowerCase(),
+          ip: compact(cells[5]?.textContent || '', 80)
+        };
+      };
+      const temporaryPaymentText = root => {
+        const candidates = root?.querySelectorAll?.('.modified, .alert, .warning, font[color], b, strong') || [];
+        let best = '';
+        for (const node of candidates) {
+          const value = compact(node.textContent || '', 260);
+          if (value.length > 240 || value.length < 8) continue;
+          if (!/временн(?:ый|ого)\s+плат[её]ж/i.test(value)) continue;
+          if (!best || value.length < best.length) best = value;
+        }
+        return best;
+      };
       const readPayments = root => {
         const table = root?.querySelector?.(paymentsSelector);
         if (!table) return null;
@@ -140,72 +173,133 @@ async function executeRead(tabId, id) {
         })
         .slice(0, 20);
       const parseMainPage = root => {
-        const table = root?.querySelector?.(summarySelector);
-        if (!table) return null;
-        // The right summary table owns tariff/total rows, but "На счету, грн."
-        // lives elsewhere on a=user. Index the whole page as an authoritative
-        // fallback so current balance can never be confused with derived balances.
-        const tableRows = readRows(table);
-        const pageRows = readRows(root);
-        const index = indexRows(tableRows);
+        const mainForm = root?.querySelector?.(mainFormSelector);
+        const summaryTable = root?.querySelector?.(summarySelector);
+        if (!mainForm || !summaryTable) return null;
+
+        // One a=user read produces one rich Billing main-page snapshot.
+        // We parse the known data blocks completely, but never expand large
+        // select catalogs: only each selected option enters the snapshot.
+        const mainRows = readRows(mainForm);
+        const summaryRows = readRows(summaryTable);
+        const pageRows = readRows(root); // compatibility fallback for rare legacy rows outside known blocks
+        const mainIndex = indexRows(mainRows);
+        const summaryIndex = indexRows(summaryRows);
         const pageIndex = indexRows(pageRows);
-        const discount = discountFromRows(pageRows);
-        const tariffDisplay = rowValueFromIndex(index, [/^тарифи\s+на\s+інтернет/i, /^тарифы\s+на\s+интернет/i]);
+        const rowFrom = (primary, fallback, patterns) =>
+          rowValueFromIndex(primary, patterns) || rowValueFromIndex(fallback, patterns);
+
+        const discount = discountFromRows(summaryRows) || discountFromRows(mainRows);
+        if (discount) discount.appliesTo = 'internet_tariff';
+
+        const tariffDisplay = rowValueFromIndex(summaryIndex, [/^тарифи\s+на\s+інтернет/i, /^тарифы\s+на\s+интернет/i]);
         const tariffMatch = tariffDisplay.match(/^\[(\d+)\]\s*(.+)$/);
-        const currentTariff = compact(tariffMatch?.[2] || tariffDisplay || selected(root, 'paket') || '', 260);
+        const currentTariffOption = selectedOption(root, 'paket');
+        const nextTariffOption = selectedOption(root, 'next_paket');
+        const groupOption = selectedOption(root, 'grp');
+        const accessOption = selectedOption(root, 'state');
+        const serviceStateOption = selectedOption(root, 'cstate');
+        const tvTariffOption = selectedOption(root, 'paket3');
+        const nextTvTariffOption = selectedOption(root, 'next_paket3');
+        const discountRemoveOption = selectedOption(root, 'discount_remove');
+        const currentTariff = compact(tariffMatch?.[2] || tariffDisplay || currentTariffOption?.label || '', 260);
         const tariffId = compact(tariffMatch?.[1] || '', 40);
-        const nextTariffNode = root.querySelector('select[name="next_paket"]');
+        const auth = readAuthorization(root);
+        const temporaryText = temporaryPaymentText(root);
+
         const finance = {
           priceSemantics: 'internet_tariff_price_from_main_summary_table',
-          totalDueSemantics: 'current_total_due_from_main_summary_table_not_future_charge'
+          totalDueSemantics: 'current_total_due_from_main_summary_table_not_future_charge',
+          accountBalanceSemantics: 'billing_displayed_balance_may_include_temporary_payment',
+          temporaryPaymentSemantics: 'billing_temporary_credit_not_customer_money'
         };
         const observedMoney = [
-          ['accountBalance', rowValueFromIndex(pageIndex, [/^на\s+счету,?\s*грн/i, /^на\s+рахунку,?\s*грн/i])],
-          ['price', rowValueFromIndex(index, [/^ціна,?\s*грн/i, /^цена,?\s*грн/i])],
-          ['totalDue', rowValueFromIndex(index, [/^разом\s+до\s+сплати/i, /^итого\s+к\s+оплате/i])],
-          ['balanceAfterTariff', rowValueFromIndex(index, [
+          ['accountBalance', rowFrom(mainIndex, pageIndex, [/^на\s+счету,?\s*грн/i, /^на\s+рахунку,?\s*грн/i])],
+          ['price', rowValueFromIndex(summaryIndex, [/^ціна,?\s*грн/i, /^цена,?\s*грн/i])],
+          ['displayedPlanCost', rowValueFromIndex(summaryIndex, [
+            /^підсумкова\s+вартість\s+тарифного\s+плану/i,
+            /^итоговая\s+стоимость\s+тарифного\s+плана/i
+          ])],
+          ['totalDue', rowValueFromIndex(summaryIndex, [/^разом\s+до\s+сплати/i, /^итого\s+к\s+оплате/i])],
+          ['balanceAfterTariff', rowValueFromIndex(summaryIndex, [
             /на\s+счете\s+с\s+учетом\s+стоимости\s+тарифного\s+плана/i,
             /на\s+рахунку\s+з\s+урахуванням\s+вартості\s+тарифного\s+плану/i
           ])],
-          ['balanceWithoutTemporary', rowValueFromIndex(pageIndex, [
+          ['balanceWithoutTemporary', rowFrom(mainIndex, pageIndex, [
             /на\s+счете\s+без\s+учета\s+временных\s+платежей/i,
             /на\s+рахунку\s+без\s+урахування\s+тимчасових\s+платежів/i
-          ])]
+          ])],
+          ['temporaryPayment', temporaryText]
         ];
         for (const [key, raw] of observedMoney) {
           const value = money(raw);
-          // 0 is a real observed balance. A missing/unparseable row is omitted so
-          // canonical runtime can mark it UNKNOWN and invoke broader fallback.
           if (Number.isFinite(value)) finance[key] = value;
         }
+        if (temporaryText) finance.temporaryPaymentText = temporaryText;
         if (discount) finance.discount = discount;
+
         return {
           identity: {
-            billingId: String(targetBillingId),
+            billingId: String(targetBillingId || auth.billingId || ''),
             contract: input(root, 'contract'),
-            login: input(root, 'name').toLowerCase()
+            login: compact(input(root, 'name') || auth.login || '', 80).toLowerCase(),
+            fullName: input(root, 'fio'),
+            contractDate: input(root, 'contract_date'),
+            ppk: rowValueFromIndex(mainIndex, [/^ппк$/i])
           },
           service: {
+            group: groupOption?.label ?? '',
+            groupId: groupOption?.value ?? '',
             currentTariff,
+            currentTariffSelectedId: currentTariffOption?.value ?? '',
+            currentTariffSelectedLabel: currentTariffOption?.label ?? '',
             tariffId,
             tariffDisplay,
-            nextTariff: nextTariffNode ? selected(root, 'next_paket') : null,
+            nextTariff: nextTariffOption?.label ?? null,
+            nextTariffId: nextTariffOption?.value ?? '',
             nextTariffDelay: selected(root, 'next_paket_delay'),
-            accessState: selected(root, 'state'),
-            serviceState: selected(root, 'cstate'),
-            group: selected(root, 'grp'),
-            activeServices: readActiveServices(root)
+            tvTariff: tvTariffOption?.label ?? '',
+            tvTariffId: tvTariffOption?.value ?? '',
+            nextTvTariff: nextTvTariffOption?.label ?? null,
+            nextTvTariffId: nextTvTariffOption?.value ?? '',
+            nextTvTariffDelay: selected(root, 'next_paket3_delay'),
+            accessState: accessOption?.label ?? '',
+            accessStateCode: accessOption?.value ?? '',
+            serviceState: serviceStateOption?.label ?? '',
+            serviceStateCode: serviceStateOption?.value ?? '',
+            startDay: input(root, 'start_day'),
+            limit: rowValueFromIndex(mainIndex, [/^лимит$/i]),
+            activeServices: readActiveServices(root),
+            discountAutoRemove: discountRemoveOption?.label ?? '',
+            discountAutoRemoveCode: discountRemoveOption?.value ?? '',
+            comment: input(root, 'comment')
           },
           finance,
           payments: readPayments(root),
           network: {
-            trafficIncomingBytes: rowValueFromIndex(index, [/^інтернет\s+входящий,?\s*байт/i, /^интернет\s+входящий,?\s*байт/i]),
-            trafficOutgoingBytes: rowValueFromIndex(index, [/^інтернет\s+исходящий,?\s*байт/i, /^интернет\s+исходящий,?\s*байт/i]),
-            uaixIncomingBytes: rowValueFromIndex(index, [/^ua-ix\s+входящий,?\s*байт/i]),
-            uaixOutgoingBytes: rowValueFromIndex(index, [/^ua-ix\s+исходящий,?\s*байт/i])
+            ip: compact(input(root, 'ip') || auth.ip || '', 80),
+            authorization: auth,
+            trafficIncomingBytes: rowValueFromIndex(summaryIndex, [/^інтернет\s+входящий,?\s*байт/i, /^интернет\s+входящий,?\s*байт/i]),
+            trafficOutgoingBytes: rowValueFromIndex(summaryIndex, [/^інтернет\s+исходящий,?\s*байт/i, /^интернет\s+исходящий,?\s*байт/i]),
+            uaixIncomingBytes: rowValueFromIndex(summaryIndex, [/^ua-ix\s+входящий,?\s*байт/i]),
+            uaixOutgoingBytes: rowValueFromIndex(summaryIndex, [/^ua-ix\s+исходящий,?\s*байт/i]),
+            internetAccountingMb: rowValueFromIndex(summaryIndex, [/^оплата\s+інтернет,?\s*мб:\s*загалом/i, /^оплата\s+интернет,?\s*мб:\s*всего/i]),
+            uaixAccountingMb: rowValueFromIndex(summaryIndex, [/^оплата\s+ua-ix,?\s*мб:\s*загалом/i, /^оплата\s+ua-ix,?\s*мб:\s*всего/i]),
+            direction3AccountingMb: rowValueFromIndex(summaryIndex, [/^оплата\s+['"]?направление\s+3['"]?,?\s*мб:\s*загалом/i]),
+            direction4AccountingMb: rowValueFromIndex(summaryIndex, [/^оплата\s+['"]?направление\s+4['"]?,?\s*мб:\s*загалом/i])
+          },
+          parseMeta: {
+            blocks: {
+              mainForm: { selector: mainFormSelector, rows: mainRows.length },
+              authorization: { selector: authSelector, observed: Object.keys(auth).length > 0 },
+              summary: { selector: summarySelector, rows: summaryRows.length },
+              recentEvents: { selector: paymentsSelector, observed: Boolean(root.querySelector(paymentsSelector)) }
+            },
+            ignored: ['password', 'old_*', 'session_tokens', 'unselected_select_options']
           }
         };
       };
+
       const currentPageMatches = () => {
         try {
           const current = new URL(location.href);
@@ -247,6 +341,7 @@ async function executeRead(tabId, id) {
                 source: 'billing-main-summary-live-read-only',
                 endpoint: 'current-document',
                 selector: summarySelector,
+                blocks: data.parseMeta?.blocks || {},
                 transport: 'dom'
               }
             }
@@ -288,6 +383,7 @@ async function executeRead(tabId, id) {
             source: 'billing-main-summary-live-read-only',
             endpoint: '/cgi-bin/adm/adm.pl?a=user&id=<billingId>',
             selector: summarySelector,
+            blocks: data.parseMeta?.blocks || {},
             transport: 'fetch'
           }
         }
@@ -338,4 +434,5 @@ export async function readBillingSummaryLive({ billingId: rawBillingId, refresh 
   return { ...(last || { ok: false, code: 'BILLING_SUMMARY_READ_FAILED' }), billingId: id, source: 'billing-main-summary-live-read-only' };
 }
 
+export const BILLING_MAIN_FORM_SELECTOR = MAIN_FORM_SELECTOR;
 export const BILLING_MAIN_SUMMARY_SELECTOR = SUMMARY_SELECTOR;
