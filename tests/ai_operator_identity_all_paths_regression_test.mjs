@@ -124,7 +124,13 @@ test('abon login and numeric contract use the lightweight exact Billing identity
   assert.match(reader, /sendExactLookup\(tabId, request\)/);
   assert.match(capture, /name:\s*nativeQuery/);
   assert.match(capture, /\[rawValue, abonDigits\]/, 'literal abon login must be tried before numeric alias');
-  assert.doesNotMatch(capture, /a:\s*'dopdata'|tmpl:\s*'1'|tmpl:\s*'2'/);
+  const exactLookup = capture.slice(
+    capture.indexOf('async function exactIdentityLookup'),
+    capture.indexOf('chrome.runtime.onMessage.addListener')
+  );
+  assert.match(exactLookup, /a:\s*'dopdata',\s*parent_type:\s*'0',\s*id,\s*tmpl:\s*'2'/);
+  assert.match(exactLookup, /candidate\.address\s*=\s*composeAddress/);
+  assert.doesNotMatch(exactLookup, /tmpl:\s*'1'/, 'identity enrichment may read address, not technical data');
   assert.match(runtime, /classifyBillingExactIdentity\(toolArgs\)/);
   assert.match(runtime, /searchBillingExactIdentityLive\(toolArgs\)/);
   const exactRuntime = runtime.slice(
@@ -192,4 +198,14 @@ test('failed identity bootstrap performs customer.lookup only once per grounded 
 
   assert.equal(lookupCalls, 1);
   assert.equal(result.toolTrace.filter(item => item.tool === 'customer.lookup').length, 1);
+});
+
+
+test('confirmed subscriber address is the shared input for building index lookups', () => {
+  const dialogue = fs.readFileSync(new URL('../src/features/ai-operator/dialogue-runtime-state.js', import.meta.url), 'utf8');
+  const building = fs.readFileSync(new URL('../src/features/ai-operator/building-snapshot-tool.js', import.meta.url), 'utf8');
+  assert.match(dialogue, /confirmedSubscriber\?\.address/);
+  assert.match(dialogue, /The service address is already known; do not ask for it again\./);
+  assert.match(building, /labState\?\.confirmedSubscriber\?\.address/);
+  assert.match(building, /simnet_crm_building_snapshot_v1/);
 });
