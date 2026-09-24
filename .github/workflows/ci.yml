@@ -123,6 +123,11 @@ jobs:
         run: node --test tests/ai_operator_identity_all_paths_regression_test.mjs
       - name: Provider · DeepSeek structured response
         run: node --test tests/ai_provider_deepseek_json_repair_test.mjs
+      - name: Address · subscriber context and building index
+        run: |
+          node --test \
+            tests/ai_operator_building_snapshot_tool_test.mjs \
+            tests/crm_building_snapshot_import_test.mjs
       - name: Finance · balance fallback
         run: |
           node --test \
