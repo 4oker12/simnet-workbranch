@@ -47,11 +47,16 @@ test('lab identity decision keeps generic textual login instead of requiring num
   assert.deepEqual(normalized.toolArgs, { login: 'Talala' });
 });
 
-test('Billing native free-text request remains a=listuser&f=n&name=<exact value>', () => {
-  const source = fs.readFileSync(new URL('../src/features/ai-operator/billing-login-live.js', import.meta.url), 'utf8');
-  assert.match(source, /a:\s*'listuser',\s*f:\s*'n',\s*name:\s*lookupRequest\.value/);
-  assert.doesNotMatch(source, /lookupRequest\.value\.toLowerCase\(\)/);
-  assert.match(source, /what_search:\s*lookupRequest\.mode/);
+test('Billing exact lookup reproduces the native listuser form through the persistent content bridge', () => {
+  const reader = fs.readFileSync(new URL('../src/features/ai-operator/billing-login-live.js', import.meta.url), 'utf8');
+  const capture = fs.readFileSync(new URL('../src/features/ai-operator/billing-snapshot-capture.js', import.meta.url), 'utf8');
+
+  assert.match(reader, /chrome\.tabs\.sendMessage\(tabId/);
+  assert.match(reader, /files:\s*\[BILLING_CAPTURE_SCRIPT\]/, 'stale Billing tabs must self-bootstrap the current bridge');
+  assert.match(capture, /SIMNET_AI_BILLING_EXACT_LOOKUP/);
+  assert.match(capture, /f:\s*'n',\s*a:\s*'listuser',\s*name:\s*nativeQuery/);
+  assert.doesNotMatch(capture, /what_search/);
+  assert.match(capture, /rawValue\.match\(\/\^abon\(\\d\{3,12\}\)\$\/i\)\?\.\[1\]/);
 });
 
 
@@ -113,12 +118,18 @@ test('abon login and numeric contract use the lightweight exact Billing identity
   );
 
   const reader = fs.readFileSync(new URL('../src/features/ai-operator/billing-login-live.js', import.meta.url), 'utf8');
+  const capture = fs.readFileSync(new URL('../src/features/ai-operator/billing-snapshot-capture.js', import.meta.url), 'utf8');
   const runtime = fs.readFileSync(new URL('../src/features/ai-operator/live-tool-runtime.js', import.meta.url), 'utf8');
-  assert.match(reader, /a:\s*'listuser',\s*f:\s*'n',\s*name:\s*lookupRequest\.value/);
-  assert.match(reader, /what_search:\s*lookupRequest\.mode/);
-  assert.doesNotMatch(reader, /a:\s*'dopdata'|tmpl:\s*'1'|tmpl:\s*'2'/);
+  assert.match(reader, /sendExactLookup\(tabId, request\)/);
+  assert.match(capture, /name:\s*nativeQuery/);
+  assert.doesNotMatch(capture, /a:\s*'dopdata'|tmpl:\s*'1'|tmpl:\s*'2'/);
   assert.match(runtime, /classifyBillingExactIdentity\(toolArgs\)/);
   assert.match(runtime, /searchBillingExactIdentityLive\(toolArgs\)/);
+  const exactRuntime = runtime.slice(
+    runtime.indexOf('async function executeExactIdentityLookup'),
+    runtime.indexOf('async function executeBillingSummaryTool')
+  );
+  assert.doesNotMatch(exactRuntime, /core\.executeOperatorTool/, 'exact identity failures must not fall back to the legacy broad lookup');
   assert.doesNotMatch(runtime, /genericLogin\s*&&\s*!\/\^abon/);
 });
 

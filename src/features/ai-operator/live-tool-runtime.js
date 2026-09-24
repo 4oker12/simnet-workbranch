@@ -120,29 +120,9 @@ async function executeExactIdentityLookup(toolArgs = {}) {
 
   const live = await searchBillingExactIdentityLive(toolArgs);
   if (!live?.ok) {
-    // Exact login/numeric-contract lookup owns the normal identity path.
-    // Infrastructure failure may use the old/local bridge as a bounded fallback;
-    // a genuine NOT_FOUND must not trigger broad subscriber-card scraping.
-    if ([
-      'BILLING_RUNTIME_UNAVAILABLE',
-      'BILLING_TAB_REQUIRED',
-      'BILLING_SESSION_REQUIRED',
-      'BILLING_AUTH_REQUIRED',
-      'BILLING_TAB_INVALID',
-      'BILLING_SEARCH_NO_RESULT',
-      'BILLING_SEARCH_EXECUTION_FAILED'
-    ].includes(String(live?.code || ''))) {
-      const fallback = await core.executeOperatorTool({ tool: 'customer.lookup', toolArgs, labState: {} });
-      if (fallback?.ok) {
-        return {
-          ...fallback,
-          warnings: [
-            ...(Array.isArray(fallback.warnings) ? fallback.warnings : []),
-            `Exact Billing identity lookup недоступен (${String(live?.code || 'unknown')}); использован legacy/local fallback.`
-          ]
-        };
-      }
-    }
+    // Exact login/numeric-contract lookup is authoritative. Do not silently fall
+    // back to the legacy broad search: that would hide bridge/session failures
+    // behind a second parser and recreate the duplicate lookup path.
     return result('customer.lookup', false, String(live?.code || 'BILLING_SEARCH_FAILED'), {
       message: 'Не удалось выполнить точный поиск абонента в Billing.',
       source: 'billing-live-read-only',

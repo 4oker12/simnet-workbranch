@@ -1,16 +1,19 @@
 'use strict';
 
 (() => {
+  if (globalThis.__SIMNET_AI_BILLING_SNAPSHOT_CAPTURE_V2__) return;
+  globalThis.__SIMNET_AI_BILLING_SNAPSHOT_CAPTURE_V2__ = true;
+
   const STORE_KEY = 'simnet_ai_operator_billing_snapshots_v1';
   const MAIN_FORM_SELECTOR = 'form#formedit > table.tbg1.width100';
   const AUTH_SELECTOR = 'table.usrlist.width100';
   const SUMMARY_SELECTOR = 'table.tbg1.nav3.width100';
   const PAYMENTS_SELECTOR = '#my_x_16';
+  const EXACT_LOOKUP_MESSAGE = 'SIMNET_AI_BILLING_EXACT_LOOKUP';
   if (!/^(?:admin\.simnet\.kiev\.ua|admin\.looknet\.kiev\.ua)$/i.test(location.hostname)) return;
 
   const params = new URLSearchParams(location.search);
   const action = String(params.get('a') || '');
-  if (!['user', 'dopdata'].includes(action)) return;
 
   function clean(value, max = 500) {
     const out = String(value == null ? '' : value).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
@@ -392,6 +395,138 @@
     return out;
   }
 
+  async function exactIdentityLookup(request = {}) {
+    const mode = String(request?.mode || '');
+    const rawValue = clean(request?.value || '', 80).replace(/\s+/g, '');
+    if (!['login', 'contract'].includes(mode) || !rawValue) {
+      return { ok: false, code: 'IDENTITY_QUERY_REQUIRED', candidates: [] };
+    }
+
+    const current = new URL(location.href);
+    let pp = clean(current.searchParams.get('pp') || '', 200);
+    if (!pp) pp = clean(document.querySelector('input[name="pp"]')?.value || '', 200);
+    if (!pp) return { ok: false, code: 'BILLING_SESSION_REQUIRED', candidates: [] };
+
+    // Reproduce the native Billing form exactly. For abonNNN the operator
+    // searches by the numeric account/contract part; the resulting a=user card
+    // is then verified against the literal requested login.
+    const nativeQuery = mode === 'login'
+      ? (rawValue.match(/^abon(\d{3,12})$/i)?.[1] || rawValue)
+      : rawValue;
+
+    const decodeResponseHtml = async response => {
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      const contentType = String(response.headers.get('content-type') || '');
+      const headerCharset = contentType.match(/charset\s*=\s*["']?([^;"'\s]+)/i)?.[1] || '';
+      const head = new TextDecoder('windows-1252').decode(bytes.slice(0, 8192));
+      const metaCharset = head.match(/charset\s*=\s*["']?([^;"'\s/>]+)/i)?.[1] || '';
+      const charset = String(headerCharset || metaCharset || 'windows-1251').toLowerCase();
+      const labels = charset.includes('utf') ? ['utf-8'] : [charset, 'windows-1251', 'utf-8'];
+      for (const label of labels) {
+        try { return new TextDecoder(label).decode(bytes); } catch {}
+      }
+      return new TextDecoder('utf-8').decode(bytes);
+    };
+    const fetchDoc = async url => {
+      const response = await fetch(url, { method: 'GET', credentials: 'include', cache: 'no-store' });
+      const html = await decodeResponseHtml(response);
+      return {
+        ok: response.ok,
+        status: response.status,
+        url: new URL(response.url || url, location.origin),
+        doc: new DOMParser().parseFromString(html, 'text/html')
+      };
+    };
+    const authPage = doc => Boolean(doc.querySelector('input[type="password"]'));
+    const makeUrl = paramsObject => {
+      const url = new URL('/cgi-bin/adm/adm.pl', location.origin);
+      for (const [key, value] of Object.entries(paramsObject || {})) {
+        if (value === null || value === undefined || value === '') continue;
+        url.searchParams.set(key, String(value));
+      }
+      return url;
+    };
+
+    // Recorder evidence: GET adm.pl?pp=<session>&f=n&a=listuser&name=<query>
+    const searchUrl = makeUrl({
+      pp,
+      f: 'n',
+      a: 'listuser',
+      name: nativeQuery
+    });
+    const searchPage = await fetchDoc(searchUrl);
+    if (!searchPage.ok) return { ok: false, code: 'BILLING_SEARCH_FAILED', status: searchPage.status, candidates: [] };
+    if (authPage(searchPage.doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED', candidates: [] };
+
+    const ids = new Map();
+    const addCandidate = (id, rowText = '') => {
+      const normalizedId = String(id || '').replace(/\D+/g, '').slice(0, 12);
+      if (!normalizedId || ids.has(normalizedId)) return;
+      ids.set(normalizedId, clean(rowText, 800));
+    };
+    if (String(searchPage.url.searchParams.get('a') || '').toLowerCase() === 'user') {
+      addCandidate(searchPage.url.searchParams.get('id') || '', searchPage.doc.body?.textContent || '');
+    }
+    for (const link of searchPage.doc.querySelectorAll('a[href]')) {
+      try {
+        const target = new URL(link.getAttribute('href') || '', searchPage.url);
+        if (String(target.searchParams.get('a') || '').toLowerCase() !== 'user') continue;
+        addCandidate(target.searchParams.get('id') || '', link.closest('tr')?.textContent || link.textContent || '');
+      } catch {}
+    }
+    if (!ids.size) return { ok: true, code: 'NOT_FOUND', candidates: [], nativeQuery };
+
+    const candidates = [];
+    for (const id of [...ids.keys()].slice(0, 8)) {
+      try {
+        const page = await fetchDoc(makeUrl({ pp, a: 'user', id }));
+        if (!page.ok || authPage(page.doc)) continue;
+        const field = name => clean(page.doc.querySelector(`[name="${CSS.escape(name)}"]`)?.value || '', 240);
+        const candidate = {
+          billingId: id,
+          contract: field('contract'),
+          login: field('name'),
+          fullName: field('fio'),
+          address: '',
+          ip: field('ip'),
+          connectionFamily: '',
+          resultText: ids.get(id) || ''
+        };
+
+        if (mode === 'login') {
+          const actual = String(candidate.login || '').toLowerCase();
+          if (actual && actual !== rawValue.toLowerCase()) continue;
+        } else {
+          const actual = String(candidate.contract || '').replace(/\D+/g, '');
+          const expected = rawValue.replace(/\D+/g, '');
+          if (actual && expected && actual !== expected) continue;
+        }
+        candidates.push(candidate);
+      } catch {}
+    }
+
+    return {
+      ok: true,
+      code: candidates.length ? 'OK' : 'NOT_FOUND',
+      candidates,
+      nativeQuery
+    };
+  }
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (String(message?.type || '') !== EXACT_LOOKUP_MESSAGE) return false;
+    void exactIdentityLookup(message?.request || {}).then(
+      result => sendResponse(result),
+      error => sendResponse({
+        ok: false,
+        code: 'BILLING_SEARCH_EXECUTION_FAILED',
+        message: clean(error?.message || error, 500),
+        candidates: []
+      })
+    );
+    return true;
+  });
+
   async function capture() {
     _rowIndex = null;
     const id = billingId();
@@ -431,5 +566,7 @@
     await chrome.storage.local.set({ [STORE_KEY]: Object.fromEntries(trimmed.map(item => [String(item.billingId), item])) });
   }
 
-  void capture().catch(error => console.warn('[SIMNET AI operator] billing snapshot capture failed', error));
+  if (['user', 'dopdata'].includes(action)) {
+    void capture().catch(error => console.warn('[SIMNET AI operator] billing snapshot capture failed', error));
+  }
 })();
