@@ -1,15 +1,15 @@
 'use strict';
 
 (() => {
-  if (globalThis.__SIMNET_AI_BILLING_SNAPSHOT_CAPTURE_V2__) return;
-  globalThis.__SIMNET_AI_BILLING_SNAPSHOT_CAPTURE_V2__ = true;
+  if (globalThis.__SIMNET_AI_BILLING_SNAPSHOT_CAPTURE_V3__) return;
+  globalThis.__SIMNET_AI_BILLING_SNAPSHOT_CAPTURE_V3__ = true;
 
   const STORE_KEY = 'simnet_ai_operator_billing_snapshots_v1';
   const MAIN_FORM_SELECTOR = 'form#formedit > table.tbg1.width100';
   const AUTH_SELECTOR = 'table.usrlist.width100';
   const SUMMARY_SELECTOR = 'table.tbg1.nav3.width100';
   const PAYMENTS_SELECTOR = '#my_x_16';
-  const EXACT_LOOKUP_MESSAGE = 'SIMNET_AI_BILLING_EXACT_LOOKUP';
+  const EXACT_LOOKUP_MESSAGE = 'SIMNET_AI_BILLING_EXACT_LOOKUP_V2';
   if (!/^(?:admin\.simnet\.kiev\.ua|admin\.looknet\.kiev\.ua)$/i.test(location.hostname)) return;
 
   const params = new URLSearchParams(location.search);
