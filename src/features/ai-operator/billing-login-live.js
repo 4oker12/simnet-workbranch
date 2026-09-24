@@ -20,7 +20,7 @@ export function classifyStandaloneBillingLogin(value) {
   const login = clean(value, 80).replace(/\s+/g, '');
   const normalized = login.toLowerCase();
   if (!login || EXCLUDED_LOGIN_WORDS.has(normalized)) return '';
-  return LOGIN_RE.test(login) ? normalized : '';
+  return LOGIN_RE.test(login) ? login : '';
 }
 
 function rankBillingTabs(tabs = []) {
