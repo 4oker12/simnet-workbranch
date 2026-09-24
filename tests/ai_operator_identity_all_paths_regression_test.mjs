@@ -129,7 +129,8 @@ test('abon login and numeric contract use the lightweight exact Billing identity
     capture.indexOf('chrome.runtime.onMessage.addListener')
   );
   assert.match(exactLookup, /a:\s*'dopdata',\s*parent_type:\s*'0',\s*id,\s*tmpl:\s*'2'/);
-  assert.match(exactLookup, /candidate\.address\s*=\s*composeAddress/);
+  assert.match(exactLookup, /address\.full\s*=\s*composeAddress\(address\)/);
+  assert.match(exactLookup, /candidate\.address\s*=\s*address\.full/);
   assert.doesNotMatch(exactLookup, /tmpl:\s*'1'/, 'identity enrichment may read address, not technical data');
   assert.match(runtime, /classifyBillingExactIdentity\(toolArgs\)/);
   assert.match(runtime, /searchBillingExactIdentityLive\(toolArgs\)/);
