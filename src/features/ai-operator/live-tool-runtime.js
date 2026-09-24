@@ -114,6 +114,98 @@ function liveLookupCandidate(candidate = {}) {
   };
 }
 
+async function bootstrapSubscriberSnapshot(rawCandidate = {}, live = {}) {
+  const billingId = String(rawCandidate?.billingId || '').replace(/\D+/g, '').slice(0, 12);
+  if (!billingId) {
+    return {
+      candidate: liveLookupCandidate(rawCandidate),
+      bootstrapMeta: { status: 'unavailable', code: 'BILLING_ID_REQUIRED', sources: {} }
+    };
+  }
+
+  const startedAt = nowIso();
+  const partial = live?.snapshots?.[billingId] && typeof live.snapshots[billingId] === 'object'
+    ? live.snapshots[billingId]
+    : {};
+  let main = null;
+  try {
+    main = await readBillingSummaryLive({
+      billingId,
+      refresh: true,
+      maxAgeMs: 1000
+    });
+  } catch (error) {
+    main = {
+      ok: false,
+      code: 'BILLING_SUMMARY_EXECUTION_FAILED',
+      message: text(error?.message || error, 300)
+    };
+  }
+
+  const mainData = main?.ok && main?.data && typeof main.data === 'object' ? main.data : {};
+  const sourceMeta = {
+    ...(partial?.bootstrapMeta?.sources && typeof partial.bootstrapMeta.sources === 'object'
+      ? partial.bootstrapMeta.sources
+      : {}),
+    main: main?.ok
+      ? {
+          ok: true,
+          source: String(main?.source || 'billing-main-summary-live-read-only'),
+          endpoint: '/cgi-bin/adm/adm.pl?a=user&id=<billingId>'
+        }
+      : {
+          ok: false,
+          code: String(main?.code || 'BILLING_MAIN_READ_FAILED')
+        }
+  };
+  const complete = Boolean(sourceMeta.main?.ok && sourceMeta.address?.ok && sourceMeta.technical?.ok);
+  const completedAt = nowIso();
+
+  const snapshot = {
+    ...partial,
+    ...mainData,
+    billingId,
+    identity: mergePresent(partial?.identity, mainData?.identity),
+    address: mergePresent(partial?.address, mainData?.address),
+    contacts: mergePresent(partial?.contacts, mainData?.contacts),
+    customer: mergePresent(partial?.customer, mainData?.customer),
+    service: mergePresent(partial?.service, mainData?.service),
+    finance: mergePresent(partial?.finance, mainData?.finance),
+    network: mergePresent(partial?.network, mainData?.network),
+    technical: mergePresent(partial?.technical, mainData?.technical),
+    payments: Array.isArray(mainData?.payments) && mainData.payments.length
+      ? mainData.payments
+      : (Array.isArray(partial?.payments) ? partial.payments : []),
+    observedAt: completedAt,
+    ...(main?.ok ? { financeObservedAt: String(main?.observedAt || completedAt) } : {}),
+    source: 'billing-subscriber-bootstrap-read-only',
+    bootstrapMeta: {
+      status: complete ? 'ready' : 'partial',
+      startedAt: String(partial?.bootstrapMeta?.startedAt || startedAt),
+      completedAt,
+      sources: sourceMeta
+    }
+  };
+
+  await core.persistBillingSnapshots({ [billingId]: snapshot });
+
+  const candidate = liveLookupCandidate({
+    ...rawCandidate,
+    billingId,
+    contract: snapshot?.identity?.contract || rawCandidate?.contract,
+    login: snapshot?.identity?.login || rawCandidate?.login,
+    fullName: snapshot?.identity?.fullName || rawCandidate?.fullName,
+    address: snapshot?.address?.full || rawCandidate?.address,
+    ip: snapshot?.network?.ip || rawCandidate?.ip,
+    connectionFamily: snapshot?.technical?.technologyHint || rawCandidate?.connectionFamily
+  });
+
+  return {
+    candidate,
+    bootstrapMeta: snapshot.bootstrapMeta
+  };
+}
+
 async function executeExactIdentityLookup(toolArgs = {}) {
   const request = classifyBillingExactIdentity(toolArgs);
   if (!request) return null;
@@ -130,18 +222,18 @@ async function executeExactIdentityLookup(toolArgs = {}) {
     });
   }
 
-  const candidates = (Array.isArray(live.candidates) ? live.candidates : [])
-    .map(liveLookupCandidate)
-    .filter(item => item.caseId);
+  const rawCandidates = (Array.isArray(live.candidates) ? live.candidates : [])
+    .filter(item => String(item?.billingId || '').replace(/\D+/g, ''));
 
-  if (!candidates.length) {
+  if (!rawCandidates.length) {
     return result('customer.lookup', false, 'NOT_FOUND', {
       message: 'Абонент не найден штатным точным поиском Billing.',
       source: 'billing-live-read-only',
       searchMode: request.mode
     });
   }
-  if (candidates.length !== 1) {
+  if (rawCandidates.length !== 1) {
+    const candidates = rawCandidates.map(liveLookupCandidate).filter(item => item.caseId);
     return result('customer.lookup', false, 'AMBIGUOUS_IDENTITY', {
       count: candidates.length,
       candidates,
@@ -150,14 +242,18 @@ async function executeExactIdentityLookup(toolArgs = {}) {
     }, ['Нужно уточнить идентификатор, чтобы выбрать конкретного абонента.']);
   }
 
-  const candidate = candidates[0];
+  const bootstrapped = await bootstrapSubscriberSnapshot(rawCandidates[0], live);
+  const candidate = bootstrapped.candidate;
   return result('customer.lookup', true, 'OK', {
     count: 1,
     candidate,
     requiresConfirmation: false,
     source: 'billing-live-read-only',
-    searchMode: request.mode
-  }, [], {
+    searchMode: request.mode,
+    bootstrap: bootstrapped.bootstrapMeta
+  }, bootstrapped.bootstrapMeta?.status === 'partial'
+    ? ['Абонент подтверждён; часть фонового subscriber snapshot осталась неизвестной и может быть дочитана позже.']
+    : [], {
     pendingCandidate: null,
     confirmedCaseId: candidate.caseId,
     confirmedSubscriber: candidate
