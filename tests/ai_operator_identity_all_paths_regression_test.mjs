@@ -4,11 +4,14 @@ import fs from 'node:fs';
 
 import {
   extractStandaloneSubscriberIdentity,
-  identityToolArgs
+  identityToolArgs,
+  resolveSubscriberIdentityHints
 } from '../src/features/ai-operator/subscriber-identity.js';
 import { classifyStandaloneBillingLogin } from '../src/features/ai-operator/billing-login-live.js';
 import { lookupFromText, normalizeInterpretation } from '../src/features/ai-operator/dialogue-state.js';
 import { normalizeLabLookupDecision } from '../src/features/ai-operator/lab-identity-policy.js';
+import { buildSubscriberIntentProbeMessages } from '../src/features/ai-operator/semantic-probe.js';
+import { compactRuntimeProbe } from '../src/features/ai-operator/runtime-projection.js';
 
 const talalaMessage = 'Talala\nдоговор\nче по балансу у меня вообще? и на гиг можно перейти?';
 
@@ -45,4 +48,51 @@ test('Billing native free-text request remains a=listuser&f=n&name=<exact value>
   assert.match(source, /a:\s*'listuser',\s*f:\s*'n',\s*name:\s*requestedLogin/);
   assert.doesNotMatch(source, /requestedLogin\.toLowerCase\(\)/);
   assert.doesNotMatch(source, /what_search:\s*'login'/);
+});
+
+
+test('semantic identity hint handles a misspelled personal-account phrase but keeps the literal contract value', () => {
+  const transcript = [{ role: 'customer', text: 'це мій особов рахонок 2421, глянь баланс' }];
+  assert.deepEqual(extractStandaloneSubscriberIdentity(transcript), {}, 'literal regex path should not need to understand every typo');
+  assert.deepEqual(
+    resolveSubscriberIdentityHints(transcript, { probe: { ids: { contract: '2421' } } }),
+    { contract: '2421' }
+  );
+});
+
+test('semantic identity hint cannot invent a contract number absent from customer text', () => {
+  const transcript = [{ role: 'customer', text: 'це мій особов рахонок 2421, глянь баланс' }];
+  assert.deepEqual(
+    resolveSubscriberIdentityHints(transcript, { probe: { ids: { contract: '5555' } } }),
+    {}
+  );
+});
+
+test('semantic named-login hint survives a typo in the surrounding word only when login is literal', () => {
+  const transcript = [{ role: 'customer', text: 'мой логен Talala, проверь тариф' }];
+  assert.deepEqual(
+    resolveSubscriberIdentityHints(transcript, { probe: { ids: { login: 'Talala' } } }),
+    { login: 'Talala' }
+  );
+  assert.deepEqual(
+    resolveSubscriberIdentityHints(transcript, { probe: { ids: { login: 'OtherUser' } } }),
+    {}
+  );
+});
+
+test('semantic prompt exposes identity hints and forbids reconstructing identifier values', () => {
+  const prompt = buildSubscriberIntentProbeMessages({
+    transcript: [{ role: 'customer', text: 'особов рахонок 2421' }],
+    latestCustomer: { text: 'особов рахонок 2421' }
+  }).map(item => item.content).join('\n');
+  assert.match(prompt, /"ids":\{"contract":"","login":"","ip":"","address":""\}/);
+  assert.match(prompt, /НЕ исправляй, НЕ реконструируй и НЕ придумывай/i);
+});
+
+test('runtime probe projection preserves semantic identity hints', () => {
+  const compact = compactRuntimeProbe({
+    language: 'ru',
+    ids: { contract: '2421', login: '', ip: '', address: '' }
+  });
+  assert.equal(compact.ids.contract, '2421');
 });

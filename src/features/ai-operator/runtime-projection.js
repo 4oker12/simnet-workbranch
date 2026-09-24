@@ -70,6 +70,12 @@ export function compactRuntimeProbe(probe = {}) {
     latestMessageMeans: text(source.latestMessageMeans, 220),
     refersTo: text(source.refersTo, 120),
     underlyingGoal: text(source.underlyingGoal, 160),
+    ids: {
+      contract: text(source?.ids?.contract, 80),
+      login: text(source?.ids?.login, 80),
+      ip: text(source?.ids?.ip, 80),
+      address: text(source?.ids?.address, 240)
+    },
     unresolvedRequests: list(source.unresolvedRequests, 5, 140),
     ambiguities: list(source.ambiguities, 3, 120),
     liveDataNeed: text(source.liveDataNeed, 20),

@@ -2,7 +2,7 @@
 
 import * as impl from './semantic-tool-broker-impl.js';
 import { recoverLiveDataNeeds } from './live-need-recovery.js';
-import { extractStandaloneSubscriberIdentity, identityToolArgs } from './subscriber-identity.js';
+import { identityToolArgs, resolveSubscriberIdentityHints } from './subscriber-identity.js';
 import { applyAnswerRelevanceGate } from './answer-relevance-gate.js';
 import { applyDialoguePolicy } from './dialogue-policy.js';
 
@@ -155,13 +155,14 @@ function latestCustomerTurn(transcript = []) {
   const turns = (Array.isArray(transcript) ? transcript : []).filter(item => item?.role === 'customer' && String(item?.text || '').trim());
   return turns.length ? turns[turns.length - 1] : null;
 }
-function latestLiteralIdentity(transcript = []) {
+function resolvedIdentityHints(transcript = [], analysis = {}) {
+  const secondary = impl.extractIdentityHints(transcript, analysis);
+  return resolveSubscriberIdentityHints(transcript, analysis, secondary);
+}
+function latestLiteralIdentity(transcript = [], analysis = {}) {
   const latest = latestCustomerTurn(transcript);
   if (!latest) return {};
-  const generic = identityToolArgs(extractStandaloneSubscriberIdentity([latest]));
-  if (Object.keys(generic).length) return generic;
-  const standard = impl.extractIdentityHints([latest], {});
-  return standard && typeof standard === 'object' && !Array.isArray(standard) ? standard : {};
+  return resolvedIdentityHints([latest], analysis);
 }
 function isAddressScopedBuildingOnlyTurn({ needs = [], analysis = {}, draft = {}, transcript = [], labState = {} } = {}) {
   const requiredFacts = Array.isArray(analysis?.probe?.requiredFacts) ? analysis.probe.requiredFacts : [];
@@ -255,7 +256,7 @@ async function bootstrapStandaloneIdentity({ transcript = [], analysis = {}, lab
   const hasConfirmed = Boolean(String(state.confirmedCaseId || '').trim());
   const hasPending = Boolean(state.pendingCandidate);
   if (hasConfirmed || hasPending) {
-    const latestArgs = latestLiteralIdentity(transcript);
+    const latestArgs = latestLiteralIdentity(transcript, analysis);
     if (!Object.keys(latestArgs).length) return { trace: [], labState: state };
     if (hasConfirmed && identityMatchesConfirmed(latestArgs, state)) return { trace: [], labState: state };
 
@@ -281,12 +282,9 @@ async function bootstrapStandaloneIdentity({ transcript = [], analysis = {}, lab
     };
   }
 
-  const standard = impl.extractIdentityHints(transcript, analysis);
-  if (standard && Object.keys(standard).length) return { trace: [], labState: state };
-
-  const identity = extractStandaloneSubscriberIdentity(transcript);
-  const args = identityToolArgs(identity);
+  const args = resolvedIdentityHints(transcript, analysis);
   if (!Object.keys(args).length) return { trace: [], labState: state };
+  const identity = identityFromArgs(args);
 
   let result;
   try {
@@ -382,9 +380,7 @@ export function knowledgeConsultationFallbackReply(analysis = {}, transcript = [
 }
 
 export function extractIdentityHints(transcript = [], analysis = {}) {
-  const standard = impl.extractIdentityHints(transcript, analysis);
-  if (standard && Object.keys(standard).length) return standard;
-  return identityToolArgs(extractStandaloneSubscriberIdentity(transcript));
+  return resolvedIdentityHints(transcript, analysis);
 }
 export const ensureNonEmptyReply = impl.ensureNonEmptyReply;
 export const mapInformationNeedsToTools = impl.mapInformationNeedsToTools;

@@ -90,9 +90,15 @@ function literalAddress(transcript = [], candidate = '') {
 }
 
 function containsLiteralLogin(messages = [], login = '') {
+  const value = genericLogin(login);
+  if (!value) return false;
+  const escaped = value.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\function containsLiteralLogin(messages = [], login = '') {
   const value = String(login || '').trim().toLowerCase();
   if (!/^abon\d{3,12}$/.test(value)) return false;
   const pattern = new RegExp(`(?:^|[^a-z0-9])${value}(?=$|[^a-z0-9])`, 'i');
+  return messages.some(item => pattern.test(oneLine(item?.text, 1200)));
+}');
+  const pattern = new RegExp(`(?:^|[^A-Za-z0-9._-])${escaped}(?=$|[^A-Za-z0-9._-])`, 'i');
   return messages.some(item => pattern.test(oneLine(item?.text, 1200)));
 }
 
@@ -140,7 +146,8 @@ export function identityFromAnalysisHints(analysis = {}) {
     || {};
 
   const rawLogin = String(ids.login || '').trim().replace(/\s+/g, '');
-  if (/^abon\d{3,12}$/i.test(rawLogin)) return { login: rawLogin };
+  const login = genericLogin(rawLogin);
+  if (login) return { login };
 
   const contract = String(ids.contract || '').replace(/\D+/g, '');
   if (/^\d{3,12}$/.test(contract)) return { contract };

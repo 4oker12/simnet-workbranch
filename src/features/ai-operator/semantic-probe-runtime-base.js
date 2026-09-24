@@ -276,6 +276,11 @@ export function buildSubscriberIntentProbeMessages({ transcript = [], latestCust
 Если нужен текущий внутренний факт SIMNET, заполни required_facts точными путями из списка ниже и кратко опиши его в evidence_needs. Если такого факта не нужно, required_facts=[] и live_data_need=none.
 Отдельно укажи, нужны ли внутренние знания SIMNET: knowledge_need=none|maybe|needed. maybe — только при конкретном сомнении, не «на всякий случай».
 
+IDENTITY:
+- Если клиент сообщает договор/особовой счёт/login/IP/адрес, заполни ids по смыслу даже при опечатке, суржике или необычном склонении слов вокруг идентификатора.
+- Само значение идентификатора НЕ исправляй, НЕ реконструируй и НЕ придумывай: копируй только буквальное значение, реально присутствующее в сообщении клиента.
+- Если тип понятен, но буквального значения нет, соответствующее поле оставь пустым.
+
 Разрешённые canonical facts:
 ${CANONICAL_FACT_PATHS.join('\n')}
 
@@ -286,6 +291,7 @@ ${CANONICAL_FACT_PATHS.join('\n')}
   "latest_message_means":"смысл последней реплики",
   "refers_to":"к чему она относится или пусто",
   "underlying_goal":"более широкая цель, если явно видна",
+  "ids":{"contract":"","login":"","ip":"","address":""},
   "facts_said_by_user":["важные утверждения клиента для текущего контекста"],
   "facts_said_by_operator":["важные утверждения прошлого оператора для текущего контекста"],
   "unresolved_requests":["активные незакрытые просьбы"],
@@ -331,6 +337,13 @@ function normalizeEvidenceNeeds(value) {
 
 function normalizeProbe(raw = {}) {
   const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const rawIds = value.ids && typeof value.ids === 'object' && !Array.isArray(value.ids) ? value.ids : {};
+  const ids = {
+    contract: oneLine(rawIds.contract || '', 80),
+    login: oneLine(rawIds.login || '', 80),
+    ip: oneLine(rawIds.ip || '', 80),
+    address: oneLine(rawIds.address || '', 320)
+  };
   const liveDataNeed = normalizeLiveDataNeed(value.live_data_need);
   const evidenceNeeds = normalizeEvidenceNeeds(value.evidence_needs);
   const requiredFacts = normalizeCanonicalFacts(value.required_facts);
@@ -347,6 +360,7 @@ function normalizeProbe(raw = {}) {
     latestMessageMeans: oneLine(value.latest_message_means || '', 700),
     refersTo: oneLine(value.refers_to || '', 500),
     underlyingGoal: oneLine(value.underlying_goal || '', 500),
+    ids,
     factsSaidByUser: stringList(value.facts_said_by_user),
     factsSaidByOperator: stringList(value.facts_said_by_operator),
     unresolvedRequests: stringList(value.unresolved_requests, 8, 420),
