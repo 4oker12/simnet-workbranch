@@ -92,12 +92,7 @@ function literalAddress(transcript = [], candidate = '') {
 function containsLiteralLogin(messages = [], login = '') {
   const value = genericLogin(login);
   if (!value) return false;
-  const escaped = value.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\function containsLiteralLogin(messages = [], login = '') {
-  const value = String(login || '').trim().toLowerCase();
-  if (!/^abon\d{3,12}$/.test(value)) return false;
-  const pattern = new RegExp(`(?:^|[^a-z0-9])${value}(?=$|[^a-z0-9])`, 'i');
-  return messages.some(item => pattern.test(oneLine(item?.text, 1200)));
-}');
+  const escaped = value.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
   const pattern = new RegExp(`(?:^|[^A-Za-z0-9._-])${escaped}(?=$|[^A-Za-z0-9._-])`, 'i');
   return messages.some(item => pattern.test(oneLine(item?.text, 1200)));
 }
