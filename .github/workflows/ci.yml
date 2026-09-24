@@ -121,6 +121,8 @@ jobs:
           node-version: 22
       - name: Identity · semantic literal bridge
         run: node --test tests/ai_operator_identity_all_paths_regression_test.mjs
+      - name: Subscriber snapshot · bootstrap invariant
+        run: node --test tests/ai_operator_subscriber_bootstrap_snapshot_test.mjs
       - name: Provider · DeepSeek structured response
         run: node --test tests/ai_provider_deepseek_json_repair_test.mjs
       - name: Address · subscriber context and building index
