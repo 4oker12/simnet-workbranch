@@ -119,6 +119,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Identity · semantic literal bridge
+        run: node --test tests/ai_operator_identity_all_paths_regression_test.mjs
       - name: Finance · balance fallback
         run: |
           node --test \
