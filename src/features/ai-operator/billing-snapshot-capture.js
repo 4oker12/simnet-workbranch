@@ -486,6 +486,7 @@
     }
 
     const candidates = [];
+    const snapshots = {};
     for (const id of [...ids.keys()].slice(0, 8)) {
       try {
         const page = await fetchDoc(makeUrl({ pp, a: 'user', id }));
@@ -511,9 +512,34 @@
           if (actual && expected && actual !== expected) continue;
         }
 
-        // Once identity is confirmed by the main card, enrich the same candidate
-        // with the subscriber service address from the dedicated Billing address
-        // page. Address is part of subscriber context, not proof of ownership.
+        const bootstrapStartedAt = new Date().toISOString();
+        const snapshot = {
+          billingId: id,
+          identity: {
+            billingId: id,
+            contract: candidate.contract,
+            login: candidate.login,
+            fullName: candidate.fullName,
+            contractDate: field('contract_date')
+          },
+          network: {
+            ip: candidate.ip
+          },
+          observedAt: bootstrapStartedAt,
+          source: 'billing-bootstrap-read-only',
+          bootstrapMeta: {
+            status: 'partial',
+            startedAt: bootstrapStartedAt,
+            sources: {
+              main: { ok: true, source: 'billing-main-card-identity-read' },
+              address: { ok: false, code: 'NOT_READ' },
+              technical: { ok: false, code: 'NOT_READ' }
+            }
+          }
+        };
+
+        // Address and technical data are bootstrap context, not identity proof.
+        // Failure of either source must not invalidate an already confirmed identity.
         try {
           const addressPage = await fetchDoc(makeUrl({
             pp,
@@ -529,17 +555,119 @@
               const option = select?.options?.[select.selectedIndex];
               return clean(option?.textContent || select?.value || '', 240);
             };
-            candidate.address = composeAddress({
+            const address = {
               street: addressSelected('dopfield_5'),
               building: addressInput('dopfield_6'),
               block: addressInput('dopfield_11'),
               entrance: addressInput('dopfield_12'),
               floor: addressInput('dopfield_7'),
               apartment: addressInput('dopfield_8')
-            });
+            };
+            address.full = composeAddress(address);
+            snapshot.address = address;
+            snapshot.contacts = {
+              phone: addressInput('dopfield_9'),
+              extraPhone: addressInput('dopfield_22'),
+              email: addressInput('dopfield_14')
+            };
+            snapshot.customer = {
+              subscriberType: addressSelected('dopfield_31'),
+              contractedWith: addressSelected('dopfield_32'),
+              edrpou: addressInput('dopfield_33'),
+              manager: addressSelected('dopfield_43'),
+              connectedBy: addressSelected('dopfield_25'),
+              comment: addressInput('dopfield_10')
+            };
+            candidate.address = address.full;
+            snapshot.bootstrapMeta.sources.address = {
+              ok: true,
+              source: 'billing-dopdata-address',
+              endpoint: '/cgi-bin/adm/adm.pl?a=dopdata&tmpl=2'
+            };
+          } else {
+            snapshot.bootstrapMeta.sources.address = {
+              ok: false,
+              code: authPage(addressPage.doc) ? 'BILLING_AUTH_REQUIRED' : `HTTP_${addressPage.status || 0}`
+            };
           }
-        } catch {}
+        } catch (error) {
+          snapshot.bootstrapMeta.sources.address = {
+            ok: false,
+            code: 'ADDRESS_READ_FAILED',
+            message: clean(error?.message || error, 240)
+          };
+        }
 
+        try {
+          const technicalPage = await fetchDoc(makeUrl({
+            pp,
+            a: 'dopdata',
+            parent_type: '0',
+            id,
+            tmpl: '1'
+          }));
+          if (technicalPage.ok && !authPage(technicalPage.doc)) {
+            const technicalInput = name => clean(technicalPage.doc.querySelector(`[name="${CSS.escape(name)}"]`)?.value || '', 240);
+            const technicalSelected = name => {
+              const select = technicalPage.doc.querySelector(`select[name="${CSS.escape(name)}"]`);
+              const option = select?.options?.[select.selectedIndex];
+              return clean(option?.textContent || select?.value || '', 240);
+            };
+            const booleanFromSelect = name => {
+              const value = String(technicalPage.doc.querySelector(`select[name="${CSS.escape(name)}"]`)?.value ?? '').trim();
+              if (value === '1') return true;
+              if (value === '0') return false;
+              return null;
+            };
+            const olt = technicalSelected('dopfield_29');
+            const eponOnuMac = technicalInput('dopfield_19');
+            const gponOntSerial = technicalInput('dopfield_38');
+            let technologyHint = '';
+            if (eponOnuMac && gponOntSerial) technologyHint = 'PON (EPON/GPON identifiers both present)';
+            else if (gponOntSerial) technologyHint = 'GPON';
+            else if (eponOnuMac) technologyHint = 'EPON';
+            else if (/\bGPON\b/i.test(olt)) technologyHint = 'GPON';
+            else if (/\bEPON\b/i.test(olt)) technologyHint = 'EPON';
+            else if (/\bOLT\b|HUAWEI|BDCOM|GCOM/i.test(olt)) technologyHint = 'PON';
+
+            snapshot.technical = {
+              subscriberMac: technicalInput('dopfield_4'),
+              eponOnuMac,
+              gponOntSerial,
+              technologyHint,
+              olt,
+              oltIp: olt.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/)?.[0] || '',
+              staticIpConfigured: booleanFromSelect('dopfield_44'),
+              onuWithCableTv: booleanFromSelect('dopfield_37'),
+              comment: technicalInput('dopfield_34')
+            };
+            if (technologyHint) candidate.connectionFamily = technologyHint;
+            snapshot.bootstrapMeta.sources.technical = {
+              ok: true,
+              source: 'billing-dopdata-technical',
+              endpoint: '/cgi-bin/adm/adm.pl?a=dopdata&tmpl=1'
+            };
+          } else {
+            snapshot.bootstrapMeta.sources.technical = {
+              ok: false,
+              code: authPage(technicalPage.doc) ? 'BILLING_AUTH_REQUIRED' : `HTTP_${technicalPage.status || 0}`
+            };
+          }
+        } catch (error) {
+          snapshot.bootstrapMeta.sources.technical = {
+            ok: false,
+            code: 'TECHNICAL_READ_FAILED',
+            message: clean(error?.message || error, 240)
+          };
+        }
+
+        snapshot.bootstrapMeta.completedAt = new Date().toISOString();
+        snapshot.observedAt = snapshot.bootstrapMeta.completedAt;
+        snapshot.bootstrapMeta.status = (
+          snapshot.bootstrapMeta.sources.address.ok
+          && snapshot.bootstrapMeta.sources.technical.ok
+        ) ? 'context-ready' : 'partial';
+        snapshots[id] = snapshot;
         candidates.push(candidate);
       } catch {}
     }
@@ -548,6 +676,7 @@
       ok: true,
       code: candidates.length ? 'OK' : 'NOT_FOUND',
       candidates,
+      snapshots,
       nativeQuery: matchedQuery,
       attemptedQueries: nativeQueries
     };
