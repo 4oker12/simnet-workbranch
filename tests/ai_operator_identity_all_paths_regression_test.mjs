@@ -49,9 +49,9 @@ test('lab identity decision keeps generic textual login instead of requiring num
 
 test('Billing native free-text request remains a=listuser&f=n&name=<exact value>', () => {
   const source = fs.readFileSync(new URL('../src/features/ai-operator/billing-login-live.js', import.meta.url), 'utf8');
-  assert.match(source, /a:\s*'listuser',\s*f:\s*'n',\s*name:\s*requestedLogin/);
-  assert.doesNotMatch(source, /requestedLogin\.toLowerCase\(\)/);
-  assert.doesNotMatch(source, /what_search:\s*'login'/);
+  assert.match(source, /a:\s*'listuser',\s*f:\s*'n',\s*name:\s*lookupRequest\.value/);
+  assert.doesNotMatch(source, /lookupRequest\.value\.toLowerCase\(\)/);
+  assert.match(source, /what_search:\s*lookupRequest\.mode/);
 });
 
 
