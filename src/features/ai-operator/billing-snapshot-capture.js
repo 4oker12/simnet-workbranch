@@ -407,12 +407,10 @@
     if (!pp) pp = clean(document.querySelector('input[name="pp"]')?.value || '', 200);
     if (!pp) return { ok: false, code: 'BILLING_SESSION_REQUIRED', candidates: [] };
 
-    // Reproduce the native Billing form exactly. For abonNNN the operator
-    // searches by the numeric account/contract part; the resulting a=user card
-    // is then verified against the literal requested login.
-    const nativeQuery = mode === 'login'
-      ? (rawValue.match(/^abon(\d{3,12})$/i)?.[1] || rawValue)
-      : rawValue;
+    // Reproduce the native Billing form exactly. Preserve the literal value
+    // first. For abonNNN, the numeric part is only a second native-search alias.
+    const abonDigits = mode === 'login' ? (rawValue.match(/^abon(\d{3,12})$/i)?.[1] || '') : '';
+    const nativeQueries = [...new Set([rawValue, abonDigits].filter(Boolean))];
 
     const decodeResponseHtml = async response => {
       const bytes = new Uint8Array(await response.arrayBuffer());
@@ -447,34 +445,45 @@
       return url;
     };
 
-    // Recorder evidence: GET adm.pl?pp=<session>&f=n&a=listuser&name=<query>
-    const searchUrl = makeUrl({
-      pp,
-      f: 'n',
-      a: 'listuser',
-      name: nativeQuery
-    });
-    const searchPage = await fetchDoc(searchUrl);
-    if (!searchPage.ok) return { ok: false, code: 'BILLING_SEARCH_FAILED', status: searchPage.status, candidates: [] };
-    if (authPage(searchPage.doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED', candidates: [] };
-
     const ids = new Map();
     const addCandidate = (id, rowText = '') => {
       const normalizedId = String(id || '').replace(/\D+/g, '').slice(0, 12);
       if (!normalizedId || ids.has(normalizedId)) return;
       ids.set(normalizedId, clean(rowText, 800));
     };
-    if (String(searchPage.url.searchParams.get('a') || '').toLowerCase() === 'user') {
-      addCandidate(searchPage.url.searchParams.get('id') || '', searchPage.doc.body?.textContent || '');
+    let matchedQuery = '';
+    let lastStatus = 0;
+    for (const nativeQuery of nativeQueries) {
+      // Native Billing form: GET adm.pl?pp=<session>&f=n&a=listuser&name=<query>
+      const searchPage = await fetchDoc(makeUrl({
+        pp,
+        f: 'n',
+        a: 'listuser',
+        name: nativeQuery
+      }));
+      lastStatus = searchPage.status;
+      if (!searchPage.ok) continue;
+      if (authPage(searchPage.doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED', candidates: [] };
+
+      if (String(searchPage.url.searchParams.get('a') || '').toLowerCase() === 'user') {
+        addCandidate(searchPage.url.searchParams.get('id') || '', searchPage.doc.body?.textContent || '');
+      }
+      for (const link of searchPage.doc.querySelectorAll('a[href]')) {
+        try {
+          const target = new URL(link.getAttribute('href') || '', searchPage.url);
+          if (String(target.searchParams.get('a') || '').toLowerCase() !== 'user') continue;
+          addCandidate(target.searchParams.get('id') || '', link.closest('tr')?.textContent || link.textContent || '');
+        } catch {}
+      }
+      if (ids.size) {
+        matchedQuery = nativeQuery;
+        break;
+      }
     }
-    for (const link of searchPage.doc.querySelectorAll('a[href]')) {
-      try {
-        const target = new URL(link.getAttribute('href') || '', searchPage.url);
-        if (String(target.searchParams.get('a') || '').toLowerCase() !== 'user') continue;
-        addCandidate(target.searchParams.get('id') || '', link.closest('tr')?.textContent || link.textContent || '');
-      } catch {}
+    if (!ids.size) {
+      if (lastStatus >= 400) return { ok: false, code: 'BILLING_SEARCH_FAILED', status: lastStatus, candidates: [] };
+      return { ok: true, code: 'NOT_FOUND', candidates: [], attemptedQueries: nativeQueries };
     }
-    if (!ids.size) return { ok: true, code: 'NOT_FOUND', candidates: [], nativeQuery };
 
     const candidates = [];
     for (const id of [...ids.keys()].slice(0, 8)) {
@@ -509,7 +518,8 @@
       ok: true,
       code: candidates.length ? 'OK' : 'NOT_FOUND',
       candidates,
-      nativeQuery
+      nativeQuery: matchedQuery,
+      attemptedQueries: nativeQueries
     };
   }
 
