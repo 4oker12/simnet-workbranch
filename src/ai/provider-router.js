@@ -85,10 +85,15 @@
     }
 
     const next = { ...payload };
-    next.model = normalizeDeepSeekModel(config.chatModel || config.model);
+    const requestedModel = String(next.model || '').trim();
+    next.model = requestedModel === 'deepseek-flash' || requestedModel === 'deepseek-v4-pro'
+      ? requestedModel
+      : normalizeDeepSeekModel(config.chatModel || config.model);
 
     // Groq-specific knobs must not leak into another provider. DeepSeek uses
-    // OpenAI-compatible max_tokens and manages its own thinking/cache policy.
+    // OpenAI-compatible max_tokens. For strict JSON stages, disable thinking:
+    // max_tokens includes reasoning tokens, so a thinking response can exhaust
+    // the budget before message.content is produced.
     if (next.max_completion_tokens != null && next.max_tokens == null) {
       next.max_tokens = next.max_completion_tokens;
     }
@@ -96,6 +101,9 @@
     delete next.reasoning_format;
     delete next.reasoning_effort;
     delete next.disable_tool_validation;
+    if (next?.response_format?.type === 'json_object') {
+      next.thinking = { type: 'disabled' };
+    }
 
     return { body: JSON.stringify(next), payload: next, promptGuard: false };
   }

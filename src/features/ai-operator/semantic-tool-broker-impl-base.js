@@ -241,13 +241,15 @@ function fallbackEvidence(trace = []) {
   return uniqueEvidence(trace).filter(item => !['customer.lookup', 'customer.confirm'].includes(String(item?.tool || '')));
 }
 
-export async function executeInformationNeeds({ needs = [], transcript = [], analysis = {}, labState = {}, execute } = {}) {
+export async function executeInformationNeeds({ needs = [], transcript = [], analysis = {}, labState = {}, execute, identityBootstrapDone = false } = {}) {
   if (typeof execute !== 'function') throw new Error('Soft tool broker requires execute(tool)');
   const routedNeeds = routeNeedsForCore(needs);
   const shouldBootstrap = routedNeeds.length === 0 || requiresSubscriberBootstrap(routedNeeds);
-  const pre = shouldBootstrap
-    ? await bootstrapExplicitIdentity({ transcript, analysis, labState, execute, includeSnapshot: false })
-    : { trace: [], labState: cloneState(labState) };
+  const pre = identityBootstrapDone
+    ? { trace: [], labState: cloneState(labState) }
+    : shouldBootstrap
+      ? await bootstrapExplicitIdentity({ transcript, analysis, labState, execute, includeSnapshot: false })
+      : { trace: [], labState: cloneState(labState) };
   if (pre.trace.length && !String(pre.labState.confirmedCaseId || '').trim()) {
     return { planned: core.mapInformationNeedsToTools(routedNeeds), trace: pre.trace, labState: pre.labState };
   }
@@ -407,7 +409,16 @@ export function evidenceFallbackReply(analysis = {}, toolTrace = []) {
 }
 
 export async function groundSubscriberReply(options = {}) {
-  const { draft = {}, transcript = [], analysis = {}, labState = {}, execute, coreGround = core.groundSubscriberReply, ...rest } = options;
+  const {
+    draft = {},
+    transcript = [],
+    analysis = {},
+    labState = {},
+    execute,
+    coreGround = core.groundSubscriberReply,
+    identityBootstrapDone = false,
+    ...rest
+  } = options;
   if (typeof execute !== 'function') throw new Error('Soft tool broker requires execute(tool)');
   const needs = recoverLiveDataNeeds({ analysis, draft });
   const routedNeeds = routeNeedsForCore(needs);
@@ -417,9 +428,11 @@ export async function groundSubscriberReply(options = {}) {
   const shouldBootstrap = requiredFacts.length
     ? canonicalNeedsSubscriber
     : (routedNeeds.length === 0 || requiresSubscriberBootstrap(routedNeeds));
-  const pre = shouldBootstrap
-    ? await bootstrapExplicitIdentity({ transcript, analysis, labState, execute, includeSnapshot: Boolean(draft?.degraded && needs.length === 0) })
-    : { trace: [], labState: cloneState(labState) };
+  const pre = identityBootstrapDone
+    ? { trace: [], labState: cloneState(labState) }
+    : shouldBootstrap
+      ? await bootstrapExplicitIdentity({ transcript, analysis, labState, execute, includeSnapshot: Boolean(draft?.degraded && needs.length === 0) })
+      : { trace: [], labState: cloneState(labState) };
   const identity = core.extractIdentityHints(transcript, analysis);
   const factResolution = requiredFacts.length
     ? await resolveFacts({

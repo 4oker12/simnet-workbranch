@@ -6,9 +6,17 @@ const BILLING_TAB_URLS = Object.freeze([
 ]);
 
 const LOGIN_RE = /^(?=.{3,64}$)(?=.*[A-Za-z])[A-Za-z][A-Za-z0-9._-]*$/;
+const CONTRACT_RE = /^\d{3,12}$/;
 const EXCLUDED_LOGIN_WORDS = new Set([
   'internet', 'wifi', 'wi-fi', 'router', 'balance', 'tariff', 'speed',
   'help', 'hello', 'privet', 'test', 'online', 'offline'
+]);
+const RETRYABLE_TAB_CODES = new Set([
+  'BILLING_SESSION_REQUIRED',
+  'BILLING_AUTH_REQUIRED',
+  'BILLING_TAB_INVALID',
+  'BILLING_SEARCH_NO_RESULT',
+  'BILLING_SEARCH_EXECUTION_FAILED'
 ]);
 
 function clean(value, max = 500) {
@@ -21,6 +29,16 @@ export function classifyStandaloneBillingLogin(value) {
   const normalized = login.toLowerCase();
   if (!login || EXCLUDED_LOGIN_WORDS.has(normalized)) return '';
   return LOGIN_RE.test(login) ? login : '';
+}
+
+export function classifyBillingExactIdentity({ login, contract } = {}) {
+  const exactLogin = classifyStandaloneBillingLogin(login);
+  if (exactLogin) return { mode: 'login', value: exactLogin };
+
+  const exactContract = clean(contract, 80).replace(/\s+/g, '');
+  if (CONTRACT_RE.test(exactContract)) return { mode: 'contract', value: exactContract };
+
+  return null;
 }
 
 function rankBillingTabs(tabs = []) {
@@ -36,16 +54,19 @@ async function billingTabs() {
   return rankBillingTabs(await chrome.tabs.query({ url: [...BILLING_TAB_URLS] }));
 }
 
-async function executeLoginSearch(tabId, login) {
+async function executeExactIdentitySearch(tabId, request) {
   const [execution] = await chrome.scripting.executeScript({
     target: { tabId },
-    args: [login],
-    func: async requestedLogin => {
+    args: [request],
+    func: async lookupRequest => {
       const allowedHost = /^(?:admin\.simnet\.kiev\.ua|admin\.looknet\.kiev\.ua)$/i.test(location.hostname);
       if (!allowedHost) return { ok: false, code: 'BILLING_TAB_INVALID' };
 
       const compact = (value, max = 500) => {
-        const normalized = String(value == null ? '' : value).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+        const normalized = String(value == null ? '' : value)
+          .replace(/\u00a0/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
         return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
       };
       const input = (doc, name) => compact(doc.querySelector(`[name="${CSS.escape(name)}"]`)?.value || '', 240);
@@ -64,7 +85,7 @@ async function executeLoginSearch(tabId, login) {
         return new TextDecoder('utf-8').decode(bytes);
       };
       const fetchDoc = async url => {
-        const response = await fetch(url, { credentials: 'include', cache: 'no-store' });
+        const response = await fetch(url, { method: 'GET', credentials: 'include', cache: 'no-store' });
         const html = await decodeResponseHtml(response);
         return {
           ok: response.ok,
@@ -81,6 +102,35 @@ async function executeLoginSearch(tabId, login) {
         }
         return url;
       };
+      const candidateIds = (page, ids) => {
+        const add = (id, rowText = '') => {
+          const normalizedId = String(id || '').replace(/\D+/g, '').slice(0, 12);
+          if (!normalizedId || ids.has(normalizedId)) return;
+          ids.set(normalizedId, compact(rowText, 800));
+        };
+        if (String(page.url.searchParams.get('a') || '').toLowerCase() === 'user') {
+          add(page.url.searchParams.get('id') || '', page.doc.body?.textContent || '');
+        }
+        for (const link of page.doc.querySelectorAll('a[href]')) {
+          try {
+            const target = new URL(link.getAttribute('href') || '', page.url);
+            if (String(target.searchParams.get('a') || '').toLowerCase() !== 'user') continue;
+            add(target.searchParams.get('id') || '', link.closest('tr')?.textContent || link.textContent || '');
+          } catch {}
+        }
+      };
+      const identityMatches = ({ login, contract }) => {
+        if (lookupRequest.mode === 'login') {
+          const actual = compact(login, 80);
+          return !actual || actual.toLowerCase() === String(lookupRequest.value || '').toLowerCase();
+        }
+        if (lookupRequest.mode === 'contract') {
+          const actual = compact(contract, 80).replace(/\D+/g, '');
+          const requested = String(lookupRequest.value || '').replace(/\D+/g, '');
+          return !actual || actual === requested;
+        }
+        return false;
+      };
 
       const current = new URL(location.href);
       let pp = compact(current.searchParams.get('pp') || '', 200);
@@ -89,47 +139,46 @@ async function executeLoginSearch(tabId, login) {
       if (!uu) uu = compact(document.querySelector('input[name="uu"]')?.value || '', 80);
       if (!pp) return { ok: false, code: 'BILLING_SESSION_REQUIRED' };
 
-      // Native Billing free-text search. SIMNET login matching is case-insensitive;
-      // the classifier supplies a normalized lowercase login in name=.
-      const searchUrl = makeUrl({ pp, ...(uu ? { uu } : {}), a: 'listuser', f: 'n', name: requestedLogin });
-      const searchPage = await fetchDoc(searchUrl);
-      if (!searchPage.ok) return { ok: false, code: 'BILLING_SEARCH_FAILED', status: searchPage.status };
-      if (authPage(searchPage.doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED' };
-
+      const base = { pp, ...(uu ? { uu } : {}), a: 'listuser', f: 'n', name: lookupRequest.value };
+      const attempts = [
+        makeUrl(base),
+        makeUrl({ ...base, what_search: lookupRequest.mode })
+      ];
       const ids = new Map();
-      const addCandidate = (id, rowText = '') => {
-        const normalizedId = String(id || '').replace(/\D+/g, '').slice(0, 12);
-        if (!normalizedId) return;
-        if (!ids.has(normalizedId)) ids.set(normalizedId, compact(rowText, 800));
-      };
-      if (String(searchPage.url.searchParams.get('a') || '').toLowerCase() === 'user') {
-        addCandidate(searchPage.url.searchParams.get('id') || '', searchPage.doc.body?.textContent || '');
-      }
-      for (const link of searchPage.doc.querySelectorAll('a[href]')) {
-        try {
-          const target = new URL(link.getAttribute('href') || '', searchPage.url);
-          if (String(target.searchParams.get('a') || '').toLowerCase() !== 'user') continue;
-          addCandidate(target.searchParams.get('id') || '', link.closest('tr')?.textContent || link.textContent || '');
-        } catch {}
+      let lastStatus = 0;
+
+      for (const searchUrl of attempts) {
+        const searchPage = await fetchDoc(searchUrl);
+        lastStatus = searchPage.status;
+        if (!searchPage.ok) continue;
+        if (authPage(searchPage.doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED' };
+        candidateIds(searchPage, ids);
+        if (ids.size) break;
       }
 
-      if (!ids.size) return { ok: true, code: 'NOT_FOUND', candidates: [] };
+      if (!ids.size) {
+        if (lastStatus && lastStatus >= 400) return { ok: false, code: 'BILLING_SEARCH_FAILED', status: lastStatus };
+        return { ok: true, code: 'NOT_FOUND', candidates: [] };
+      }
+
       const candidates = [];
       for (const billingId of [...ids.keys()].slice(0, 8)) {
         try {
           const page = await fetchDoc(makeUrl({ pp, ...(uu ? { uu } : {}), a: 'user', id: billingId }));
           if (!page.ok || authPage(page.doc)) continue;
-          const actualLogin = input(page.doc, 'name');
-          candidates.push({
+
+          const candidate = {
             billingId,
             contract: input(page.doc, 'contract'),
-            login: actualLogin || String(requestedLogin || ''),
+            login: input(page.doc, 'name'),
             fullName: input(page.doc, 'fio'),
             address: '',
             ip: input(page.doc, 'ip'),
             connectionFamily: '',
             resultText: ids.get(billingId) || ''
-          });
+          };
+          if (!identityMatches(candidate)) continue;
+          candidates.push(candidate);
         } catch {}
       }
 
@@ -139,12 +188,13 @@ async function executeLoginSearch(tabId, login) {
   return execution?.result || { ok: false, code: 'BILLING_SEARCH_NO_RESULT' };
 }
 
-export async function searchBillingLoginLive({ login } = {}) {
-  const normalizedLogin = classifyStandaloneBillingLogin(login);
-  if (!normalizedLogin) return { ok: false, code: 'IDENTITY_QUERY_REQUIRED', candidates: [] };
+export async function searchBillingExactIdentityLive(args = {}) {
+  const request = classifyBillingExactIdentity(args);
+  if (!request) return { ok: false, code: 'IDENTITY_QUERY_REQUIRED', candidates: [] };
   if (!globalThis.chrome?.scripting?.executeScript || !globalThis.chrome?.tabs?.query) {
     return { ok: false, code: 'BILLING_RUNTIME_UNAVAILABLE', candidates: [] };
   }
+
   const tabs = await billingTabs();
   if (!tabs.length) return { ok: false, code: 'BILLING_TAB_REQUIRED', candidates: [] };
 
@@ -152,14 +202,26 @@ export async function searchBillingLoginLive({ login } = {}) {
   for (const tab of tabs) {
     if (!Number.isInteger(tab?.id)) continue;
     try {
-      const outcome = await executeLoginSearch(tab.id, normalizedLogin);
+      const outcome = await executeExactIdentitySearch(tab.id, request);
       last = outcome;
-      if (outcome?.ok || !['BILLING_SESSION_REQUIRED', 'BILLING_AUTH_REQUIRED', 'BILLING_TAB_INVALID'].includes(String(outcome?.code || ''))) {
-        return { ...outcome, request: { mode: 'login', value: normalizedLogin }, tabId: tab.id, source: 'billing-live-read-only' };
+      if (outcome?.ok) {
+        return { ...outcome, request, tabId: tab.id, source: 'billing-live-read-only' };
+      }
+      if (!RETRYABLE_TAB_CODES.has(String(outcome?.code || ''))) {
+        return { ...outcome, request, tabId: tab.id, source: 'billing-live-read-only' };
       }
     } catch (error) {
       last = { ok: false, code: 'BILLING_SEARCH_EXECUTION_FAILED', message: clean(error?.message || error, 500) };
     }
   }
-  return { ...(last || { ok: false, code: 'BILLING_SESSION_REQUIRED' }), request: { mode: 'login', value: normalizedLogin }, source: 'billing-live-read-only' };
+
+  return {
+    ...(last || { ok: false, code: 'BILLING_SESSION_REQUIRED' }),
+    request,
+    source: 'billing-live-read-only'
+  };
+}
+
+export async function searchBillingLoginLive({ login } = {}) {
+  return searchBillingExactIdentityLive({ login });
 }

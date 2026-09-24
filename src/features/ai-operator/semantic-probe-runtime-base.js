@@ -89,8 +89,10 @@ function isCoolingDown(model) {
 function modelsForRuntime(runtime = {}) {
   const preferred = String(runtime.chatModel || AI_CONFIG.model || '').trim();
   const provider = String(runtime.provider || AI_CONFIG.provider || 'groq').trim().toLowerCase();
-  if (provider !== 'groq') return preferred ? [preferred] : [];
-  const all = [preferred, ...GENERATION_FALLBACK_MODELS]
+  const providerModels = provider === 'deepseek'
+    ? [preferred, 'deepseek-flash']
+    : [preferred, ...GENERATION_FALLBACK_MODELS];
+  const all = providerModels
     .filter((model, index, list) => model && !RETIRED_MODELS.has(model) && model !== PROMPT_GUARD_MODEL && list.indexOf(model) === index);
   const ready = all.filter(model => !isCoolingDown(model));
   return ready.length ? ready : all;

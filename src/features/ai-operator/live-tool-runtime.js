@@ -3,7 +3,10 @@
 import * as core from './live-tool-runtime-core.js';
 import { readNetworkSessionLive } from './network-live-search.js';
 import { readBillingSummaryLive } from './billing-summary-live.js';
-import { classifyStandaloneBillingLogin, searchBillingLoginLive } from './billing-login-live.js';
+import {
+  classifyBillingExactIdentity,
+  searchBillingExactIdentityLive
+} from './billing-login-live.js';
 import { readBuildingSnapshot } from './building-snapshot-tool.js';
 import { CANONICAL_FACT_CATALOG, canonicalFactPath } from './canonical-fact-catalog.js';
 
@@ -111,22 +114,51 @@ function liveLookupCandidate(candidate = {}) {
   };
 }
 
-async function executeGenericLoginLookup(toolArgs = {}) {
-  const login = classifyStandaloneBillingLogin(toolArgs.login);
-  const live = await searchBillingLoginLive({ login });
+async function executeExactIdentityLookup(toolArgs = {}) {
+  const request = classifyBillingExactIdentity(toolArgs);
+  if (!request) return null;
+
+  const live = await searchBillingExactIdentityLive(toolArgs);
   if (!live?.ok) {
+    // Exact login/numeric-contract lookup owns the normal identity path.
+    // Infrastructure failure may use the old/local bridge as a bounded fallback;
+    // a genuine NOT_FOUND must not trigger broad subscriber-card scraping.
+    if ([
+      'BILLING_RUNTIME_UNAVAILABLE',
+      'BILLING_TAB_REQUIRED',
+      'BILLING_SESSION_REQUIRED',
+      'BILLING_AUTH_REQUIRED',
+      'BILLING_TAB_INVALID',
+      'BILLING_SEARCH_NO_RESULT',
+      'BILLING_SEARCH_EXECUTION_FAILED'
+    ].includes(String(live?.code || ''))) {
+      const fallback = await core.executeOperatorTool({ tool: 'customer.lookup', toolArgs, labState: {} });
+      if (fallback?.ok) {
+        return {
+          ...fallback,
+          warnings: [
+            ...(Array.isArray(fallback.warnings) ? fallback.warnings : []),
+            `Exact Billing identity lookup недоступен (${String(live?.code || 'unknown')}); использован legacy/local fallback.`
+          ]
+        };
+      }
+    }
     return result('customer.lookup', false, String(live?.code || 'BILLING_SEARCH_FAILED'), {
-      message: 'Не удалось выполнить поиск login в Billing.',
+      message: 'Не удалось выполнить точный поиск абонента в Billing.',
       source: 'billing-live-read-only',
-      searchMode: 'login'
+      searchMode: request.mode
     });
   }
-  const candidates = (Array.isArray(live.candidates) ? live.candidates : []).map(liveLookupCandidate).filter(item => item.caseId);
+
+  const candidates = (Array.isArray(live.candidates) ? live.candidates : [])
+    .map(liveLookupCandidate)
+    .filter(item => item.caseId);
+
   if (!candidates.length) {
     return result('customer.lookup', false, 'NOT_FOUND', {
-      message: 'Абонент не найден штатным поиском Billing по login.',
+      message: 'Абонент не найден штатным точным поиском Billing.',
       source: 'billing-live-read-only',
-      searchMode: 'login'
+      searchMode: request.mode
     });
   }
   if (candidates.length !== 1) {
@@ -134,16 +166,17 @@ async function executeGenericLoginLookup(toolArgs = {}) {
       count: candidates.length,
       candidates,
       source: 'billing-live-read-only',
-      searchMode: 'login'
-    }, ['Нужно уточнить login/договор, чтобы выбрать конкретного абонента.']);
+      searchMode: request.mode
+    }, ['Нужно уточнить идентификатор, чтобы выбрать конкретного абонента.']);
   }
+
   const candidate = candidates[0];
   return result('customer.lookup', true, 'OK', {
     count: 1,
     candidate,
     requiresConfirmation: false,
     source: 'billing-live-read-only',
-    searchMode: 'login'
+    searchMode: request.mode
   }, [], {
     pendingCandidate: null,
     confirmedCaseId: candidate.caseId,
@@ -394,9 +427,9 @@ async function executeNetworkSessionTool(name, toolArgs = {}, labState = {}) {
 
 export async function executeOperatorTool({ tool, toolArgs = {}, labState = {} } = {}) {
   const name = String(tool || '').trim();
-  const genericLogin = name === 'customer.lookup' ? classifyStandaloneBillingLogin(toolArgs.login) : '';
-  if (genericLogin && !/^abon\d{3,12}$/i.test(genericLogin)) {
-    return executeGenericLoginLookup({ ...toolArgs, login: genericLogin });
+  const exactIdentity = name === 'customer.lookup' ? classifyBillingExactIdentity(toolArgs) : null;
+  if (exactIdentity) {
+    return executeExactIdentityLookup(toolArgs);
   }
   if (name === 'building.snapshot') {
     return readBuildingSnapshot({ toolArgs, labState });

@@ -404,7 +404,11 @@ export async function executeInformationNeeds(options = {}) {
       labState: pre.labState
     };
   }
-  const delegated = await impl.executeInformationNeeds({ ...options, labState: pre.labState });
+  const delegated = await impl.executeInformationNeeds({
+    ...options,
+    labState: pre.labState,
+    identityBootstrapDone: pre.trace.length > 0
+  });
   return {
     ...delegated,
     trace: mergeTrace(pre.trace, delegated?.trace),
@@ -429,7 +433,11 @@ export async function groundSubscriberReply(options = {}) {
   const pre = skipIdentityBootstrap
     ? { trace: [], labState: mergeState({}, labState) }
     : await bootstrapStandaloneIdentity({ transcript, analysis, labState, execute });
-  const delegated = await impl.groundSubscriberReply({ ...options, labState: pre.labState });
+  const delegated = await impl.groundSubscriberReply({
+    ...options,
+    labState: pre.labState,
+    identityBootstrapDone: pre.trace.length > 0
+  });
   const toolTrace = mergeTrace(pre.trace, delegated?.toolTrace);
   const toolEvidence = mergeTrace(pre.trace.filter(item => item?.ok), delegated?.toolEvidence);
   const generationDegraded = Boolean(draft?.degraded || delegated?.degraded);
