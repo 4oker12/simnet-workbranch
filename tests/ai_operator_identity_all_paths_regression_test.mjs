@@ -212,3 +212,24 @@ test('confirmed subscriber address is the shared input for building index lookup
   assert.match(building, /labState\?\.confirmedSubscriber\?\.address/);
   assert.match(building, /simnet_crm_building_snapshot_v1/);
 });
+
+
+test('Billing exact lookup exposes execution phase instead of collapsing source errors into NOT_FOUND', () => {
+  const capture = fs.readFileSync(new URL('../src/features/ai-operator/billing-snapshot-capture.js', import.meta.url), 'utf8');
+  const reader = fs.readFileSync(new URL('../src/features/ai-operator/billing-login-live.js', import.meta.url), 'utf8');
+  const runtime = fs.readFileSync(new URL('../src/features/ai-operator/live-tool-runtime.js', import.meta.url), 'utf8');
+
+  assert.match(capture, /simnetPhase/);
+  assert.match(capture, /native-listuser-fetch/);
+  assert.match(capture, /main-card-fetch/);
+  assert.match(capture, /address-fetch/);
+  assert.match(capture, /technical-fetch/);
+  assert.match(capture, /candidateErrors/);
+  assert.match(capture, /BILLING_CARD_READ_FAILED/);
+  assert.doesNotMatch(capture, /candidates\.push\(candidate\);\s*}\s*catch\s*\{\s*\}/, 'candidate read failures must not be silently swallowed');
+
+  assert.match(reader, /failurePhase:\s*'content-bridge-reinject'/);
+  assert.match(reader, /initialBridgeError/);
+  assert.match(runtime, /failurePhase:\s*text\(live\?\.failurePhase/);
+  assert.match(runtime, /failureMessage:\s*text\(live\?\.message/);
+});
