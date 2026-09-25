@@ -32,6 +32,73 @@
     return out.length > max ? `${out.slice(0, max - 1)}…` : out;
   }
 
+  function isTariffStatusMarker(value) {
+    const text = clean(value, 260).replace(/^\s*\[\d+\]\s*/, '').trim();
+    if (!text) return false;
+    return /^(?:заблокирован(?:о|а|ы)?|заблокован(?:о|ий|а|і)?|blocked)$/iu.test(text);
+  }
+
+  function textWithBreaks(node, max = 1600) {
+    if (!node) return '';
+    const clone = node.cloneNode(true);
+    clone.querySelectorAll?.('br').forEach(br => br.replaceWith('\n'));
+    const lines = String(clone.textContent || '')
+      .replace(/\u00a0/g, ' ')
+      .split(/\r?\n/)
+      .map(line => line.replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+    const out = lines.join('\n');
+    return out.length > max ? `${out.slice(0, max - 1)}…` : out;
+  }
+
+  function parsePayshowHistory(doc) {
+    const tables = [...(doc?.querySelectorAll?.('table.usrlist.width100') || [])];
+    const table = tables.find(node => {
+      const head = clean(node.querySelector('thead')?.textContent || '', 600);
+      return /комментар/i.test(head) && /дата/i.test(head);
+    });
+    if (!table) return { events: [], packageBeforeBlock: null };
+
+    const events = [];
+    let packageBeforeBlock = null;
+    const rows = [...table.querySelectorAll(':scope > tbody > tr, :scope > tr')];
+    for (const row of rows.slice(0, 100)) {
+      const cells = [...row.querySelectorAll(':scope > td, :scope > th')];
+      if (!cells.length) continue;
+      const dateCell = row.querySelector('td.disabled');
+      const dateIndex = dateCell ? cells.indexOf(dateCell) : -1;
+      const commentCell = dateIndex > 0 ? cells[dateIndex - 1] : cells.find(cell => /пакет\s*:/iu.test(textWithBreaks(cell, 1600)));
+      const comment = textWithBreaks(commentCell, 1600);
+      const at = clean(dateCell?.textContent || '', 100);
+      const action = dateIndex >= 0 ? clean(cells[dateIndex + 1]?.textContent || '', 180) : '';
+      const admin = dateIndex >= 0 ? clean(cells[dateIndex + 2]?.textContent || '', 120) : '';
+      const detailHref = clean(row.querySelector('a[href*="a=pays"][href*="act=show"]')?.getAttribute('href') || '', 500);
+      const columns = cells.map(cell => clean(cell.textContent || '', 500)).filter(Boolean);
+      const event = { at, comment, action, admin, columns, detailHref };
+      events.push(event);
+
+      if (!packageBeforeBlock && comment) {
+        const packageLine = comment.split('\n').find(line => /^пакет\s*:/iu.test(line));
+        const transition = packageLine?.match(/^пакет\s*:\s*['"]?(.*?)['"]?\s*->\s*['"]?(.*?)['"]?\s*$/iu);
+        if (transition) {
+          const from = clean(transition[1], 260);
+          const to = clean(transition[2], 260);
+          if (from && !isTariffStatusMarker(from) && isTariffStatusMarker(to)) {
+            packageBeforeBlock = {
+              name: from,
+              changedTo: to,
+              at,
+              action,
+              admin,
+              source: 'billing-payshow-history'
+            };
+          }
+        }
+      }
+    }
+    return { events, packageBeforeBlock };
+  }
+
   function selectedOption(name) {
     const node = document.querySelector(`select[name="${CSS.escape(name)}"]`);
     if (!node) return null;
@@ -274,11 +341,15 @@
       service: {
         group: groupOption?.label || '',
         groupId: groupOption?.value || '',
-        currentTariff: currentTariffOption?.label || '',
-        configuredTariff: currentTariffOption?.label || '',
-        currentTariffSource: currentTariffOption?.label ? 'select[name="paket"]' : '',
+        currentTariff: isTariffStatusMarker(currentTariffOption?.label) ? '' : (currentTariffOption?.label || ''),
+        configuredTariff: isTariffStatusMarker(currentTariffOption?.label) ? '' : (currentTariffOption?.label || ''),
+        currentTariffSource: isTariffStatusMarker(currentTariffOption?.label)
+          ? 'history_required_from_payshow'
+          : (currentTariffOption?.label ? 'select[name="paket"]' : ''),
         currentTariffSelectedId: currentTariffOption?.value || '',
         currentTariffSelectedLabel: currentTariffOption?.label || '',
+        tariffSelectorState: isTariffStatusMarker(currentTariffOption?.label) ? (currentTariffOption?.label || '') : '',
+        tariffResolutionRequired: isTariffStatusMarker(currentTariffOption?.label),
         nextTariff: nextTariffOption?.label ?? null,
         nextTariffId: nextTariffOption?.value || '',
         nextTariffDelay: selected('next_paket_delay'),
