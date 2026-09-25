@@ -450,6 +450,10 @@
         input.value = String(value);
         form.append(input);
       }
+      const submitButton = document.createElement('input');
+      submitButton.type = 'submit';
+      submitButton.value = 'Найти';
+      form.append(submitButton);
 
       let settled = false;
       const cleanup = () => {
@@ -498,7 +502,7 @@
       const timer = window.setTimeout(() => fail(new Error('Billing form submit timed out')), 15000);
 
       try {
-        if (typeof form.requestSubmit === 'function') form.requestSubmit();
+        if (typeof form.requestSubmit === 'function') form.requestSubmit(submitButton);
         else HTMLFormElement.prototype.submit.call(form);
       } catch (error) {
         fail(error);
