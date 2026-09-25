@@ -77,3 +77,28 @@ test('AI Lab highlights semantic-to-tool mismatches and important raw JSON field
     assert.match(traceJs, new RegExp(className));
   }
 });
+
+
+test('AI Lab exposes a DevTools-style hover inspector for tool references and subscriber snapshot', () => {
+  assert.match(traceJs, /TOOL_INSPECTOR_META/);
+  assert.match(traceJs, /customer\.lookup/);
+  assert.match(traceJs, /READ · identity/);
+  assert.match(traceJs, /Что делает/);
+  assert.match(traceJs, /SIMNET_AI_OPERATOR|simnet_ai_operator_billing_snapshots_v1/i);
+  assert.match(traceJs, /chrome\.storage\.local\.get\(BILLING_SNAPSHOT_KEY\)/);
+  assert.match(traceJs, /confirmedSubscriber/);
+  assert.match(traceJs, /Subscriber Snapshot/);
+  assert.match(traceJs, /bootstrapMeta/);
+  assert.match(traceJs, /Полный snapshot/);
+  assert.match(traceJs, /mouseenter/);
+  assert.match(traceJs, /inspectorPinned/);
+  assert.match(traceJs, /event\.key === 'Escape'/);
+});
+
+test('tool references inside RAW JSON and trace chips are decorated as inspector targets', () => {
+  assert.match(traceJs, /TOOL_REF_RE/);
+  assert.match(traceJs, /appendDecoratedToolText\(span, line\)/);
+  assert.match(traceJs, /toolRef\(toolName, toolName\)/);
+  assert.match(traceJs, /toolRef\(sourceTool, item\.source\)/);
+  assert.match(traceJs, /tool:.*customer\\\.lookup|customer\\\.lookup/);
+});
