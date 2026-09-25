@@ -425,15 +425,21 @@
       }
       return new TextDecoder('utf-8').decode(bytes);
     };
-    const fetchDoc = async url => {
-      const response = await fetch(url, { method: 'GET', credentials: 'include', cache: 'no-store' });
-      const html = await decodeResponseHtml(response);
-      return {
-        ok: response.ok,
-        status: response.status,
-        url: new URL(response.url || url, location.origin),
-        doc: new DOMParser().parseFromString(html, 'text/html')
-      };
+    const fetchDoc = async (url, phase = 'billing-fetch') => {
+      try {
+        const response = await fetch(url, { method: 'GET', credentials: 'include', cache: 'no-store' });
+        const html = await decodeResponseHtml(response);
+        return {
+          ok: response.ok,
+          status: response.status,
+          url: new URL(response.url || url, location.origin),
+          doc: new DOMParser().parseFromString(html, 'text/html')
+        };
+      } catch (error) {
+        const wrapped = new Error(clean(error?.message || error, 360) || 'Billing fetch failed');
+        wrapped.simnetPhase = phase;
+        throw wrapped;
+      }
     };
     const authPage = doc => Boolean(doc.querySelector('input[type="password"]'));
     const makeUrl = paramsObject => {
@@ -460,7 +466,7 @@
         f: 'n',
         a: 'listuser',
         name: nativeQuery
-      }));
+      }), 'native-listuser-fetch');
       lastStatus = searchPage.status;
       if (!searchPage.ok) continue;
       if (authPage(searchPage.doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED', candidates: [] };
@@ -487,9 +493,10 @@
 
     const candidates = [];
     const snapshots = {};
+    const candidateErrors = [];
     for (const id of [...ids.keys()].slice(0, 8)) {
       try {
-        const page = await fetchDoc(makeUrl({ pp, a: 'user', id }));
+        const page = await fetchDoc(makeUrl({ pp, a: 'user', id }), 'main-card-fetch');
         if (!page.ok || authPage(page.doc)) continue;
         const field = name => clean(page.doc.querySelector(`[name="${CSS.escape(name)}"]`)?.value || '', 240);
         const candidate = {
@@ -547,7 +554,7 @@
             parent_type: '0',
             id,
             tmpl: '2'
-          }));
+          }), 'address-fetch');
           if (addressPage.ok && !authPage(addressPage.doc)) {
             const addressInput = name => clean(addressPage.doc.querySelector(`[name="${CSS.escape(name)}"]`)?.value || '', 240);
             const addressSelected = name => {
@@ -605,7 +612,7 @@
             parent_type: '0',
             id,
             tmpl: '1'
-          }));
+          }), 'technical-fetch');
           if (technicalPage.ok && !authPage(technicalPage.doc)) {
             const technicalInput = name => clean(technicalPage.doc.querySelector(`[name="${CSS.escape(name)}"]`)?.value || '', 240);
             const technicalSelected = name => {
@@ -669,7 +676,27 @@
         ) ? 'context-ready' : 'partial';
         snapshots[id] = snapshot;
         candidates.push(candidate);
-      } catch {}
+      } catch (error) {
+        candidateErrors.push({
+          billingId: id,
+          phase: clean(error?.simnetPhase || 'main-card-parse', 80),
+          message: clean(error?.message || error, 360)
+        });
+      }
+    }
+
+    if (!candidates.length && candidateErrors.length) {
+      return {
+        ok: false,
+        code: 'BILLING_CARD_READ_FAILED',
+        failurePhase: candidateErrors[0]?.phase || 'main-card-read',
+        message: candidateErrors[0]?.message || 'Billing subscriber card read failed',
+        candidateErrors,
+        candidates: [],
+        snapshots: {},
+        nativeQuery: matchedQuery,
+        attemptedQueries: nativeQueries
+      };
     }
 
     return {
@@ -689,6 +716,7 @@
       error => sendResponse({
         ok: false,
         code: 'BILLING_SEARCH_EXECUTION_FAILED',
+        failurePhase: clean(error?.simnetPhase || 'exact-lookup-runtime', 80),
         message: clean(error?.message || error, 500),
         candidates: []
       })
