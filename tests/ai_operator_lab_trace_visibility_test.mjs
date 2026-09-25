@@ -42,15 +42,15 @@ test('AI Lab renders the latest decision as one ordered human-readable pipeline'
   assert.doesNotThrow(() => new Function(traceJs));
 
   const stages = [
-    "'ПОНЯЛ'",
-    "'КОНТЕКСТ'",
-    "'НУЖНО УЗНАТЬ'",
-    "'ПЛАН'",
-    "'TOOL'",
-    "'ФАКТЫ'",
-    "'ПРОВЕРКА'",
-    "'ВЫВОД'",
-    "'ОТВЕТ'"
+    "step(index++, 'ПОНЯЛ'",
+    "step(index++, 'КОНТЕКСТ'",
+    "step(index++, 'НУЖНО УЗНАТЬ'",
+    "step(index++, 'ПЛАН'",
+    "step(index++, 'TOOL'",
+    "step(index++, 'ФАКТЫ'",
+    "step(index++, 'ПРОВЕРКА'",
+    "step(index++, 'ВЫВОД'",
+    "step(index++, 'ОТВЕТ'"
   ];
   let previous = -1;
   for (const stage of stages) {
