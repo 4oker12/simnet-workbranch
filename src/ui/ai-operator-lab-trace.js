@@ -33,7 +33,7 @@
       className: 'СОХРАНИТЬ КОНТЕКСТ (STORE / STATE)',
       category: 'абонент (customer)',
       operation: 'подтверждение абонента (confirm)',
-      purpose: 'Подтверждает выбранного кандидата и закрепляет subscriber case.',
+      purpose: 'Подтверждает выбранного кандидата и закрепляет абонент case.',
       input: 'candidate / caseId'
     }),
     'customer.snapshot': Object.freeze({
@@ -42,7 +42,7 @@
       category: 'абонент (customer)',
       operation: 'рабочий снимок (snapshot)',
       purpose: 'Возвращает сохранённый рабочий профиль подтверждённого абонента.',
-      input: 'confirmed subscriber context',
+      input: 'confirmed абонент context',
       reads: 'local simnet_ai_operator_billing_snapshots_v1',
       returns: 'identity + address + service + finance + network + technical + bootstrapMeta'
     }),
@@ -51,9 +51,9 @@
       className: 'ЧИТАТЬ (READ / GET-like)',
       category: 'биллинг (billing)',
       operation: 'баланс (balance)',
-      purpose: 'Проецирует финансовые поля из свежего снимок абонента (Снимок абонента (Subscriber Snapshot)) / источник Billing.',
-      input: 'confirmed subscriber context',
-      reads: 'снимок абонента (Снимок абонента (Subscriber Snapshot)).finance; refresh Billing main only when stale/missing',
+      purpose: 'Проецирует финансовые поля из свежего снимка абонента (Subscriber Snapshot) / источника Billing.',
+      input: 'confirmed абонент context',
+      reads: 'снимок абонента (Subscriber Snapshot).finance; обновить Billing main только если данных нет или они устарели',
       returns: 'канонические финансовые факты'
     }),
     'billing.tariff': Object.freeze({
@@ -61,9 +61,9 @@
       className: 'ЧИТАТЬ (READ / GET-like)',
       category: 'биллинг (billing)',
       operation: 'тариф (tariff)',
-      purpose: 'Проецирует текущий и запланированный тариф из снимок абонента (Снимок абонента (Subscriber Snapshot)) / источник Billing.',
-      input: 'confirmed subscriber context',
-      reads: 'снимок абонента (Снимок абонента (Subscriber Snapshot)).service; refresh Billing main only when stale/missing',
+      purpose: 'Проецирует текущий и запланированный тариф из Снимок абонента (Subscriber Snapshot) / источник Billing.',
+      input: 'confirmed абонент context',
+      reads: 'снимок абонента (Subscriber Snapshot).service; обновить Billing main только если данных нет или они устарели',
       returns: 'канонические факты тарифа / услуги'
     }),
     'billing.payments': Object.freeze({
@@ -72,7 +72,7 @@
       category: 'биллинг (billing)',
       operation: 'платежи / события (payments)',
       purpose: 'Читает доступные подтверждённые события/платежи абонента.',
-      input: 'confirmed subscriber context'
+      input: 'confirmed абонент context'
     }),
     'userside.snapshot': Object.freeze({
       actionType: 'read',
@@ -80,7 +80,7 @@
       category: 'UserSide',
       operation: 'снимок абонента (snapshot)',
       purpose: 'Читает подтверждённый UserSide-контекст абонента.',
-      input: 'confirmed subscriber context'
+      input: 'confirmed абонент context'
     }),
     'building.snapshot': Object.freeze({
       actionType: 'read',
@@ -98,7 +98,7 @@
       category: 'сеть (network)',
       operation: 'текущая сессия (session)',
       purpose: 'Читает актуальный сетевой/session-контекст подтверждённого абонента.',
-      input: 'confirmed subscriber context',
+      input: 'confirmed абонент context',
       reads: 'актуальный сетевой источник / BRAS',
       returns: 'подтверждённые данные текущей сетевой сессии'
     }),
@@ -108,7 +108,7 @@
       category: 'PON',
       operation: 'ONU / ONT',
       purpose: 'Читает подтверждённые данные ONU/ONT.',
-      input: 'confirmed subscriber context'
+      input: 'confirmed абонент context'
     }),
     'pon.signal': Object.freeze({
       actionType: 'read',
@@ -116,7 +116,7 @@
       category: 'PON',
       operation: 'сигнал (signal)',
       purpose: 'Читает актуальные PON/OLT signal evidence.',
-      input: 'confirmed subscriber context'
+      input: 'confirmed абонент context'
     })
   });
   const IMPORTANT_JSON_KEYS = new Set(['field', 'why', 'tool', 'ok', 'code', 'source', 'data', 'requestedBy', 'system', 'request', 'kept', 'dropped', 'completeness', 'conclusion']);
@@ -418,11 +418,11 @@
     if (trace?.data) body.append(inspectorSection('Последний результат (last result)', inspectorJsonDetails('data', trace.data, false)));
 
     const confirmed = inspectorState?.toolState?.confirmedSubscriber || null;
-    body.append(inspectorSection('Состояние абонента (subscriber state)', confirmed
+    body.append(inspectorSection('Состояние абонента (абонент state)', confirmed
       ? inspectorJsonDetails('confirmedSubscriber', confirmed, true)
-      : create('div', 'ai-tool-inspector-empty', 'confirmedSubscriber отсутствует')));
+      : create('div', 'ai-tool-inspector-empty', 'Подтверждённый абонент (confirmedSubscriber) отсутствует')));
 
-    const loading = inspectorSection('снимок абонента (Снимок абонента (Subscriber Snapshot))', create('div', 'ai-tool-inspector-empty', 'Читаю локальный снимок (snapshot)…'));
+    const loading = inspectorSection('Снимок абонента (Subscriber Snapshot)', create('div', 'ai-tool-inspector-empty', 'Читаю локальный снимок (snapshot)…'));
     body.append(loading);
 
     node.replaceChildren(head, body);
@@ -431,11 +431,11 @@
     let snapshot = null;
     try { snapshot = await loadSubscriberSnapshot(tool, trace); } catch {}
     if (token !== inspectorLoadToken || node.hidden) return;
-    loading.replaceChildren(create('strong', '', 'снимок абонента (Снимок абонента (Subscriber Snapshot))'));
+    loading.replaceChildren(create('strong', '', 'Снимок абонента (Subscriber Snapshot)'));
     if (snapshot) {
       loading.append(snapshotSummary(snapshot), inspectorJsonDetails('Полный снимок (snapshot)', snapshot, false));
     } else {
-      loading.append(create('div', 'ai-tool-inspector-empty', 'Для этого вызова локальный subscriber snapshot не найден.'));
+      loading.append(create('div', 'ai-tool-inspector-empty', 'Для этого вызова локальный снимок абонента (абонент snapshot) не найден.'));
     }
     positionInspector(anchor);
   }
@@ -494,8 +494,8 @@
     if (!snapshot) {
       const confirmed = state?.toolState?.confirmedSubscriber;
       stage.append(create('div', 'ai-runtime-empty', confirmed
-        ? 'Полный локальный snapshot ещё не найден. Ниже доступен только confirmedSubscriber.'
-        : 'Абонент ещё не подтверждён — subscriber snapshot отсутствует.'));
+        ? 'Полный локальный снимок (snapshot) ещё не найден. Ниже доступен только подтверждённый абонент (confirmedSubscriber).'
+        : 'Абонент ещё не подтверждён — снимок абонента (абонент snapshot) отсутствует.'));
       if (confirmed) {
         const fallback = create('details', 'ai-runtime-group');
         fallback.open = true;
@@ -549,7 +549,7 @@
     title.append(toolRef(tool, tool));
     head.append(title, create('span', `ai-runtime-status ${trace?.ok ? 'ok' : 'bad'}`, trace?.ok ? 'УСПЕХ (OK)' : `ОШИБКА (ERROR) · ${trace?.code || 'UNKNOWN'}`));
     card.append(head);
-    card.append(create('div', 'ai-runtime-call-purpose', meta.purpose || 'Вызов runtime tool.'));
+    card.append(create('div', 'ai-runtime-call-purpose', meta.purpose || 'Вызов runtime-инструмент.'));
 
     const evidence = trace?.data?.evidence || {};
     const bootstrap = trace?.data?.bootstrap || {};
@@ -597,7 +597,7 @@
     head.append(create('strong', '', 'ВЫЗОВЫ ИНСТРУМЕНТОВ (TOOL CALLS)'), create('span', '', `${toolTrace.length} вызов(а)`));
     stage.append(head);
     if (!toolTrace.length) {
-      stage.append(create('div', 'ai-runtime-empty', 'На этом ходе runtime tool не вызывался.'));
+      stage.append(create('div', 'ai-runtime-empty', 'На этом ходе runtime-инструмент не вызывался.'));
       return stage;
     }
     const list = create('div', 'ai-runtime-tool-list');
@@ -642,7 +642,7 @@
     const title = create('div');
     title.append(create('strong', '', 'КАРТА РАБОТЫ АГЕНТА (AGENT RUNTIME MAP)'), create('span', '', 'что уже знает агент → какой инструмент вызвал → что передал дальше'));
     const billingId = inspectorBillingId(toolTrace.at(-1) || null, state);
-    head.append(title, create('span', '', billingId ? `subscriber ${billingId}` : 'абонент не привязан'));
+    head.append(title, create('span', '', billingId ? `абонент ${billingId}` : 'абонент не привязан'));
 
     const flow = create('div', 'ai-runtime-flow');
     flow.append(
@@ -701,7 +701,7 @@
   }
 
   function contextLines(state = {}, probe = {}, experiment = {}) {
-    const subscriber = state?.toolState?.confirmedSubscriber || {};
+    const абонент = state?.toolState?.confirmedSubscriber || {};
     const result = [];
     if (experiment?.knowledgeMode === 'clean') {
       result.push('CLEAN MODEL: без SIMNET KB, tool manifest и live READ-tools.');
@@ -712,7 +712,7 @@
     if (subscriber.login) result.push(`Login: ${subscriber.login}`);
     if (subscriber.address) result.push(`Адрес: ${subscriber.address}`);
     if (subscriber.connectionFamily) result.push(`Технология: ${subscriber.connectionFamily}`);
-    if (!result.length && state?.toolState?.confirmedCaseId) result.push(`Активный subscriber case: ${state.toolState.confirmedCaseId}`);
+    if (!result.length && state?.toolState?.confirmedCaseId) result.push(`Активный абонент case: ${state.toolState.confirmedCaseId}`);
     if (probe.refersTo) result.push(`Связь с контекстом: ${probe.refersTo}`);
     return result;
   }
