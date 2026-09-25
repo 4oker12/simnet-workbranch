@@ -202,8 +202,13 @@ async function executeRead(tabId, id) {
         const tvTariffOption = selectedOption(root, 'paket3');
         const nextTvTariffOption = selectedOption(root, 'next_paket3');
         const discountRemoveOption = selectedOption(root, 'discount_remove');
-        const currentTariff = compact(tariffMatch?.[2] || tariffDisplay || currentTariffOption?.label || '', 260);
-        const tariffId = compact(tariffMatch?.[1] || '', 40);
+        // The selected paket control is the configured/current internet package.
+        // Access/service state (blocked, paused, etc.) is a separate fact and must
+        // never replace the tariff name. The summary row is display/fallback only.
+        const configuredTariff = compact(currentTariffOption?.label || '', 260);
+        const summaryTariff = compact(tariffMatch?.[2] || tariffDisplay || '', 260);
+        const currentTariff = configuredTariff || summaryTariff;
+        const tariffId = compact(currentTariffOption?.value || tariffMatch?.[1] || '', 40);
         const auth = readAuthorization(root);
         const temporaryText = temporaryPaymentText(root);
 
@@ -251,10 +256,13 @@ async function executeRead(tabId, id) {
             group: groupOption?.label ?? '',
             groupId: groupOption?.value ?? '',
             currentTariff,
+            configuredTariff,
+            currentTariffSource: configuredTariff ? 'select[name="paket"]' : 'summary_tariff_row_fallback',
             currentTariffSelectedId: currentTariffOption?.value ?? '',
             currentTariffSelectedLabel: currentTariffOption?.label ?? '',
             tariffId,
             tariffDisplay,
+            summaryTariff,
             nextTariff: nextTariffOption?.label ?? null,
             nextTariffId: nextTariffOption?.value ?? '',
             nextTariffDelay: selected(root, 'next_paket_delay'),
