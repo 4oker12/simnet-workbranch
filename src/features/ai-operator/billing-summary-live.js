@@ -1,6 +1,6 @@
 'use strict';
 
-import { normalizeBillingTariffSnapshot } from './billing-tariff-normalizer.js';
+import { isTariffStatusMarker, normalizeBillingTariffSnapshot } from './billing-tariff-normalizer.js';
 
 const BILLING_TAB_URLS = Object.freeze([
   'https://admin.simnet.kiev.ua/*',
@@ -205,10 +205,16 @@ async function executeRead(tabId, id) {
         // The selected paket control is the configured/current internet package.
         // Access/service state (blocked, paused, etc.) is a separate fact and must
         // never replace the tariff name. The summary row is display/fallback only.
-        const configuredTariff = compact(currentTariffOption?.label || '', 260);
-        const summaryTariff = compact(tariffMatch?.[2] || tariffDisplay || '', 260);
+        const selectedTariffLabel = compact(currentTariffOption?.label || '', 260);
+        const tariffSelectorState = isTariffStatusMarker(selectedTariffLabel) ? selectedTariffLabel : '';
+        const configuredTariff = tariffSelectorState ? '' : selectedTariffLabel;
+        const rawSummaryTariff = compact(tariffMatch?.[2] || tariffDisplay || '', 260);
+        const summaryTariff = isTariffStatusMarker(rawSummaryTariff) ? '' : rawSummaryTariff;
         const currentTariff = configuredTariff || summaryTariff;
-        const tariffId = compact(currentTariffOption?.value || tariffMatch?.[1] || '', 40);
+        const tariffId = compact(
+          configuredTariff ? (currentTariffOption?.value || tariffMatch?.[1] || '') : (summaryTariff ? (tariffMatch?.[1] || '') : ''),
+          40
+        );
         const auth = readAuthorization(root);
         const temporaryText = temporaryPaymentText(root);
 
@@ -257,9 +263,13 @@ async function executeRead(tabId, id) {
             groupId: groupOption?.value ?? '',
             currentTariff,
             configuredTariff,
-            currentTariffSource: configuredTariff ? 'select[name="paket"]' : 'summary_tariff_row_fallback',
+            currentTariffSource: configuredTariff
+              ? 'select[name="paket"]'
+              : (summaryTariff ? 'summary_tariff_row_fallback' : (tariffSelectorState ? 'history_required_from_payshow' : '')),
             currentTariffSelectedId: currentTariffOption?.value ?? '',
             currentTariffSelectedLabel: currentTariffOption?.label ?? '',
+            tariffSelectorState,
+            tariffResolutionRequired: Boolean(tariffSelectorState && !currentTariff),
             tariffId,
             tariffDisplay,
             summaryTariff,
