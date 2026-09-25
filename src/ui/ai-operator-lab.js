@@ -283,6 +283,92 @@
     transcriptNode.scrollTop = transcriptNode.scrollHeight;
   }
 
+  function toolActionLabel(tool = '') {
+    const name = String(tool || '').toLowerCase();
+    if (name === 'customer.lookup') return 'НАЙТИ / ПРОВЕРИТЬ (LOOKUP / VERIFY)';
+    if (name === 'customer.confirm') return 'СОХРАНИТЬ КОНТЕКСТ (STORE / STATE)';
+    if (/^(?:billing|userside|building|network|pon)\./.test(name) || name === 'customer.snapshot') return 'ЧИТАТЬ (READ / GET-like)';
+    return 'ИНСТРУМЕНТ (TOOL)';
+  }
+
+  function humanMode(value = '') {
+    const mode = String(value || 'auto').toLowerCase();
+    return mode === 'auto' ? 'Авто (auto)'
+      : mode === 'clean' ? 'Чистая модель (clean)'
+        : mode === 'ab' ? 'A/B сравнение'
+          : mode === 'on' ? 'С базой знаний'
+            : mode === 'off' ? 'Без базы знаний'
+              : mode;
+  }
+
+  function experimentResultBody(event = {}) {
+    const variants = Array.isArray(event.variants) ? event.variants : [];
+    const variant = variants.find(item => item?.label === event.activeVariant) || variants[0] || {};
+    const degraded = variants.some(item => item?.degraded);
+    const toolCalls = number(event.toolCalls ?? variant.toolCalls);
+    const evidenceFirst = variants.length
+      ? variants.every(item => item?.evidenceFirst !== false)
+      : Boolean(event.evidenceFirst);
+
+    const wrap = create('div', 'ai-lab-result-card');
+    const head = create('div', 'ai-lab-result-head');
+    head.append(
+      create('strong', '', degraded ? 'ИТОГ ХОДА · ЧАСТИЧНО / FALLBACK' : 'ИТОГ ХОДА · УСПЕШНО'),
+      create('span', degraded ? 'warn' : 'ok', degraded ? 'Нужна проверка' : 'Штатный ход')
+    );
+    wrap.append(head);
+
+    const facts = create('div', 'ai-lab-result-grid');
+    const fields = [
+      ['Режим', humanMode(event.mode)],
+      ['Модель', short(variant.model || event.model || '—', 100)],
+      ['Инструментов', String(toolCalls)],
+      ['Время', `${number(event.elapsedMs)} мс`],
+      ['Evidence-first', evidenceFirst ? 'Да' : 'Не подтверждено']
+    ];
+    for (const [label,value] of fields) {
+      facts.append(create('b','',label), create('span','',value));
+    }
+    wrap.append(facts);
+
+    const flow = create('div', 'ai-lab-result-flow');
+    const steps = [
+      ['1', 'Понял запрос', 'Семантика и намерение определены'],
+      ['2', toolCalls ? `Вызвал инструменты: ${toolCalls}` : 'Инструменты не понадобились', toolCalls ? 'Подробности находятся в TOOL / Runtime Map' : 'Ответ не требовал live READ'],
+      ['3', 'Проверил подтверждённые данные', evidenceFirst ? 'Evidence-first включён' : 'Нет подтверждения evidence-first'],
+      ['4', degraded ? 'Сформировал fallback-ответ' : 'Сформировал итоговый ответ', degraded ? 'Ход завершён частично' : 'Ход завершён штатно']
+    ];
+    for (const [num,title,detail] of steps) {
+      const row = create('div','ai-lab-result-step');
+      row.append(create('span','ai-lab-result-step-num',num));
+      const text = create('div');
+      text.append(create('b','',title),create('small','',detail));
+      row.append(text);
+      flow.append(row);
+    }
+    wrap.append(flow);
+
+    const technical = create('details','ai-lab-result-technical');
+    const safeVariants = variants.map(item => ({
+      label: item?.label || '',
+      model: item?.model || '',
+      toolCalls: number(item?.toolCalls),
+      degraded: Boolean(item?.degraded),
+      evidenceFirst: Boolean(item?.evidenceFirst)
+    }));
+    technical.append(
+      create('summary','', 'Технические поля RESULT'),
+      create('pre','', json({
+        mode: event.mode || 'auto',
+        variants: safeVariants,
+        toolCalls,
+        elapsedMs: number(event.elapsedMs)
+      }))
+    );
+    wrap.append(technical);
+    return wrap;
+  }
+
   function knowledgeTraceState(event = {}) {
     if (event.type !== 'semantic_analysis') return '';
     if (event.cleanModel) return 'CLEAN MODEL';
@@ -332,19 +418,19 @@
     return '';
   }
   function eventSummary(event = {}) {
-    if (event.type === 'semantic_analysis') return `SEMANTIC · ${Math.round(number(event.confidence) * 100)}% · ${knowledgeTraceState(event)}`;
+    if (event.type === 'semantic_analysis') return `СЕМАНТИКА (SEMANTIC) · ${Math.round(number(event.confidence) * 100)}% · ${knowledgeTraceState(event)}`;
     if (event.type === 'answer_relevance') {
       const kept = Array.isArray(event.answerRelevance?.kept) ? event.answerRelevance.kept.length : 0;
       const dropped = Array.isArray(event.answerRelevance?.dropped) ? event.answerRelevance.dropped.length : 0;
-      return `RELEVANCE · KEEP ${kept} · DROP ${dropped}`;
+      return `ФИЛЬТР ОТВЕТА (RELEVANCE) · использовано ${kept} · отброшено ${dropped}`;
     }
     if (event.type === 'tool_execution') {
       const identity = event.tool === 'customer.lookup' && event.requestedBy?.system === 'identity';
-      return `${identity ? 'IDENTITY' : 'TOOL'} · ${event.tool || '—'} · ${event.code || '—'}${event.ok ? ' ✓' : ''}`;
+      return `${toolActionLabel(event.tool)} · ${event.tool || '—'} · ${event.ok ? 'УСПЕХ (OK) ✓' : `ОШИБКА (ERROR) · ${event.code || 'unknown'}`}`;
     }
     if (event.type === 'experiment_result') {
       const degraded = (Array.isArray(event.variants) ? event.variants : []).some(item => item?.degraded);
-      return `${degraded ? 'FALLBACK' : 'RESULT'} · ${event.mode || '—'} · ${number(event.toolCalls)} tool · ${number(event.totalTokens)} tok · ${number(event.elapsedMs)} ms`;
+      return `${degraded ? 'ИТОГ · FALLBACK' : 'ИТОГ ХОДА · УСПЕШНО'} · ${humanMode(event.mode)} · инструментов ${number(event.toolCalls)} · ${number(event.elapsedMs)} мс`;
     }
     if (event.type === 'turn_degraded') return 'FALLBACK · DEGRADED';
     if (event.type === 'profile_change') return 'PROFILE CHANGED';
@@ -363,8 +449,13 @@
       item.append(summary);
       const note = importantEventNote(event);
       if (note) item.append(create('div', 'ai-lab-event-note', note));
-      const payload = { ...event }; delete payload.id; delete payload.type;
-      item.append(create('pre', '', json(payload))); eventsNode.append(item);
+      if (event.type === 'experiment_result') {
+        item.append(experimentResultBody(event));
+      } else {
+        const payload = { ...event }; delete payload.id; delete payload.type;
+        item.append(create('pre', '', json(payload)));
+      }
+      eventsNode.append(item);
     }
   }
 
