@@ -218,7 +218,13 @@ async function executeExactIdentityLookup(toolArgs = {}) {
     return result('customer.lookup', false, String(live?.code || 'BILLING_SEARCH_FAILED'), {
       message: 'Не удалось выполнить точный поиск абонента в Billing.',
       source: 'billing-live-read-only',
-      searchMode: request.mode
+      searchMode: request.mode,
+      failurePhase: text(live?.failurePhase, 120),
+      failureMessage: text(live?.message, 500),
+      tabId: Number.isInteger(live?.tabId) ? live.tabId : null,
+      bridgeRecovered: Boolean(live?.bridgeRecovered),
+      initialBridgeError: text(live?.initialBridgeError, 360),
+      attemptedQueries: Array.isArray(live?.attemptedQueries) ? live.attemptedQueries.slice(0, 3) : []
     });
   }
 
