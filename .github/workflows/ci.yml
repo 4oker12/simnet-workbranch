@@ -130,6 +130,12 @@ jobs:
           node --test \
             tests/ai_operator_building_snapshot_tool_test.mjs \
             tests/crm_building_snapshot_import_test.mjs
+      - name: AI Lab · runtime map UI
+        run: |
+          node --test \
+            tests/ai_operator_lab_trace_visibility_test.mjs \
+            tests/ai_operator_kb_curator_test.mjs \
+            tests/ai_operator_settings_workspace_test.mjs
       - name: Finance · balance fallback
         run: |
           node --test \
