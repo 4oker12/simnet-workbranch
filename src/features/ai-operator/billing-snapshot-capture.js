@@ -879,13 +879,16 @@
                 events: history.events,
                 packageBeforeBlock: history.packageBeforeBlock,
                 observedAt: new Date().toISOString(),
-                source: 'billing-payshow-history'
+                source: 'billing-payshow-history',
+                scope: 'events'
               };
               if (history.packageBeforeBlock?.name) {
                 snapshot.service.currentTariff = history.packageBeforeBlock.name;
                 snapshot.service.configuredTariff = history.packageBeforeBlock.name;
                 snapshot.service.currentTariffSource = 'payshow:last_package_before_block';
                 snapshot.service.tariffResolutionRequired = false;
+                snapshot.service.tariffHistorical = true;
+                snapshot.service.tariffStateSemantics = 'last_real_package_before_current_status_marker';
                 snapshot.service.historicalTariffEvidence = history.packageBeforeBlock;
                 snapshot.bootstrapMeta.sources.history = {
                   ok: true,
