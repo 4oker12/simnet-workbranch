@@ -51,3 +51,17 @@ test('Billing main-page snapshot is wide locally but select catalogs stay collap
   assert.match(source, /internetAccountingMb/);
   assert.match(source, /unselected_select_options/);
 });
+
+
+test('configured internet package is authoritative over access/service state labels', () => {
+  const source = requireSource();
+  assert.match(source, /const configuredTariff = compact\(currentTariffOption\?\.label/);
+  assert.match(source, /const currentTariff = configuredTariff \|\| summaryTariff/);
+  assert.match(source, /currentTariffSource: configuredTariff \? 'select\[name="paket"\]'/);
+  assert.match(source, /accessState: accessOption\?\.label/);
+  assert.match(source, /serviceState: serviceStateOption\?\.label/);
+  assert.ok(
+    source.indexOf('const configuredTariff =') < source.indexOf('const currentTariff = configuredTariff'),
+    'paket selection must be resolved before current tariff value'
+  );
+});
