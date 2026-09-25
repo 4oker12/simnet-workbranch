@@ -47,15 +47,21 @@ test('lab identity decision keeps generic textual login instead of requiring num
   assert.deepEqual(normalized.toolArgs, { login: 'Talala' });
 });
 
-test('Billing exact lookup reproduces the native listuser form through the persistent content bridge', () => {
+test('Billing exact lookup submits a real hidden Billing GET form through the persistent content bridge', () => {
   const reader = fs.readFileSync(new URL('../src/features/ai-operator/billing-login-live.js', import.meta.url), 'utf8');
   const capture = fs.readFileSync(new URL('../src/features/ai-operator/billing-snapshot-capture.js', import.meta.url), 'utf8');
 
   assert.match(reader, /chrome\.tabs\.sendMessage\(tabId/);
   assert.match(reader, /files:\s*\[BILLING_CAPTURE_SCRIPT\]/, 'stale Billing tabs must self-bootstrap the current bridge');
   assert.match(capture, /SIMNET_AI_BILLING_EXACT_LOOKUP/);
+  assert.match(capture, /submitBillingForm/);
+  assert.match(capture, /form\.method\s*=\s*'get'/);
+  assert.match(capture, /form\.target\s*=\s*targetName/);
+  assert.match(capture, /form\.requestSubmit\(\)/);
+  assert.match(capture, /iframe\.contentDocument/);
   assert.match(capture, /f:\s*'n',\s*a:\s*'listuser',\s*name:\s*nativeQuery/);
   assert.doesNotMatch(capture, /what_search/);
+  assert.doesNotMatch(capture, /fetch\(url,\s*\{\s*method:\s*'GET'/, 'exact identity path must not use content-script fetch transport');
   assert.match(capture, /nativeQueries\s*=\s*\[\.\.\.new Set\(\[rawValue, abonDigits\]/);
   assert.match(capture, /for \(const nativeQuery of nativeQueries\)/);
 });
@@ -220,10 +226,11 @@ test('Billing exact lookup exposes execution phase instead of collapsing source 
   const runtime = fs.readFileSync(new URL('../src/features/ai-operator/live-tool-runtime.js', import.meta.url), 'utf8');
 
   assert.match(capture, /simnetPhase/);
-  assert.match(capture, /native-listuser-fetch/);
-  assert.match(capture, /main-card-fetch/);
-  assert.match(capture, /address-fetch/);
-  assert.match(capture, /technical-fetch/);
+  assert.match(capture, /native-listuser-submit/);
+  assert.match(capture, /main-card-submit/);
+  assert.match(capture, /address-submit/);
+  assert.match(capture, /technical-submit/);
+  assert.match(capture, /native-form-submit-hidden-iframe/);
   assert.match(capture, /candidateErrors/);
   assert.match(capture, /BILLING_CARD_READ_FAILED/);
   assert.doesNotMatch(capture, /candidates\.push\(candidate\);\s*}\s*catch\s*\{\s*\}/, 'candidate read failures must not be silently swallowed');
@@ -244,4 +251,18 @@ test('Billing lookup bridge can rebind on an already open tab after extension re
   assert.match(capture, /removeListener\(previousBridge\.listener\)/);
   assert.match(capture, /bridgeState\.listener\s*=\s*exactLookupListener/);
   assert.doesNotMatch(capture, /if \(globalThis\.__SIMNET_AI_BILLING_SNAPSHOT_CAPTURE_[A-Z0-9_]+__\) return/);
+});
+
+
+test('Billing subscriber bootstrap uses the same native form-submit transport for search, main, address and technical reads', () => {
+  const capture = fs.readFileSync(new URL('../src/features/ai-operator/billing-snapshot-capture.js', import.meta.url), 'utf8');
+  const exact = capture.slice(
+    capture.indexOf('async function exactIdentityLookup'),
+    capture.indexOf('const exactLookupListener')
+  );
+  assert.match(exact, /submitBillingForm\(\{\s*pp,\s*f:\s*'n',\s*a:\s*'listuser'/s);
+  assert.match(exact, /submitBillingForm\(\{ pp, a:\s*'user', id \}, 'main-card-submit'\)/);
+  assert.match(exact, /tmpl:\s*'2'[\s\S]*'address-submit'/);
+  assert.match(exact, /tmpl:\s*'1'[\s\S]*'technical-submit'/);
+  assert.doesNotMatch(exact, /await fetch\(/);
 });
