@@ -161,7 +161,14 @@ export function calculateRecurringTotal(internetPrice, services = []) {
 export function normalizeBillingTariffSnapshot(snapshot = {}, { now = new Date() } = {}) {
   const service = { ...(snapshot?.service || {}) };
   const finance = { ...(snapshot?.finance || {}) };
-  const current = normalizeTariffLabel(service.currentTariffRaw || service.currentTariff || service.current?.rawName || service.current?.name || '');
+  const current = normalizeTariffLabel(
+    service.configuredTariff
+    || service.currentTariffRaw
+    || service.currentTariff
+    || service.current?.rawName
+    || service.current?.name
+    || ''
+  );
   const scheduled = normalizeScheduledTariff({
     nextTariff: service.nextTariffRaw ?? service.nextTariff,
     nextTariffDelay: service.nextTariffDelayRaw ?? service.nextTariffDelay,
@@ -172,6 +179,8 @@ export function normalizeBillingTariffSnapshot(snapshot = {}, { now = new Date()
   const internetPriceIsAuthoritative = !/^generic_price_row_not_guaranteed/i.test(priceSemantics);
   const recurringTotal = internetPriceIsAuthoritative ? calculateRecurringTotal(finance.price, activeServices) : null;
 
+  service.configuredTariff = clean(service.configuredTariff || current.rawName, 260);
+  service.tariffStateSemantics = 'configured_internet_package_independent_from_access_or_service_state';
   service.currentTariffRaw = current.rawName;
   service.currentTariffDisplay = current.displayName;
   service.currentTariffPriceUAH = current.priceUAH;
