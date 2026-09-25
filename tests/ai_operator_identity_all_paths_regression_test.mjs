@@ -267,3 +267,23 @@ test('Billing subscriber bootstrap uses the same native form-submit transport fo
   assert.match(exact, /tmpl:\s*'1'[\s\S]*'technical-submit'/);
   assert.doesNotMatch(exact, /await fetch\(/);
 });
+
+
+test('numeric contract and abonNNN derive Billing card id by dropping the final digit, but confirmation requires full card identity match', () => {
+  const capture = fs.readFileSync(new URL('../src/features/ai-operator/billing-snapshot-capture.js', import.meta.url), 'utf8');
+  const exact = capture.slice(
+    capture.indexOf('async function exactIdentityLookup'),
+    capture.indexOf('const exactLookupListener')
+  );
+
+  assert.match(exact, /const contractDigits = mode === 'contract' \? rawValue\.replace\(\/\\D\+\/g, ''\) : abonDigits/);
+  assert.match(exact, /const derivedBillingId = contractDigits\.length >= 2 \? contractDigits\.slice\(0, -1\) : ''/);
+  assert.match(exact, /'derived-card-submit'/);
+  assert.match(exact, /cardMatchesRequestedIdentity/);
+  assert.match(exact, /actualContract === expectedContract/);
+  assert.match(exact, /loginMatches \|\| contractMatches/);
+  assert.match(exact, /preloadedCards\.set\(derivedBillingId, derivedPage\)/);
+  assert.match(exact, /lookupStrategy = 'derived-card-validated'/);
+  assert.match(exact, /if \(!ids\.size\) \{[\s\S]*native-listuser-submit/);
+  assert.match(exact, /lookupStrategy = 'native-listuser-fallback'/);
+});
