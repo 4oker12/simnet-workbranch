@@ -36,14 +36,6 @@
   white-space:nowrap;
 }
 
-/* Runtime usage/cost telemetry remains available in exports and diagnostics,
-   but it is deliberately not part of the operator-facing Lab UI. */
-.ai-lab-token-usage,
-.ai-lab-cost,
-.wb-token-total{
-  display:none !important;
-}
-
 @media(max-width:720px){
   .settings-panel-compact-model .settings-panel-title,
   .settings-panel-compact-model .settings-panel-body{
