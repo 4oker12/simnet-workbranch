@@ -59,7 +59,7 @@ test('AI Lab renders the latest decision as one ordered human-readable pipeline'
     previous = index;
   }
 
-  assert.match(traceJs, /ЦЕПОЧКА ПОСЛЕДНЕГО ХОДА/);
+  assert.match(traceJs, /DECISION TRACE · ПОСЛЕДНИЙ ХОД/);
   assert.match(traceJs, /Сырой журнал событий ниже/);
   assert.match(traceJs, /AI_OPERATOR_LAB_GET/);
 });
