@@ -265,6 +265,7 @@ function liveBillingSnapshotResult(tool, snapshot) {
       network,
       technical: snapshot?.technical || {},
       bootstrapMeta: snapshot?.bootstrapMeta || {},
+      history: snapshot?.history && typeof snapshot.history === 'object' ? snapshot.history : {},
       payments: Array.isArray(snapshot?.payments) ? snapshot.payments : [],
       evidence: {
         billingSnapshot: BILLING_SNAPSHOT_KEY,
@@ -301,6 +302,25 @@ function liveBillingSnapshotResult(tool, snapshot) {
       source
     });
   }
+  if (tool === 'billing.history') {
+    const history = snapshot?.history && typeof snapshot.history === 'object' ? snapshot.history : null;
+    const events = Array.isArray(history?.events) ? history.events : [];
+    if (!history || !events.length) {
+      return result(tool, false, 'DATA_NOT_AVAILABLE', {
+        message: 'История payshow ещё не прочитана для этого абонента.',
+        source
+      });
+    }
+    return result(tool, true, 'OK', {
+      history,
+      events,
+      count: events.length,
+      packageBeforeBlock: history.packageBeforeBlock || null,
+      source: history.source || 'billing-payshow-history',
+      observedAt: history.observedAt || snapshot?.observedAt || ''
+    });
+  }
+
   if (tool === 'billing.payments') {
     const payments = Array.isArray(snapshot?.payments) ? snapshot.payments : [];
     return payments.length
@@ -546,7 +566,7 @@ export async function executeOperatorTool({ tool, toolArgs = {}, labState = {} }
   const name = String(tool || '').trim();
   if (name === 'customer.lookup') return liveLookup(toolArgs);
 
-  if (['customer.snapshot', 'billing.balance', 'billing.tariff', 'billing.payments', 'billing.next_charge'].includes(name)) {
+  if (['customer.snapshot', 'billing.balance', 'billing.tariff', 'billing.history', 'billing.payments', 'billing.next_charge'].includes(name)) {
     if (!String(labState.confirmedCaseId || '').trim()) return result(name, false, 'IDENTITY_REQUIRED');
     let liveSnapshot = await liveBillingSnapshotForLab(labState);
     if (toolArgs.refresh) {
