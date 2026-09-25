@@ -151,6 +151,12 @@ jobs:
           node --test \
             tests/ai_operator_billing_summary_live_test.mjs \
             tests/ai_billing_tariff_semantics_test.mjs
+      - name: Billing · payshow history
+        if: always()
+        run: |
+          node --test \
+            tests/ai_operator_billing_history_test.mjs \
+            tests/ai_operator_tool_manifest_test.mjs
       - name: Finance · semantics
         if: always()
         run: node --test tests/ai_operator_finance_semantics_test.mjs
