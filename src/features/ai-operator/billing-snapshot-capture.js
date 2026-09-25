@@ -1,15 +1,26 @@
 'use strict';
 
 (() => {
-  if (globalThis.__SIMNET_AI_BILLING_SNAPSHOT_CAPTURE_V3__) return;
-  globalThis.__SIMNET_AI_BILLING_SNAPSHOT_CAPTURE_V3__ = true;
+  const BRIDGE_STATE_KEY = '__SIMNET_AI_BILLING_SNAPSHOT_CAPTURE_BRIDGE_V4__';
+  const previousBridge = globalThis[BRIDGE_STATE_KEY] && typeof globalThis[BRIDGE_STATE_KEY] === 'object'
+    ? globalThis[BRIDGE_STATE_KEY]
+    : null;
+  if (previousBridge?.listener && chrome?.runtime?.onMessage?.removeListener) {
+    try { chrome.runtime.onMessage.removeListener(previousBridge.listener); } catch {}
+  }
+  const bridgeState = {
+    revision: 4,
+    listener: null,
+    captureStarted: Boolean(previousBridge?.captureStarted)
+  };
+  globalThis[BRIDGE_STATE_KEY] = bridgeState;
 
   const STORE_KEY = 'simnet_ai_operator_billing_snapshots_v1';
   const MAIN_FORM_SELECTOR = 'form#formedit > table.tbg1.width100';
   const AUTH_SELECTOR = 'table.usrlist.width100';
   const SUMMARY_SELECTOR = 'table.tbg1.nav3.width100';
   const PAYMENTS_SELECTOR = '#my_x_16';
-  const EXACT_LOOKUP_MESSAGE = 'SIMNET_AI_BILLING_EXACT_LOOKUP_V2';
+  const EXACT_LOOKUP_MESSAGE = 'SIMNET_AI_BILLING_EXACT_LOOKUP_V3';
   if (!/^(?:admin\.simnet\.kiev\.ua|admin\.looknet\.kiev\.ua)$/i.test(location.hostname)) return;
 
   const params = new URLSearchParams(location.search);
@@ -709,7 +720,7 @@
     };
   }
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  const exactLookupListener = (message, _sender, sendResponse) => {
     if (String(message?.type || '') !== EXACT_LOOKUP_MESSAGE) return false;
     void exactIdentityLookup(message?.request || {}).then(
       result => sendResponse(result),
@@ -722,7 +733,9 @@
       })
     );
     return true;
-  });
+  };
+  bridgeState.listener = exactLookupListener;
+  chrome.runtime.onMessage.addListener(exactLookupListener);
 
   async function capture() {
     _rowIndex = null;
@@ -763,7 +776,8 @@
     await chrome.storage.local.set({ [STORE_KEY]: Object.fromEntries(trimmed.map(item => [String(item.billingId), item])) });
   }
 
-  if (['user', 'dopdata'].includes(action)) {
+  if (['user', 'dopdata'].includes(action) && !bridgeState.captureStarted) {
+    bridgeState.captureStarted = true;
     void capture().catch(error => console.warn('[SIMNET AI operator] billing snapshot capture failed', error));
   }
 })();
