@@ -210,9 +210,14 @@ async function executeRead(tabId, id) {
         const configuredTariff = tariffSelectorState ? '' : selectedTariffLabel;
         const rawSummaryTariff = compact(tariffMatch?.[2] || tariffDisplay || '', 260);
         const summaryTariff = isTariffStatusMarker(rawSummaryTariff) ? '' : rawSummaryTariff;
-        const currentTariff = configuredTariff || summaryTariff;
+        // When the actual paket selector is a status marker, do not substitute
+        // any display/summary row as the tariff. The package must be recovered
+        // from payshow history so provenance stays explicit.
+        const currentTariff = tariffSelectorState ? '' : (configuredTariff || summaryTariff);
         const tariffId = compact(
-          configuredTariff ? (currentTariffOption?.value || tariffMatch?.[1] || '') : (summaryTariff ? (tariffMatch?.[1] || '') : ''),
+          tariffSelectorState
+            ? ''
+            : (configuredTariff ? (currentTariffOption?.value || tariffMatch?.[1] || '') : (summaryTariff ? (tariffMatch?.[1] || '') : '')),
           40
         );
         const auth = readAuthorization(root);
@@ -269,7 +274,7 @@ async function executeRead(tabId, id) {
             currentTariffSelectedId: currentTariffOption?.value ?? '',
             currentTariffSelectedLabel: currentTariffOption?.label ?? '',
             tariffSelectorState,
-            tariffResolutionRequired: Boolean(tariffSelectorState && !currentTariff),
+            tariffResolutionRequired: Boolean(tariffSelectorState),
             tariffId,
             tariffDisplay,
             summaryTariff,
