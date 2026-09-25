@@ -458,6 +458,7 @@
       form.append(submitButton);
 
       let settled = false;
+      let timer = 0;
       const cleanup = () => {
         iframe.removeEventListener('load', onLoad);
         window.clearTimeout(timer);
@@ -501,7 +502,7 @@
 
       iframe.addEventListener('load', onLoad);
       document.documentElement.append(iframe, form);
-      const timer = window.setTimeout(() => fail(new Error('Billing form submit timed out')), 15000);
+      timer = window.setTimeout(() => fail(new Error('Billing form submit timed out')), 15000);
 
       try {
         if (typeof form.requestSubmit === 'function') form.requestSubmit(submitButton);
