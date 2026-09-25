@@ -137,3 +137,11 @@ test('tool inspector exposes Swagger-style contract and failure diagnostics', ()
   assert.match(traceJs, /failure phase/);
   assert.match(traceJs, /failure detail/);
 });
+
+
+test('runtime map shows how subscriber identity was resolved', () => {
+  assert.match(traceJs, /lookup strategy/);
+  assert.match(traceJs, /derived Billing ID/);
+  assert.match(traceJs, /native query/);
+  assert.match(traceJs, /transport/);
+});
