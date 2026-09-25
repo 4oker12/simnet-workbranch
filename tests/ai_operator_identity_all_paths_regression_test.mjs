@@ -233,3 +233,15 @@ test('Billing exact lookup exposes execution phase instead of collapsing source 
   assert.match(runtime, /failurePhase:\s*text\(live\?\.failurePhase/);
   assert.match(runtime, /failureMessage:\s*text\(live\?\.message/);
 });
+
+
+test('Billing lookup bridge can rebind on an already open tab after extension reload', () => {
+  const capture = fs.readFileSync(new URL('../src/features/ai-operator/billing-snapshot-capture.js', import.meta.url), 'utf8');
+  const reader = fs.readFileSync(new URL('../src/features/ai-operator/billing-login-live.js', import.meta.url), 'utf8');
+  assert.match(capture, /SIMNET_AI_BILLING_EXACT_LOOKUP_V3/);
+  assert.match(reader, /SIMNET_AI_BILLING_EXACT_LOOKUP_V3/);
+  assert.match(capture, /previousBridge\?\.listener/);
+  assert.match(capture, /removeListener\(previousBridge\.listener\)/);
+  assert.match(capture, /bridgeState\.listener\s*=\s*exactLookupListener/);
+  assert.doesNotMatch(capture, /if \(globalThis\.__SIMNET_AI_BILLING_SNAPSHOT_CAPTURE_[A-Z0-9_]+__\) return/);
+});
