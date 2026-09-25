@@ -422,6 +422,8 @@
     // Reproduce the native Billing form exactly. Preserve the literal value
     // first. For abonNNN, the numeric part is only a second native-search alias.
     const abonDigits = mode === 'login' ? (rawValue.match(/^abon(\d{3,12})$/i)?.[1] || '') : '';
+    const contractDigits = mode === 'contract' ? rawValue.replace(/\D+/g, '') : abonDigits;
+    const derivedBillingId = contractDigits.length >= 2 ? contractDigits.slice(0, -1) : '';
     const nativeQueries = [...new Set([rawValue, abonDigits].filter(Boolean))];
 
     const authPage = doc => Boolean(doc.querySelector('input[type="password"]'));
@@ -510,43 +512,103 @@
     });
 
     const ids = new Map();
+    const preloadedCards = new Map();
     const addCandidate = (id, rowText = '') => {
       const normalizedId = String(id || '').replace(/\D+/g, '').slice(0, 12);
       if (!normalizedId || ids.has(normalizedId)) return;
       ids.set(normalizedId, clean(rowText, 800));
     };
-    let matchedQuery = '';
-    let lastStatus = 0;
-    for (const nativeQuery of nativeQueries) {
-      // Native Billing form: GET adm.pl?pp=<session>&f=n&a=listuser&name=<query>
-      const searchPage = await submitBillingForm({
-        pp,
-        f: 'n',
-        a: 'listuser',
-        name: nativeQuery
-      }, 'native-listuser-submit');
-      lastStatus = searchPage.status;
-      if (!searchPage.ok) continue;
-      if (authPage(searchPage.doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED', candidates: [] };
+    const cardIdentity = doc => ({
+      contract: clean(doc.querySelector('[name="contract"]')?.value || '', 80),
+      login: clean(doc.querySelector('[name="name"]')?.value || '', 80)
+    });
+    const cardMatchesRequestedIdentity = doc => {
+      const identity = cardIdentity(doc);
+      const actualContract = String(identity.contract || '').replace(/\D+/g, '');
+      const expectedContract = String(contractDigits || '').replace(/\D+/g, '');
+      const loginMatches = Boolean(identity.login) && identity.login.toLowerCase() === rawValue.toLowerCase();
+      const contractMatches = Boolean(actualContract && expectedContract) && actualContract === expectedContract;
+      return mode === 'contract' ? contractMatches : (loginMatches || contractMatches);
+    };
 
-      if (String(searchPage.url.searchParams.get('a') || '').toLowerCase() === 'user') {
-        addCandidate(searchPage.url.searchParams.get('id') || '', searchPage.doc.body?.textContent || '');
+    let matchedQuery = '';
+    let lookupStrategy = '';
+    let lastStatus = 0;
+    let derivedCardError = '';
+
+    // Deterministic fast path confirmed by Billing contract structure:
+    // full subscriber identifier NNNNNN -> Billing card id NNNNN (drop final digit).
+    // The derived id is only a candidate. The full contract/login MUST match the
+    // loaded a=user card before the subscriber is considered confirmed.
+    if (derivedBillingId) {
+      try {
+        const derivedPage = await submitBillingForm(
+          { pp, a: 'user', id: derivedBillingId },
+          'derived-card-submit'
+        );
+        lastStatus = derivedPage.status;
+        if (derivedPage.ok && !authPage(derivedPage.doc) && cardMatchesRequestedIdentity(derivedPage.doc)) {
+          addCandidate(derivedBillingId, `derived from ${rawValue}; verified on a=user card`);
+          preloadedCards.set(derivedBillingId, derivedPage);
+          lookupStrategy = 'derived-card-validated';
+        }
+      } catch (error) {
+        derivedCardError = clean(error?.message || error, 360);
       }
-      for (const link of searchPage.doc.querySelectorAll('a[href]')) {
-        try {
-          const target = new URL(link.getAttribute('href') || '', searchPage.url);
-          if (String(target.searchParams.get('a') || '').toLowerCase() !== 'user') continue;
-          addCandidate(target.searchParams.get('id') || '', link.closest('tr')?.textContent || link.textContent || '');
-        } catch {}
-      }
-      if (ids.size) {
-        matchedQuery = nativeQuery;
-        break;
+    }
+
+    // Safe fallback: reproduce the native Billing search form only when the
+    // deterministic derived card is absent, unavailable, or fails validation.
+    if (!ids.size) {
+      for (const nativeQuery of nativeQueries) {
+        const searchPage = await submitBillingForm({
+          pp,
+          f: 'n',
+          a: 'listuser',
+          name: nativeQuery
+        }, 'native-listuser-submit');
+        lastStatus = searchPage.status;
+        if (!searchPage.ok) continue;
+        if (authPage(searchPage.doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED', candidates: [] };
+
+        if (String(searchPage.url.searchParams.get('a') || '').toLowerCase() === 'user') {
+          addCandidate(searchPage.url.searchParams.get('id') || '', searchPage.doc.body?.textContent || '');
+        }
+        for (const link of searchPage.doc.querySelectorAll('a[href]')) {
+          try {
+            const target = new URL(link.getAttribute('href') || '', searchPage.url);
+            if (String(target.searchParams.get('a') || '').toLowerCase() !== 'user') continue;
+            addCandidate(target.searchParams.get('id') || '', link.closest('tr')?.textContent || link.textContent || '');
+          } catch {}
+        }
+        if (ids.size) {
+          matchedQuery = nativeQuery;
+          lookupStrategy = 'native-listuser-fallback';
+          break;
+        }
       }
     }
     if (!ids.size) {
-      if (lastStatus >= 400) return { ok: false, code: 'BILLING_SEARCH_FAILED', status: lastStatus, candidates: [] };
-      return { ok: true, code: 'NOT_FOUND', candidates: [], attemptedQueries: nativeQueries };
+      if (lastStatus >= 400) {
+        return {
+          ok: false,
+          code: 'BILLING_SEARCH_FAILED',
+          status: lastStatus,
+          derivedBillingId,
+          derivedCardError,
+          lookupStrategy: derivedBillingId ? 'derived-card-then-native-listuser' : 'native-listuser',
+          candidates: []
+        };
+      }
+      return {
+        ok: true,
+        code: 'NOT_FOUND',
+        candidates: [],
+        derivedBillingId,
+        derivedCardError,
+        lookupStrategy: derivedBillingId ? 'derived-card-then-native-listuser' : 'native-listuser',
+        attemptedQueries: nativeQueries
+      };
     }
 
     const candidates = [];
@@ -554,7 +616,8 @@
     const candidateErrors = [];
     for (const id of [...ids.keys()].slice(0, 8)) {
       try {
-        const page = await submitBillingForm({ pp, a: 'user', id }, 'main-card-submit');
+        const page = preloadedCards.get(id)
+          || await submitBillingForm({ pp, a: 'user', id }, 'main-card-submit');
         if (!page.ok || authPage(page.doc)) continue;
         const field = name => clean(page.doc.querySelector(`[name="${CSS.escape(name)}"]`)?.value || '', 240);
         const candidate = {
@@ -753,6 +816,9 @@
         candidates: [],
         snapshots: {},
         transport: 'native-form-submit-hidden-iframe',
+        lookupStrategy,
+        derivedBillingId,
+        derivedCardError,
         nativeQuery: matchedQuery,
         attemptedQueries: nativeQueries
       };
@@ -764,6 +830,9 @@
       candidates,
       snapshots,
       transport: 'native-form-submit-hidden-iframe',
+      lookupStrategy,
+      derivedBillingId,
+      derivedCardError,
       nativeQuery: matchedQuery,
       attemptedQueries: nativeQueries
     };
