@@ -22,6 +22,7 @@
   const SUMMARY_SELECTOR = 'table.tbg1.nav3.width100';
   const PAYMENTS_SELECTOR = '#my_x_16';
   const EXACT_LOOKUP_MESSAGE = 'SIMNET_AI_BILLING_EXACT_LOOKUP_V3';
+  const HISTORY_READ_MESSAGE = 'SIMNET_AI_BILLING_HISTORY_READ_V1';
   if (!/^(?:admin\.simnet\.kiev\.ua|admin\.looknet\.kiev\.ua)$/i.test(location.hostname)) return;
 
   const params = new URLSearchParams(location.search);
@@ -51,6 +52,21 @@
     return out.length > max ? `${out.slice(0, max - 1)}…` : out;
   }
 
+  function classifyPayshowEvent({ comment = '', action = '', incomeUAH = null, expenseUAH = null } = {}) {
+    const text = `${comment} ${action}`.toLowerCase();
+    if (/пакет\s*:/iu.test(text)) return 'package_change';
+    if (/временн(?:ый|ого|ому)?\s+плат[её]ж/iu.test(text)) return 'temporary_payment';
+    if (/блокиров|заблокирован|заблокован/iu.test(text)) return 'block';
+    if (/первая\s+активност|перша\s+активн/iu.test(text)) return 'first_activity';
+    if (/логин\s*:|контракт\s*:|фио\s*:/iu.test(text)) return 'identity_change';
+    if (/\bip\s*:|группа\s*:|група\s*:/iu.test(text)) return 'network_or_group_change';
+    if (/состояни|стан\s+учет|стан\s+облік/iu.test(text)) return 'state_change';
+    if (Number.isFinite(incomeUAH) && incomeUAH !== 0) return 'income';
+    if (Number.isFinite(expenseUAH) && expenseUAH !== 0) return 'expense';
+    if (/изменены\s+следующие\s+данные|змінено\s+наступні\s+дані/iu.test(text)) return 'data_change';
+    return 'event';
+  }
+
   function parsePayshowHistory(doc) {
     const tables = [...(doc?.querySelectorAll?.('table.usrlist.width100') || [])];
     const table = tables.find(node => {
@@ -77,8 +93,21 @@
         const href = row.querySelector('a[href*="a=pays"][href*="act=show"]')?.getAttribute('href') || '';
         if (href) detailId = clean(new URL(href, location.origin).searchParams.get('id') || '', 80);
       } catch {}
+      const incomeUAH = money(cells[1]?.textContent || '');
+      const expenseUAH = money(cells[2]?.textContent || '');
       const columns = cells.map(cell => clean(cell.textContent || '', 500)).filter(Boolean);
-      const event = { at, comment, action, admin, columns, detailId };
+      const kind = classifyPayshowEvent({ comment, action, incomeUAH, expenseUAH });
+      const event = {
+        at,
+        kind,
+        comment,
+        action,
+        admin,
+        ...(Number.isFinite(incomeUAH) ? { incomeUAH } : {}),
+        ...(Number.isFinite(expenseUAH) ? { expenseUAH } : {}),
+        columns,
+        detailId
+      };
       events.push(event);
 
       if (!packageBeforeBlock && comment) {
@@ -484,28 +513,22 @@
     return out;
   }
 
-  async function exactIdentityLookup(request = {}) {
-    const mode = String(request?.mode || '');
-    const rawValue = clean(request?.value || '', 80).replace(/\s+/g, '');
-    if (!['login', 'contract'].includes(mode) || !rawValue) {
-      return { ok: false, code: 'IDENTITY_QUERY_REQUIRED', candidates: [] };
-    }
-
+  function billingSessionToken() {
     const current = new URL(location.href);
-    let pp = clean(current.searchParams.get('pp') || '', 200);
-    if (!pp) pp = clean(document.querySelector('input[name="pp"]')?.value || '', 200);
-    if (!pp) return { ok: false, code: 'BILLING_SESSION_REQUIRED', candidates: [] };
+    return clean(
+      current.searchParams.get('pp')
+      || document.querySelector('input[name="pp"]')?.value
+      || '',
+      200
+    );
+  }
 
-    // Reproduce the native Billing form exactly. Preserve the literal value
-    // first. For abonNNN, the numeric part is only a second native-search alias.
-    const abonDigits = mode === 'login' ? (rawValue.match(/^abon(\d{3,12})$/i)?.[1] || '') : '';
-    const contractDigits = mode === 'contract' ? rawValue.replace(/\D+/g, '') : abonDigits;
-    const derivedBillingId = contractDigits.length >= 2 ? contractDigits.slice(0, -1) : '';
-    const nativeQueries = [...new Set([rawValue, abonDigits].filter(Boolean))];
+  function authPage(doc) {
+    return Boolean(doc?.querySelector?.('input[type="password"]'));
+  }
 
-    const authPage = doc => Boolean(doc.querySelector('input[type="password"]'));
-
-    const submitBillingForm = async (paramsObject = {}, phase = 'billing-form-submit') => new Promise((resolve, reject) => {
+  async function submitBillingForm(paramsObject = {}, phase = 'billing-form-submit') {
+    return new Promise((resolve, reject) => {
       const seq = ++bridgeState.requestSeq;
       const targetName = `simnet_billing_read_${seq}`;
       const iframe = document.createElement('iframe');
@@ -523,11 +546,11 @@
 
       for (const [key, value] of Object.entries(paramsObject || {})) {
         if (value === null || value === undefined || value === '') continue;
-        const input = document.createElement('input');
-        input.type = 'hidden';
-        input.name = String(key);
-        input.value = String(value);
-        form.append(input);
+        const field = document.createElement('input');
+        field.type = 'hidden';
+        field.name = String(key);
+        field.value = String(value);
+        form.append(field);
       }
       const submitButton = document.createElement('input');
       submitButton.type = 'submit';
@@ -580,7 +603,6 @@
       iframe.addEventListener('load', onLoad);
       document.documentElement.append(iframe, form);
       timer = window.setTimeout(() => fail(new Error('Billing form submit timed out')), 15000);
-
       try {
         if (typeof form.requestSubmit === 'function') form.requestSubmit(submitButton);
         else HTMLFormElement.prototype.submit.call(form);
@@ -588,6 +610,79 @@
         fail(error);
       }
     });
+  }
+
+  async function readBillingHistory(request = {}) {
+    const id = clean(request?.billingId || '', 40).replace(/\D+/g, '').slice(0, 12);
+    if (!id) return { ok: false, code: 'BILLING_ID_REQUIRED', history: null };
+    const pp = billingSessionToken();
+    if (!pp) return { ok: false, code: 'BILLING_SESSION_REQUIRED', history: null };
+
+    const scope = String(request?.scope || 'all').toLowerCase() === 'events' ? 'events' : 'all';
+    const first = await submitBillingForm({
+      pp,
+      a: 'payshow',
+      mid: id,
+      nodeny: 'client',
+      ...(scope === 'events' ? { type_pays: '50' } : {})
+    }, 'history-submit');
+    if (!first.ok) return { ok: false, code: `HTTP_${first.status || 0}`, history: null };
+    if (authPage(first.doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED', history: null };
+
+    let page = first;
+    if (scope === 'all') {
+      const allLink = [...first.doc.querySelectorAll('a[href]')].find(link =>
+        /показать\s+всю\s+историю\s+клиента|показати\s+всю\s+історію/iu.test(clean(link.textContent || '', 180))
+      );
+      if (allLink) {
+        try {
+          const target = new URL(allLink.getAttribute('href') || '', first.url);
+          if (target.origin === location.origin && String(target.searchParams.get('a') || '') === 'payshow') {
+            page = await submitBillingForm({
+              pp,
+              a: 'payshow',
+              mid: target.searchParams.get('mid') || id,
+              nodeny: target.searchParams.get('nodeny') || 'client',
+              type_pays: target.searchParams.get('type_pays') || ''
+            }, 'history-all-submit');
+            if (authPage(page.doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED', history: null };
+          }
+        } catch {}
+      }
+    }
+
+    const parsed = parsePayshowHistory(page.doc);
+    return {
+      ok: true,
+      code: 'OK',
+      billingId: id,
+      history: {
+        events: parsed.events,
+        packageBeforeBlock: parsed.packageBeforeBlock,
+        observedAt: new Date().toISOString(),
+        source: 'billing-payshow-history',
+        scope
+      },
+      transport: 'native-form-submit-hidden-iframe'
+    };
+  }
+
+  async function exactIdentityLookup(request = {}) {
+    const mode = String(request?.mode || '');
+    const rawValue = clean(request?.value || '', 80).replace(/\s+/g, '');
+    if (!['login', 'contract'].includes(mode) || !rawValue) {
+      return { ok: false, code: 'IDENTITY_QUERY_REQUIRED', candidates: [] };
+    }
+
+    const pp = billingSessionToken();
+    if (!pp) return { ok: false, code: 'BILLING_SESSION_REQUIRED', candidates: [] };
+
+    // Reproduce the native Billing form exactly. Preserve the literal value
+    // first. For abonNNN, the numeric part is only a second native-search alias.
+    const abonDigits = mode === 'login' ? (rawValue.match(/^abon(\d{3,12})$/i)?.[1] || '') : '';
+    const contractDigits = mode === 'contract' ? rawValue.replace(/\D+/g, '') : abonDigits;
+    const derivedBillingId = contractDigits.length >= 2 ? contractDigits.slice(0, -1) : '';
+    const nativeQueries = [...new Set([rawValue, abonDigits].filter(Boolean))];
 
     const ids = new Map();
     const preloadedCards = new Map();
@@ -995,22 +1090,38 @@
     };
   }
 
-  const exactLookupListener = (message, _sender, sendResponse) => {
-    if (String(message?.type || '') !== EXACT_LOOKUP_MESSAGE) return false;
-    void exactIdentityLookup(message?.request || {}).then(
-      result => sendResponse(result),
-      error => sendResponse({
-        ok: false,
-        code: 'BILLING_SEARCH_EXECUTION_FAILED',
-        failurePhase: clean(error?.simnetPhase || 'exact-lookup-runtime', 80),
-        message: clean(error?.message || error, 500),
-        candidates: []
-      })
-    );
-    return true;
+  const billingBridgeListener = (message, _sender, sendResponse) => {
+    const type = String(message?.type || '');
+    if (type === EXACT_LOOKUP_MESSAGE) {
+      void exactIdentityLookup(message?.request || {}).then(
+        result => sendResponse(result),
+        error => sendResponse({
+          ok: false,
+          code: 'BILLING_SEARCH_EXECUTION_FAILED',
+          failurePhase: clean(error?.simnetPhase || 'exact-lookup-runtime', 80),
+          message: clean(error?.message || error, 500),
+          candidates: []
+        })
+      );
+      return true;
+    }
+    if (type === HISTORY_READ_MESSAGE) {
+      void readBillingHistory(message?.request || {}).then(
+        result => sendResponse(result),
+        error => sendResponse({
+          ok: false,
+          code: 'BILLING_HISTORY_EXECUTION_FAILED',
+          failurePhase: clean(error?.simnetPhase || 'history-runtime', 80),
+          message: clean(error?.message || error, 500),
+          history: null
+        })
+      );
+      return true;
+    }
+    return false;
   };
-  bridgeState.listener = exactLookupListener;
-  chrome.runtime.onMessage.addListener(exactLookupListener);
+  bridgeState.listener = billingBridgeListener;
+  chrome.runtime.onMessage.addListener(billingBridgeListener);
 
   async function capture() {
     _rowIndex = null;
