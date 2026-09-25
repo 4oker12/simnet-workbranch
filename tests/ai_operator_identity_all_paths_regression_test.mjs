@@ -145,7 +145,7 @@ test('abon login and numeric contract use the lightweight exact Billing identity
   assert.match(runtime, /searchBillingExactIdentityLive\(toolArgs\)/);
   const exactRuntime = runtime.slice(
     runtime.indexOf('async function executeExactIdentityLookup'),
-    runtime.indexOf('async function executeBillingSummaryTool')
+    runtime.indexOf('async function executeBillingHistoryTool')
   );
   assert.doesNotMatch(exactRuntime, /core\.executeOperatorTool/, 'exact identity failures must not fall back to the legacy broad lookup');
   assert.doesNotMatch(runtime, /genericLogin\s*&&\s*!\/\^abon/);
