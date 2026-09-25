@@ -89,7 +89,7 @@ test('AI Lab exposes a DevTools-style hover inspector for tool references and su
   assert.match(traceJs, /confirmedSubscriber/);
   assert.match(traceJs, /Subscriber Snapshot/);
   assert.match(traceJs, /bootstrapMeta/);
-  assert.match(traceJs, /Полный snapshot/);
+  assert.match(traceJs, /Полный снимок \(snapshot\)/);
   assert.match(traceJs, /mouseenter/);
   assert.match(traceJs, /inspectorPinned/);
   assert.match(traceJs, /event\.key === 'Escape'/);
@@ -117,7 +117,7 @@ test('AI Lab renders a Swagger-style runtime map with full subscriber snapshot, 
   assert.match(traceJs, /endpoint/);
   assert.match(traceJs, /selector/);
   assert.match(traceJs, /TRACE PROJECTION/);
-  assert.match(traceJs, /Это не утверждение, что здесь воспроизведён полный скрытый prompt модели/);
+  assert.match(traceJs, /Это не полный скрытый prompt модели, а только видимая проекция данных/);
   assert.match(traceJs, /Технический RAW JSON/);
 });
 
@@ -134,8 +134,8 @@ test('tool inspector exposes Swagger-style contract and failure diagnostics', ()
   assert.match(traceJs, /Что читает/);
   assert.match(traceJs, /Что возвращает/);
   assert.match(traceJs, /Billing listuser → a=user → bootstrap: main \+ address \+ technical/);
-  assert.match(traceJs, /failure phase/);
-  assert.match(traceJs, /failure detail/);
+  assert.match(traceJs, /этап ошибки/);
+  assert.match(traceJs, /детали ошибки/);
 });
 
 
