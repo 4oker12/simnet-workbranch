@@ -26,3 +26,12 @@
 .ai-lab-event.trace-internal{border-left-color:#94a3b8}
 
 @media(max-width:900px){.ai-lab-sliders{grid-template-columns:1fr}.ai-lab-experiment-head{align-items:flex-start;flex-direction:column}.ai-lab-capabilities{justify-content:flex-start}.ai-lab-comparison-grid{grid-template-columns:1fr}}@media(max-width:760px){.ai-replay-compare{grid-template-columns:1fr}}@media(max-width:640px){.ai-lab-chat{height:340px}.ai-lab-message{max-width:92%}.ai-lab-compose{grid-template-columns:1fr}.ai-replay-chat{height:240px}.ai-lab-slider{grid-template-columns:1fr 90px 32px}.ai-lab-slider-label small{display:none}.ai-lab-snapshot-state{width:100%;margin-left:0}}
+
+
+/* Human-readable turn result: operator summary first, telemetry second. */
+.ai-lab-result-card{display:grid;gap:9px;padding:10px 11px;border-top:1px solid var(--ai-border);background:#fff}
+.ai-lab-result-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.ai-lab-result-head strong{font-size:11px;color:#0f172a}.ai-lab-result-head span{padding:3px 7px;border-radius:999px;font:800 8px ui-monospace,monospace}.ai-lab-result-head span.ok{background:#ecfdf3;color:#067647}.ai-lab-result-head span.warn{background:#fff7e6;color:#9a6700}
+.ai-lab-result-grid{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 10px;padding:8px;border:1px solid #dbe4ef;border-radius:8px;background:#f8fafc;font-size:9px}.ai-lab-result-grid b{color:#64748b}.ai-lab-result-grid span{color:#172033;word-break:break-word}
+.ai-lab-result-flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}.ai-lab-result-step{display:grid;grid-template-columns:24px minmax(0,1fr);gap:6px;align-items:start;padding:7px;border:1px solid #dbe4ef;border-radius:8px;background:#fbfdff}.ai-lab-result-step-num{display:grid;place-items:center;width:22px;height:22px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font:900 9px ui-monospace,monospace}.ai-lab-result-step div{display:grid;gap:2px}.ai-lab-result-step b{font-size:9px;color:#172033}.ai-lab-result-step small{font-size:8px;line-height:1.35;color:#64748b}
+.ai-lab-result-technical>summary{cursor:pointer;color:#64748b;font:800 8px ui-monospace,monospace}.ai-lab-result-technical pre{margin:5px 0 0;padding:7px;border:1px solid #dbe4ef;border-radius:6px;background:#f8fafc;color:#334155;font:8px/1.4 ui-monospace,monospace;white-space:pre-wrap}
+@media(max-width:900px){.ai-lab-result-flow{grid-template-columns:1fr 1fr}}@media(max-width:620px){.ai-lab-result-flow{grid-template-columns:1fr}}
