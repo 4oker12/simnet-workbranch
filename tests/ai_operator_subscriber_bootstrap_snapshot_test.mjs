@@ -76,8 +76,11 @@ test('identity success triggers bounded main + address + technical bootstrap and
   const login = fs.readFileSync(new URL('../src/features/ai-operator/billing-login-live.js', import.meta.url), 'utf8');
   const runtime = fs.readFileSync(new URL('../src/features/ai-operator/live-tool-runtime.js', import.meta.url), 'utf8');
 
-  assert.match(login, /SIMNET_AI_BILLING_EXACT_LOOKUP_V2/);
-  assert.match(capture, /SIMNET_AI_BILLING_EXACT_LOOKUP_V2/);
+  assert.match(login, /SIMNET_AI_BILLING_EXACT_LOOKUP_V3/);
+  assert.match(capture, /SIMNET_AI_BILLING_EXACT_LOOKUP_V3/);
+  assert.match(capture, /BRIDGE_STATE_KEY/);
+  assert.match(capture, /chrome\.runtime\.onMessage\.removeListener\(previousBridge\.listener\)/);
+  assert.doesNotMatch(capture, /__SIMNET_AI_BILLING_SNAPSHOT_CAPTURE_V3__\) return/, 'reinject must not be blocked by the stale whole-script guard');
   assert.match(capture, /tmpl:\s*'2'/, 'bootstrap must read Billing address source');
   assert.match(capture, /tmpl:\s*'1'/, 'bootstrap must read Billing technical source');
   assert.match(capture, /snapshots\[id\]\s*=\s*snapshot/);
