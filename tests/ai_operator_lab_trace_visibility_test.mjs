@@ -128,3 +128,12 @@ test('Lab runtime visualization uses blue/slate accents while red remains reserv
   assert.match(css, /--ai-accent:#2563eb/);
   assert.match(css, /--ai-plum:#2563eb/);
 });
+
+
+test('tool inspector exposes Swagger-style contract and failure diagnostics', () => {
+  assert.match(traceJs, /Reads/);
+  assert.match(traceJs, /Returns/);
+  assert.match(traceJs, /Billing listuser → a=user → bootstrap: main \+ address \+ technical/);
+  assert.match(traceJs, /failure phase/);
+  assert.match(traceJs, /failure detail/);
+});
