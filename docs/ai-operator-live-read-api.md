@@ -45,10 +45,13 @@ tool evidence: source + observedAt + реальные поля
 
 **Как ищет:**
 
-- договор/login/IP: штатный Billing `a=listuser`, `f=n`, `what_search=<mode>`, `name=<value>`;
-- адрес: штатный Billing `a=listuser`, `f=d` + `dopfield_5/6/11/8`;
-- найденный Billing ID затем читается через `a=user&id=<billingId>`;
-- адрес и дополнительные данные дочитываются через `a=dopdata`.
+- для числового договора и формы `abonNNN` сначала применяется deterministic fast path: из полного цифрового идентификатора убирается последняя цифра, полученное значение используется только как candidate Billing ID;
+- candidate открывается через `a=user&id=<derivedBillingId>`; subscriber считается найденным только после сверки полного договора и/или literal login на самой карточке;
+- пример: `230804 → candidate id 23080 → a=user&id=23080 → contract должен быть 230804`;
+- если derived card не открылась или identity на карточке не совпала, выполняется штатный Billing fallback `a=listuser&f=n&name=<value>`;
+- запросы выполняются через native GET form-submit в скрытом same-origin iframe, а не через content-script `fetch()`;
+- после подтверждения Billing ID выполняется bounded bootstrap: `a=user` + `dopdata tmpl=2` (address) + `dopdata tmpl=1` (technical);
+- адресный поиск как отдельный identity route остаётся через штатные Billing address-поля, когда клиент сообщил именно адрес.
 
 **Возвращает кандидата:**
 
