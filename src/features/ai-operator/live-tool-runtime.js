@@ -225,6 +225,9 @@ async function executeExactIdentityLookup(toolArgs = {}) {
       bridgeRecovered: Boolean(live?.bridgeRecovered),
       initialBridgeError: text(live?.initialBridgeError, 360),
       transport: text(live?.transport, 120),
+      lookupStrategy: text(live?.lookupStrategy, 120),
+      derivedBillingId: text(live?.derivedBillingId, 40),
+      derivedCardError: text(live?.derivedCardError, 360),
       attemptedQueries: Array.isArray(live?.attemptedQueries) ? live.attemptedQueries.slice(0, 3) : []
     });
   }
@@ -258,6 +261,9 @@ async function executeExactIdentityLookup(toolArgs = {}) {
     source: 'billing-live-read-only',
     searchMode: request.mode,
     transport: text(live?.transport, 120),
+    lookupStrategy: text(live?.lookupStrategy, 120),
+    derivedBillingId: text(live?.derivedBillingId, 40),
+    nativeQuery: text(live?.nativeQuery, 80),
     bootstrap: bootstrapped.bootstrapMeta
   }, bootstrapped.bootstrapMeta?.status === 'partial'
     ? ['Абонент подтверждён; часть фонового subscriber snapshot осталась неизвестной и может быть дочитана позже.']
