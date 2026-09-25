@@ -275,6 +275,8 @@
         group: groupOption?.label || '',
         groupId: groupOption?.value || '',
         currentTariff: currentTariffOption?.label || '',
+        configuredTariff: currentTariffOption?.label || '',
+        currentTariffSource: currentTariffOption?.label ? 'select[name="paket"]' : '',
         currentTariffSelectedId: currentTariffOption?.value || '',
         currentTariffSelectedLabel: currentTariffOption?.label || '',
         nextTariff: nextTariffOption?.label ?? null,
