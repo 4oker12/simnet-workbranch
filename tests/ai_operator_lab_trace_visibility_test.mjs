@@ -11,7 +11,7 @@ test('AI Lab visibly exposes KB hit/miss/skip, identity, tools and fallback whil
   assert.match(labJs, /KB HIT/);
   assert.match(labJs, /KB MISS/);
   assert.match(labJs, /KB SKIP/);
-  assert.match(labJs, /IDENTITY/);
+  assert.match(labJs, /НАЙТИ \/ ПРОВЕРИТЬ \(LOOKUP \/ VERIFY\)/);
   assert.match(labJs, /eventTone/);
   assert.match(labJs, /importantEventNote/);
   assert.match(labJs, /event\.type === 'semantic_analysis'/);
