@@ -2,6 +2,7 @@
 
 (() => {
   const TRACE_ID = 'aiLabLinearTrace';
+  const RUNTIME_MAP_ID = 'aiLabRuntimeMap';
   const STYLE_ID = 'aiLabLinearTraceStyle';
   const TOOL_INSPECTOR_ID = 'aiLabToolInspector';
   const BILLING_SNAPSHOT_KEY = 'simnet_ai_operator_billing_snapshots_v1';
@@ -153,9 +154,9 @@
       .ai-trace-index{position:relative;z-index:1;display:grid;place-items:center;width:24px;height:24px;border-radius:999px;background:#eef2f7;color:#475569;font:800 9px ui-monospace,monospace}
       .ai-trace-label{padding-top:4px;color:#64748b;font:800 9px/1.35 ui-monospace,monospace;letter-spacing:.04em}
       .ai-trace-body{min-width:0;color:#243044;font-size:10px;line-height:1.5}.ai-trace-body b{color:#172033}.ai-trace-body .muted{color:#7b8798}
-      .ai-trace-step.intent .ai-trace-index{background:#ede9fe;color:#6d28d9}.ai-trace-step.need .ai-trace-index{background:#e0f2fe;color:#0369a1}
+      .ai-trace-step.intent .ai-trace-index{background:#e8f1ff;color:#1d4ed8}.ai-trace-step.need .ai-trace-index{background:#e0f2fe;color:#0369a1}
       .ai-trace-step.tool .ai-trace-index{background:#dbeafe;color:#1d4ed8}.ai-trace-step.fact .ai-trace-index{background:#dcfce7;color:#166534}
-      .ai-trace-step.relevance .ai-trace-index{background:#fce7f3;color:#9d174d}.ai-trace-step.verify .ai-trace-index{background:#fef3c7;color:#92400e}.ai-trace-step.answer .ai-trace-index{background:#fbe7ef;color:#8c1646}
+      .ai-trace-step.relevance .ai-trace-index{background:#e6f7ff;color:#0369a1}.ai-trace-step.verify .ai-trace-index{background:#fef3c7;color:#92400e}.ai-trace-step.answer .ai-trace-index{background:#e2e8f0;color:#334155}
       .ai-trace-line{margin:1px 0}.ai-trace-chip{display:inline-block;margin:2px 4px 2px 0;padding:2px 5px;border-radius:6px;background:#f2f5f8;color:#475569;font:700 9px ui-monospace,monospace}
       .ai-trace-chip.ok{background:#ecfdf3;color:#067647}.ai-trace-chip.bad{background:#fff1f1;color:#b42318}.ai-trace-chip.warn{background:#fff7e6;color:#9a6700}
       .ai-trace-mismatch{margin-top:5px;padding:6px 8px;border:1px solid #f7b4b4;border-radius:7px;background:#fff5f5;color:#b42318;font:800 9px/1.4 ui-monospace,monospace}
@@ -169,16 +170,26 @@
       .ai-trace-json-line{display:block}.ai-trace-json-line.key-intent{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#fff4db;color:#8a4b00;font-weight:800}
       .ai-trace-json-line.key-tool{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#eaf2ff;color:#174ea6;font-weight:800}
       .ai-trace-json-line.key-status{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#ecfdf3;color:#067647;font-weight:800}
-      .ai-trace-json-line.key-source{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#f3e8ff;color:#6b21a8;font-weight:800}
+      .ai-trace-json-line.key-source{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#e0f2fe;color:#0369a1;font-weight:800}
       .ai-trace-json-line.key-data{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#f0f9ff;color:#075985;font-weight:800}
-      .ai-trace-json-line.key-relevance{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#fdf2f8;color:#9d174d;font-weight:800}
+      .ai-trace-json-line.key-relevance{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#f1f5f9;color:#475569;font-weight:800}
       .ai-trace-history-label{margin:10px 0 5px;color:#8a95a5;font:800 8px ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase}
-      .ai-tool-ref{display:inline-flex;align-items:center;max-width:100%;border-bottom:1px dotted #7c3aed;color:#5b21b6;font:800 9px ui-monospace,monospace;cursor:help;outline:none}
-      .ai-tool-ref:hover,.ai-tool-ref:focus{color:#7e22ce;border-bottom-style:solid;background:#faf5ff;border-radius:3px}
+      .ai-runtime-map{display:grid;gap:9px;margin:8px 0 12px;padding:10px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc}
+      .ai-runtime-map-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.ai-runtime-map-head>div{display:grid;gap:2px}.ai-runtime-map-head strong{font-size:11px;color:#0f172a}.ai-runtime-map-head span{font:8px/1.3 ui-monospace,monospace;color:#64748b}
+      .ai-runtime-flow{display:grid;grid-template-columns:minmax(0,1.05fr) 24px minmax(0,1fr) 24px minmax(0,.9fr);gap:6px;align-items:stretch}.ai-runtime-arrow{display:grid;place-items:center;color:#64748b;font:900 16px ui-monospace,monospace}
+      .ai-runtime-stage{min-width:0;padding:9px;border:1px solid #dbe4ef;border-radius:9px;background:#fff}.ai-runtime-stage>header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px}.ai-runtime-stage>header strong{font:900 9px ui-monospace,monospace;letter-spacing:.05em;color:#334155}.ai-runtime-stage>header span{font:800 8px ui-monospace,monospace;color:#64748b}
+      .ai-runtime-snapshot{border-top:3px solid #2563eb}.ai-runtime-tools-stage{border-top:3px solid #0891b2}.ai-runtime-model-stage{border-top:3px solid #64748b}
+      .ai-runtime-status{display:inline-flex;padding:2px 5px;border-radius:999px;background:#eef2f7;color:#475569;font:800 8px ui-monospace,monospace}.ai-runtime-status.ok{background:#ecfdf3;color:#067647}.ai-runtime-status.warn{background:#fff7e6;color:#9a6700}.ai-runtime-status.bad{background:#fff1f1;color:#b42318}
+      .ai-runtime-groups{display:grid;gap:5px}.ai-runtime-group{border:1px solid #e2e8f0;border-radius:7px;background:#fbfdff;overflow:hidden}.ai-runtime-group>summary{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:5px 7px;cursor:pointer;color:#334155;font:800 8px ui-monospace,monospace}.ai-runtime-group>summary span{color:#64748b;font-weight:700}.ai-runtime-group pre{margin:0;padding:7px;border-top:1px solid #e2e8f0;background:#fff;color:#334155;font:8px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;max-height:210px;overflow:auto}
+      .ai-runtime-tool-list{display:grid;gap:6px}.ai-runtime-call{padding:7px;border:1px solid #dbe4ef;border-radius:8px;background:#f8fbff}.ai-runtime-call-head{display:flex;align-items:center;gap:5px;flex-wrap:wrap}.ai-runtime-method{padding:2px 5px;border-radius:5px;background:#dbeafe;color:#1d4ed8;font:900 8px ui-monospace,monospace}.ai-runtime-call-title{font:900 9px ui-monospace,monospace}.ai-runtime-call-purpose{margin-top:4px;color:#475569;font-size:9px;line-height:1.35}.ai-runtime-call-meta{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:2px 6px;margin-top:5px;font-size:8px}.ai-runtime-call-meta b{color:#64748b}.ai-runtime-call-meta span{color:#334155;word-break:break-word}.ai-runtime-call details{margin-top:5px}.ai-runtime-call details>summary{cursor:pointer;color:#475569;font:800 8px ui-monospace,monospace}.ai-runtime-call pre{margin:4px 0 0;padding:6px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#334155;font:8px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;max-height:180px;overflow:auto}
+      .ai-runtime-model-note{margin-bottom:6px;padding:6px 7px;border-radius:6px;background:#f1f5f9;color:#475569;font-size:8px;line-height:1.4}.ai-runtime-facts{display:grid;gap:4px}.ai-runtime-fact{padding:5px 6px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#334155;font-size:8px;line-height:1.4}.ai-runtime-fact b{color:#0f172a}.ai-runtime-empty{padding:7px;border:1px dashed #cbd5e1;border-radius:7px;color:#64748b;font-size:8px}
+      .ai-runtime-full{margin-top:6px}.ai-runtime-full>summary{cursor:pointer;color:#2563eb;font:900 8px ui-monospace,monospace}.ai-runtime-full pre{margin:5px 0 0;padding:7px;max-height:320px;overflow:auto;border:1px solid #dbe4ef;border-radius:6px;background:#fff;color:#334155;font:8px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-word}
+      .ai-tool-ref{display:inline-flex;align-items:center;max-width:100%;border-bottom:1px dotted #2563eb;color:#1d4ed8;font:800 9px ui-monospace,monospace;cursor:help;outline:none}
+      .ai-tool-ref:hover,.ai-tool-ref:focus{color:#1d4ed8;border-bottom-style:solid;background:#eff6ff;border-radius:3px}
       .ai-tool-inspector{position:fixed;z-index:2147483646;width:min(520px,calc(100vw - 24px));max-height:min(72vh,680px);overflow:auto;padding:0;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#172033;box-shadow:0 18px 55px rgba(15,23,42,.22);font:10px/1.45 Inter,system-ui,sans-serif}
       .ai-tool-inspector[hidden]{display:none}
       .ai-tool-inspector-head{position:sticky;top:0;z-index:2;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:10px 11px;border-bottom:1px solid #e6ebf1;background:#fff}
-      .ai-tool-inspector-title{display:grid;gap:2px}.ai-tool-inspector-title strong{font:900 12px ui-monospace,monospace;color:#172033}.ai-tool-inspector-title span{font:800 8px ui-monospace,monospace;color:#7c3aed;text-transform:uppercase;letter-spacing:.06em}
+      .ai-tool-inspector-title{display:grid;gap:2px}.ai-tool-inspector-title strong{font:900 12px ui-monospace,monospace;color:#172033}.ai-tool-inspector-title span{font:800 8px ui-monospace,monospace;color:#2563eb;text-transform:uppercase;letter-spacing:.06em}
       .ai-tool-inspector-close{display:grid;place-items:center;width:24px;height:24px;padding:0;border:1px solid #dbe4ef;border-radius:6px;background:#f8fafc;color:#64748b;cursor:pointer;font:800 13px/1 system-ui}
       .ai-tool-inspector-body{display:grid;gap:8px;padding:10px 11px 12px}
       .ai-tool-inspector-section{padding:8px;border:1px solid #e6ebf1;border-radius:8px;background:#fbfcfd}
@@ -187,7 +198,8 @@
       .ai-tool-inspector pre{margin:5px 0 0;padding:7px;max-height:230px;overflow:auto;border:1px solid #e6ebf1;border-radius:6px;background:#fff;font:9px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-word}
       .ai-tool-inspector details>summary{cursor:pointer;color:#475569;font:800 9px ui-monospace,monospace}
       .ai-tool-inspector-empty{color:#94a3b8;font-style:italic}
-      .ai-tool-inspector-pin{padding:2px 5px;border-radius:5px;background:#f3e8ff;color:#6b21a8;font:800 8px ui-monospace,monospace}
+      .ai-tool-inspector-pin{padding:2px 5px;border-radius:5px;background:#e0f2fe;color:#0369a1;font:800 8px ui-monospace,monospace}
+      @media(max-width:900px){.ai-runtime-flow{grid-template-columns:1fr}.ai-runtime-arrow{transform:rotate(90deg);height:18px}}
       @media(max-width:760px){.ai-trace-step{grid-template-columns:26px 88px minmax(0,1fr)}.ai-tool-inspector{left:12px!important;right:12px!important;width:auto!important;max-height:65vh}}
     `;
     document.head.append(style);
@@ -424,9 +436,188 @@
     if (last < value.length) node.append(document.createTextNode(value.slice(last)));
   }
 
+  function primitivePreview(value, maxItems = 7) {
+    if (!value || typeof value !== 'object') return short(value, 100);
+    const parts = [];
+    for (const [key, child] of Object.entries(value)) {
+      if (parts.length >= maxItems) break;
+      if (child == null || child === '' || typeof child === 'object') continue;
+      parts.push(`${key}=${short(child, 58)}`);
+    }
+    return parts.join(' · ') || `${Array.isArray(value) ? value.length : Object.keys(value).length} полей`;
+  }
+
+  function runtimeSnapshotStage(snapshot = null, state = {}) {
+    const stage = create('section', 'ai-runtime-stage ai-runtime-snapshot');
+    const head = create('header');
+    head.append(create('strong', '', 'SUBSCRIBER SNAPSHOT'));
+    const status = snapshot?.bootstrapMeta?.status || (state?.toolState?.confirmedSubscriber ? 'identity only' : 'no subscriber');
+    head.append(create('span', `ai-runtime-status ${status === 'ready' ? 'ok' : snapshot ? 'warn' : ''}`, status.toUpperCase()));
+    stage.append(head);
+
+    if (!snapshot) {
+      const confirmed = state?.toolState?.confirmedSubscriber;
+      stage.append(create('div', 'ai-runtime-empty', confirmed
+        ? 'Полный локальный snapshot ещё не найден. Ниже доступен только confirmedSubscriber.'
+        : 'Абонент ещё не подтверждён — subscriber snapshot отсутствует.'));
+      if (confirmed) {
+        const fallback = create('details', 'ai-runtime-group');
+        fallback.open = true;
+        const summary = create('summary');
+        summary.append(create('b', '', 'confirmedSubscriber'), create('span', '', primitivePreview(confirmed)));
+        fallback.append(summary, create('pre', '', jsonText(confirmed)));
+        stage.append(fallback);
+      }
+      return stage;
+    }
+
+    const groups = create('div', 'ai-runtime-groups');
+    const preferred = ['identity','address','contacts','customer','service','finance','network','technical','payments','bootstrapMeta'];
+    const seen = new Set();
+    for (const key of [...preferred, ...Object.keys(snapshot)]) {
+      if (seen.has(key) || ['billingId','observedAt','financeObservedAt','source','fieldObservedAt'].includes(key)) continue;
+      if (!Object.hasOwn(snapshot, key)) continue;
+      seen.add(key);
+      const value = snapshot[key];
+      const details = create('details', 'ai-runtime-group');
+      details.open = ['identity','address','service','finance','technical','bootstrapMeta'].includes(key);
+      const summary = create('summary');
+      summary.append(create('b', '', key), create('span', '', primitivePreview(value)));
+      details.append(summary, create('pre', '', jsonText(value)));
+      groups.append(details);
+    }
+    stage.append(groups);
+
+    const meta = create('div', 'ai-runtime-facts');
+    meta.append(
+      create('div', 'ai-runtime-fact', `billingId: ${snapshot.billingId || snapshot.identity?.billingId || '—'}`),
+      create('div', 'ai-runtime-fact', `observedAt: ${snapshot.observedAt || '—'}`),
+      create('div', 'ai-runtime-fact', `source: ${snapshot.source || '—'}`)
+    );
+    stage.append(meta);
+
+    const full = create('details', 'ai-runtime-full');
+    full.append(create('summary', '', 'FULL SNAPSHOT · JSON'), create('pre', '', jsonText(snapshot)));
+    stage.append(full);
+    return stage;
+  }
+
+  function runtimeToolCallCard(trace = {}, index = 0) {
+    const tool = normalizedToolName(trace?.tool) || String(trace?.tool || 'unknown');
+    const meta = TOOL_INSPECTOR_META[tool] || {};
+    const card = create('article', 'ai-runtime-call');
+    const head = create('div', 'ai-runtime-call-head');
+    head.append(create('span', 'ai-runtime-method', 'READ'));
+    const title = create('span', 'ai-runtime-call-title');
+    title.append(toolRef(tool, tool));
+    head.append(title, create('span', `ai-runtime-status ${trace?.ok ? 'ok' : 'bad'}`, trace?.ok ? 'OK' : (trace?.code || 'ERROR')));
+    card.append(head);
+    card.append(create('div', 'ai-runtime-call-purpose', meta.purpose || 'Вызов runtime tool.'));
+
+    const evidence = trace?.data?.evidence || {};
+    const bootstrap = trace?.data?.bootstrap || {};
+    const rows = [
+      ['call', String(index + 1)],
+      ['input', trace?.requestedBy?.field || meta.input || '—'],
+      ['why', trace?.requestedBy?.why || '—'],
+      ['source', trace?.source || trace?.data?.source || '—'],
+      ['endpoint', evidence.endpoint || bootstrap.endpoint || '—'],
+      ['selector', evidence.selector || '—'],
+      ['cache', trace?.cache || '—']
+    ];
+    const grid = create('div', 'ai-runtime-call-meta');
+    for (const [label,value] of rows) grid.append(create('b','',label), create('span','',value));
+    card.append(grid);
+
+    const args = create('details');
+    args.open = true;
+    args.append(create('summary', '', 'INPUT / ARGS'), create('pre', '', jsonText(trace?.args || {})));
+    card.append(args);
+    const result = create('details');
+    result.append(create('summary', '', 'OUTPUT / RESULT'), create('pre', '', jsonText({
+      ok: Boolean(trace?.ok),
+      code: trace?.code || '',
+      source: trace?.source || '',
+      requestedFacts: trace?.requestedFacts || [],
+      data: trace?.data || {},
+      warnings: trace?.warnings || []
+    })));
+    card.append(result);
+    return card;
+  }
+
+  function runtimeToolsStage(toolTrace = []) {
+    const stage = create('section', 'ai-runtime-stage ai-runtime-tools-stage');
+    const head = create('header');
+    head.append(create('strong', '', 'TOOL CALLS'), create('span', '', `${toolTrace.length} вызов(а)`));
+    stage.append(head);
+    if (!toolTrace.length) {
+      stage.append(create('div', 'ai-runtime-empty', 'На этом ходе runtime tool не вызывался.'));
+      return stage;
+    }
+    const list = create('div', 'ai-runtime-tool-list');
+    toolTrace.forEach((trace,index)=>list.append(runtimeToolCallCard(trace,index)));
+    stage.append(list);
+    return stage;
+  }
+
+  function runtimeModelStage(experiment = {}, variant = {}, toolTrace = []) {
+    const stage = create('section', 'ai-runtime-stage ai-runtime-model-stage');
+    const head = create('header');
+    head.append(create('strong', '', 'MODEL / CANONICAL VIEW'), create('span', '', 'TRACE PROJECTION'));
+    stage.append(head);
+    stage.append(create('div', 'ai-runtime-model-note',
+      'Показывает подтверждённые факты и запросы, видимые в runtime trace. Это не утверждение, что здесь воспроизведён полный скрытый prompt модели.'));
+
+    const facts = create('div', 'ai-runtime-facts');
+    const probe = experiment?.analysis?.probe || {};
+    if (probe.whatUserWants) {
+      const item=create('div','ai-runtime-fact'); item.append(create('b','','intent: '),document.createTextNode(probe.whatUserWants)); facts.append(item);
+    }
+    const requested = [...new Set(toolTrace.flatMap(item => Array.isArray(item?.requestedFacts) ? item.requestedFacts : []))];
+    if (requested.length) {
+      const item=create('div','ai-runtime-fact'); item.append(create('b','','requested canonical facts: '),document.createTextNode(requested.join(' · '))); facts.append(item);
+    }
+    const kept = Array.isArray(variant?.answerRelevance?.kept) ? variant.answerRelevance.kept : [];
+    for (const item of kept.slice(0,18)) {
+      const row=create('div','ai-runtime-fact');
+      row.append(create('b','',`${item?.fact || 'fact'}: `),document.createTextNode(short(item?.reason || item?.value || 'использован',260)));
+      facts.append(row);
+    }
+    if (!facts.childNodes.length) facts.append(create('div','ai-runtime-empty','В trace нет отдельной узкой canonical-проекции для этого хода.'));
+    stage.append(facts);
+    return stage;
+  }
+
+  async function hydrateRuntimeMap(container, state = {}, experiment = {}, variant = {}, toolTrace = []) {
+    let snapshot = null;
+    try { snapshot = await loadSubscriberSnapshot('customer.snapshot', toolTrace.at(-1) || null); } catch {}
+
+    const head = create('div', 'ai-runtime-map-head');
+    const title = create('div');
+    title.append(create('strong', '', 'AGENT RUNTIME MAP'), create('span', '', 'что уже знает агент → что вызвал → что использовал дальше'));
+    const billingId = inspectorBillingId(toolTrace.at(-1) || null, state);
+    head.append(title, create('span', '', billingId ? `subscriber ${billingId}` : 'subscriber unbound'));
+
+    const flow = create('div', 'ai-runtime-flow');
+    flow.append(
+      runtimeSnapshotStage(snapshot, state),
+      create('div', 'ai-runtime-arrow', '→'),
+      runtimeToolsStage(toolTrace),
+      create('div', 'ai-runtime-arrow', '→'),
+      runtimeModelStage(experiment, variant, toolTrace)
+    );
+
+    rendering = true;
+    observer?.disconnect();
+    container.replaceChildren(head, flow);
+    observer?.observe(eventsNode, { childList: true, subtree: true });
+    rendering = false;
+  }
+
   function jsonBlock(value) {
     const details = create('details', 'ai-trace-raw');
-    details.append(create('summary', '', 'RAW JSON'));
+    details.append(create('summary', '', 'Технический RAW JSON'));
     const pre = create('pre', 'ai-trace-json');
     let text = '';
     try { text = JSON.stringify(value ?? null, null, 2); } catch { text = String(value ?? ''); }
@@ -688,9 +879,14 @@
     const root = create('section', 'ai-trace-root');
     root.id = TRACE_ID;
     const head = create('div', 'ai-trace-head');
-    head.append(create('strong', '', 'ЦЕПОЧКА ПОСЛЕДНЕГО ХОДА'));
+    head.append(create('strong', '', 'DECISION TRACE · ПОСЛЕДНИЙ ХОД'));
     head.append(create('span', '', `${experiment?.knowledgeMode === 'clean' ? 'CLEAN · ' : ''}${Math.round(Number(probe?.confidence || 0) * 100)}% semantic · ${toolTrace.length} tool · ${Number(experiment?.elapsedMs || 0)} ms`));
     root.append(head);
+    const runtimeMap = create('section', 'ai-runtime-map');
+    runtimeMap.id = RUNTIME_MAP_ID;
+    runtimeMap.append(create('div', 'ai-runtime-empty', 'Собираю runtime map…'));
+    root.append(runtimeMap);
+    void hydrateRuntimeMap(runtimeMap, state, experiment, variant, toolTrace);
 
     const list = create('div', 'ai-trace-list');
     let index = 1;
