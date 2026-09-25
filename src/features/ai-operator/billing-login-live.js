@@ -17,7 +17,8 @@ const RETRYABLE_TAB_CODES = new Set([
   'BILLING_TAB_INVALID',
   'BILLING_SEARCH_NO_RESULT',
   'BILLING_SEARCH_EXECUTION_FAILED',
-  'BILLING_CONTENT_BRIDGE_UNAVAILABLE'
+  'BILLING_CONTENT_BRIDGE_UNAVAILABLE',
+  'BILLING_CARD_READ_FAILED'
 ]);
 
 function clean(value, max = 500) {
@@ -66,15 +67,25 @@ async function sendExactLookup(tabId, request) {
 }
 
 async function executeExactIdentitySearch(tabId, request) {
+  let initialBridgeError = '';
   try {
     const result = await sendExactLookup(tabId, request);
     if (result && typeof result === 'object') return result;
-  } catch {}
+    initialBridgeError = 'Billing bridge returned an empty response';
+  } catch (error) {
+    initialBridgeError = clean(error?.message || error, 360);
+  }
 
   // Existing Billing tabs do not receive newly reloaded extension content scripts
-  // automatically. Bootstrap the existing Billing bridge once, then retry.
+  // automatically. Bootstrap the current bridge once, then retry.
   if (!globalThis.chrome?.scripting?.executeScript) {
-    return { ok: false, code: 'BILLING_CONTENT_BRIDGE_UNAVAILABLE', candidates: [] };
+    return {
+      ok: false,
+      code: 'BILLING_CONTENT_BRIDGE_UNAVAILABLE',
+      failurePhase: 'content-bridge-bootstrap',
+      message: initialBridgeError || 'chrome.scripting.executeScript unavailable',
+      candidates: []
+    };
   }
   try {
     await chrome.scripting.executeScript({
@@ -82,14 +93,28 @@ async function executeExactIdentitySearch(tabId, request) {
       files: [BILLING_CAPTURE_SCRIPT]
     });
     const retried = await sendExactLookup(tabId, request);
-    return retried && typeof retried === 'object'
-      ? retried
-      : { ok: false, code: 'BILLING_SEARCH_NO_RESULT', candidates: [] };
+    if (retried && typeof retried === 'object') {
+      return {
+        ...retried,
+        bridgeRecovered: true,
+        ...(initialBridgeError ? { initialBridgeError } : {})
+      };
+    }
+    return {
+      ok: false,
+      code: 'BILLING_SEARCH_NO_RESULT',
+      failurePhase: 'content-bridge-response',
+      message: 'Current Billing bridge returned an empty response after reinjection',
+      initialBridgeError,
+      candidates: []
+    };
   } catch (error) {
     return {
       ok: false,
       code: 'BILLING_CONTENT_BRIDGE_UNAVAILABLE',
+      failurePhase: 'content-bridge-reinject',
       message: clean(error?.message || error, 500),
+      initialBridgeError,
       candidates: []
     };
   }
@@ -106,8 +131,10 @@ export async function searchBillingExactIdentityLive(args = {}) {
   if (!tabs.length) return { ok: false, code: 'BILLING_TAB_REQUIRED', candidates: [] };
 
   let last = null;
+  let lastTabId = null;
   for (const tab of tabs) {
     if (!Number.isInteger(tab?.id)) continue;
+    lastTabId = tab.id;
     try {
       const outcome = await executeExactIdentitySearch(tab.id, request);
       last = outcome;
@@ -118,13 +145,19 @@ export async function searchBillingExactIdentityLive(args = {}) {
         return { ...outcome, request, tabId: tab.id, source: 'billing-live-read-only' };
       }
     } catch (error) {
-      last = { ok: false, code: 'BILLING_SEARCH_EXECUTION_FAILED', message: clean(error?.message || error, 500) };
+      last = {
+        ok: false,
+        code: 'BILLING_SEARCH_EXECUTION_FAILED',
+        failurePhase: 'billing-tab-loop',
+        message: clean(error?.message || error, 500)
+      };
     }
   }
 
   return {
     ...(last || { ok: false, code: 'BILLING_SESSION_REQUIRED' }),
     request,
+    ...(Number.isInteger(lastTabId) ? { tabId: lastTabId } : {}),
     source: 'billing-live-read-only'
   };
 }
