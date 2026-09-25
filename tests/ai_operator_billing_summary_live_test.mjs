@@ -55,13 +55,16 @@ test('Billing main-page snapshot is wide locally but select catalogs stay collap
 
 test('configured internet package is authoritative over access/service state labels', () => {
   const source = requireSource();
-  assert.match(source, /const configuredTariff = compact\(currentTariffOption\?\.label/);
-  assert.match(source, /const currentTariff = configuredTariff \|\| summaryTariff/);
-  assert.match(source, /currentTariffSource: configuredTariff \? 'select\[name="paket"\]'/);
+  assert.match(source, /const selectedTariffLabel = compact\(currentTariffOption\?\.label/);
+  assert.match(source, /const tariffSelectorState = isTariffStatusMarker\(selectedTariffLabel\)/);
+  assert.match(source, /const configuredTariff = tariffSelectorState \? '' : selectedTariffLabel/);
+  assert.match(source, /const currentTariff = tariffSelectorState \? '' : \(configuredTariff \|\| summaryTariff\)/);
+  assert.match(source, /history_required_from_payshow/);
+  assert.match(source, /tariffResolutionRequired: Boolean\(tariffSelectorState\)/);
   assert.match(source, /accessState: accessOption\?\.label/);
   assert.match(source, /serviceState: serviceStateOption\?\.label/);
   assert.ok(
-    source.indexOf('const configuredTariff =') < source.indexOf('const currentTariff = configuredTariff'),
-    'paket selection must be resolved before current tariff value'
+    source.indexOf('const tariffSelectorState =') < source.indexOf('const currentTariff = tariffSelectorState'),
+    'paket status marker must be classified before current tariff is resolved'
   );
 });
