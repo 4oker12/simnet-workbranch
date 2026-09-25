@@ -57,7 +57,8 @@ test('Billing exact lookup submits a real hidden Billing GET form through the pe
   assert.match(capture, /submitBillingForm/);
   assert.match(capture, /form\.method\s*=\s*'get'/);
   assert.match(capture, /form\.target\s*=\s*targetName/);
-  assert.match(capture, /form\.requestSubmit\(\)/);
+  assert.match(capture, /submitButton\.value\s*=\s*'Найти'/);
+  assert.match(capture, /form\.requestSubmit\(submitButton\)/);
   assert.match(capture, /iframe\.contentDocument/);
   assert.match(capture, /f:\s*'n',\s*a:\s*'listuser',\s*name:\s*nativeQuery/);
   assert.doesNotMatch(capture, /what_search/);
