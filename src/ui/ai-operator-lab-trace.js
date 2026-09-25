@@ -3,7 +3,89 @@
 (() => {
   const TRACE_ID = 'aiLabLinearTrace';
   const STYLE_ID = 'aiLabLinearTraceStyle';
-  const TOOL_HINT_RE = /\b(customer\.lookup|customer\.confirm|customer\.snapshot|billing\.balance|billing\.tariff|billing\.payments|userside\.snapshot|network\.session|pon\.onu|pon\.signal)\b/i;
+  const TOOL_INSPECTOR_ID = 'aiLabToolInspector';
+  const BILLING_SNAPSHOT_KEY = 'simnet_ai_operator_billing_snapshots_v1';
+  const TOOL_HINT_RE = /\b(customer\.lookup|customer\.confirm|customer\.snapshot|billing\.balance|billing\.tariff|billing\.payments|userside\.snapshot|building\.snapshot|network\.session|pon\.onu|pon\.signal)\b/i;
+  const TOOL_REF_RE = /(?:tool:)?(?:customer\.lookup|customer\.confirm|customer\.snapshot|billing\.balance|billing\.tariff|billing\.payments|userside\.snapshot|building\.snapshot|network\.session|pon\.onu|pon\.signal)/gi;
+  const TOOL_INSPECTOR_META = Object.freeze({
+    'customer.lookup': Object.freeze({
+      className: 'READ · identity',
+      category: 'customer',
+      operation: 'lookup',
+      purpose: 'Находит и однозначно привязывает абонента. После подтверждения identity запускается bounded Subscriber Bootstrap Snapshot.',
+      input: 'login | contract | ip | address'
+    }),
+    'customer.confirm': Object.freeze({
+      className: 'STATE · identity',
+      category: 'customer',
+      operation: 'confirm',
+      purpose: 'Подтверждает выбранного кандидата и закрепляет subscriber case.',
+      input: 'candidate / caseId'
+    }),
+    'customer.snapshot': Object.freeze({
+      className: 'READ · snapshot',
+      category: 'customer',
+      operation: 'snapshot',
+      purpose: 'Возвращает сохранённый рабочий профиль подтверждённого абонента.',
+      input: 'confirmed subscriber context'
+    }),
+    'billing.balance': Object.freeze({
+      className: 'READ · finance',
+      category: 'billing',
+      operation: 'balance',
+      purpose: 'Проецирует финансовые поля из свежего Subscriber Snapshot / Billing source.',
+      input: 'confirmed subscriber context'
+    }),
+    'billing.tariff': Object.freeze({
+      className: 'READ · service',
+      category: 'billing',
+      operation: 'tariff',
+      purpose: 'Проецирует текущий и запланированный тариф из Subscriber Snapshot / Billing source.',
+      input: 'confirmed subscriber context'
+    }),
+    'billing.payments': Object.freeze({
+      className: 'READ · finance history',
+      category: 'billing',
+      operation: 'payments',
+      purpose: 'Читает доступные подтверждённые события/платежи абонента.',
+      input: 'confirmed subscriber context'
+    }),
+    'userside.snapshot': Object.freeze({
+      className: 'READ · subscriber network',
+      category: 'userside',
+      operation: 'snapshot',
+      purpose: 'Читает подтверждённый UserSide-контекст абонента.',
+      input: 'confirmed subscriber context'
+    }),
+    'building.snapshot': Object.freeze({
+      className: 'READ · building',
+      category: 'userside',
+      operation: 'building snapshot',
+      purpose: 'Находит карточку дома в локальном UserSide building index по адресу.',
+      input: 'address | confirmedSubscriber.address'
+    }),
+    'network.session': Object.freeze({
+      className: 'READ · live network',
+      category: 'network',
+      operation: 'session',
+      purpose: 'Читает актуальный сетевой/session-контекст подтверждённого абонента.',
+      input: 'confirmed subscriber context'
+    }),
+    'pon.onu': Object.freeze({
+      className: 'READ · PON',
+      category: 'pon',
+      operation: 'onu',
+      purpose: 'Читает подтверждённые данные ONU/ONT.',
+      input: 'confirmed subscriber context'
+    }),
+    'pon.signal': Object.freeze({
+      className: 'READ · PON live',
+      category: 'pon',
+      operation: 'signal',
+      purpose: 'Читает актуальные PON/OLT signal evidence.',
+      input: 'confirmed subscriber context'
+    })
+  });
   const IMPORTANT_JSON_KEYS = new Set(['field', 'why', 'tool', 'ok', 'code', 'source', 'data', 'requestedBy', 'system', 'request', 'kept', 'dropped', 'completeness', 'conclusion']);
   const FACT_KEYS = new Set([
     'billingId', 'contract', 'login', 'address', 'fullName', 'connectionFamily',
@@ -17,6 +99,13 @@
   let observer = null;
   let timer = 0;
   let rendering = false;
+  let inspectorNode = null;
+  let inspectorPinned = false;
+  let inspectorAnchor = null;
+  let inspectorCloseTimer = 0;
+  let inspectorLoadToken = 0;
+  let inspectorState = {};
+  let inspectorToolTrace = [];
 
   function create(tag, className = '', text = '') {
     const node = document.createElement(tag);
@@ -84,9 +173,255 @@
       .ai-trace-json-line.key-data{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#f0f9ff;color:#075985;font-weight:800}
       .ai-trace-json-line.key-relevance{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#fdf2f8;color:#9d174d;font-weight:800}
       .ai-trace-history-label{margin:10px 0 5px;color:#8a95a5;font:800 8px ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase}
-      @media(max-width:760px){.ai-trace-step{grid-template-columns:26px 88px minmax(0,1fr)}}
+      .ai-tool-ref{display:inline-flex;align-items:center;max-width:100%;border-bottom:1px dotted #7c3aed;color:#5b21b6;font:800 9px ui-monospace,monospace;cursor:help;outline:none}
+      .ai-tool-ref:hover,.ai-tool-ref:focus{color:#7e22ce;border-bottom-style:solid;background:#faf5ff;border-radius:3px}
+      .ai-tool-inspector{position:fixed;z-index:2147483646;width:min(520px,calc(100vw - 24px));max-height:min(72vh,680px);overflow:auto;padding:0;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#172033;box-shadow:0 18px 55px rgba(15,23,42,.22);font:10px/1.45 Inter,system-ui,sans-serif}
+      .ai-tool-inspector[hidden]{display:none}
+      .ai-tool-inspector-head{position:sticky;top:0;z-index:2;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:10px 11px;border-bottom:1px solid #e6ebf1;background:#fff}
+      .ai-tool-inspector-title{display:grid;gap:2px}.ai-tool-inspector-title strong{font:900 12px ui-monospace,monospace;color:#172033}.ai-tool-inspector-title span{font:800 8px ui-monospace,monospace;color:#7c3aed;text-transform:uppercase;letter-spacing:.06em}
+      .ai-tool-inspector-close{display:grid;place-items:center;width:24px;height:24px;padding:0;border:1px solid #dbe4ef;border-radius:6px;background:#f8fafc;color:#64748b;cursor:pointer;font:800 13px/1 system-ui}
+      .ai-tool-inspector-body{display:grid;gap:8px;padding:10px 11px 12px}
+      .ai-tool-inspector-section{padding:8px;border:1px solid #e6ebf1;border-radius:8px;background:#fbfcfd}
+      .ai-tool-inspector-section>strong{display:block;margin-bottom:5px;color:#64748b;font:900 8px ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase}
+      .ai-tool-inspector-grid{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:3px 8px}.ai-tool-inspector-grid b{color:#64748b;font-weight:700}.ai-tool-inspector-grid span{min-width:0;word-break:break-word}
+      .ai-tool-inspector pre{margin:5px 0 0;padding:7px;max-height:230px;overflow:auto;border:1px solid #e6ebf1;border-radius:6px;background:#fff;font:9px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-word}
+      .ai-tool-inspector details>summary{cursor:pointer;color:#475569;font:800 9px ui-monospace,monospace}
+      .ai-tool-inspector-empty{color:#94a3b8;font-style:italic}
+      .ai-tool-inspector-pin{padding:2px 5px;border-radius:5px;background:#f3e8ff;color:#6b21a8;font:800 8px ui-monospace,monospace}
+      @media(max-width:760px){.ai-trace-step{grid-template-columns:26px 88px minmax(0,1fr)}.ai-tool-inspector{left:12px!important;right:12px!important;width:auto!important;max-height:65vh}}
     `;
     document.head.append(style);
+  }
+
+  function normalizedToolName(value = '') {
+    const raw = String(value || '').trim().replace(/^tool:/i, '').toLowerCase();
+    return TOOL_INSPECTOR_META[raw] ? raw : '';
+  }
+
+  function traceForTool(tool = '') {
+    const name = normalizedToolName(tool);
+    if (!name) return null;
+    for (let i = inspectorToolTrace.length - 1; i >= 0; i -= 1) {
+      if (String(inspectorToolTrace[i]?.tool || '').toLowerCase() === name) return inspectorToolTrace[i];
+    }
+    return null;
+  }
+
+  function inspectorBillingId(trace = null, state = {}) {
+    const values = [
+      trace?.data?.candidate?.billingId,
+      trace?.data?.billingId,
+      state?.toolState?.confirmedSubscriber?.billingId,
+      String(state?.toolState?.confirmedCaseId || '').replace(/^billing-live:/, '')
+    ];
+    for (const value of values) {
+      const id = String(value || '').replace(/\D+/g, '').slice(0, 12);
+      if (id) return id;
+    }
+    return '';
+  }
+
+  function jsonText(value) {
+    try { return JSON.stringify(value ?? null, null, 2); }
+    catch { return String(value ?? ''); }
+  }
+
+  function inspectorSection(title, content) {
+    const section = create('section', 'ai-tool-inspector-section');
+    section.append(create('strong', '', title));
+    if (content instanceof Node) section.append(content);
+    else section.append(create('div', '', content));
+    return section;
+  }
+
+  function inspectorGrid(rows = []) {
+    const grid = create('div', 'ai-tool-inspector-grid');
+    for (const [label, value] of rows) {
+      grid.append(create('b', '', label), create('span', '', value == null || value === '' ? '—' : String(value)));
+    }
+    return grid;
+  }
+
+  function inspectorJsonDetails(label, value, open = false) {
+    const details = create('details');
+    details.open = Boolean(open);
+    details.append(create('summary', '', label), create('pre', '', jsonText(value)));
+    return details;
+  }
+
+  function snapshotSummary(snapshot = {}) {
+    const identity = snapshot?.identity || {};
+    const address = snapshot?.address || {};
+    const service = snapshot?.service || {};
+    const finance = snapshot?.finance || {};
+    const technical = snapshot?.technical || {};
+    const bootstrap = snapshot?.bootstrapMeta || {};
+    return inspectorGrid([
+      ['ФИО', identity.fullName || '—'],
+      ['Договор', identity.contract || '—'],
+      ['Login', identity.login || '—'],
+      ['Адрес', address.full || address.fullAddress || '—'],
+      ['Тариф', service.currentTariff || service.current?.name || '—'],
+      ['Баланс', finance.accountBalance ?? '—'],
+      ['К оплате', finance.totalDue ?? '—'],
+      ['Технология', technical.technologyHint || '—'],
+      ['OLT', technical.olt || '—'],
+      ['Bootstrap', bootstrap.status || '—'],
+      ['Observed', snapshot.observedAt || '—']
+    ]);
+  }
+
+  async function loadSubscriberSnapshot(tool, trace) {
+    if (!['customer.lookup', 'customer.snapshot', 'billing.balance', 'billing.tariff', 'billing.payments', 'building.snapshot', 'userside.snapshot', 'network.session', 'pon.onu', 'pon.signal'].includes(tool)) return null;
+    const billingId = inspectorBillingId(trace, inspectorState);
+    if (!billingId || !chrome?.storage?.local?.get) return null;
+    const stored = await chrome.storage.local.get(BILLING_SNAPSHOT_KEY);
+    const all = stored?.[BILLING_SNAPSHOT_KEY];
+    const snapshot = all && typeof all === 'object' && !Array.isArray(all) ? all[billingId] : null;
+    return snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot) ? snapshot : null;
+  }
+
+  function ensureInspector() {
+    if (inspectorNode?.isConnected) return inspectorNode;
+    inspectorNode = create('aside', 'ai-tool-inspector');
+    inspectorNode.id = TOOL_INSPECTOR_ID;
+    inspectorNode.hidden = true;
+    inspectorNode.addEventListener('mouseenter', () => clearTimeout(inspectorCloseTimer));
+    inspectorNode.addEventListener('mouseleave', () => {
+      if (!inspectorPinned) scheduleInspectorClose();
+    });
+    document.body.append(inspectorNode);
+    return inspectorNode;
+  }
+
+  function positionInspector(anchor) {
+    const node = ensureInspector();
+    const rect = anchor?.getBoundingClientRect?.();
+    if (!rect) return;
+    const width = Math.min(520, Math.max(320, window.innerWidth - 24));
+    const gap = 8;
+    let left = rect.left;
+    let top = rect.bottom + gap;
+    if (left + width > window.innerWidth - 12) left = Math.max(12, window.innerWidth - width - 12);
+    const estimatedHeight = Math.min(node.scrollHeight || 420, window.innerHeight * 0.72);
+    if (top + estimatedHeight > window.innerHeight - 12) top = Math.max(12, rect.top - estimatedHeight - gap);
+    node.style.left = `${Math.round(left)}px`;
+    node.style.top = `${Math.round(top)}px`;
+  }
+
+  function hideInspector(force = false) {
+    if (inspectorPinned && !force) return;
+    clearTimeout(inspectorCloseTimer);
+    inspectorPinned = false;
+    inspectorAnchor = null;
+    inspectorLoadToken += 1;
+    if (inspectorNode) inspectorNode.hidden = true;
+  }
+
+  function scheduleInspectorClose() {
+    clearTimeout(inspectorCloseTimer);
+    inspectorCloseTimer = window.setTimeout(() => hideInspector(false), 180);
+  }
+
+  async function showInspector(toolValue, anchor, pin = false) {
+    const tool = normalizedToolName(toolValue);
+    if (!tool) return;
+    clearTimeout(inspectorCloseTimer);
+    inspectorPinned = Boolean(pin || inspectorPinned);
+    inspectorAnchor = anchor;
+    const node = ensureInspector();
+    node.hidden = false;
+    const meta = TOOL_INSPECTOR_META[tool] || {};
+    const trace = traceForTool(tool);
+    const token = ++inspectorLoadToken;
+
+    const head = create('div', 'ai-tool-inspector-head');
+    const title = create('div', 'ai-tool-inspector-title');
+    title.append(create('strong', '', tool), create('span', '', `${meta.className || 'TOOL'} · ${meta.category || tool.split('.')[0]}`));
+    const end = create('div');
+    if (inspectorPinned) end.append(create('span', 'ai-tool-inspector-pin', 'PINNED'));
+    const close = create('button', 'ai-tool-inspector-close', '×');
+    close.type = 'button';
+    close.title = 'Закрыть inspector';
+    close.addEventListener('click', event => {
+      event.stopPropagation();
+      hideInspector(true);
+    });
+    end.append(close);
+    head.append(title, end);
+
+    const body = create('div', 'ai-tool-inspector-body');
+    body.append(inspectorSection('Tool contract', inspectorGrid([
+      ['Class', meta.className || '—'],
+      ['Category', meta.category || tool.split('.')[0]],
+      ['Operation', meta.operation || tool.split('.')[1] || '—'],
+      ['Input', meta.input || '—'],
+      ['Что делает', meta.purpose || '—']
+    ])));
+
+    body.append(inspectorSection('Last call', inspectorGrid([
+      ['Status', trace ? (trace.ok ? 'OK' : `ERROR ${trace.code || ''}`.trim()) : 'нет вызова в текущем ходе'],
+      ['Source', trace?.source || '—'],
+      ['Requested field', trace?.requestedBy?.field || '—'],
+      ['Why', trace?.requestedBy?.why || '—'],
+      ['Cache', trace?.cache || '—']
+    ])));
+    if (trace?.args && Object.keys(trace.args).length) body.append(inspectorSection('Input args', inspectorJsonDetails('args', trace.args, true)));
+    if (trace?.data) body.append(inspectorSection('Last result', inspectorJsonDetails('data', trace.data, false)));
+
+    const confirmed = inspectorState?.toolState?.confirmedSubscriber || null;
+    body.append(inspectorSection('Subscriber state', confirmed
+      ? inspectorJsonDetails('confirmedSubscriber', confirmed, true)
+      : create('div', 'ai-tool-inspector-empty', 'confirmedSubscriber отсутствует')));
+
+    const loading = inspectorSection('Subscriber Snapshot', create('div', 'ai-tool-inspector-empty', 'Читаю локальный snapshot…'));
+    body.append(loading);
+
+    node.replaceChildren(head, body);
+    positionInspector(anchor);
+
+    let snapshot = null;
+    try { snapshot = await loadSubscriberSnapshot(tool, trace); } catch {}
+    if (token !== inspectorLoadToken || node.hidden) return;
+    loading.replaceChildren(create('strong', '', 'Subscriber Snapshot'));
+    if (snapshot) {
+      loading.append(snapshotSummary(snapshot), inspectorJsonDetails('Полный snapshot', snapshot, false));
+    } else {
+      loading.append(create('div', 'ai-tool-inspector-empty', 'Для этого вызова локальный subscriber snapshot не найден.'));
+    }
+    positionInspector(anchor);
+  }
+
+  function toolRef(toolValue, label = '') {
+    const tool = normalizedToolName(toolValue);
+    if (!tool) return create('span', '', label || toolValue);
+    const ref = create('span', 'ai-tool-ref', label || toolValue || tool);
+    ref.tabIndex = 0;
+    ref.dataset.tool = tool;
+    ref.addEventListener('mouseenter', () => showInspector(tool, ref, false));
+    ref.addEventListener('mouseleave', () => scheduleInspectorClose());
+    ref.addEventListener('focus', () => showInspector(tool, ref, false));
+    ref.addEventListener('blur', () => scheduleInspectorClose());
+    ref.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      inspectorPinned = true;
+      showInspector(tool, ref, true);
+    });
+    return ref;
+  }
+
+  function appendDecoratedToolText(node, textValue = '') {
+    const value = String(textValue || '');
+    let last = 0;
+    TOOL_REF_RE.lastIndex = 0;
+    let match;
+    while ((match = TOOL_REF_RE.exec(value))) {
+      if (match.index > last) node.append(document.createTextNode(value.slice(last, match.index)));
+      node.append(toolRef(match[0], match[0]));
+      last = match.index + match[0].length;
+    }
+    if (last < value.length) node.append(document.createTextNode(value.slice(last)));
   }
 
   function jsonBlock(value) {
@@ -96,7 +431,8 @@
     let text = '';
     try { text = JSON.stringify(value ?? null, null, 2); } catch { text = String(value ?? ''); }
     for (const line of text.split('\n')) {
-      const span = create('span', 'ai-trace-json-line', line);
+      const span = create('span', 'ai-trace-json-line');
+      appendDecoratedToolText(span, line);
       const key = line.match(/^\s*"([^"]+)"\s*:/)?.[1] || '';
       if (IMPORTANT_JSON_KEYS.has(key)) {
         if (key === 'field' || key === 'why' || key === 'requestedBy' || key === 'system') span.classList.add('key-intent');
@@ -168,7 +504,9 @@
       const row = create('div', 'ai-trace-line');
       row.append(create('span', 'ai-trace-chip', requestedField || 'live-факт'));
       row.append(document.createTextNode(' → '));
-      row.append(create('span', 'ai-trace-chip', tool));
+      const toolChip = create('span', 'ai-trace-chip');
+      toolChip.append(toolRef(tool, tool));
+      row.append(toolChip);
       if (why) row.append(document.createTextNode(` · ${why}`));
       wrap.append(row);
       const mismatch = toolMismatch(trace);
@@ -182,7 +520,10 @@
     for (const trace of toolTrace) {
       const card = create('div', 'ai-trace-tool');
       const head = create('div', 'ai-trace-tool-head');
-      head.append(create('strong', '', trace?.tool || '—'));
+      const toolName = trace?.tool || '—';
+      const toolStrong = create('strong');
+      toolStrong.append(toolRef(toolName, toolName));
+      head.append(toolStrong);
       head.append(create('span', `ai-trace-chip ${trace?.ok ? 'ok' : 'bad'}`, trace?.ok ? 'OK ✓' : `ERROR ${trace?.code || ''}`.trim()));
       if (trace?.source) head.append(create('span', 'ai-trace-chip', trace.source));
       card.append(head);
@@ -248,7 +589,13 @@
       for (const item of kept) {
         const row = create('div', 'ai-trace-filter-item');
         row.append(create('span', 'ai-trace-chip ok', 'KEEP'), document.createTextNode(` ${short(item?.fact || '', 300)}`));
-        if (item?.source) row.append(create('span', 'ai-trace-chip', item.source));
+        if (item?.source) {
+          const sourceChip = create('span', 'ai-trace-chip');
+          const sourceTool = normalizedToolName(item.source);
+          if (sourceTool) sourceChip.append(toolRef(sourceTool, item.source));
+          else sourceChip.textContent = item.source;
+          row.append(sourceChip);
+        }
         if (item?.reason) row.append(create('span', 'ai-trace-filter-reason', `— ${short(item.reason, 320)}`));
         group.append(row);
       }
@@ -261,7 +608,13 @@
       for (const item of dropped) {
         const row = create('div', 'ai-trace-filter-item');
         row.append(create('span', 'ai-trace-chip bad', 'DROP'), document.createTextNode(` ${short(item?.fact || '', 300)}`));
-        if (item?.source) row.append(create('span', 'ai-trace-chip', item.source));
+        if (item?.source) {
+          const sourceChip = create('span', 'ai-trace-chip');
+          const sourceTool = normalizedToolName(item.source);
+          if (sourceTool) sourceChip.append(toolRef(sourceTool, item.source));
+          else sourceChip.textContent = item.source;
+          row.append(sourceChip);
+        }
         if (item?.reason) row.append(create('span', 'ai-trace-filter-reason', `— ${short(item.reason, 320)}`));
         group.append(row);
       }
@@ -328,6 +681,9 @@
     const probe = experiment?.analysis?.probe || {};
     const knowledge = experiment?.analysis?.knowledge || {};
     const toolTrace = Array.isArray(variant?.toolTrace) ? variant.toolTrace : [];
+    inspectorState = state || {};
+    inspectorToolTrace = toolTrace;
+    if (!inspectorPinned) hideInspector(true);
 
     const root = create('section', 'ai-trace-root');
     root.id = TRACE_ID;
@@ -418,6 +774,15 @@
     ensureStyles();
     observer = new MutationObserver(() => schedule());
     observer.observe(eventsNode, { childList: true, subtree: true });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') hideInspector(true);
+    });
+    window.addEventListener('resize', () => {
+      if (!inspectorNode?.hidden && inspectorAnchor) positionInspector(inspectorAnchor);
+    });
+    window.addEventListener('scroll', () => {
+      if (!inspectorNode?.hidden && inspectorAnchor) positionInspector(inspectorAnchor);
+    }, true);
     schedule();
   }
 
