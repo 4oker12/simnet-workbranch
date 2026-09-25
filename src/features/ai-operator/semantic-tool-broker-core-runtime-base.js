@@ -19,6 +19,7 @@ export const AI_OPERATOR_SOFT_TOOL_CATALOG = Object.freeze([
   { name: 'customer.snapshot', source: 'Billing', purpose: 'Прочитать live-снимок карточки подтверждённого абонента.' },
   { name: 'billing.balance', source: 'Billing', purpose: 'Прочитать баланс и финансовое состояние.' },
   { name: 'billing.tariff', source: 'Billing', purpose: 'Прочитать текущий/следующий тариф и состояние услуги.' },
+  { name: 'billing.history', source: 'Billing payshow', purpose: 'Прочитать исторические события клиента: изменения пакета, блокировки, временные платежи, изменения данных и другие записи payshow.' },
   { name: 'billing.payments', source: 'Billing', purpose: 'Прочитать последние доступные платежи.' },
   { name: 'userside.snapshot', source: 'UserSide', purpose: 'Найти того же подтверждённого абонента в UserSide и прочитать live технический снимок.' },
   { name: 'building.snapshot', source: 'UserSide building index', purpose: 'Прочитать всю рабочую карточку здания по известному адресу: GPON, собственник, заметки, ключи, УК/ОСББ, этажи, подъезды и другие поля.' },
@@ -27,7 +28,7 @@ export const AI_OPERATOR_SOFT_TOOL_CATALOG = Object.freeze([
   { name: 'pon.signal', source: 'UserSide/PON', purpose: 'Прочитать live оптические показатели ONU; при недоступности использовать подтверждённый Workbench fallback.' }
 ]);
 
-const ACCOUNT_TOOLS = new Set(['customer.snapshot', 'billing.balance', 'billing.tariff', 'billing.payments', 'userside.snapshot', 'network.session', 'pon.onu', 'pon.signal']);
+const ACCOUNT_TOOLS = new Set(['customer.snapshot', 'billing.balance', 'billing.tariff', 'billing.history', 'billing.payments', 'userside.snapshot', 'network.session', 'pon.onu', 'pon.signal']);
 const SYNTHESIS_COOLDOWNS = new Map();
 
 function oneLine(value, max = 500) {
@@ -179,6 +180,9 @@ function toolForNeed(need = {}) {
   const buildingContext = /дом|будин|здан|адрес|покрыт|coverage|собственник|owner|замет|прим[еі]чан|working[_ ]?note|осбб|building/.test(text) || buildingKeyFact;
   const buildingFact = /gpon|epon|оптик|покрыт|coverage|собственник|owner|замет|прим[еі]чан|working[_ ]?note|осбб|этаж|поверх|подъезд|під.?їзд|квартир|penetration|менеджер|ktv|ктв/.test(text) || buildingKeyFact;
   if (buildingContext && buildingFact) return 'building.snapshot';
+  if (/billing\.history/.test(text)) return 'billing.history';
+  const historyIntent = /истори|хронолог|когда.{0,40}(?:менял|смен|блокир|плат[её]ж|пополн|спис)|последн.{0,30}(?:измен|событ)|что.{0,30}(?:менял|изменял)|событи.{0,20}клиент/i.test(text);
+  if (historyIntent) return 'billing.history';
   if (/баланс|balance|рахун|финанс|заборг|долг|списан/.test(text)) return 'billing.balance';
   if (/кешбек|кэшбек|cashback/.test(text) && /услов|правил|начисл|зачисл|положен|належ|будет|буде/.test(text)) return '';
   if (/плат[её]ж|оплат|payment|пополн/.test(text)) return 'billing.payments';
@@ -208,7 +212,7 @@ function buildingAddressFromNeed(need = {}) {
 
 export function mapInformationNeedsToTools(needs = []) {
   const calls = [];
-  const freshTools = new Set(['billing.balance', 'billing.tariff', 'billing.payments', 'customer.snapshot', 'userside.snapshot', 'pon.onu', 'pon.signal']);
+  const freshTools = new Set(['billing.balance', 'billing.tariff', 'billing.history', 'billing.payments', 'customer.snapshot', 'userside.snapshot', 'pon.onu', 'pon.signal']);
   for (const need of Array.isArray(needs) ? needs : []) {
     const tool = toolForNeed(need);
     if (!tool || calls.some(item => item.tool === tool)) continue;
@@ -401,6 +405,14 @@ function synthesisEvidenceData(item = {}) {
       'currentTariff', 'tariffDisplay', 'tariffId', 'nextTariff', 'nextTariffDelay',
       'price', 'priceSemantics', 'totalDue', 'totalDueSemantics', 'group'
     ]);
+  }
+  if (item?.tool === 'billing.history') {
+    const history = data.history && typeof data.history === 'object' ? data.history : {};
+    const events = Array.isArray(history.events) ? history.events.slice(0, 10) : (Array.isArray(data.events) ? data.events.slice(0, 10) : []);
+    return {
+      ...pickData(data, ['count', 'packageBeforeBlock', 'tariffRecovered', 'scope']),
+      ...(events.length ? { events: compactObject(events) } : {})
+    };
   }
   if (item?.tool === 'billing.payments') return pickData(data, ['payments', 'count']);
   if (item?.tool === 'customer.confirm') return pickData(data, ['confirmedCaseId', 'confirmedSubscriber', 'confirmed']);
