@@ -250,7 +250,7 @@ test('Billing lookup bridge can rebind on an already open tab after extension re
   assert.match(reader, /SIMNET_AI_BILLING_EXACT_LOOKUP_V3/);
   assert.match(capture, /previousBridge\?\.listener/);
   assert.match(capture, /removeListener\(previousBridge\.listener\)/);
-  assert.match(capture, /bridgeState\.listener\s*=\s*exactLookupListener/);
+  assert.match(capture, /bridgeState\.listener\s*=\s*billingBridgeListener/);
   assert.doesNotMatch(capture, /if \(globalThis\.__SIMNET_AI_BILLING_SNAPSHOT_CAPTURE_[A-Z0-9_]+__\) return/);
 });
 
@@ -259,7 +259,7 @@ test('Billing subscriber bootstrap uses the same native form-submit transport fo
   const capture = fs.readFileSync(new URL('../src/features/ai-operator/billing-snapshot-capture.js', import.meta.url), 'utf8');
   const exact = capture.slice(
     capture.indexOf('async function exactIdentityLookup'),
-    capture.indexOf('const exactLookupListener')
+    capture.indexOf('const billingBridgeListener')
   );
   assert.match(exact, /submitBillingForm\(\{\s*pp,\s*f:\s*'n',\s*a:\s*'listuser'/s);
   assert.match(exact, /submitBillingForm\(\{ pp, a:\s*'user', id \}, 'main-card-submit'\)/);
@@ -273,7 +273,7 @@ test('numeric contract and abonNNN derive Billing card id by dropping the final 
   const capture = fs.readFileSync(new URL('../src/features/ai-operator/billing-snapshot-capture.js', import.meta.url), 'utf8');
   const exact = capture.slice(
     capture.indexOf('async function exactIdentityLookup'),
-    capture.indexOf('const exactLookupListener')
+    capture.indexOf('const billingBridgeListener')
   );
 
   assert.match(exact, /const contractDigits = mode === 'contract' \? rawValue\.replace\(\/\\D\+\/g, ''\) : abonDigits/);
