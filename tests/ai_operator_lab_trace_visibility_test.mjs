@@ -102,3 +102,29 @@ test('tool references inside RAW JSON and trace chips are decorated as inspector
   assert.match(traceJs, /toolRef\(sourceTool, item\.source\)/);
   assert.match(traceJs, /tool:.*customer\\\.lookup|customer\\\.lookup/);
 });
+
+
+test('AI Lab renders a Swagger-style runtime map with full subscriber snapshot, tool calls and model projection', () => {
+  assert.match(traceJs, /AGENT RUNTIME MAP/);
+  assert.match(traceJs, /SUBSCRIBER SNAPSHOT/);
+  assert.match(traceJs, /TOOL CALLS/);
+  assert.match(traceJs, /MODEL \/ CANONICAL VIEW/);
+  assert.match(traceJs, /FULL SNAPSHOT · JSON/);
+  assert.match(traceJs, /runtimeSnapshotStage/);
+  assert.match(traceJs, /runtimeToolCallCard/);
+  assert.match(traceJs, /INPUT \/ ARGS/);
+  assert.match(traceJs, /OUTPUT \/ RESULT/);
+  assert.match(traceJs, /endpoint/);
+  assert.match(traceJs, /selector/);
+  assert.match(traceJs, /TRACE PROJECTION/);
+  assert.match(traceJs, /Это не утверждение, что здесь воспроизведён полный скрытый prompt модели/);
+  assert.match(traceJs, /Технический RAW JSON/);
+});
+
+test('Lab runtime visualization uses blue/slate accents while red remains reserved for errors', () => {
+  assert.match(traceJs, /ai-runtime-snapshot[^\n]*border-top:3px solid #2563eb/);
+  assert.match(traceJs, /ai-runtime-tools-stage[^\n]*border-top:3px solid #0891b2/);
+  assert.match(traceJs, /ai-runtime-model-stage[^\n]*border-top:3px solid #64748b/);
+  assert.match(css, /--ai-accent:#2563eb/);
+  assert.match(css, /--ai-plum:#2563eb/);
+});
