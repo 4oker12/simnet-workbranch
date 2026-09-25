@@ -67,6 +67,24 @@ assert.equal(normalizedSnapshot.service.scheduledChange.speedMbps, 300);
 assert.equal(normalizedSnapshot.service.scheduledChange.effective.month, '2026-10');
 assert.equal(normalizedSnapshot.finance.recurringTotal, 349);
 
+const blockedButConfiguredTariff = normalizeBillingTariffSnapshot({
+  service: {
+    configuredTariff: 'Симнет 89',
+    currentTariff: 'Заблокировано',
+    accessState: 'Заблокировано',
+    serviceState: 'Пауза'
+  },
+  finance: {}
+});
+assert.equal(blockedButConfiguredTariff.service.currentTariffDisplay, 'Симнет 89');
+assert.equal(blockedButConfiguredTariff.service.current.name, 'Симнет 89');
+assert.equal(blockedButConfiguredTariff.service.accessState, 'Заблокировано');
+assert.equal(blockedButConfiguredTariff.service.serviceState, 'Пауза');
+assert.equal(
+  blockedButConfiguredTariff.service.tariffStateSemantics,
+  'configured_internet_package_independent_from_access_or_service_state'
+);
+
 const uncertainPriceSnapshot = normalizeBillingTariffSnapshot({
   service: { currentTariff: '100 Мбит/с', activeServices: [{ name: 'Кабельное телевидение', amount: 99 }] },
   finance: { price: 349, priceSemantics: 'generic_price_row_not_guaranteed_to_be_internet_tariff' }
