@@ -6,8 +6,8 @@
   const STYLE_ID = 'aiLabLinearTraceStyle';
   const TOOL_INSPECTOR_ID = 'aiLabToolInspector';
   const BILLING_SNAPSHOT_KEY = 'simnet_ai_operator_billing_snapshots_v1';
-  const TOOL_HINT_RE = /\b(customer\.lookup|customer\.confirm|customer\.snapshot|billing\.balance|billing\.tariff|billing\.payments|userside\.snapshot|building\.snapshot|network\.session|pon\.onu|pon\.signal)\b/i;
-  const TOOL_REF_RE = /(?:tool:)?(?:customer\.lookup|customer\.confirm|customer\.snapshot|billing\.balance|billing\.tariff|billing\.payments|userside\.snapshot|building\.snapshot|network\.session|pon\.onu|pon\.signal)/gi;
+  const TOOL_HINT_RE = /\b(customer\.lookup|customer\.confirm|customer\.snapshot|billing\.balance|billing\.tariff|billing\.history|billing\.payments|userside\.snapshot|building\.snapshot|network\.session|pon\.onu|pon\.signal)\b/i;
+  const TOOL_REF_RE = /(?:tool:)?(?:customer\.lookup|customer\.confirm|customer\.snapshot|billing\.balance|billing\.tariff|billing\.history|billing\.payments|userside\.snapshot|building\.snapshot|network\.session|pon\.onu|pon\.signal)/gi;
   const ACTION_TAXONOMY = Object.freeze({
     lookup: Object.freeze({ label: 'НАЙТИ / ПРОВЕРИТЬ', technical: 'LOOKUP / VERIFY', httpLike: 'READ / GET-like' }),
     read: Object.freeze({ label: 'ЧИТАТЬ', technical: 'READ', httpLike: 'GET-like' }),
@@ -65,6 +65,16 @@
       input: 'confirmed абонент context',
       reads: 'снимок абонента (Subscriber Snapshot).service; обновить Billing main только если данных нет или они устарели',
       returns: 'канонические факты тарифа / услуги'
+    }),
+    'billing.history': Object.freeze({
+      actionType: 'read',
+      className: 'ЧИТАТЬ (READ / GET-like)',
+      category: 'биллинг / история (Billing payshow)',
+      operation: 'история клиента (history)',
+      purpose: 'Читает исторические события Billing: изменения пакета, блокировки, временные платежи, изменения данных и другие записи payshow.',
+      input: 'confirmed абонент context · scope=all|events',
+      reads: 'Billing payshow → table.usrlist.width100',
+      returns: 'history.events[] + packageBeforeBlock + count + observedAt'
     }),
     'billing.payments': Object.freeze({
       actionType: 'read',
@@ -316,7 +326,7 @@
   }
 
   async function loadSubscriberSnapshot(tool, trace) {
-    if (!['customer.lookup', 'customer.snapshot', 'billing.balance', 'billing.tariff', 'billing.payments', 'building.snapshot', 'userside.snapshot', 'network.session', 'pon.onu', 'pon.signal'].includes(tool)) return null;
+    if (!['customer.lookup', 'customer.snapshot', 'billing.balance', 'billing.tariff', 'billing.history', 'billing.payments', 'building.snapshot', 'userside.snapshot', 'network.session', 'pon.onu', 'pon.signal'].includes(tool)) return null;
     const billingId = inspectorBillingId(trace, inspectorState);
     if (!billingId || !chrome?.storage?.local?.get) return null;
     const stored = await chrome.storage.local.get(BILLING_SNAPSHOT_KEY);
