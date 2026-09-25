@@ -20,6 +20,12 @@ export function isMeaningfulBillingSelection(value) {
   return !EMPTY_SELECTION_PATTERNS.some(pattern => pattern.test(text));
 }
 
+export function isTariffStatusMarker(value) {
+  const text = clean(value, 260).replace(/^\s*\[\d+\]\s*/, '').trim();
+  if (!text) return false;
+  return /^(?:заблокирован(?:о|а|ы)?|заблокован(?:о|ий|а|і)?|blocked)$/iu.test(text);
+}
+
 function finiteMoney(value) {
   if (value == null) return null;
   if (typeof value === 'string' && !value.trim()) return null;
@@ -161,14 +167,14 @@ export function calculateRecurringTotal(internetPrice, services = []) {
 export function normalizeBillingTariffSnapshot(snapshot = {}, { now = new Date() } = {}) {
   const service = { ...(snapshot?.service || {}) };
   const finance = { ...(snapshot?.finance || {}) };
-  const current = normalizeTariffLabel(
-    service.configuredTariff
-    || service.currentTariffRaw
-    || service.currentTariff
-    || service.current?.rawName
-    || service.current?.name
-    || ''
-  );
+  const currentCandidates = [
+    service.configuredTariff,
+    service.currentTariffRaw,
+    service.currentTariff,
+    service.current?.rawName,
+    service.current?.name
+  ].filter(value => !isTariffStatusMarker(value));
+  const current = normalizeTariffLabel(currentCandidates.find(value => clean(value, 260)) || '');
   const scheduled = normalizeScheduledTariff({
     nextTariff: service.nextTariffRaw ?? service.nextTariff,
     nextTariffDelay: service.nextTariffDelayRaw ?? service.nextTariffDelay,
@@ -179,7 +185,18 @@ export function normalizeBillingTariffSnapshot(snapshot = {}, { now = new Date()
   const internetPriceIsAuthoritative = !/^generic_price_row_not_guaranteed/i.test(priceSemantics);
   const recurringTotal = internetPriceIsAuthoritative ? calculateRecurringTotal(finance.price, activeServices) : null;
 
-  service.configuredTariff = clean(service.configuredTariff || current.rawName, 260);
+  const selectedMarker = [
+    service.tariffSelectorState,
+    service.currentTariffSelectedLabel,
+    service.configuredTariff,
+    service.currentTariff
+  ].find(isTariffStatusMarker) || '';
+  service.configuredTariff = clean(
+    isTariffStatusMarker(service.configuredTariff) ? current.rawName : (service.configuredTariff || current.rawName),
+    260
+  );
+  service.tariffSelectorState = clean(selectedMarker, 260);
+  service.tariffResolutionRequired = Boolean(selectedMarker && !current.rawName);
   service.tariffStateSemantics = 'configured_internet_package_independent_from_access_or_service_state';
   service.currentTariffRaw = current.rawName;
   service.currentTariffDisplay = current.displayName;
