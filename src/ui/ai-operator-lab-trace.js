@@ -14,7 +14,9 @@
       category: 'customer',
       operation: 'lookup',
       purpose: 'Находит и однозначно привязывает абонента. После подтверждения identity запускается bounded Subscriber Bootstrap Snapshot.',
-      input: 'login | contract | ip | address'
+      input: 'login | contract | ip | address',
+      reads: 'Billing listuser → a=user → bootstrap: main + address + technical',
+      returns: 'confirmedSubscriber + confirmedCaseId + bootstrap status/snapshot'
     }),
     'customer.confirm': Object.freeze({
       className: 'STATE · identity',
@@ -28,21 +30,27 @@
       category: 'customer',
       operation: 'snapshot',
       purpose: 'Возвращает сохранённый рабочий профиль подтверждённого абонента.',
-      input: 'confirmed subscriber context'
+      input: 'confirmed subscriber context',
+      reads: 'local simnet_ai_operator_billing_snapshots_v1',
+      returns: 'identity + address + service + finance + network + technical + bootstrapMeta'
     }),
     'billing.balance': Object.freeze({
       className: 'READ · finance',
       category: 'billing',
       operation: 'balance',
       purpose: 'Проецирует финансовые поля из свежего Subscriber Snapshot / Billing source.',
-      input: 'confirmed subscriber context'
+      input: 'confirmed subscriber context',
+      reads: 'Subscriber Snapshot.finance; refresh Billing main only when stale/missing',
+      returns: 'canonical finance facts'
     }),
     'billing.tariff': Object.freeze({
       className: 'READ · service',
       category: 'billing',
       operation: 'tariff',
       purpose: 'Проецирует текущий и запланированный тариф из Subscriber Snapshot / Billing source.',
-      input: 'confirmed subscriber context'
+      input: 'confirmed subscriber context',
+      reads: 'Subscriber Snapshot.service; refresh Billing main only when stale/missing',
+      returns: 'canonical tariff/service facts'
     }),
     'billing.payments': Object.freeze({
       className: 'READ · finance history',
@@ -63,14 +71,18 @@
       category: 'userside',
       operation: 'building snapshot',
       purpose: 'Находит карточку дома в локальном UserSide building index по адресу.',
-      input: 'address | confirmedSubscriber.address'
+      input: 'address | confirmedSubscriber.address',
+      reads: 'simnet_crm_building_snapshot_v1',
+      returns: 'building evidence / capabilities for matched address'
     }),
     'network.session': Object.freeze({
       className: 'READ · live network',
       category: 'network',
       operation: 'session',
       purpose: 'Читает актуальный сетевой/session-контекст подтверждённого абонента.',
-      input: 'confirmed subscriber context'
+      input: 'confirmed subscriber context',
+      reads: 'live network / BRAS source',
+      returns: 'current network session evidence'
     }),
     'pon.onu': Object.freeze({
       className: 'READ · PON',
@@ -368,6 +380,8 @@
       ['Category', meta.category || tool.split('.')[0]],
       ['Operation', meta.operation || tool.split('.')[1] || '—'],
       ['Input', meta.input || '—'],
+      ['Reads', meta.reads || 'runtime source defined by tool'],
+      ['Returns', meta.returns || 'tool result / evidence'],
       ['Что делает', meta.purpose || '—']
     ])));
 
@@ -520,9 +534,13 @@
       ['call', String(index + 1)],
       ['input', trace?.requestedBy?.field || meta.input || '—'],
       ['why', trace?.requestedBy?.why || '—'],
+      ['reads', meta.reads || '—'],
+      ['returns', meta.returns || '—'],
       ['source', trace?.source || trace?.data?.source || '—'],
       ['endpoint', evidence.endpoint || bootstrap.endpoint || '—'],
       ['selector', evidence.selector || '—'],
+      ['failure phase', trace?.data?.failurePhase || '—'],
+      ['failure detail', trace?.data?.failureMessage || '—'],
       ['cache', trace?.cache || '—']
     ];
     const grid = create('div', 'ai-runtime-call-meta');
