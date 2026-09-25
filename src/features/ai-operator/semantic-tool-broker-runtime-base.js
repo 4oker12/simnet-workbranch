@@ -123,13 +123,17 @@ const UPDATED_NETWORK_SESSION = Object.freeze({
   ]
 });
 
-const TOOL_CATALOG = Object.freeze([
-  ...impl.AI_OPERATOR_SOFT_TOOL_CATALOG.map(tool => {
-    if (tool.name === 'network.session') return UPDATED_NETWORK_SESSION;
-    return updatedBillingTool(tool);
-  }),
-  ...(impl.AI_OPERATOR_SOFT_TOOL_CATALOG.some(tool => tool.name === 'billing.history') ? [] : [UPDATED_BILLING_HISTORY])
-]);
+const UPDATED_BASE_TOOLS = impl.AI_OPERATOR_SOFT_TOOL_CATALOG.map(tool => {
+  if (tool.name === 'network.session') return UPDATED_NETWORK_SESSION;
+  return updatedBillingTool(tool);
+});
+const TOOL_CATALOG = Object.freeze(
+  UPDATED_BASE_TOOLS.some(tool => tool.name === 'billing.history')
+    ? UPDATED_BASE_TOOLS
+    : UPDATED_BASE_TOOLS.flatMap(tool => tool.name === 'billing.tariff'
+      ? [tool, UPDATED_BILLING_HISTORY]
+      : [tool])
+);
 
 function compactPlannerTool(tool = {}) {
   return {
