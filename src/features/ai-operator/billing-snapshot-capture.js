@@ -72,9 +72,13 @@
       const at = clean(dateCell?.textContent || '', 100);
       const action = dateIndex >= 0 ? clean(cells[dateIndex + 1]?.textContent || '', 180) : '';
       const admin = dateIndex >= 0 ? clean(cells[dateIndex + 2]?.textContent || '', 120) : '';
-      const detailHref = clean(row.querySelector('a[href*="a=pays"][href*="act=show"]')?.getAttribute('href') || '', 500);
+      let detailId = '';
+      try {
+        const href = row.querySelector('a[href*="a=pays"][href*="act=show"]')?.getAttribute('href') || '';
+        if (href) detailId = clean(new URL(href, location.origin).searchParams.get('id') || '', 80);
+      } catch {}
       const columns = cells.map(cell => clean(cell.textContent || '', 500)).filter(Boolean);
-      const event = { at, comment, action, admin, columns, detailHref };
+      const event = { at, comment, action, admin, columns, detailId };
       events.push(event);
 
       if (!packageBeforeBlock && comment) {
@@ -714,6 +718,17 @@
           if (actual && expected && actual !== expected) continue;
         }
 
+        const cardSelected = name => {
+          const select = page.doc.querySelector(`select[name="${CSS.escape(name)}"]`);
+          if (!select) return null;
+          const option = select.options?.[select.selectedIndex];
+          return {
+            value: clean(option?.value ?? select.value ?? '', 80),
+            label: clean(option?.textContent || select.value || '', 260)
+          };
+        };
+        const packageOption = cardSelected('paket');
+        const packageMarker = isTariffStatusMarker(packageOption?.label) ? clean(packageOption?.label, 260) : '';
         const bootstrapStartedAt = new Date().toISOString();
         const snapshot = {
           billingId: id,
@@ -723,6 +738,17 @@
             login: candidate.login,
             fullName: candidate.fullName,
             contractDate: field('contract_date')
+          },
+          service: {
+            currentTariff: packageMarker ? '' : clean(packageOption?.label || '', 260),
+            configuredTariff: packageMarker ? '' : clean(packageOption?.label || '', 260),
+            currentTariffSource: packageMarker
+              ? 'history_required_from_payshow'
+              : (packageOption?.label ? 'select[name="paket"]' : ''),
+            currentTariffSelectedId: clean(packageOption?.value || '', 80),
+            currentTariffSelectedLabel: clean(packageOption?.label || '', 260),
+            tariffSelectorState: packageMarker,
+            tariffResolutionRequired: Boolean(packageMarker)
           },
           network: {
             ip: candidate.ip
@@ -735,10 +761,66 @@
             sources: {
               main: { ok: true, source: 'billing-main-card-identity-read' },
               address: { ok: false, code: 'NOT_READ' },
-              technical: { ok: false, code: 'NOT_READ' }
+              technical: { ok: false, code: 'NOT_READ' },
+              history: packageMarker
+                ? { ok: false, code: 'NOT_READ', reason: 'tariff_selector_status_marker' }
+                : { ok: true, code: 'NOT_REQUIRED' }
             }
           }
         };
+
+        if (packageMarker) {
+          try {
+            const historyPage = await submitBillingForm({
+              pp,
+              a: 'payshow',
+              mid: id,
+              nodeny: 'client',
+              type_pays: '50'
+            }, 'history-submit');
+            if (historyPage.ok && !authPage(historyPage.doc)) {
+              const history = parsePayshowHistory(historyPage.doc);
+              snapshot.history = {
+                events: history.events,
+                packageBeforeBlock: history.packageBeforeBlock,
+                observedAt: new Date().toISOString(),
+                source: 'billing-payshow-history'
+              };
+              if (history.packageBeforeBlock?.name) {
+                snapshot.service.currentTariff = history.packageBeforeBlock.name;
+                snapshot.service.configuredTariff = history.packageBeforeBlock.name;
+                snapshot.service.currentTariffSource = 'payshow:last_package_before_block';
+                snapshot.service.tariffResolutionRequired = false;
+                snapshot.service.historicalTariffEvidence = history.packageBeforeBlock;
+                snapshot.bootstrapMeta.sources.history = {
+                  ok: true,
+                  source: 'billing-payshow-history',
+                  endpoint: '/cgi-bin/adm/adm.pl?a=payshow&mid=<billingId>&nodeny=client&type_pays=50',
+                  reason: 'tariff_selector_status_marker'
+                };
+              } else {
+                snapshot.bootstrapMeta.sources.history = {
+                  ok: false,
+                  code: 'PACKAGE_BEFORE_BLOCK_NOT_FOUND',
+                  source: 'billing-payshow-history',
+                  endpoint: '/cgi-bin/adm/adm.pl?a=payshow&mid=<billingId>&nodeny=client&type_pays=50'
+                };
+              }
+            } else {
+              snapshot.bootstrapMeta.sources.history = {
+                ok: false,
+                code: authPage(historyPage.doc) ? 'BILLING_AUTH_REQUIRED' : `HTTP_${historyPage.status || 0}`
+              };
+            }
+          } catch (error) {
+            snapshot.bootstrapMeta.sources.history = {
+              ok: false,
+              code: 'HISTORY_READ_FAILED',
+              phase: clean(error?.simnetPhase || 'history-submit', 80),
+              message: clean(error?.message || error, 240)
+            };
+          }
+        }
 
         // Address and technical data are bootstrap context, not identity proof.
         // Failure of either source must not invalidate an already confirmed identity.
@@ -868,6 +950,7 @@
         snapshot.bootstrapMeta.status = (
           snapshot.bootstrapMeta.sources.address.ok
           && snapshot.bootstrapMeta.sources.technical.ok
+          && snapshot.bootstrapMeta.sources.history.ok
         ) ? 'context-ready' : 'partial';
         snapshots[id] = snapshot;
         candidates.push(candidate);
