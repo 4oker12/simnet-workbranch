@@ -86,3 +86,14 @@ console.log('ai_operator_settings_workspace_test: PASS');
 
 assert.doesNotMatch(html, /ai-operator-token-meter\.js|ai-operator-kb-curator\.js/, 'removed Lab utility panels must stay deleted');
 assert.doesNotMatch(lab, /aiLabUsage|Расход API|Токены|ток\./, 'visible AI usage counters must stay out of Manual Lab');
+
+
+assert.match(lab, /ИТОГ ХОДА · УСПЕШНО/);
+assert.match(lab, /Понял запрос/);
+assert.match(lab, /Вызвал инструменты/);
+assert.match(lab, /Проверил подтверждённые данные/);
+assert.match(lab, /Сформировал итоговый ответ/);
+assert.match(lab, /Технические поля RESULT/);
+assert.doesNotMatch(lab, /\$\{number\(event\.totalTokens\)\} tok/, 'RESULT header must not expose token counters');
+assert.match(lab, /НАЙТИ \/ ПРОВЕРИТЬ \(LOOKUP \/ VERIFY\)/);
+assert.match(lab, /ЧИТАТЬ \(READ \/ GET-like\)/);
