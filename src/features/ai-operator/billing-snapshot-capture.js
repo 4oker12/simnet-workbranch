@@ -11,7 +11,8 @@
   const bridgeState = {
     revision: 4,
     listener: null,
-    captureStarted: Boolean(previousBridge?.captureStarted)
+    captureStarted: Boolean(previousBridge?.captureStarted),
+    requestSeq: Number(previousBridge?.requestSeq || 0)
   };
   globalThis[BRIDGE_STATE_KEY] = bridgeState;
 
@@ -423,44 +424,86 @@
     const abonDigits = mode === 'login' ? (rawValue.match(/^abon(\d{3,12})$/i)?.[1] || '') : '';
     const nativeQueries = [...new Set([rawValue, abonDigits].filter(Boolean))];
 
-    const decodeResponseHtml = async response => {
-      const bytes = new Uint8Array(await response.arrayBuffer());
-      const contentType = String(response.headers.get('content-type') || '');
-      const headerCharset = contentType.match(/charset\s*=\s*["']?([^;"'\s]+)/i)?.[1] || '';
-      const head = new TextDecoder('windows-1252').decode(bytes.slice(0, 8192));
-      const metaCharset = head.match(/charset\s*=\s*["']?([^;"'\s/>]+)/i)?.[1] || '';
-      const charset = String(headerCharset || metaCharset || 'windows-1251').toLowerCase();
-      const labels = charset.includes('utf') ? ['utf-8'] : [charset, 'windows-1251', 'utf-8'];
-      for (const label of labels) {
-        try { return new TextDecoder(label).decode(bytes); } catch {}
-      }
-      return new TextDecoder('utf-8').decode(bytes);
-    };
-    const fetchDoc = async (url, phase = 'billing-fetch') => {
-      try {
-        const response = await fetch(url, { method: 'GET', credentials: 'include', cache: 'no-store' });
-        const html = await decodeResponseHtml(response);
-        return {
-          ok: response.ok,
-          status: response.status,
-          url: new URL(response.url || url, location.origin),
-          doc: new DOMParser().parseFromString(html, 'text/html')
-        };
-      } catch (error) {
-        const wrapped = new Error(clean(error?.message || error, 360) || 'Billing fetch failed');
-        wrapped.simnetPhase = phase;
-        throw wrapped;
-      }
-    };
     const authPage = doc => Boolean(doc.querySelector('input[type="password"]'));
-    const makeUrl = paramsObject => {
-      const url = new URL('/cgi-bin/adm/adm.pl', location.origin);
+
+    const submitBillingForm = async (paramsObject = {}, phase = 'billing-form-submit') => new Promise((resolve, reject) => {
+      const seq = ++bridgeState.requestSeq;
+      const targetName = `simnet_billing_read_${seq}`;
+      const iframe = document.createElement('iframe');
+      iframe.name = targetName;
+      iframe.hidden = true;
+      iframe.setAttribute('aria-hidden', 'true');
+      iframe.style.display = 'none';
+
+      const form = document.createElement('form');
+      form.method = 'get';
+      form.action = new URL('/cgi-bin/adm/adm.pl', location.origin).href;
+      form.target = targetName;
+      form.hidden = true;
+      form.style.display = 'none';
+
       for (const [key, value] of Object.entries(paramsObject || {})) {
         if (value === null || value === undefined || value === '') continue;
-        url.searchParams.set(key, String(value));
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = String(key);
+        input.value = String(value);
+        form.append(input);
       }
-      return url;
-    };
+
+      let settled = false;
+      const cleanup = () => {
+        iframe.removeEventListener('load', onLoad);
+        window.clearTimeout(timer);
+        form.remove();
+        iframe.remove();
+      };
+      const fail = error => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        const wrapped = new Error(clean(error?.message || error, 360) || 'Billing form submit failed');
+        wrapped.simnetPhase = phase;
+        reject(wrapped);
+      };
+      const onLoad = () => {
+        if (settled) return;
+        try {
+          const href = String(iframe.contentWindow?.location?.href || '');
+          if (!href || href === 'about:blank') return;
+          const loadedUrl = new URL(href, location.origin);
+          if (loadedUrl.origin !== location.origin) {
+            throw new Error(`Billing form redirected outside origin: ${loadedUrl.origin}`);
+          }
+          const liveDoc = iframe.contentDocument;
+          const html = liveDoc?.documentElement?.outerHTML || '';
+          if (!html) throw new Error('Billing form result DOM is empty');
+          const doc = new DOMParser().parseFromString(html, 'text/html');
+          settled = true;
+          cleanup();
+          resolve({
+            ok: true,
+            status: 200,
+            url: loadedUrl,
+            doc,
+            transport: 'native-form-submit-hidden-iframe'
+          });
+        } catch (error) {
+          fail(error);
+        }
+      };
+
+      iframe.addEventListener('load', onLoad);
+      document.documentElement.append(iframe, form);
+      const timer = window.setTimeout(() => fail(new Error('Billing form submit timed out')), 15000);
+
+      try {
+        if (typeof form.requestSubmit === 'function') form.requestSubmit();
+        else HTMLFormElement.prototype.submit.call(form);
+      } catch (error) {
+        fail(error);
+      }
+    });
 
     const ids = new Map();
     const addCandidate = (id, rowText = '') => {
@@ -472,12 +515,12 @@
     let lastStatus = 0;
     for (const nativeQuery of nativeQueries) {
       // Native Billing form: GET adm.pl?pp=<session>&f=n&a=listuser&name=<query>
-      const searchPage = await fetchDoc(makeUrl({
+      const searchPage = await submitBillingForm({
         pp,
         f: 'n',
         a: 'listuser',
         name: nativeQuery
-      }), 'native-listuser-fetch');
+      }, 'native-listuser-submit');
       lastStatus = searchPage.status;
       if (!searchPage.ok) continue;
       if (authPage(searchPage.doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED', candidates: [] };
@@ -507,7 +550,7 @@
     const candidateErrors = [];
     for (const id of [...ids.keys()].slice(0, 8)) {
       try {
-        const page = await fetchDoc(makeUrl({ pp, a: 'user', id }), 'main-card-fetch');
+        const page = await submitBillingForm({ pp, a: 'user', id }, 'main-card-submit');
         if (!page.ok || authPage(page.doc)) continue;
         const field = name => clean(page.doc.querySelector(`[name="${CSS.escape(name)}"]`)?.value || '', 240);
         const candidate = {
@@ -559,13 +602,13 @@
         // Address and technical data are bootstrap context, not identity proof.
         // Failure of either source must not invalidate an already confirmed identity.
         try {
-          const addressPage = await fetchDoc(makeUrl({
+          const addressPage = await submitBillingForm({
             pp,
             a: 'dopdata',
             parent_type: '0',
             id,
             tmpl: '2'
-          }), 'address-fetch');
+          }, 'address-submit');
           if (addressPage.ok && !authPage(addressPage.doc)) {
             const addressInput = name => clean(addressPage.doc.querySelector(`[name="${CSS.escape(name)}"]`)?.value || '', 240);
             const addressSelected = name => {
@@ -617,13 +660,13 @@
         }
 
         try {
-          const technicalPage = await fetchDoc(makeUrl({
+          const technicalPage = await submitBillingForm({
             pp,
             a: 'dopdata',
             parent_type: '0',
             id,
             tmpl: '1'
-          }), 'technical-fetch');
+          }, 'technical-submit');
           if (technicalPage.ok && !authPage(technicalPage.doc)) {
             const technicalInput = name => clean(technicalPage.doc.querySelector(`[name="${CSS.escape(name)}"]`)?.value || '', 240);
             const technicalSelected = name => {
@@ -705,6 +748,7 @@
         candidateErrors,
         candidates: [],
         snapshots: {},
+        transport: 'native-form-submit-hidden-iframe',
         nativeQuery: matchedQuery,
         attemptedQueries: nativeQueries
       };
@@ -715,6 +759,7 @@
       code: candidates.length ? 'OK' : 'NOT_FOUND',
       candidates,
       snapshots,
+      transport: 'native-form-submit-hidden-iframe',
       nativeQuery: matchedQuery,
       attemptedQueries: nativeQueries
     };
