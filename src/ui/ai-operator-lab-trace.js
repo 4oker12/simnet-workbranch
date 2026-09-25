@@ -537,6 +537,7 @@
       ['reads', meta.reads || '—'],
       ['returns', meta.returns || '—'],
       ['source', trace?.source || trace?.data?.source || '—'],
+      ['transport', trace?.data?.transport || '—'],
       ['endpoint', evidence.endpoint || bootstrap.endpoint || '—'],
       ['selector', evidence.selector || '—'],
       ['failure phase', trace?.data?.failurePhase || '—'],
