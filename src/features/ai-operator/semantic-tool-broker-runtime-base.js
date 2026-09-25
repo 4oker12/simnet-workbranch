@@ -56,6 +56,37 @@ function updatedBillingTool(tool) {
   return tool;
 }
 
+const UPDATED_BILLING_HISTORY = Object.freeze({
+  name: 'billing.history',
+  system: 'Billing',
+  capability: 'billing',
+  implementation: 'implemented',
+  mode: 'billing-payshow-history-live-read-only + snapshot-cache',
+  endpoint: '/cgi-bin/adm/adm.pl?a=payshow&mid=<billingId>&nodeny=client',
+  evidenceSource: 'Billing payshow table. Current pp/session token is used only in the live browser request and is not persisted.',
+  establishes: 'Устанавливает историческую хронологию Billing по подтверждённому абоненту: изменения пакета, блокировки, временные платежи, изменения IP/группы/login/договора, первую активность и другие реально присутствующие записи payshow.',
+  answers: [
+    'Какой пакет был до блокировки?',
+    'Когда меняли пакет или другие данные клиента?',
+    'Какие блокировки, временные платежи и исторические события видны в Billing?',
+    'Что происходило с аккаунтом раньше по payshow?'
+  ],
+  recommendedWhen: [
+    'Клиент или оператор спрашивает именно историю: когда меняли пакет, блокировали, удаляли временный платёж, меняли IP/группу/login/договор или какие события были раньше.',
+    'Текущий select[name="paket"] содержит статусный marker вроде «Заблокирован» и реальный пакет нужно восстановить по последнему переходу Пакет: OLD -> Заблокирован.'
+  ],
+  returns: ['history.events[]', 'packageBeforeBlock', 'count', 'scope', 'observedAt/source'],
+  requires: [
+    'Подтверждённый subscriber case с Billing ID.',
+    'Для fresh-read нужна открытая авторизованная Billing-сессия.'
+  ],
+  limitations: [
+    'payshow — historical evidence и не заменяет current state из a=user/dopdata.',
+    'Старая запись не доказывает, что то же состояние действует сейчас.',
+    'Не сохранять pp/session token из payshow URL.'
+  ]
+});
+
 const UPDATED_NETWORK_SESSION = Object.freeze({
   name: 'network.session',
   system: 'Network',
@@ -92,12 +123,13 @@ const UPDATED_NETWORK_SESSION = Object.freeze({
   ]
 });
 
-const TOOL_CATALOG = Object.freeze(
-  impl.AI_OPERATOR_SOFT_TOOL_CATALOG.map(tool => {
+const TOOL_CATALOG = Object.freeze([
+  ...impl.AI_OPERATOR_SOFT_TOOL_CATALOG.map(tool => {
     if (tool.name === 'network.session') return UPDATED_NETWORK_SESSION;
     return updatedBillingTool(tool);
-  })
-);
+  }),
+  ...(impl.AI_OPERATOR_SOFT_TOOL_CATALOG.some(tool => tool.name === 'billing.history') ? [] : [UPDATED_BILLING_HISTORY])
+]);
 
 function compactPlannerTool(tool = {}) {
   return {
@@ -111,10 +143,10 @@ function compactPlannerTool(tool = {}) {
 const previousPlanner = impl.AI_OPERATOR_SOFT_TOOL_CAPABILITIES.toolPlanner || {};
 const TOOL_PLANNER = Object.freeze({
   ...previousPlanner,
-  version: 10,
+  version: 11,
   semanticFrameRule: 'Первый semantic understanding текущего хода является authoritative semantic frame. Knowledge, Billing, UserSide, Network и PON могут только добавить/проверить факты для уже понятого запроса. Последующие стадии не должны заново переопределять, о чём спросил клиент, если новый пользовательский текст не создал реальную неоднозначность.',
   replyStyleRule: 'Отвечай как живой оператор человеку в чате: сначала прямой ответ на вопрос, обычно 1–3 коротких предложения. Источники, названия статей, внутренние стадии, формулировки «по внутренней/подтверждённой информации», пересказ справочника и канцелярит клиенту не показывай. Объяснение добавляй только если оно реально помогает ответу.',
-  instruction: `${String(previousPlanner.instruction || '')} billing.balance и billing.tariff читают один и тот же основной Billing DOM-блок table.tbg1.nav3.width100; если нужны оба набора фактов, считай это одним общим main-summary источником, а не двумя независимыми системами. При жалобе «нет интернета» после Billing-идентификации и проверки базового состояния услуги network.session является ранним рекомендуемым инструментом: он делает fresh-read агрегированной сессионной страницы Billing stat.pl a=252 и помогает быстро установить наличие/статус сессии, IP/MAC, время старта, последнее событие, ROUTER/VENDOR и VLAN. Отдельная реплика, содержащая договор или login, включая явно подписанный текстовый идентификатор вроде «Boxing договір», является идентификацией: сначала привяжи кейс через Billing customer.lookup и сохраняй эту привязку для следующих реплик. Если в более поздней реплике клиент явно сообщает ДРУГОЙ договор/login/IP/адрес, это переключение абонента: старую active-привязку нельзя использовать для новых персональных данных; сначала заново выполни Billing customer.lookup, и только успешный lookup устанавливает новый active subscriber. Внутренняя энциклопедия и live-tools имеют разные роли: общие правила/условия из KB можно и нужно сообщать без идентификации; идентификация требуется только для персональных live-фактов. Перед фразой «не хватает данных», «не знаю» или повторным вопросом клиенту обязательно проверь, не отвечает ли уже использованная внутренняя статья на общую часть вопроса. Первый semantic understanding текущего хода — authoritative: KB/tools добавляют факты к этому смыслу, а не запускают повторное переосмысление вопроса. Финальный ответ — обычная человеческая реплика оператора, а не отчёт о том, что система проверила.`,
+  instruction: `${String(previousPlanner.instruction || '')} billing.balance и billing.tariff читают один и тот же основной Billing DOM-блок table.tbg1.nav3.width100; если нужны оба набора фактов, считай это одним общим main-summary источником, а не двумя независимыми системами. billing.history — отдельный ленивый READ исторического payshow: используй его для вопросов «что/когда менялось» и как evidence-fallback, если текущий paket является статусным marker вроде «Заблокирован»; исторические записи не подменяют current state. При жалобе «нет интернета» после Billing-идентификации и проверки базового состояния услуги network.session является ранним рекомендуемым инструментом: он делает fresh-read агрегированной сессионной страницы Billing stat.pl a=252 и помогает быстро установить наличие/статус сессии, IP/MAC, время старта, последнее событие, ROUTER/VENDOR и VLAN. Отдельная реплика, содержащая договор или login, включая явно подписанный текстовый идентификатор вроде «Boxing договір», является идентификацией: сначала привяжи кейс через Billing customer.lookup и сохраняй эту привязку для следующих реплик. Если в более поздней реплике клиент явно сообщает ДРУГОЙ договор/login/IP/адрес, это переключение абонента: старую active-привязку нельзя использовать для новых персональных данных; сначала заново выполни Billing customer.lookup, и только успешный lookup устанавливает новый active subscriber. Внутренняя энциклопедия и live-tools имеют разные роли: общие правила/условия из KB можно и нужно сообщать без идентификации; идентификация требуется только для персональных live-фактов. Перед фразой «не хватает данных», «не знаю» или повторным вопросом клиенту обязательно проверь, не отвечает ли уже использованная внутренняя статья на общую часть вопроса. Первый semantic understanding текущего хода — authoritative: KB/tools добавляют факты к этому смыслу, а не запускают повторное переосмысление вопроса. Финальный ответ — обычная человеческая реплика оператора, а не отчёт о том, что система проверила.`,
   tools: TOOL_CATALOG,
   toJSON() {
     return {
