@@ -36,7 +36,7 @@ assert.doesNotMatch(html, /id="modelAvailability"/, 'removed call-analysis avail
 assert.match(html, /data-accordion-panel="chat-model"/);
 assert.match(html, /settings-panel-compact-model/);
 assert.match(html, /<h2>Модель AI<\/h2>/);
-assert.match(html, /Для A\/B и диагностики различий Qwen \/ GPT-OSS/);
+assert.match(html, /Список зависит от выбранного провайдера/);
 assert.match(settingsJs, /saveChatModelButton/);
 assert.match(settingsJs, /chatModel:/);
 assert.doesNotMatch(settingsJs, /querySelector\(`\[data-accordion-group="settings"\]/, 'settings JS must not hide removed panels after page load');
@@ -83,3 +83,6 @@ assert.match(labCss, /\.ai-lab-comparison-grid/, 'A/B answers must have dedicate
 assert.match(labCss, /\.ai-lab-diagnostic-row/, 'live diagnostics must have dedicated visual rows');
 
 console.log('ai_operator_settings_workspace_test: PASS');
+
+assert.doesNotMatch(html, /ai-operator-token-meter\.js|ai-operator-kb-curator\.js/, 'removed Lab utility panels must stay deleted');
+assert.doesNotMatch(lab, /aiLabUsage|Расход API|Токены|ток\./, 'visible AI usage counters must stay out of Manual Lab');
