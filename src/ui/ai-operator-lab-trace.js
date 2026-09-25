@@ -8,93 +8,113 @@
   const BILLING_SNAPSHOT_KEY = 'simnet_ai_operator_billing_snapshots_v1';
   const TOOL_HINT_RE = /\b(customer\.lookup|customer\.confirm|customer\.snapshot|billing\.balance|billing\.tariff|billing\.payments|userside\.snapshot|building\.snapshot|network\.session|pon\.onu|pon\.signal)\b/i;
   const TOOL_REF_RE = /(?:tool:)?(?:customer\.lookup|customer\.confirm|customer\.snapshot|billing\.balance|billing\.tariff|billing\.payments|userside\.snapshot|building\.snapshot|network\.session|pon\.onu|pon\.signal)/gi;
+  const ACTION_TAXONOMY = Object.freeze({
+    lookup: Object.freeze({ label: 'НАЙТИ / ПРОВЕРИТЬ', technical: 'LOOKUP / VERIFY', httpLike: 'READ / GET-like' }),
+    read: Object.freeze({ label: 'ЧИТАТЬ', technical: 'READ', httpLike: 'GET-like' }),
+    store: Object.freeze({ label: 'СОХРАНИТЬ КОНТЕКСТ', technical: 'STORE / STATE', httpLike: 'PUT-like state' }),
+    action: Object.freeze({ label: 'ИЗМЕНИТЬ СОСТОЯНИЕ', technical: 'ACTION', httpLike: 'POST / PUT-like' }),
+    delete: Object.freeze({ label: 'УДАЛИТЬ', technical: 'DELETE', httpLike: 'DELETE-like' }),
+    calculate: Object.freeze({ label: 'ВЫЧИСЛИТЬ', technical: 'CALCULATE', httpLike: 'local deterministic' }),
+    compare: Object.freeze({ label: 'СРАВНИТЬ', technical: 'COMPARE', httpLike: 'local deterministic' })
+  });
   const TOOL_INSPECTOR_META = Object.freeze({
     'customer.lookup': Object.freeze({
-      className: 'READ · identity',
-      category: 'customer',
-      operation: 'lookup',
+      actionType: 'lookup',
+      className: 'НАЙТИ / ПРОВЕРИТЬ (LOOKUP / VERIFY)',
+      category: 'абонент (customer)',
+      operation: 'поиск абонента (lookup)',
       purpose: 'Находит и однозначно привязывает абонента. После подтверждения identity запускается bounded Subscriber Bootstrap Snapshot.',
       input: 'login | contract | ip | address',
       reads: 'Billing listuser → a=user → bootstrap: main + address + technical',
       returns: 'confirmedSubscriber + confirmedCaseId + bootstrap status/snapshot'
     }),
     'customer.confirm': Object.freeze({
-      className: 'STATE · identity',
-      category: 'customer',
-      operation: 'confirm',
+      actionType: 'store',
+      className: 'СОХРАНИТЬ КОНТЕКСТ (STORE / STATE)',
+      category: 'абонент (customer)',
+      operation: 'подтверждение абонента (confirm)',
       purpose: 'Подтверждает выбранного кандидата и закрепляет subscriber case.',
       input: 'candidate / caseId'
     }),
     'customer.snapshot': Object.freeze({
-      className: 'READ · snapshot',
-      category: 'customer',
-      operation: 'snapshot',
+      actionType: 'read',
+      className: 'ЧИТАТЬ (READ / GET-like)',
+      category: 'абонент (customer)',
+      operation: 'рабочий снимок (snapshot)',
       purpose: 'Возвращает сохранённый рабочий профиль подтверждённого абонента.',
       input: 'confirmed subscriber context',
       reads: 'local simnet_ai_operator_billing_snapshots_v1',
       returns: 'identity + address + service + finance + network + technical + bootstrapMeta'
     }),
     'billing.balance': Object.freeze({
-      className: 'READ · finance',
-      category: 'billing',
-      operation: 'balance',
-      purpose: 'Проецирует финансовые поля из свежего Subscriber Snapshot / Billing source.',
+      actionType: 'read',
+      className: 'ЧИТАТЬ (READ / GET-like)',
+      category: 'биллинг (billing)',
+      operation: 'баланс (balance)',
+      purpose: 'Проецирует финансовые поля из свежего снимок абонента (Снимок абонента (Subscriber Snapshot)) / источник Billing.',
       input: 'confirmed subscriber context',
-      reads: 'Subscriber Snapshot.finance; refresh Billing main only when stale/missing',
-      returns: 'canonical finance facts'
+      reads: 'снимок абонента (Снимок абонента (Subscriber Snapshot)).finance; refresh Billing main only when stale/missing',
+      returns: 'канонические финансовые факты'
     }),
     'billing.tariff': Object.freeze({
-      className: 'READ · service',
-      category: 'billing',
-      operation: 'tariff',
-      purpose: 'Проецирует текущий и запланированный тариф из Subscriber Snapshot / Billing source.',
+      actionType: 'read',
+      className: 'ЧИТАТЬ (READ / GET-like)',
+      category: 'биллинг (billing)',
+      operation: 'тариф (tariff)',
+      purpose: 'Проецирует текущий и запланированный тариф из снимок абонента (Снимок абонента (Subscriber Snapshot)) / источник Billing.',
       input: 'confirmed subscriber context',
-      reads: 'Subscriber Snapshot.service; refresh Billing main only when stale/missing',
-      returns: 'canonical tariff/service facts'
+      reads: 'снимок абонента (Снимок абонента (Subscriber Snapshot)).service; refresh Billing main only when stale/missing',
+      returns: 'канонические факты тарифа / услуги'
     }),
     'billing.payments': Object.freeze({
-      className: 'READ · finance history',
-      category: 'billing',
-      operation: 'payments',
+      actionType: 'read',
+      className: 'ЧИТАТЬ (READ / GET-like)',
+      category: 'биллинг (billing)',
+      operation: 'платежи / события (payments)',
       purpose: 'Читает доступные подтверждённые события/платежи абонента.',
       input: 'confirmed subscriber context'
     }),
     'userside.snapshot': Object.freeze({
-      className: 'READ · subscriber network',
-      category: 'userside',
-      operation: 'snapshot',
+      actionType: 'read',
+      className: 'ЧИТАТЬ (READ / GET-like)',
+      category: 'UserSide',
+      operation: 'снимок абонента (snapshot)',
       purpose: 'Читает подтверждённый UserSide-контекст абонента.',
       input: 'confirmed subscriber context'
     }),
     'building.snapshot': Object.freeze({
-      className: 'READ · building',
-      category: 'userside',
-      operation: 'building snapshot',
+      actionType: 'read',
+      className: 'ЧИТАТЬ (READ / GET-like)',
+      category: 'UserSide / дом',
+      operation: 'карточка дома (building snapshot)',
       purpose: 'Находит карточку дома в локальном UserSide building index по адресу.',
       input: 'address | confirmedSubscriber.address',
       reads: 'simnet_crm_building_snapshot_v1',
-      returns: 'building evidence / capabilities for matched address'
+      returns: 'данные дома / доступные возможности по найденному адресу'
     }),
     'network.session': Object.freeze({
-      className: 'READ · live network',
-      category: 'network',
-      operation: 'session',
+      actionType: 'read',
+      className: 'ЧИТАТЬ (READ / GET-like)',
+      category: 'сеть (network)',
+      operation: 'текущая сессия (session)',
       purpose: 'Читает актуальный сетевой/session-контекст подтверждённого абонента.',
       input: 'confirmed subscriber context',
-      reads: 'live network / BRAS source',
-      returns: 'current network session evidence'
+      reads: 'актуальный сетевой источник / BRAS',
+      returns: 'подтверждённые данные текущей сетевой сессии'
     }),
     'pon.onu': Object.freeze({
-      className: 'READ · PON',
-      category: 'pon',
-      operation: 'onu',
+      actionType: 'read',
+      className: 'ЧИТАТЬ (READ / GET-like)',
+      category: 'PON',
+      operation: 'ONU / ONT',
       purpose: 'Читает подтверждённые данные ONU/ONT.',
       input: 'confirmed subscriber context'
     }),
     'pon.signal': Object.freeze({
-      className: 'READ · PON live',
-      category: 'pon',
-      operation: 'signal',
+      actionType: 'read',
+      className: 'ЧИТАТЬ (READ / GET-like)',
+      category: 'PON',
+      operation: 'сигнал (signal)',
       purpose: 'Читает актуальные PON/OLT signal evidence.',
       input: 'confirmed subscriber context'
     })
@@ -283,15 +303,15 @@
     return inspectorGrid([
       ['ФИО', identity.fullName || '—'],
       ['Договор', identity.contract || '—'],
-      ['Login', identity.login || '—'],
+      ['Логин (login)', identity.login || '—'],
       ['Адрес', address.full || address.fullAddress || '—'],
       ['Тариф', service.currentTariff || service.current?.name || '—'],
       ['Баланс', finance.accountBalance ?? '—'],
       ['К оплате', finance.totalDue ?? '—'],
       ['Технология', technical.technologyHint || '—'],
       ['OLT', technical.olt || '—'],
-      ['Bootstrap', bootstrap.status || '—'],
-      ['Observed', snapshot.observedAt || '—']
+      ['Сбор снимка (bootstrap)', bootstrap.status || '—'],
+      ['Актуальность (observedAt)', snapshot.observedAt || '—']
     ]);
   }
 
@@ -375,32 +395,34 @@
     head.append(title, end);
 
     const body = create('div', 'ai-tool-inspector-body');
-    body.append(inspectorSection('Tool contract', inspectorGrid([
-      ['Class', meta.className || '—'],
-      ['Category', meta.category || tool.split('.')[0]],
-      ['Operation', meta.operation || tool.split('.')[1] || '—'],
-      ['Input', meta.input || '—'],
-      ['Reads', meta.reads || 'runtime source defined by tool'],
-      ['Returns', meta.returns || 'tool result / evidence'],
+    body.append(inspectorSection('Контракт инструмента (tool contract)', inspectorGrid([
+      ['Класс действия', meta.className || '—'],
+      ['Технический класс', ACTION_TAXONOMY[meta.actionType]?.technical || '—'],
+      ['HTTP-аналог', ACTION_TAXONOMY[meta.actionType]?.httpLike || '—'],
+      ['Категория', meta.category || tool.split('.')[0]],
+      ['Операция', meta.operation || tool.split('.')[1] || '—'],
+      ['Входные данные', meta.input || '—'],
+      ['Что читает', meta.reads || 'источник определяется инструментом'],
+      ['Что возвращает', meta.returns || 'результат / evidence инструмента'],
       ['Что делает', meta.purpose || '—']
     ])));
 
-    body.append(inspectorSection('Last call', inspectorGrid([
-      ['Status', trace ? (trace.ok ? 'OK' : `ERROR ${trace.code || ''}`.trim()) : 'нет вызова в текущем ходе'],
-      ['Source', trace?.source || '—'],
-      ['Requested field', trace?.requestedBy?.field || '—'],
-      ['Why', trace?.requestedBy?.why || '—'],
-      ['Cache', trace?.cache || '—']
+    body.append(inspectorSection('Последний вызов (last call)', inspectorGrid([
+      ['Статус', trace ? (trace.ok ? 'УСПЕХ (OK)' : `ОШИБКА (ERROR) ${trace.code || ''}`.trim()) : 'нет вызова в текущем ходе'],
+      ['Источник (source)', trace?.source || '—'],
+      ['Запрошенное поле', trace?.requestedBy?.field || '—'],
+      ['Зачем (why)', trace?.requestedBy?.why || '—'],
+      ['Кэш (cache)', trace?.cache || '—']
     ])));
-    if (trace?.args && Object.keys(trace.args).length) body.append(inspectorSection('Input args', inspectorJsonDetails('args', trace.args, true)));
-    if (trace?.data) body.append(inspectorSection('Last result', inspectorJsonDetails('data', trace.data, false)));
+    if (trace?.args && Object.keys(trace.args).length) body.append(inspectorSection('Входные аргументы (input args)', inspectorJsonDetails('args', trace.args, true)));
+    if (trace?.data) body.append(inspectorSection('Последний результат (last result)', inspectorJsonDetails('data', trace.data, false)));
 
     const confirmed = inspectorState?.toolState?.confirmedSubscriber || null;
-    body.append(inspectorSection('Subscriber state', confirmed
+    body.append(inspectorSection('Состояние абонента (subscriber state)', confirmed
       ? inspectorJsonDetails('confirmedSubscriber', confirmed, true)
       : create('div', 'ai-tool-inspector-empty', 'confirmedSubscriber отсутствует')));
 
-    const loading = inspectorSection('Subscriber Snapshot', create('div', 'ai-tool-inspector-empty', 'Читаю локальный snapshot…'));
+    const loading = inspectorSection('снимок абонента (Снимок абонента (Subscriber Snapshot))', create('div', 'ai-tool-inspector-empty', 'Читаю локальный снимок (snapshot)…'));
     body.append(loading);
 
     node.replaceChildren(head, body);
@@ -409,9 +431,9 @@
     let snapshot = null;
     try { snapshot = await loadSubscriberSnapshot(tool, trace); } catch {}
     if (token !== inspectorLoadToken || node.hidden) return;
-    loading.replaceChildren(create('strong', '', 'Subscriber Snapshot'));
+    loading.replaceChildren(create('strong', '', 'снимок абонента (Снимок абонента (Subscriber Snapshot))'));
     if (snapshot) {
-      loading.append(snapshotSummary(snapshot), inspectorJsonDetails('Полный snapshot', snapshot, false));
+      loading.append(snapshotSummary(snapshot), inspectorJsonDetails('Полный снимок (snapshot)', snapshot, false));
     } else {
       loading.append(create('div', 'ai-tool-inspector-empty', 'Для этого вызова локальный subscriber snapshot не найден.'));
     }
@@ -464,8 +486,8 @@
   function runtimeSnapshotStage(snapshot = null, state = {}) {
     const stage = create('section', 'ai-runtime-stage ai-runtime-snapshot');
     const head = create('header');
-    head.append(create('strong', '', 'SUBSCRIBER SNAPSHOT'));
-    const status = snapshot?.bootstrapMeta?.status || (state?.toolState?.confirmedSubscriber ? 'identity only' : 'no subscriber');
+    head.append(create('strong', '', 'СНИМОК АБОНЕНТА (SUBSCRIBER SNAPSHOT)'));
+    const status = snapshot?.bootstrapMeta?.status || (state?.toolState?.confirmedSubscriber ? 'только identity' : 'абонент не привязан');
     head.append(create('span', `ai-runtime-status ${status === 'ready' ? 'ok' : snapshot ? 'warn' : ''}`, status.toUpperCase()));
     stage.append(head);
 
@@ -511,7 +533,7 @@
     stage.append(meta);
 
     const full = create('details', 'ai-runtime-full');
-    full.append(create('summary', '', 'FULL SNAPSHOT · JSON'), create('pre', '', jsonText(snapshot)));
+    full.append(create('summary', '', 'ПОЛНЫЙ СНИМОК (FULL SNAPSHOT) · JSON'), create('pre', '', jsonText(snapshot)));
     stage.append(full);
     return stage;
   }
@@ -521,31 +543,32 @@
     const meta = TOOL_INSPECTOR_META[tool] || {};
     const card = create('article', 'ai-runtime-call');
     const head = create('div', 'ai-runtime-call-head');
-    head.append(create('span', 'ai-runtime-method', 'READ'));
+    const taxonomy = ACTION_TAXONOMY[meta.actionType] || ACTION_TAXONOMY.read;
+    head.append(create('span', 'ai-runtime-method', `${taxonomy.label} (${taxonomy.technical})`));
     const title = create('span', 'ai-runtime-call-title');
     title.append(toolRef(tool, tool));
-    head.append(title, create('span', `ai-runtime-status ${trace?.ok ? 'ok' : 'bad'}`, trace?.ok ? 'OK' : (trace?.code || 'ERROR')));
+    head.append(title, create('span', `ai-runtime-status ${trace?.ok ? 'ok' : 'bad'}`, trace?.ok ? 'УСПЕХ (OK)' : `ОШИБКА (ERROR) · ${trace?.code || 'UNKNOWN'}`));
     card.append(head);
     card.append(create('div', 'ai-runtime-call-purpose', meta.purpose || 'Вызов runtime tool.'));
 
     const evidence = trace?.data?.evidence || {};
     const bootstrap = trace?.data?.bootstrap || {};
     const rows = [
-      ['call', String(index + 1)],
-      ['input', trace?.requestedBy?.field || meta.input || '—'],
-      ['why', trace?.requestedBy?.why || '—'],
-      ['reads', meta.reads || '—'],
-      ['returns', meta.returns || '—'],
-      ['source', trace?.source || trace?.data?.source || '—'],
-      ['transport', trace?.data?.transport || '—'],
-      ['lookup strategy', trace?.data?.lookupStrategy || '—'],
-      ['derived Billing ID', trace?.data?.derivedBillingId || '—'],
-      ['native query', trace?.data?.nativeQuery || '—'],
-      ['endpoint', evidence.endpoint || bootstrap.endpoint || '—'],
-      ['selector', evidence.selector || '—'],
-      ['failure phase', trace?.data?.failurePhase || '—'],
-      ['failure detail', trace?.data?.failureMessage || '—'],
-      ['cache', trace?.cache || '—']
+      ['вызов №', String(index + 1)],
+      ['вход', trace?.requestedBy?.field || meta.input || '—'],
+      ['зачем', trace?.requestedBy?.why || '—'],
+      ['читает', meta.reads || '—'],
+      ['возвращает', meta.returns || '—'],
+      ['источник', trace?.source || trace?.data?.source || '—'],
+      ['транспорт', trace?.data?.transport || '—'],
+      ['стратегия поиска', trace?.data?.lookupStrategy || '—'],
+      ['вычисленный Billing ID', trace?.data?.derivedBillingId || '—'],
+      ['штатный запрос', trace?.data?.nativeQuery || '—'],
+      ['endpoint / URL', evidence.endpoint || bootstrap.endpoint || '—'],
+      ['DOM selector', evidence.selector || '—'],
+      ['этап ошибки', trace?.data?.failurePhase || '—'],
+      ['детали ошибки', trace?.data?.failureMessage || '—'],
+      ['кэш', trace?.cache || '—']
     ];
     const grid = create('div', 'ai-runtime-call-meta');
     for (const [label,value] of rows) grid.append(create('b','',label), create('span','',value));
@@ -553,10 +576,10 @@
 
     const args = create('details');
     args.open = true;
-    args.append(create('summary', '', 'INPUT / ARGS'), create('pre', '', jsonText(trace?.args || {})));
+    args.append(create('summary', '', 'ВХОД / АРГУМЕНТЫ (INPUT / ARGS)'), create('pre', '', jsonText(trace?.args || {})));
     card.append(args);
     const result = create('details');
-    result.append(create('summary', '', 'OUTPUT / RESULT'), create('pre', '', jsonText({
+    result.append(create('summary', '', 'ВЫХОД / РЕЗУЛЬТАТ (OUTPUT / RESULT)'), create('pre', '', jsonText({
       ok: Boolean(trace?.ok),
       code: trace?.code || '',
       source: trace?.source || '',
@@ -571,7 +594,7 @@
   function runtimeToolsStage(toolTrace = []) {
     const stage = create('section', 'ai-runtime-stage ai-runtime-tools-stage');
     const head = create('header');
-    head.append(create('strong', '', 'TOOL CALLS'), create('span', '', `${toolTrace.length} вызов(а)`));
+    head.append(create('strong', '', 'ВЫЗОВЫ ИНСТРУМЕНТОВ (TOOL CALLS)'), create('span', '', `${toolTrace.length} вызов(а)`));
     stage.append(head);
     if (!toolTrace.length) {
       stage.append(create('div', 'ai-runtime-empty', 'На этом ходе runtime tool не вызывался.'));
@@ -586,19 +609,19 @@
   function runtimeModelStage(experiment = {}, variant = {}, toolTrace = []) {
     const stage = create('section', 'ai-runtime-stage ai-runtime-model-stage');
     const head = create('header');
-    head.append(create('strong', '', 'MODEL / CANONICAL VIEW'), create('span', '', 'TRACE PROJECTION'));
+    head.append(create('strong', '', 'ЧТО ПОЛУЧИЛА МОДЕЛЬ (MODEL / CANONICAL VIEW)'), create('span', '', 'ПРОЕКЦИЯ ТРАССЫ (TRACE PROJECTION)'));
     stage.append(head);
     stage.append(create('div', 'ai-runtime-model-note',
-      'Показывает подтверждённые факты и запросы, видимые в runtime trace. Это не утверждение, что здесь воспроизведён полный скрытый prompt модели.'));
+      'Показывает подтверждённые факты и запросы из runtime trace. Это не полный скрытый prompt модели, а только видимая проекция данных.'));
 
     const facts = create('div', 'ai-runtime-facts');
     const probe = experiment?.analysis?.probe || {};
     if (probe.whatUserWants) {
-      const item=create('div','ai-runtime-fact'); item.append(create('b','','intent: '),document.createTextNode(probe.whatUserWants)); facts.append(item);
+      const item=create('div','ai-runtime-fact'); item.append(create('b','','намерение (intent): '),document.createTextNode(probe.whatUserWants)); facts.append(item);
     }
     const requested = [...new Set(toolTrace.flatMap(item => Array.isArray(item?.requestedFacts) ? item.requestedFacts : []))];
     if (requested.length) {
-      const item=create('div','ai-runtime-fact'); item.append(create('b','','requested canonical facts: '),document.createTextNode(requested.join(' · '))); facts.append(item);
+      const item=create('div','ai-runtime-fact'); item.append(create('b','','запрошенные канонические факты (requested canonical facts): '),document.createTextNode(requested.join(' · '))); facts.append(item);
     }
     const kept = Array.isArray(variant?.answerRelevance?.kept) ? variant.answerRelevance.kept : [];
     for (const item of kept.slice(0,18)) {
@@ -617,9 +640,9 @@
 
     const head = create('div', 'ai-runtime-map-head');
     const title = create('div');
-    title.append(create('strong', '', 'AGENT RUNTIME MAP'), create('span', '', 'что уже знает агент → что вызвал → что использовал дальше'));
+    title.append(create('strong', '', 'КАРТА РАБОТЫ АГЕНТА (AGENT RUNTIME MAP)'), create('span', '', 'что уже знает агент → какой инструмент вызвал → что передал дальше'));
     const billingId = inspectorBillingId(toolTrace.at(-1) || null, state);
-    head.append(title, create('span', '', billingId ? `subscriber ${billingId}` : 'subscriber unbound'));
+    head.append(title, create('span', '', billingId ? `subscriber ${billingId}` : 'абонент не привязан'));
 
     const flow = create('div', 'ai-runtime-flow');
     flow.append(
