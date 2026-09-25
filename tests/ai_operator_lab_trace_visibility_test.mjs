@@ -82,7 +82,7 @@ test('AI Lab highlights semantic-to-tool mismatches and important raw JSON field
 test('AI Lab exposes a DevTools-style hover inspector for tool references and subscriber snapshot', () => {
   assert.match(traceJs, /TOOL_INSPECTOR_META/);
   assert.match(traceJs, /customer\.lookup/);
-  assert.match(traceJs, /READ · identity/);
+  assert.match(traceJs, /НАЙТИ \/ ПРОВЕРИТЬ \(LOOKUP \/ VERIFY\)/);
   assert.match(traceJs, /Что делает/);
   assert.match(traceJs, /SIMNET_AI_OPERATOR|simnet_ai_operator_billing_snapshots_v1/i);
   assert.match(traceJs, /chrome\.storage\.local\.get\(BILLING_SNAPSHOT_KEY\)/);
@@ -105,11 +105,11 @@ test('tool references inside RAW JSON and trace chips are decorated as inspector
 
 
 test('AI Lab renders a Swagger-style runtime map with full subscriber snapshot, tool calls and model projection', () => {
-  assert.match(traceJs, /AGENT RUNTIME MAP/);
-  assert.match(traceJs, /SUBSCRIBER SNAPSHOT/);
-  assert.match(traceJs, /TOOL CALLS/);
+  assert.match(traceJs, /КАРТА РАБОТЫ АГЕНТА \(AGENT RUNTIME MAP\)/);
+  assert.match(traceJs, /СНИМОК АБОНЕНТА \(SUBSCRIBER SNAPSHOT\)|Снимок абонента \(Subscriber Snapshot\)/);
+  assert.match(traceJs, /ВЫЗОВЫ ИНСТРУМЕНТОВ \(TOOL CALLS\)/);
   assert.match(traceJs, /MODEL \/ CANONICAL VIEW/);
-  assert.match(traceJs, /FULL SNAPSHOT · JSON/);
+  assert.match(traceJs, /ПОЛНЫЙ СНИМОК \(FULL SNAPSHOT\) · JSON/);
   assert.match(traceJs, /runtimeSnapshotStage/);
   assert.match(traceJs, /runtimeToolCallCard/);
   assert.match(traceJs, /INPUT \/ ARGS/);
@@ -131,8 +131,8 @@ test('Lab runtime visualization uses blue/slate accents while red remains reserv
 
 
 test('tool inspector exposes Swagger-style contract and failure diagnostics', () => {
-  assert.match(traceJs, /Reads/);
-  assert.match(traceJs, /Returns/);
+  assert.match(traceJs, /Что читает/);
+  assert.match(traceJs, /Что возвращает/);
   assert.match(traceJs, /Billing listuser → a=user → bootstrap: main \+ address \+ technical/);
   assert.match(traceJs, /failure phase/);
   assert.match(traceJs, /failure detail/);
@@ -140,8 +140,23 @@ test('tool inspector exposes Swagger-style contract and failure diagnostics', ()
 
 
 test('runtime map shows how subscriber identity was resolved', () => {
-  assert.match(traceJs, /lookup strategy/);
-  assert.match(traceJs, /derived Billing ID/);
-  assert.match(traceJs, /native query/);
-  assert.match(traceJs, /transport/);
+  assert.match(traceJs, /стратегия поиска/);
+  assert.match(traceJs, /вычисленный Billing ID/);
+  assert.match(traceJs, /штатный запрос/);
+  assert.match(traceJs, /транспорт/);
+});
+
+
+test('runtime UI is Russian-first and keeps technical English only as a secondary reference', () => {
+  assert.match(traceJs, /НАЙТИ \/ ПРОВЕРИТЬ \(LOOKUP \/ VERIFY\)/);
+  assert.match(traceJs, /ЧИТАТЬ \(READ \/ GET-like\)/);
+  assert.match(traceJs, /СОХРАНИТЬ КОНТЕКСТ \(STORE \/ STATE\)/);
+  assert.match(traceJs, /Класс действия/);
+  assert.match(traceJs, /Технический класс/);
+  assert.match(traceJs, /HTTP-аналог/);
+  assert.match(traceJs, /Контракт инструмента \(tool contract\)/);
+  assert.match(traceJs, /Последний вызов \(last call\)/);
+  assert.match(traceJs, /Входные аргументы \(input args\)/);
+  assert.match(traceJs, /Последний результат \(last result\)/);
+  assert.doesNotMatch(traceJs, /Снимок абонента \(Снимок абонента/);
 });
