@@ -16,8 +16,6 @@
   let latestState = null;
   let busy = false;
   let controls = null;
-  let usageNode = null;
-  let costNode = null;
 
   const KNOWLEDGE_LABELS = {
     off: 'Без энциклопедии',
@@ -196,7 +194,7 @@
       for (const variant of variants) {
         const card = create('div', `ai-lab-variant ${variant.useKnowledge ? 'with-kb' : 'without-kb'}`);
         const heading = create('div', 'ai-lab-variant-head');
-        heading.append(create('strong', '', variant.useKnowledge ? 'С энциклопедией' : 'Без энциклопедии'), create('span', '', `${number(variant.usage?.total_tokens)} ток. · tools ${number(variant.toolTrace?.length)} · ${short(variant.model, 80)}`));
+        heading.append(create('strong', '', variant.useKnowledge ? 'С энциклопедией' : 'Без энциклопедии'), create('span', '', `tools ${number(variant.toolTrace?.length)} · ${short(variant.model, 80)}`));
         card.append(heading, create('div', 'ai-lab-variant-reply', variant.reply || '—')); grid.append(card);
       }
       ui.comparison.append(grid);
@@ -227,8 +225,7 @@
       diagnosticRow('Следующий шаг', variant?.nextStepOffered),
       diagnosticRow('Degraded fallback', variant?.degraded ? (variant.degradationReason || 'да') : '', 'warn'),
       diagnosticRow('Модель', exp.model),
-      diagnosticRow('Время', `${number(exp.elapsedMs)} мс`),
-      diagnosticRow('Токены', `${number(exp.usage?.prompt_tokens)} in / ${number(exp.usage?.completion_tokens)} out = ${number(exp.usage?.total_tokens)}`)
+      diagnosticRow('Время', `${number(exp.elapsedMs)} мс`)
     ].filter(Boolean);
     for (const row of rows) ui.diagnosticsBody.append(row);
 
@@ -284,24 +281,6 @@
       transcriptNode.append(row);
     }
     transcriptNode.scrollTop = transcriptNode.scrollHeight;
-  }
-
-  function ensureUsageNode() {
-    if (usageNode?.isConnected) return usageNode;
-    usageNode = document.getElementById('aiLabUsage');
-    if (!usageNode) { usageNode = create('div', 'status compact ai-lab-token-usage', 'Tokens · —'); usageNode.id = 'aiLabUsage'; identityNode.insertAdjacentElement('afterend', usageNode); }
-    return usageNode;
-  }
-  function renderUsage(state = {}) {
-    const node = ensureUsageNode(); const usage = state.lastDecision?.usage || {};
-    const total = number(usage.total_tokens) || number(usage.prompt_tokens) + number(usage.completion_tokens); const exp = state.lastExperiment;
-    node.textContent = total ? `Последний ход · ${number(usage.prompt_tokens)} in / ${number(usage.completion_tokens)} out = ${total} ток. · ${number(exp?.toolCalls)} tool · ${number(exp?.elapsedMs)} мс` : 'Последний ход · LLM ещё не запускался';
-  }
-  function renderCost(state = {}) {
-    if (!costNode) { costNode = create('div', 'status compact ai-lab-cost'); ensureUsageNode().insertAdjacentElement('afterend', costNode); }
-    const cost = state.apiCost; if (!cost) { costNode.textContent = 'Расход API · —'; return; }
-    const usd = value => '$' + Number(value || 0).toFixed(6);
-    costNode.textContent = `Расход API · ход ≈ ${usd(cost.turn?.usd)} · диалог ≈ ${usd(cost.session?.usd)} · вызовов ${number(cost.session?.calls)}`;
   }
 
   function knowledgeTraceState(event = {}) {
@@ -391,7 +370,7 @@
 
   function render(state = {}) {
     latestState = state && typeof state === 'object' ? state : {};
-    renderControlState(latestState); renderCapabilities(latestState); renderMessages(latestState.messages || []); renderExperiment(latestState); renderUsage(latestState); renderCost(latestState); renderEvents(latestState.events || []);
+    renderControlState(latestState); renderCapabilities(latestState); renderMessages(latestState.messages || []); renderExperiment(latestState); renderEvents(latestState.events || []);
     const last = latestState.lastDecision || {};
     setStatus(last.action ? `Последний ход: ${last.action} · MODE ${String(latestState.knowledgeMode || 'auto').toUpperCase()} · tools ${number(latestState.lastExperiment?.toolCalls)}${last.model ? ` · ${short(last.model, 110)}` : ''}` : 'Готово. Пиши как абонент и наблюдай, что AI понял, какие данные запросил и чем подтвердил ответ.', last.action ? 'ok' : '');
   }
