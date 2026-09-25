@@ -3,6 +3,7 @@
 import * as core from './live-tool-runtime-core.js';
 import { readNetworkSessionLive } from './network-live-search.js';
 import { readBillingSummaryLive } from './billing-summary-live.js';
+import { readBillingHistoryLive } from './billing-history-live.js';
 import {
   classifyBillingExactIdentity,
   searchBillingExactIdentityLive
@@ -51,6 +52,25 @@ export function mergePresent(base = {}, overlay = {}) {
   for (const [key, value] of Object.entries(overlay && typeof overlay === 'object' && !Array.isArray(overlay) ? overlay : {})) {
     if (value === null || value === undefined || value === '') continue;
     merged[key] = value;
+  }
+  return merged;
+}
+
+export function mergeServiceSnapshot(base = {}, overlay = {}) {
+  const merged = mergePresent(base, overlay);
+  const historicalBase = String(base?.currentTariffSource || '') === 'payshow:last_package_before_block'
+    && Boolean(String(base?.currentTariff || '').trim());
+  const overlayNeedsHistory = overlay?.tariffResolutionRequired === true
+    || String(overlay?.currentTariffSource || '') === 'history_required_from_payshow';
+  if (historicalBase && overlayNeedsHistory) {
+    merged.currentTariff = base.currentTariff;
+    merged.configuredTariff = base.configuredTariff || base.currentTariff;
+    merged.currentTariffSource = 'payshow:last_package_before_block';
+    merged.tariffResolutionRequired = false;
+    merged.historicalTariffEvidence = base.historicalTariffEvidence || null;
+    merged.tariffHistorical = true;
+    merged.tariffStateSemantics = base.tariffStateSemantics
+      || 'last_real_package_before_current_status_marker';
   }
   return merged;
 }
@@ -158,8 +178,10 @@ async function bootstrapSubscriberSnapshot(rawCandidate = {}, live = {}) {
           code: String(main?.code || 'BILLING_MAIN_READ_FAILED')
         }
   };
-  const complete = Boolean(sourceMeta.main?.ok && sourceMeta.address?.ok && sourceMeta.technical?.ok);
+  const historyReady = sourceMeta.history?.code === 'NOT_REQUIRED' || sourceMeta.history?.ok === true || !sourceMeta.history;
+  const complete = Boolean(sourceMeta.main?.ok && sourceMeta.address?.ok && sourceMeta.technical?.ok && historyReady);
   const completedAt = nowIso();
+  const mergedService = mergeServiceSnapshot(partial?.service, mainData?.service);
 
   const snapshot = {
     ...partial,
@@ -169,10 +191,11 @@ async function bootstrapSubscriberSnapshot(rawCandidate = {}, live = {}) {
     address: mergePresent(partial?.address, mainData?.address),
     contacts: mergePresent(partial?.contacts, mainData?.contacts),
     customer: mergePresent(partial?.customer, mainData?.customer),
-    service: mergePresent(partial?.service, mainData?.service),
+    service: mergedService,
     finance: mergePresent(partial?.finance, mainData?.finance),
     network: mergePresent(partial?.network, mainData?.network),
     technical: mergePresent(partial?.technical, mainData?.technical),
+    history: partial?.history && typeof partial.history === 'object' ? partial.history : {},
     payments: Array.isArray(mainData?.payments) && mainData.payments.length
       ? mainData.payments
       : (Array.isArray(partial?.payments) ? partial.payments : []),
@@ -274,6 +297,102 @@ async function executeExactIdentityLookup(toolArgs = {}) {
   });
 }
 
+async function executeBillingHistoryTool(toolArgs = {}, labState = {}) {
+  if (!String(labState?.confirmedCaseId || '').trim()) {
+    return result('billing.history', false, 'IDENTITY_REQUIRED', {
+      message: 'Нужен подтверждённый subscriber case перед чтением истории Billing.',
+      source: 'billing-payshow-history-live-read-only'
+    });
+  }
+  const id = billingIdFromLab(labState);
+  if (!id) {
+    return result('billing.history', false, 'IDENTITY_REQUIRED', {
+      message: 'Не удалось извлечь Billing ID из подтверждённого кейса.',
+      source: 'billing-payshow-history-live-read-only'
+    });
+  }
+
+  const cached = await core.executeOperatorTool({
+    tool: 'billing.history',
+    toolArgs: { refresh: false },
+    labState
+  });
+  const cachedObserved = Date.parse(cached?.data?.observedAt || cached?.data?.history?.observedAt || '');
+  const maxAgeMs = Number(toolArgs?.maxAgeMs) || 120000;
+  const cacheFresh = cached?.ok
+    && Number.isFinite(cachedObserved)
+    && Date.now() - cachedObserved < maxAgeMs
+    && cachedObserved >= Number(labState?.invalidatedAt || 0);
+  if (cacheFresh && !toolArgs.refresh) return cached;
+
+  const scope = String(toolArgs?.scope || 'all').toLowerCase() === 'events' ? 'events' : 'all';
+  const live = await readBillingHistoryLive({ billingId: id, scope });
+  if (!live?.ok) {
+    if (cached?.ok) {
+      return {
+        ...cached,
+        warnings: [
+          ...(Array.isArray(cached.warnings) ? cached.warnings : []),
+          `Fresh payshow READ недоступен (${String(live?.code || 'unknown')}); использована ранее прочитанная история.`
+        ]
+      };
+    }
+    return result('billing.history', false, String(live?.code || 'BILLING_HISTORY_READ_FAILED'), {
+      message: 'Не удалось прочитать историю Billing payshow.',
+      source: 'billing-payshow-history-live-read-only',
+      billingId: id,
+      failurePhase: text(live?.failurePhase, 120),
+      failureMessage: text(live?.message, 500)
+    }, ['Не трактовать ошибку чтения истории как отсутствие событий.']);
+  }
+
+  const history = live?.history && typeof live.history === 'object' ? live.history : {};
+  const events = Array.isArray(history.events) ? history.events : [];
+  const snapshotResult = await core.executeOperatorTool({
+    tool: 'customer.snapshot',
+    toolArgs: { refresh: false },
+    labState
+  });
+  const currentService = snapshotResult?.data?.service && typeof snapshotResult.data.service === 'object'
+    ? snapshotResult.data.service
+    : {};
+  const recoveryNeeded = currentService.tariffResolutionRequired === true
+    || String(currentService.currentTariffSource || '') === 'history_required_from_payshow'
+    || (!String(currentService.currentTariff || '').trim() && Boolean(currentService.tariffSelectorState));
+  const recovered = recoveryNeeded && history?.packageBeforeBlock?.name
+    ? {
+        currentTariff: history.packageBeforeBlock.name,
+        configuredTariff: history.packageBeforeBlock.name,
+        currentTariffSource: 'payshow:last_package_before_block',
+        tariffResolutionRequired: false,
+        tariffHistorical: true,
+        tariffStateSemantics: 'last_real_package_before_current_status_marker',
+        historicalTariffEvidence: history.packageBeforeBlock
+      }
+    : {};
+
+  await core.persistBillingSnapshots({
+    [id]: {
+      billingId: id,
+      history,
+      ...(Object.keys(recovered).length ? { service: recovered } : {}),
+      observedAt: nowIso(),
+      source: 'billing-payshow-history-live-read-only'
+    }
+  });
+
+  return result('billing.history', true, 'OK', {
+    history,
+    events,
+    count: events.length,
+    packageBeforeBlock: history.packageBeforeBlock || null,
+    tariffRecovered: Boolean(Object.keys(recovered).length),
+    source: 'billing-payshow-history-live-read-only',
+    transport: text(live?.transport, 120),
+    scope
+  });
+}
+
 async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
   // Subscriber-scoped Billing tools require established identity.
   // Do not fall through to local tool-runtime with a canonical alias that
@@ -316,19 +435,31 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
     if (live?.ok && requiredFacts.length) {
       missingFacts = missingBillingMainFacts(requiredFacts, live.data || {});
     }
+    const needsTariffHistory = Boolean(
+      live?.ok
+      && live?.data?.service?.tariffResolutionRequired === true
+      && requiredFacts.some(path => String(path).startsWith('subscriber.tariff.current.'))
+    );
+    if (needsTariffHistory) {
+      const recovery = await executeBillingHistoryTool({ scope: 'events', refresh: false }, labState);
+      if (recovery?.ok) {
+        fallbackReason = 'tariff-history-recovery';
+        base = await baseRead();
+      }
+    }
     if (!live?.ok) {
       fallbackReason = 'dedicated-reader-unavailable';
       base = await baseRead();
     } else if (!requiredFacts.length) {
       // Legacy/direct callers did not declare canonical intent. Keep the previous
       // broad snapshot merge until they migrate to requiredCanonicalFacts.
-      fallbackReason = 'legacy-call-without-required-facts';
-      base = await baseRead();
+      fallbackReason = fallbackReason || 'legacy-call-without-required-facts';
+      if (!base) base = await baseRead();
     } else if (missingFacts.length) {
       // A present key with null/unparseable money is NOT observed evidence.
       // Fall back to the full Billing snapshot instead of silently returning null.
-      fallbackReason = 'missing-canonical-facts';
-      base = await baseRead();
+      fallbackReason = fallbackReason || 'missing-canonical-facts';
+      if (!base) base = await baseRead();
     }
   } else {
     [live, base] = await Promise.all([liveRead(), baseRead()]);
@@ -363,7 +494,7 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
     // Dedicated a=user values win only when actually present. A null/empty live
     // value must never erase a real value recovered by the broader fallback.
     const mergedIdentity = mergePresent(baseData.identity || {}, identity);
-    const mergedService = mergePresent(baseData.service || {}, service);
+    const mergedService = mergeServiceSnapshot(baseData.service || {}, service);
     const mergedFinance = mergePresent(baseData.finance || {}, finance);
     const liveFieldObservedAt = {};
     for (const [key, value] of Object.entries(identity)) {
@@ -441,8 +572,14 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
       serviceState: service.serviceState ?? baseData.serviceState ?? '',
       group: service.group ?? baseData.group ?? '',
       activeServices: service.activeServices ?? baseData.activeServices ?? [],
-      tariffId: service.tariffId || '',
-      tariffDisplay: service.tariffDisplay || '',
+      tariffId: service.tariffId || baseData.tariffId || '',
+      tariffDisplay: service.tariffDisplay || baseData.tariffDisplay || '',
+      currentTariffSource: service.currentTariff && !service.tariffResolutionRequired
+        ? (service.currentTariffSource || baseData.currentTariffSource || '')
+        : (baseData.currentTariffSource || service.currentTariffSource || ''),
+      tariffSelectorState: service.tariffSelectorState || baseData.tariffSelectorState || '',
+      tariffHistorical: Boolean(baseData.tariffHistorical || service.tariffHistorical),
+      historicalTariffEvidence: baseData.historicalTariffEvidence || service.historicalTariffEvidence || null,
       price: finance.price ?? baseData.price ?? '',
       totalDue: finance.totalDue ?? baseData.totalDue ?? '',
       balanceAfterTariff: finance.balanceAfterTariff ?? baseData.balanceAfterTariff ?? '',
@@ -523,6 +660,9 @@ export async function executeOperatorTool({ tool, toolArgs = {}, labState = {} }
   }
   if (name === 'building.snapshot') {
     return readBuildingSnapshot({ toolArgs, labState });
+  }
+  if (name === 'billing.history') {
+    return executeBillingHistoryTool(toolArgs, labState);
   }
   if (['billing.main_summary', 'billing.balance', 'billing.tariff', 'billing.payments'].includes(name)) {
     return executeBillingSummaryTool(name, toolArgs, labState);
