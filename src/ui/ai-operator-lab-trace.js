@@ -418,7 +418,7 @@
     if (trace?.data) body.append(inspectorSection('Последний результат (last result)', inspectorJsonDetails('data', trace.data, false)));
 
     const confirmed = inspectorState?.toolState?.confirmedSubscriber || null;
-    body.append(inspectorSection('Состояние абонента (абонент state)', confirmed
+    body.append(inspectorSection('Состояние абонента (subscriber state)', confirmed
       ? inspectorJsonDetails('confirmedSubscriber', confirmed, true)
       : create('div', 'ai-tool-inspector-empty', 'Подтверждённый абонент (confirmedSubscriber) отсутствует')));
 
@@ -701,7 +701,7 @@
   }
 
   function contextLines(state = {}, probe = {}, experiment = {}) {
-    const абонент = state?.toolState?.confirmedSubscriber || {};
+    const subscriber = state?.toolState?.confirmedSubscriber || {};
     const result = [];
     if (experiment?.knowledgeMode === 'clean') {
       result.push('CLEAN MODEL: без SIMNET KB, tool manifest и live READ-tools.');
