@@ -292,6 +292,10 @@ function liveBillingSnapshotResult(tool, snapshot) {
     if (!service.currentTariff && !service.nextTariff) return result(tool, false, 'DATA_NOT_AVAILABLE', { message: 'Billing не вернул тариф по найденному абоненту.' });
     return result(tool, true, 'OK', {
       currentTariff: service.currentTariff || '',
+      currentTariffSource: service.currentTariffSource || '',
+      tariffSelectorState: service.tariffSelectorState || '',
+      tariffHistorical: Boolean(service.tariffHistorical),
+      historicalTariffEvidence: service.historicalTariffEvidence || null,
       nextTariff: service.nextTariff || '',
       nextTariffDelay: service.nextTariffDelay || '',
       price: finance.price ?? '',
