@@ -12,6 +12,7 @@ const REQUIRED_TOOLS = [
   'customer.snapshot',
   'billing.balance',
   'billing.tariff',
+  'billing.history',
   'billing.payments',
   'userside.snapshot',
   'building.snapshot',
@@ -42,7 +43,7 @@ test('planner receives the manifest and an explicit goal -> Billing identity -> 
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.billing, true);
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.userside, true);
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.network, true);
-  assert.equal(planner.version, 9);
+  assert.equal(planner.version, 11);
   assert.equal(planner.tools.length, REQUIRED_TOOLS.length);
   assert.equal(planner.identityPolicy.primarySystem, 'Billing');
   assert.equal(planner.identityPolicy.primaryTool, 'customer.lookup');
@@ -67,7 +68,7 @@ test('planner keeps full runtime manifest but serializes a compact prompt-safe v
   assert.ok(planner.tools.every(tool => Array.isArray(tool.answers) && tool.answers.length >= 2));
   const serialized = JSON.stringify(AI_OPERATOR_SOFT_TOOL_CAPABILITIES);
   const parsed = JSON.parse(serialized);
-  assert.equal(parsed.toolPlanner.version, 9);
+  assert.equal(parsed.toolPlanner.version, 11);
   assert.match(parsed.toolPlanner.replyStyleRule, /живой оператор/i);
   assert.deepEqual(parsed.toolPlanner.tools.map(tool => tool.name), REQUIRED_TOOLS);
   assert.ok(parsed.toolPlanner.tools.every(tool => !('answers' in tool) && !('returns' in tool) && !('limitations' in tool)));
@@ -148,4 +149,19 @@ test('exact tool names placed in subscriber_data_needed.field route to the inten
     mapInformationNeedsToTools(needs).map(item => item.tool),
     ['network.session', 'userside.snapshot', 'pon.onu', 'pon.signal', 'billing.balance']
   );
+});
+
+test('billing.history is a distinct lazy payshow historical source', () => {
+  const history = AI_OPERATOR_SOFT_TOOL_CATALOG.find(item => item.name === 'billing.history');
+  assert.ok(history);
+  assert.equal(history.mode, 'billing-payshow-history-live-read-only + snapshot-cache');
+  assert.match(history.endpoint, /a=payshow/);
+  assert.match(history.establishes, /изменения пакета|блокировки|временные платежи/i);
+  assert.ok(history.limitations.some(item => /historical|current state/i.test(item)));
+  assert.ok(history.limitations.some(item => /session token/i.test(item)));
+
+  const planned = mapInformationNeedsToTools([
+    { system: 'Billing', field: 'billing.history: когда меняли пакет и когда блокировали', why: 'Нужна история изменений клиента.' }
+  ]);
+  assert.deepEqual(planned.map(item => item.tool), ['billing.history']);
 });
