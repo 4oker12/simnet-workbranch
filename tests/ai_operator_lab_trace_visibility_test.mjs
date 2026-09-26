@@ -125,8 +125,8 @@ test('Lab runtime visualization uses blue/slate accents while red remains reserv
   assert.match(traceJs, /ai-runtime-snapshot[^\n]*border-top:3px solid #2563eb/);
   assert.match(traceJs, /ai-runtime-tools-stage[^\n]*border-top:3px solid #0891b2/);
   assert.match(traceJs, /ai-runtime-model-stage[^\n]*border-top:3px solid #64748b/);
-  assert.match(css, /--ai-accent:#2563eb/);
-  assert.match(css, /--ai-plum:#2563eb/);
+  assert.match(css, /--ai-accent:#1d4ed8/);
+  assert.match(css, /--ai-plum:#1d4ed8/);
 });
 
 
