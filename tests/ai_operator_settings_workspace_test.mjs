@@ -99,7 +99,7 @@ assert.doesNotMatch(lab, /\$\{number\(event\.totalTokens\)\} tok/, 'RESULT heade
 assert.match(lab, /НАЙТИ \/ ПРОВЕРИТЬ \(LOOKUP \/ VERIFY\)/);
 assert.match(lab, /ЧИТАТЬ \(READ \/ GET-like\)/);
 
-assert.match(css, /\.shell\{width:min\(960px,calc\(100vw - 32px\)\)/, 'settings/Lab workspace should be slightly wider');
+assert.match(css, /\.shell\{width:calc\(100vw - 24px\);max-width:none/, 'settings/Lab workspace should use the available viewport width');
 assert.match(lab, /import\('\.\/ai-quota-dashboard\.js'\)/, 'Manual Lab must mount the provider-aware limits panel');
 assert.match(quota, /DeepSeek · лимиты \/ расход/, 'limits panel must be DeepSeek-first when DeepSeek is active');
 assert.match(quota, /Статические 0–100% лимиты не выдумываем/, 'unknown provider limits must remain unknown instead of using fake static percentages');
