@@ -55,6 +55,36 @@ test('current tariff only returns one requested canonical fact', async () => {
   assert.doesNotMatch(JSON.stringify(out.evidence), /unrelatedSecret|must-not-reach/);
 });
 
+test('fresh fallback tariff path outranks stale display alias in one snapshot', async () => {
+  const stale = new Date(NOW - 3600000).toISOString();
+  const fresh = new Date(NOW - 1000).toISOString();
+  const out = await resolveFacts({
+    context: IDENTITY,
+    facts: ['subscriber.tariff.current.name'],
+    execute: async () => mainSummary({
+      service: {
+        currentTariffDisplay: 'СТАРЫЙ ТАРИФ',
+        current: { name: 'ЕЩЁ СТАРЫЙ' },
+        currentTariff: '[001] Льготный (100/100)'
+      },
+      evidence: {
+        fieldObservedAt: {
+          'service.currentTariffDisplay': stale,
+          'service.current.name': stale,
+          'service.currentTariff': fresh
+        }
+      }
+    }),
+    now: NOW
+  });
+
+  const tariff = value(out, 'subscriber.tariff.current.name');
+  assert.equal(tariff.status, 'known');
+  assert.equal(tariff.value, '[001] Льготный (100/100)');
+  assert.equal(tariff.rawPath, 'service.currentTariff');
+  assert.equal(tariff.observedAt, fresh);
+});
+
 test('balance and total due share one Billing main-summary source read', async () => {
   let calls = 0;
   const out = await resolveFacts({
