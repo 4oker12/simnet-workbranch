@@ -13,6 +13,27 @@ function latestCustomerText(transcript = []) {
   return String(turn?.text || '').trim();
 }
 
+function explicitCurrentAccountFacts({ analysis = {}, requestText = '' } = {}) {
+  const probe = analysis?.probe || {};
+  const context = [
+    requestText,
+    probe.whatUserWants,
+    probe.latestMessageMeans,
+    ...(Array.isArray(probe.unresolvedRequests) ? probe.unresolvedRequests : [])
+  ].map(value => String(value || '').trim()).filter(Boolean).join(' ').toLowerCase();
+
+  const facts = [];
+  const asksBalance = /(?:баланс|на\s+сч[её]т|на\s+рахунк|остаток[^.!?]{0,30}(?:сч[её]т|рахунк))/iu.test(context);
+  const asksTariff = /(?:тариф|пакет)/iu.test(context);
+  const subscriberScoped = asksBalance || /(?:\bмой\b|\bмо[её]м\b|у\s+меня|сейчас|зараз|текущ|поточн|абонент|договор|договір|видит[^.!?]{0,35}оператор|бачить[^.!?]{0,35}оператор)/iu.test(context);
+
+  if (asksBalance) facts.push('subscriber.finance.balance.account');
+  if (asksTariff && subscriberScoped) {
+    facts.push('subscriber.tariff.current.name', 'subscriber.tariff.current.price');
+  }
+  return normalizeCanonicalFacts(facts);
+}
+
 function removeUnsafeSubstitutions(facts = [], requestText = '') {
   const normalized = normalizeCanonicalFacts(facts);
   if (!isConsumptionStartQuestion(requestText)) return normalized;
@@ -27,7 +48,8 @@ export function augmentRequiredFactsForTurn({ analysis = {}, transcript = [], re
   const semanticFacts = analysis?.probe?.requiredFacts || analysis?.probe?.required_facts || [];
   const dialogueFacts = requiredFactsForDialogueTurn({ analysis, requestText: currentText, labState });
   const deterministicFinanceFacts = financeRequiredFacts(currentText);
-  return removeUnsafeSubstitutions([...semanticFacts, ...dialogueFacts, ...deterministicFinanceFacts], currentText);
+  const explicitAccountFacts = explicitCurrentAccountFacts({ analysis, requestText: currentText });
+  return removeUnsafeSubstitutions([...semanticFacts, ...dialogueFacts, ...deterministicFinanceFacts, ...explicitAccountFacts], currentText);
 }
 
 export async function groundSubscriberReply(options = {}) {

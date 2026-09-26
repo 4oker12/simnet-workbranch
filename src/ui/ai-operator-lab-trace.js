@@ -6,8 +6,8 @@
   const STYLE_ID = 'aiLabLinearTraceStyle';
   const TOOL_INSPECTOR_ID = 'aiLabToolInspector';
   const BILLING_SNAPSHOT_KEY = 'simnet_ai_operator_billing_snapshots_v1';
-  const TOOL_HINT_RE = /\b(customer\.lookup|customer\.confirm|customer\.snapshot|billing\.balance|billing\.tariff|billing\.history|billing\.payments|userside\.snapshot|building\.snapshot|network\.session|pon\.onu|pon\.signal)\b/i;
-  const TOOL_REF_RE = /(?:tool:)?(?:customer\.lookup|customer\.confirm|customer\.snapshot|billing\.balance|billing\.tariff|billing\.history|billing\.payments|userside\.snapshot|building\.snapshot|network\.session|pon\.onu|pon\.signal)/gi;
+  const TOOL_HINT_RE = /\b(customer\.lookup|customer\.confirm|customer\.snapshot|billing\.main_summary|billing\.balance|billing\.tariff|billing\.history|billing\.payments|userside\.snapshot|building\.snapshot|network\.session|pon\.onu|pon\.signal)\b/i;
+  const TOOL_REF_RE = /(?:tool:)?(?:customer\.lookup|customer\.confirm|customer\.snapshot|billing\.main_summary|billing\.balance|billing\.tariff|billing\.history|billing\.payments|userside\.snapshot|building\.snapshot|network\.session|pon\.onu|pon\.signal)/gi;
   const ACTION_TAXONOMY = Object.freeze({
     lookup: Object.freeze({ label: 'НАЙТИ / ПРОВЕРИТЬ', technical: 'LOOKUP / VERIFY', httpLike: 'READ / GET-like' }),
     read: Object.freeze({ label: 'ЧИТАТЬ', technical: 'READ', httpLike: 'GET-like' }),
@@ -45,6 +45,16 @@
       input: 'confirmed абонент context',
       reads: 'local simnet_ai_operator_billing_snapshots_v1',
       returns: 'identity + address + service + finance + network + technical + bootstrapMeta'
+    }),
+    'billing.main_summary': Object.freeze({
+      actionType: 'read',
+      className: 'ЧИТАТЬ (READ / GET-like)',
+      category: 'биллинг (billing)',
+      operation: 'канонический снимок главной карточки (main summary)',
+      purpose: 'Одним READ получает основной Billing-блок и проецирует только запрошенные canonical facts.',
+      input: 'confirmed абонент context + requiredCanonicalFacts',
+      reads: 'Billing a=user · table.tbg1.nav3.width100',
+      returns: 'запрошенные canonical facts: finance / tariff / service'
     }),
     'billing.balance': Object.freeze({
       actionType: 'read',
@@ -222,7 +232,7 @@
       .ai-runtime-stage{min-width:0;padding:9px;border:1px solid #dbe4ef;border-radius:9px;background:#fff}.ai-runtime-stage>header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px}.ai-runtime-stage>header strong{font:900 9px ui-monospace,monospace;letter-spacing:.05em;color:#334155}.ai-runtime-stage>header span{font:800 8px ui-monospace,monospace;color:#64748b}
       .ai-runtime-snapshot{border-top:3px solid #2563eb}.ai-runtime-tools-stage{border-top:3px solid #0891b2}.ai-runtime-model-stage{border-top:3px solid #64748b}
       .ai-runtime-status{display:inline-flex;padding:2px 5px;border-radius:999px;background:#eef2f7;color:#475569;font:800 8px ui-monospace,monospace}.ai-runtime-status.ok{background:#ecfdf3;color:#067647}.ai-runtime-status.warn{background:#fff7e6;color:#9a6700}.ai-runtime-status.bad{background:#fff1f1;color:#b42318}
-      .ai-runtime-groups{display:grid;gap:5px}.ai-runtime-group{border:1px solid #e2e8f0;border-radius:7px;background:#fbfdff;overflow:hidden}.ai-runtime-group>summary{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:5px 7px;cursor:pointer;color:#334155;font:800 8px ui-monospace,monospace}.ai-runtime-group>summary span{color:#64748b;font-weight:700}.ai-runtime-group pre{margin:0;padding:7px;border-top:1px solid #e2e8f0;background:#fff;color:#334155;font:8px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;max-height:210px;overflow:auto}
+      .ai-runtime-groups{display:grid;gap:6px}.ai-runtime-group{border:1px dashed rgba(15,23,42,.62);border-radius:7px;background:#fbfdff;overflow:hidden}.ai-runtime-group>summary{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:6px 8px;cursor:pointer;color:#111827;background:#f8fafc;font:900 8.5px ui-monospace,monospace}.ai-runtime-group>summary b{color:#111827;letter-spacing:.02em}.ai-runtime-group>summary span{color:#475569;font-weight:750}.ai-runtime-group pre{margin:0;padding:8px;border-top:1px dotted rgba(15,23,42,.38);background:#fff;color:#172033;font:9px/1.52 ui-monospace,monospace;letter-spacing:.005em;white-space:pre-wrap;word-break:break-word;max-height:225px;overflow:auto}
       .ai-runtime-tool-list{display:grid;gap:6px}.ai-runtime-call{padding:7px;border:1px solid #dbe4ef;border-radius:8px;background:#f8fbff}.ai-runtime-call-head{display:flex;align-items:center;gap:5px;flex-wrap:wrap}.ai-runtime-method{padding:2px 5px;border-radius:5px;background:#dbeafe;color:#1d4ed8;font:900 8px ui-monospace,monospace}.ai-runtime-call-title{font:900 9px ui-monospace,monospace}.ai-runtime-call-purpose{margin-top:4px;color:#475569;font-size:9px;line-height:1.35}.ai-runtime-call-meta{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:2px 6px;margin-top:5px;font-size:8px}.ai-runtime-call-meta b{color:#64748b}.ai-runtime-call-meta span{color:#334155;word-break:break-word}.ai-runtime-call details{margin-top:5px}.ai-runtime-call details>summary{cursor:pointer;color:#475569;font:800 8px ui-monospace,monospace}.ai-runtime-call pre{margin:4px 0 0;padding:6px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#334155;font:8px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;max-height:180px;overflow:auto}
       .ai-runtime-model-note{margin-bottom:6px;padding:6px 7px;border-radius:6px;background:#f1f5f9;color:#475569;font-size:8px;line-height:1.4}.ai-runtime-facts{display:grid;gap:4px}.ai-runtime-fact{padding:5px 6px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#334155;font-size:8px;line-height:1.4}.ai-runtime-fact b{color:#0f172a}.ai-runtime-empty{padding:7px;border:1px dashed #cbd5e1;border-radius:7px;color:#64748b;font-size:8px}
       .ai-runtime-full{margin-top:6px}.ai-runtime-full>summary{cursor:pointer;color:#2563eb;font:900 8px ui-monospace,monospace}.ai-runtime-full pre{margin:5px 0 0;padding:7px;max-height:320px;overflow:auto;border:1px solid #dbe4ef;border-radius:6px;background:#fff;color:#334155;font:8px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-word}
@@ -326,7 +336,7 @@
   }
 
   async function loadSubscriberSnapshot(tool, trace) {
-    if (!['customer.lookup', 'customer.snapshot', 'billing.balance', 'billing.tariff', 'billing.history', 'billing.payments', 'building.snapshot', 'userside.snapshot', 'network.session', 'pon.onu', 'pon.signal'].includes(tool)) return null;
+    if (!['customer.lookup', 'customer.snapshot', 'billing.main_summary', 'billing.balance', 'billing.tariff', 'billing.history', 'billing.payments', 'building.snapshot', 'userside.snapshot', 'network.session', 'pon.onu', 'pon.signal'].includes(tool)) return null;
     const billingId = inspectorBillingId(trace, inspectorState);
     if (!billingId || !chrome?.storage?.local?.get) return null;
     const stored = await chrome.storage.local.get(BILLING_SNAPSHOT_KEY);
@@ -629,9 +639,20 @@
     if (probe.whatUserWants) {
       const item=create('div','ai-runtime-fact'); item.append(create('b','','намерение (intent): '),document.createTextNode(probe.whatUserWants)); facts.append(item);
     }
-    const requested = [...new Set(toolTrace.flatMap(item => Array.isArray(item?.requestedFacts) ? item.requestedFacts : []))];
+    const requested = [...new Set([
+      ...(Array.isArray(variant?.factDiagnostics?.requestedFacts) ? variant.factDiagnostics.requestedFacts : []),
+      ...toolTrace.flatMap(item => Array.isArray(item?.requestedFacts) ? item.requestedFacts : [])
+    ])];
     if (requested.length) {
       const item=create('div','ai-runtime-fact'); item.append(create('b','','запрошенные канонические факты (requested canonical facts): '),document.createTextNode(requested.join(' · '))); facts.append(item);
+    }
+    const factEvidence = Array.isArray(variant?.factEvidence) ? variant.factEvidence : [];
+    const requestedSet = new Set(requested);
+    for (const evidence of factEvidence.filter(item => !requestedSet.size || requestedSet.has(item?.path)).slice(0,18)) {
+      const row=create('div','ai-runtime-fact');
+      const value = evidence?.status === 'known' ? jsonText(evidence?.value) : String(evidence?.status || 'unknown');
+      row.append(create('b','',`${evidence?.path || 'fact'}: `),document.createTextNode(short(value,260)));
+      facts.append(row);
     }
     const kept = Array.isArray(variant?.answerRelevance?.kept) ? variant.answerRelevance.kept : [];
     for (const item of kept.slice(0,18)) {
@@ -926,7 +947,9 @@
     const variant = activeVariant(experiment) || {};
     const probe = experiment?.analysis?.probe || {};
     const knowledge = experiment?.analysis?.knowledge || {};
-    const toolTrace = Array.isArray(variant?.toolTrace) ? variant.toolTrace : [];
+    const legacyToolTrace = Array.isArray(variant?.toolTrace) ? variant.toolTrace : [];
+    const canonicalSourceTrace = Array.isArray(variant?.factSourceTrace) ? variant.factSourceTrace : [];
+    const toolTrace = [...legacyToolTrace, ...canonicalSourceTrace];
     inspectorState = state || {};
     inspectorToolTrace = toolTrace;
     if (!inspectorPinned) hideInspector(true);

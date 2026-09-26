@@ -535,3 +535,5 @@
   ensureControls();
   void refresh().catch(error => setStatus(`Test Lab: ${short(error?.message || error, 500)}`, 'bad'));
 })();
+
+void import('./ai-quota-dashboard.js').catch(error => console.warn('[AI PROVIDER LIMITS]', error));

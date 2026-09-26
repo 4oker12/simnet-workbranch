@@ -298,7 +298,7 @@ async function replyVariant({ lab, transcript, customer, analysis, useKnowledge,
   lab.toolState = normalizeToolState(grounded.toolState || lab.toolState);
   const { toolState: _toolState, ...result } = grounded;
 
-  for (const trace of result.toolTrace || []) {
+  for (const trace of [...(result.toolTrace || []), ...(result.factSourceTrace || [])]) {
     appendEvent(lab, 'tool_execution', {
       customerMessageId: customer.id,
       variant: label,
@@ -394,7 +394,11 @@ async function executeExperiment(lab, baseMessages, customer) {
   const elapsedMs = Math.round(performance.now() - startedAt);
   const totalUsage = usageTotal(analysis.decision?.usage, ...variants.map(item => item.usage));
   const model = [analysis.decision?.model, ...variants.map(item => item.model)].filter(Boolean).join(' → ');
-  const toolCalls = variants.reduce((sum, item) => sum + Number(item.toolTrace?.length || 0), 0);
+  const toolCalls = variants.reduce((sum, item) => (
+    sum
+    + Number(item.toolTrace?.length || 0)
+    + Number(item.factSourceTrace?.length || 0)
+  ), 0);
   const experimentCapabilities = requestedMode === 'clean' ? CLEAN_CAPABILITIES : CAPABILITIES;
   const experimentDetails = requestedMode === 'clean'
     ? { mode: 'clean-model', billing: 'OFF', userside: 'OFF', network: 'OFF', toolManifestVersion: 'none', toolCount: 0 }
@@ -457,6 +461,7 @@ async function executeExperiment(lab, baseMessages, customer) {
         relevanceGate: item.relevanceGate || null,
         behaviorEffects: item.behaviorEffects,
         toolTrace: item.toolTrace,
+        factSourceTrace: item.factSourceTrace || [],
         factEvidence: item.factEvidence || [],
         factDiagnostics: item.factDiagnostics || {},
         degraded: Boolean(item.degraded),
