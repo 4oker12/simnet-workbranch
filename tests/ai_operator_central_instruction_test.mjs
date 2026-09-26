@@ -18,7 +18,7 @@ test('canonical autonomous instruction generated artifact exactly matches MD sou
   assert.equal(AUTONOMOUS_OPERATOR_INSTRUCTION_SHA256, expectedHash, 'instruction hash must identify exact canonical content');
   assert.deepEqual(AUTONOMOUS_OPERATOR_INSTRUCTION_META, {
     name: 'AUTONOMOUS_OPERATOR',
-    version: 9,
+    version: 11,
     hash: expectedHash
   });
 });
@@ -42,6 +42,10 @@ test('canonical instruction defines concise contextual subscriber communication'
   assert.match(md, /Без «сверхвежливости» и дежурных фраз службы поддержки/i);
   assert.match(md, /Шаблонность выдаёт AI-оператора быстрее всего/i);
   assert.match(md, /Разнообразие никогда не важнее ясности/i);
+  assert.match(md, /Реагируй на тон человека/i);
+  assert.match(md, /одна скобка.*один нейтральный emoji/is);
+  assert.match(md, /Юмор не создаёт фактов/i);
+  assert.match(md, /Не спрашивай разрешения «могу проверить\?»/i);
 });
 
 test('central instruction stays a protected system message separate from local stage work', () => {
