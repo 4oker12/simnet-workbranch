@@ -116,12 +116,8 @@ assert.doesNotMatch(quota, /qwen\/qwen3\.8-27b|openai\/gpt-oss-120b|openai\/gpt-
 assert.match(quota, /provider !== 'deepseek'/, 'quota panel must disappear for another provider instead of showing DeepSeek data out of context');
 
 
-test('Manual Lab question bank and chat use strong readable contrast', () => {
-  const labCss = fs.readFileSync(new URL('../src/ui/ai-operator-lab.css', import.meta.url), 'utf8');
-  const lightCss = fs.readFileSync(new URL('../src/ui/settings-light.css', import.meta.url), 'utf8');
-  assert.match(labCss, /--ai-text:#0f172a/);
-  assert.match(labCss, /\.ai-lab-message-bubble\{[^}]*font-size:13px/);
-  assert.match(labCss, /\.ai-lab-question-tabs button\.active\{[^}]*background:#dbeafe/);
-  assert.match(labCss, /High-contrast Lab pass/);
-  assert.match(lightCss, /Stronger light-theme hierarchy/);
-});
+assert.match(labCss, /--ai-text:#0f172a/, 'Manual Lab must use a high-contrast primary text color');
+assert.match(labCss, /\.ai-lab-message-bubble\{[^}]*font-size:13px/, 'chat messages must be readable without zooming');
+assert.match(labCss, /\.ai-lab-question-tabs button\.active\{[^}]*background:#dbeafe/, 'active question topic must be visually obvious');
+assert.match(labCss, /High-contrast Lab pass/, 'Lab CSS must include the high-contrast pass');
+assert.match(lightCss, /Stronger light-theme hierarchy/, 'light settings theme must strengthen secondary-text contrast');
