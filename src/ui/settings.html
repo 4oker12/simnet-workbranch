@@ -119,15 +119,63 @@
               </div>
             </div>
 
-            <div class="ai-lab-quick">
-              <button type="button" data-ai-lab-prompt="Дай сводку по моему договору">Сводка</button>
-              <button type="button" data-ai-lab-prompt="Какой у меня баланс?">Баланс</button>
-              <button type="button" data-ai-lab-prompt="Какой у меня тариф?">Тариф</button>
-              <button type="button" data-ai-lab-prompt="Какие у меня последние платежи?">Платежи</button>
-              <button type="button" data-ai-lab-prompt="Какой адрес подключения и какая технология?">Адрес / подключение</button>
-              <button type="button" data-ai-lab-prompt="У меня нет интернета">Нет интернета</button>
-              <button type="button" data-ai-lab-prompt="Интернет часто обрывается">Обрывы</button>
-            </div>
+            <section class="ai-lab-question-bank" aria-label="Банк тестовых вопросов">
+              <div class="ai-lab-question-bank-head">
+                <div>
+                  <strong>Банк тестовых вопросов</strong>
+                  <span>Выбери тему и готовую реплику. Она только вставится в поле ниже — отправку запускаешь сам.</span>
+                </div>
+              </div>
+              <div class="ai-lab-question-tabs" role="tablist" aria-label="Темы вопросов">
+                <button type="button" class="active" data-ai-lab-question-category="summary">Договор / сводка</button>
+                <button type="button" data-ai-lab-question-category="internet">Интернет</button>
+                <button type="button" data-ai-lab-question-category="tariff">Тарифы</button>
+                <button type="button" data-ai-lab-question-category="finance">Баланс / финансы</button>
+                <button type="button" data-ai-lab-question-category="services">Услуги</button>
+                <button type="button" data-ai-lab-question-category="promotions">Акции / скидки</button>
+                <button type="button" data-ai-lab-question-category="edge">Нестандартное</button>
+              </div>
+              <div id="aiLabQuestionOptions" class="ai-lab-question-options">
+                <button type="button" data-ai-lab-question data-ai-lab-question-group="summary" data-ai-lab-prompt="Дай сводку по моему договору">Дай сводку по моему договору</button>
+                <button type="button" data-ai-lab-question data-ai-lab-question-group="summary" data-ai-lab-prompt="Что сейчас с моим договором и услугой?">Что сейчас с договором и услугой?</button>
+                <button type="button" data-ai-lab-question data-ai-lab-question-group="summary" data-ai-lab-prompt="Какой адрес подключения и какая технология?">Какой адрес и технология подключения?</button>
+                <button type="button" data-ai-lab-question data-ai-lab-question-group="summary" data-ai-lab-prompt="Когда был заключён мой договор?">Когда заключён договор?</button>
+
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="internet" data-ai-lab-prompt="У меня нет интернета">У меня нет интернета</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="internet" data-ai-lab-prompt="Интернет часто обрывается">Интернет часто обрывается</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="internet" data-ai-lab-prompt="Интернет есть, но сайты не открываются. В чём может быть проблема?">Интернет есть, но сайты не открываются</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="internet" data-ai-lab-prompt="Пинг высокий и всё тормозит. Что можно проверить?">Высокий пинг / тормозит</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="internet" data-ai-lab-prompt="По кабелю всё нормально, а по Wi‑Fi плохо. Что проверять?">По кабелю нормально, Wi‑Fi плохо</button>
+
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="tariff" data-ai-lab-prompt="Какой у меня сейчас тариф?">Какой сейчас тариф?</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="tariff" data-ai-lab-prompt="Какая скорость у меня по тарифу?">Какая скорость по тарифу?</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="tariff" data-ai-lab-prompt="Какой тариф был до блокировки?">Какой тариф был до блокировки?</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="tariff" data-ai-lab-prompt="Есть ли у меня запланированная смена тарифа?">Есть ли запланированная смена?</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="tariff" data-ai-lab-prompt="Хочу 1 Гбит/с. Что у меня сейчас и что можно подключить?">Хочу 1 Гбит/с</button>
+
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="finance" data-ai-lab-prompt="Какой у меня баланс?">Какой баланс?</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="finance" data-ai-lab-prompt="Сколько нужно пополнить, чтобы интернет заработал?">Сколько нужно пополнить?</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="finance" data-ai-lab-prompt="Есть ли у меня временный платёж?">Есть ли временный платёж?</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="finance" data-ai-lab-prompt="Какие у меня последние платежи и списания?">Последние платежи / списания</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="finance" data-ai-lab-prompt="Почему у меня на счёте минус?">Почему на счёте минус?</button>
+
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="services" data-ai-lab-prompt="Какие услуги у меня сейчас подключены?">Какие услуги подключены?</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="services" data-ai-lab-prompt="Есть ли у меня статический IP?">Есть ли статический IP?</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="services" data-ai-lab-prompt="Можно ли поставить интернет на паузу?">Можно ли поставить паузу?</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="services" data-ai-lab-prompt="Хочу снять паузу и снова пользоваться интернетом. Что нужно?">Снять паузу</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="services" data-ai-lab-prompt="Можно ли подключить свой роутер?">Можно ли свой роутер?</button>
+
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="promotions" data-ai-lab-prompt="Какие акции сейчас могут быть доступны для меня?">Какие акции доступны?</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="promotions" data-ai-lab-prompt="Есть ли у меня сейчас скидка и на каких условиях?">Есть ли скидка?</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="promotions" data-ai-lab-prompt="Есть ли акция на более быстрый тариф?">Акция на более быстрый тариф?</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="promotions" data-ai-lab-prompt="Какие условия действуют для нового подключения?">Условия нового подключения</button>
+
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="edge" data-ai-lab-prompt="Я недавно заехал в квартиру, здесь уже есть старый договор. Что мне делать?">Новый жилец, есть старый договор</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="edge" data-ai-lab-prompt="Я раньше здесь пользовался интернетом и хочу снова подключиться. Можно восстановить старый договор или открыть новый?">Вернулся старый абонент</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="edge" data-ai-lab-prompt="Роутер раньше использовался на другом договоре. Его можно подключить здесь?">Роутер привязан к другому договору</button>
+                <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="edge" data-ai-lab-prompt="Хочу перенести интернет на другой адрес. Что нужно проверить?">Перенос на другой адрес</button>
+              </div>
+            </section>
 
             <div class="ai-lab-compose">
               <textarea id="aiLabInput" rows="3" placeholder="Сообщение от имени абонента…"></textarea>
