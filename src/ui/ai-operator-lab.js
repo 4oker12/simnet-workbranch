@@ -11,6 +11,8 @@
   const downloadJsonButton = document.getElementById('aiLabDownloadJson');
   const statusNode = document.getElementById('aiLabStatus');
   const quickButtons = Array.from(document.querySelectorAll('[data-ai-lab-prompt]'));
+  const questionCategoryButtons = Array.from(document.querySelectorAll('[data-ai-lab-question-category]'));
+  const questionButtons = Array.from(document.querySelectorAll('[data-ai-lab-question]'));
   if (!transcriptNode || !eventsNode || !identityNode || !input || !sendButton || !resetButton || !statusNode) return;
 
   let latestState = null;
@@ -465,6 +467,18 @@
     const last = latestState.lastDecision || {};
     setStatus(last.action ? `Последний ход: ${last.action} · MODE ${String(latestState.knowledgeMode || 'auto').toUpperCase()} · tools ${number(latestState.lastExperiment?.toolCalls)}${last.model ? ` · ${short(last.model, 110)}` : ''}` : 'Готово. Пиши как абонент и наблюдай, что AI понял, какие данные запросил и чем подтвердил ответ.', last.action ? 'ok' : '');
   }
+  function selectQuestionCategory(category) {
+    const selected = String(category || questionCategoryButtons[0]?.dataset.aiLabQuestionCategory || '').trim();
+    questionCategoryButtons.forEach(button => {
+      const active = button.dataset.aiLabQuestionCategory === selected;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    questionButtons.forEach(button => {
+      button.hidden = button.dataset.aiLabQuestionGroup !== selected;
+    });
+  }
+
   function setBusy(value) {
     busy = Boolean(value); sendButton.disabled = busy; resetButton.disabled = busy; input.disabled = busy;
     if (downloadTxtButton) downloadTxtButton.disabled = busy; if (downloadJsonButton) downloadJsonButton.disabled = busy;
@@ -530,7 +544,14 @@
   });
   downloadTxtButton?.addEventListener('click', () => void download('txt'));
   downloadJsonButton?.addEventListener('click', () => void download('json'));
-  for (const button of quickButtons) button.addEventListener('click', () => { input.value = String(button.dataset.aiLabPrompt || ''); input.focus(); });
+  for (const button of quickButtons) button.addEventListener('click', () => {
+    input.value = String(button.dataset.aiLabPrompt || '');
+    input.focus();
+  });
+  for (const button of questionCategoryButtons) {
+    button.addEventListener('click', () => selectQuestionCategory(button.dataset.aiLabQuestionCategory));
+  }
+  selectQuestionCategory(questionCategoryButtons.find(button => button.classList.contains('active'))?.dataset.aiLabQuestionCategory);
 
   ensureControls();
   void refresh().catch(error => setStatus(`Test Lab: ${short(error?.message || error, 500)}`, 'bad'));
