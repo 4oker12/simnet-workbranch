@@ -173,11 +173,31 @@ test('runtime map exposes canonical source reads and sharp dotted snapshot group
 test('runtime map keeps the default view compact and moves secondary diagnostics to hover/details', () => {
   assert.match(traceJs, /function hoverTitle\(/);
   assert.match(traceJs, /node\.title = value/);
-  assert.match(traceJs, /details\.open = \['identity','finance'\]\.includes\(key\)/);
+  assert.match(traceJs, /details\.open = false/);
   assert.match(traceJs, /const visibleRows = rows\.filter/);
   assert.match(traceJs, /\['вход', 'источник', 'кэш'\]/);
   assert.doesNotMatch(traceJs, /args\.open = true/);
   assert.match(traceJs, /canonical facts:/);
   assert.match(traceJs, /requested\.slice\(0, 2\)/);
   assert.match(traceJs, /ai-runtime-hover/);
+});
+
+
+test('runtime map classifies requested facts as known, unresolved, failed and suggested reads', () => {
+  assert.match(traceJs, /ПОРТРЕТ АБОНЕНТА/);
+  assert.match(traceJs, /ПОЛУЧЕНО/);
+  assert.match(traceJs, /НЕ ПОЛУЧЕНО \/ UNRESOLVED/);
+  assert.match(traceJs, /ОШИБКИ ЧТЕНИЯ/);
+  assert.match(traceJs, /ПРЕДПОЛАГАЕМОЕ СЛЕДУЮЩЕЕ ЧТЕНИЕ/);
+  assert.match(traceJs, /НЕ ВЫПОЛНЕНО/);
+  assert.match(traceJs, /function runtimeSuggestedRead\(/);
+  assert.match(traceJs, /runtimeFactAttempt/);
+  assert.match(traceJs, /unknown не считается false/);
+  assert.match(traceJs, /результат: ошибка; это не доказательство отсутствия данных/);
+  assert.match(traceJs, /Это диагностическая рекомендация UI, а не ACTION и не выполненный READ/);
+});
+
+test('settings workspace gives the runtime map the full viewport width', () => {
+  const settingsCss = fs.readFileSync(new URL('../src/ui/settings.css', import.meta.url), 'utf8');
+  assert.match(settingsCss, /\.shell\{width:calc\(100vw - 24px\);max-width:none/);
 });
