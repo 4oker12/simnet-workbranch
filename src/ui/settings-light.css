@@ -1,10 +1,10 @@
 /* Whole settings page: light surfaces, slate structure, blue runtime actions. */
-:root{color-scheme:light;background:#e9edf3;color:#111827}
-body{background:linear-gradient(180deg,#f4f6f9,#e9edf3);color:#111827}
+:root{color-scheme:light;background:#e7ebf1;color:#0f172a}
+body{background:linear-gradient(180deg,#f6f8fb,#e7ebf1);color:#0f172a}
 .card{background:#fff;border-color:#cbd3df;box-shadow:0 8px 26px rgba(30,41,59,.08)}
 .top h1,.card h2,.card h3,.case-head strong{color:#111827}
-.eyebrow{color:#2563eb}.version,.muted,.case-meta,.correction-count,.routes li span,.profile p{color:#475569!important}
-.card p,.field-label,.toggle-label{color:#334155}
+.eyebrow{color:#1d4ed8}.version,.muted,.case-meta,.correction-count,.routes li span,.profile p{color:#3f4d61!important}
+.card p,.field-label,.toggle-label{color:#263548}
 .badge{background:#eff6ff;border-color:#bfdbfe;color:#1e40af}
 .badge.ok,.status.ok,.profile span{background:#e7f6ed;border-color:#91caa8;color:#14532d}
 .key-row input,.text-input,select,textarea{background:#fff;color:#0f172a;border-color:#aeb8c7;box-shadow:inset 0 0 0 1px rgba(15,23,42,.02)}
@@ -14,7 +14,7 @@ input::placeholder,textarea::placeholder{color:#667085}
 .danger{background:#9f2233;border-color:#851c2b;color:white}.danger:hover{background:#861827}
 .status,.case-summary{background:#e9eef5;color:#263548;border-color:#cbd3df}
 .status.bad,.case-error{background:#fff0f1;color:#8f1d2f;border-color:#efb7c0}
-.note,.note code{color:#475569!important}
+.note,.note code{color:#3f4d61!important}
 .section-head,.ai-replay-head{border-color:#cbd3df}
 .case-bubble,.ai-replay-panel,.ai-lab-event{background:#fff;color:#1f2937;border-color:#cbd3df}
 .empty{border-color:#b9c3d1;color:#475569}.mini-label{color:#526174}
@@ -60,3 +60,13 @@ input::placeholder,textarea::placeholder{color:#667085}
 
 @media(max-width:900px){.ai-lab-sliders{grid-template-columns:1fr!important}}
 @media(max-width:640px){.ai-api-price-grid{grid-template-columns:1fr 1fr}}
+
+/* Stronger light-theme hierarchy for dense AI Lab diagnostics. */
+.settings-panel-title p,.lab-section-summary span,.replay-workspace-head span{color:#3f4d61!important}
+.lab-section-summary strong,.replay-workspace-head strong,.settings-panel-summary h2{color:#0f172a!important}
+.ai-lab-log>summary{color:#263548!important;font-size:10.5px!important}
+.ai-lab-event{border-color:#b9c5d5!important}
+.ai-lab-event>summary{color:#263548}
+.ai-lab-event pre{color:#263548!important}
+.ai-lab-empty,.ai-lab-log-empty{color:#526174!important}
+textarea:focus,input:focus,select:focus{border-color:#2563eb!important;box-shadow:0 0 0 3px rgba(37,99,235,.13)!important}
