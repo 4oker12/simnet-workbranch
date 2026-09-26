@@ -832,6 +832,32 @@
     return stage;
   }
 
+  async function hydrateRuntimeMap(container, state = {}, experiment = {}, variant = {}, toolTrace = []) {
+    let snapshot = null;
+    try { snapshot = await loadSubscriberSnapshot('customer.snapshot', toolTrace.at(-1) || null); } catch {}
+
+    const head = create('div', 'ai-runtime-map-head');
+    const title = create('div');
+    title.append(create('strong', '', 'КАРТА РАБОТЫ АГЕНТА (AGENT RUNTIME MAP)'), create('span', '', 'что уже знает агент → какой инструмент вызвал → что передал дальше'));
+    const billingId = inspectorBillingId(toolTrace.at(-1) || null, state);
+    head.append(title, create('span', '', billingId ? `абонент ${billingId}` : 'абонент не привязан'));
+
+    const flow = create('div', 'ai-runtime-flow');
+    flow.append(
+      runtimeSnapshotStage(snapshot, state),
+      create('div', 'ai-runtime-arrow', '→'),
+      runtimeToolsStage(toolTrace),
+      create('div', 'ai-runtime-arrow', '→'),
+      runtimeModelStage(experiment, variant, toolTrace)
+    );
+
+    rendering = true;
+    observer?.disconnect();
+    container.replaceChildren(head, flow);
+    observer?.observe(eventsNode, { childList: true, subtree: true });
+    rendering = false;
+  }
+
   function jsonBlock(value) {
     const details = create('details', 'ai-trace-raw');
     details.append(create('summary', '', 'Технический RAW JSON'));
