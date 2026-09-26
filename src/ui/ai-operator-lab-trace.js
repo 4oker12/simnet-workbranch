@@ -243,6 +243,8 @@
       .ai-runtime-groups{display:grid;gap:6px}.ai-runtime-group{border:1px dashed rgba(15,23,42,.62);border-radius:7px;background:#fbfdff;overflow:hidden}.ai-runtime-group>summary{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:6px 8px;cursor:pointer;color:#111827;background:#f8fafc;font:900 8.5px ui-monospace,monospace}.ai-runtime-group>summary b{color:#111827;letter-spacing:.02em}.ai-runtime-group>summary span{color:#475569;font-weight:750}.ai-runtime-group pre{margin:0;padding:8px;border-top:1px dotted rgba(15,23,42,.38);background:#fff;color:#172033;font:9px/1.52 ui-monospace,monospace;letter-spacing:.005em;white-space:pre-wrap;word-break:break-word;max-height:225px;overflow:auto}
       .ai-runtime-tool-list{display:grid;gap:5px}.ai-runtime-call{padding:6px;border:1px solid #dbe4ef;border-radius:8px;background:#f8fbff}.ai-runtime-call-head{display:flex;align-items:center;gap:5px;flex-wrap:wrap}.ai-runtime-method{padding:2px 5px;border-radius:5px;background:#dbeafe;color:#1d4ed8;font:900 8px ui-monospace,monospace}.ai-runtime-call-title{font:900 9px ui-monospace,monospace}.ai-runtime-call-purpose{margin-top:3px;color:#475569;font-size:8.5px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ai-runtime-call-meta{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;font-size:8px}.ai-runtime-call-meta b{display:none}.ai-runtime-call-meta span{max-width:100%;padding:2px 5px;border:1px dotted #cbd5e1;border-radius:5px;background:#fff;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ai-runtime-call details{margin-top:4px}.ai-runtime-call details>summary{cursor:pointer;color:#475569;font:800 8px ui-monospace,monospace}.ai-runtime-call pre{margin:4px 0 0;padding:6px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#334155;font:8px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;max-height:180px;overflow:auto}.ai-runtime-hover{cursor:help;text-decoration:underline dotted rgba(71,85,105,.55);text-underline-offset:2px}
       .ai-runtime-model-note{margin-bottom:5px;padding:5px 6px;border-radius:6px;background:#f1f5f9;color:#475569;font-size:8px;line-height:1.35}.ai-runtime-facts{display:grid;gap:3px}.ai-runtime-fact{padding:4px 5px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#334155;font-size:8px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ai-runtime-fact b{color:#0f172a}.ai-runtime-empty{padding:6px;border:1px dashed #cbd5e1;border-radius:7px;color:#64748b;font-size:8px}
+      .ai-runtime-snapshot-portrait{display:grid;gap:6px;margin-bottom:7px;padding:7px 8px;border:1px solid #cbd5e1;border-radius:8px;background:#fff}.ai-runtime-snapshot-portrait-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.ai-runtime-snapshot-portrait-head b{font:900 8.5px ui-monospace,monospace;color:#0f172a}.ai-runtime-snapshot-portrait-head span{font-size:8px;color:#64748b}.ai-runtime-snapshot-portrait .ai-tool-inspector-grid{grid-template-columns:max-content minmax(0,1fr);font-size:8.5px}.ai-runtime-snapshot-portrait .ai-tool-inspector-grid b{color:#64748b}.ai-runtime-snapshot-portrait .ai-tool-inspector-grid span{color:#172033;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .ai-runtime-model-section{display:grid;gap:3px;margin-top:6px;padding:5px;border:1px solid #e2e8f0;border-radius:7px;background:#fbfdff}.ai-runtime-model-section-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:1px 1px 3px}.ai-runtime-model-section-head b{font:900 8.5px ui-monospace,monospace}.ai-runtime-model-section-head span{display:grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#eef2f7;color:#475569;font:900 8px ui-monospace,monospace}.ai-runtime-model-section.known{border-color:#b7e3c6;background:#f7fcf8}.ai-runtime-model-section.known .ai-runtime-model-section-head b{color:#067647}.ai-runtime-model-section.unknown{border-color:#e6d39a;background:#fffdf6}.ai-runtime-model-section.unknown .ai-runtime-model-section-head b{color:#8a5a00}.ai-runtime-model-section.error{border-color:#f1b8b8;background:#fff8f8}.ai-runtime-model-section.error .ai-runtime-model-section-head b{color:#b42318}.ai-runtime-model-section.next{border-color:#bfdbfe;background:#f8fbff}.ai-runtime-model-section.next .ai-runtime-model-section-head b{color:#1d4ed8}.ai-runtime-fact-known{border-color:#ccebd6}.ai-runtime-fact-unknown{border-color:#eadcae;background:#fffef9}.ai-runtime-intent{margin-bottom:4px;background:#f8fafc}.ai-runtime-error-row,.ai-runtime-next-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;padding:5px 6px;border-radius:6px;background:#fff;font-size:8px;line-height:1.35}.ai-runtime-error-row{border:1px solid #f3c7c7}.ai-runtime-error-row b{color:#b42318}.ai-runtime-error-row span{color:#7f1d1d}.ai-runtime-next-row{grid-template-columns:minmax(0,1fr) auto auto;border:1px solid #dbeafe}.ai-runtime-next-row b{color:#1d4ed8;font:850 8px ui-monospace,monospace}.ai-runtime-next-row span{color:#475569}.ai-runtime-next-row em{align-self:center;padding:2px 4px;border-radius:4px;background:#eef2f7;color:#64748b;font:900 7px ui-monospace,monospace;font-style:normal}.ai-runtime-used{margin-top:6px}.ai-runtime-used>summary{cursor:pointer;color:#475569;font:850 8px ui-monospace,monospace}
       .ai-runtime-full{margin-top:6px}.ai-runtime-full>summary{cursor:pointer;color:#2563eb;font:900 8px ui-monospace,monospace}.ai-runtime-full pre{margin:5px 0 0;padding:7px;max-height:320px;overflow:auto;border:1px solid #dbe4ef;border-radius:6px;background:#fff;color:#334155;font:8px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-word}
       .ai-tool-ref{display:inline-flex;align-items:center;max-width:100%;border-bottom:1px dotted #2563eb;color:#1d4ed8;font:800 9px ui-monospace,monospace;cursor:help;outline:none}
       .ai-tool-ref:hover,.ai-tool-ref:focus{color:#1d4ed8;border-bottom-style:solid;background:#eff6ff;border-radius:3px}
@@ -523,10 +525,9 @@
       const confirmed = state?.toolState?.confirmedSubscriber;
       stage.append(create('div', 'ai-runtime-empty', confirmed
         ? 'Полный локальный снимок (snapshot) ещё не найден. Ниже доступен только подтверждённый абонент (confirmedSubscriber).'
-        : 'Абонент ещё не подтверждён — снимок абонента (абонент snapshot) отсутствует.'));
+        : 'Абонент ещё не подтверждён — снимок абонента отсутствует.'));
       if (confirmed) {
         const fallback = create('details', 'ai-runtime-group');
-        fallback.open = true;
         const summary = create('summary');
         summary.append(create('b', '', 'confirmedSubscriber'), create('span', '', primitivePreview(confirmed)));
         fallback.append(summary, create('pre', '', jsonText(confirmed)));
@@ -534,6 +535,16 @@
       }
       return stage;
     }
+
+    const portrait = create('section', 'ai-runtime-snapshot-portrait');
+    const portraitHead = create('div', 'ai-runtime-snapshot-portrait-head');
+    portraitHead.append(
+      create('b', '', 'ПОРТРЕТ АБОНЕНТА'),
+      create('span', '', 'компактная проекция снимка; подробности ниже')
+    );
+    portrait.append(portraitHead, snapshotSummary(snapshot));
+    hoverTitle(portrait, 'Сводка из Subscriber Snapshot. RAW-группы ниже не удалены, а свернуты, чтобы не дублировать портрет.');
+    stage.append(portrait);
 
     const groups = create('div', 'ai-runtime-groups');
     const preferred = ['identity','address','contacts','customer','service','finance','network','technical','payments','bootstrapMeta'];
@@ -544,7 +555,7 @@
       seen.add(key);
       const value = snapshot[key];
       const details = create('details', 'ai-runtime-group');
-      details.open = ['identity','finance'].includes(key);
+      details.open = false;
       const summary = create('summary');
       summary.append(create('b', '', key), create('span', '', primitivePreview(value)));
       hoverTitle(summary, jsonText(value));
@@ -643,74 +654,182 @@
     return stage;
   }
 
+  function runtimeRequestedFacts(variant = {}, toolTrace = []) {
+    return [...new Set([
+      ...(Array.isArray(variant?.factDiagnostics?.requestedFacts) ? variant.factDiagnostics.requestedFacts : []),
+      ...toolTrace.flatMap(item => Array.isArray(item?.requestedFacts) ? item.requestedFacts : [])
+    ].filter(Boolean))];
+  }
+
+  function runtimeTraceFacts(trace = {}) {
+    const facts = Array.isArray(trace?.requestedFacts) ? trace.requestedFacts.filter(Boolean) : [];
+    const requestedField = String(trace?.requestedBy?.field || '').trim();
+    if (requestedField && /^(subscriber|customer|billing|network|pon|userside)\./i.test(requestedField)) facts.push(requestedField);
+    return [...new Set(facts)];
+  }
+
+  function runtimeFactAttempt(path = '', toolTrace = []) {
+    for (let index = toolTrace.length - 1; index >= 0; index -= 1) {
+      const trace = toolTrace[index] || {};
+      if (runtimeTraceFacts(trace).includes(path)) return trace;
+    }
+    return null;
+  }
+
+  function runtimeSuggestedRead(path = '', evidence = null, toolTrace = []) {
+    const attempt = runtimeFactAttempt(path, toolTrace);
+    const attemptedTool = normalizedToolName(attempt?.tool || '');
+    if (attemptedTool) {
+      return {
+        tool: attemptedTool,
+        reason: attempt?.ok
+          ? 'Факт остался неизвестным после выполненного READ — проверить полноту/парсинг этого источника.'
+          : 'Последний READ завершился ошибкой — после устранения причины логично повторить тот же источник.',
+        executed: false
+      };
+    }
+    const evidenceTool = normalizedToolName(evidence?.source || '');
+    if (evidenceTool) {
+      return {
+        tool: evidenceTool,
+        reason: 'Источник указан evidence, но отдельный успешный READ этого факта в текущей трассе не подтверждён.',
+        executed: false
+      };
+    }
+    return { tool: '', reason: 'Источник следующего READ по текущей трассе не определён.', executed: false };
+  }
+
+  function runtimeModelSection(title, tone, count) {
+    const section = create('section', `ai-runtime-model-section ${tone}`);
+    const head = create('div', 'ai-runtime-model-section-head');
+    head.append(create('b', '', title), create('span', '', String(count)));
+    section.append(head);
+    return section;
+  }
+
+  function runtimeFactRow(path, evidence, toolTrace = [], tone = '') {
+    const status = String(evidence?.status || 'unknown').toLowerCase();
+    const value = status === 'known' ? jsonText(evidence?.value) : status;
+    const attempt = runtimeFactAttempt(path, toolTrace);
+    const next = runtimeSuggestedRead(path, evidence, toolTrace);
+    const row = create('div', `ai-runtime-fact ai-runtime-fact-${tone || status}`);
+    row.append(create('b', '', `${path}: `), document.createTextNode(short(value, 110)));
+    const diagnostic = [
+      path,
+      `статус: ${status}`,
+      `значение: ${value}`,
+      `источник evidence: ${evidence?.source || '—'}`,
+      `последняя попытка: ${attempt?.tool || '—'}`,
+      `результат попытки: ${attempt ? (attempt.ok ? 'OK' : `ERROR ${attempt.code || 'UNKNOWN'}`) : 'не зафиксирован'}`,
+      attempt?.data?.failurePhase ? `этап ошибки: ${attempt.data.failurePhase}` : '',
+      attempt?.data?.failureMessage ? `детали ошибки: ${attempt.data.failureMessage}` : '',
+      `предполагаемый следующий READ: ${next.tool || 'не определён'}`,
+      'выполнено: НЕТ',
+      `почему: ${next.reason}`
+    ].filter(Boolean).join('\n');
+    hoverTitle(row, diagnostic);
+    return row;
+  }
+
   function runtimeModelStage(experiment = {}, variant = {}, toolTrace = []) {
     const stage = create('section', 'ai-runtime-stage ai-runtime-model-stage');
     const head = create('header');
     head.append(create('strong', '', 'ЧТО ПОЛУЧИЛА МОДЕЛЬ (MODEL / CANONICAL VIEW)'), create('span', '', 'ПРОЕКЦИЯ ТРАССЫ (TRACE PROJECTION)'));
     stage.append(head);
     stage.append(create('div', 'ai-runtime-model-note',
-      'Показывает подтверждённые факты и запросы из runtime trace. Это не полный скрытый prompt модели, а только видимая проекция данных.'));
+      'Здесь только данные текущего хода: что подтверждено, что запрашивалось, что не удалось получить и почему. unknown не считается false.'));
 
-    const facts = create('div', 'ai-runtime-facts');
     const probe = experiment?.analysis?.probe || {};
     if (probe.whatUserWants) {
-      const item=create('div','ai-runtime-fact'); item.append(create('b','','намерение (intent): '),document.createTextNode(probe.whatUserWants)); facts.append(item);
+      const intent = create('div', 'ai-runtime-fact ai-runtime-intent');
+      intent.append(create('b', '', 'намерение (intent): '), document.createTextNode(probe.whatUserWants));
+      stage.append(intent);
     }
-    const requested = [...new Set([
-      ...(Array.isArray(variant?.factDiagnostics?.requestedFacts) ? variant.factDiagnostics.requestedFacts : []),
-      ...toolTrace.flatMap(item => Array.isArray(item?.requestedFacts) ? item.requestedFacts : [])
-    ])];
-    if (requested.length) {
-      const item=create('div','ai-runtime-fact');
-      const preview = requested.length <= 2 ? requested.join(' · ') : `${requested.slice(0, 2).join(' · ')} · +${requested.length - 2}`;
-      item.append(create('b','','canonical facts: '),document.createTextNode(preview));
-      hoverTitle(item, requested.join('\n'));
-      facts.append(item);
+
+    const requested = runtimeRequestedFacts(variant, toolTrace);
+    const evidenceList = Array.isArray(variant?.factEvidence) ? variant.factEvidence : [];
+    const evidenceByPath = new Map(evidenceList.filter(item => item?.path).map(item => [item.path, item]));
+    const known = [];
+    const unresolved = [];
+    for (const path of requested) {
+      const evidence = evidenceByPath.get(path) || { path, status: 'unknown', source: '' };
+      if (String(evidence?.status || '').toLowerCase() === 'known') known.push([path, evidence]);
+      else unresolved.push([path, evidence]);
     }
-    const factEvidence = Array.isArray(variant?.factEvidence) ? variant.factEvidence : [];
-    const requestedSet = new Set(requested);
-    for (const evidence of factEvidence.filter(item => !requestedSet.size || requestedSet.has(item?.path)).slice(0,18)) {
-      const row=create('div','ai-runtime-fact');
-      const value = evidence?.status === 'known' ? jsonText(evidence?.value) : String(evidence?.status || 'unknown');
-      row.append(create('b','',`${evidence?.path || 'fact'}: `),document.createTextNode(short(value,100)));
-      hoverTitle(row, `${evidence?.path || 'fact'}\nstatus: ${evidence?.status || 'unknown'}\nvalue: ${value}\nsource: ${evidence?.source || '—'}`);
-      facts.append(row);
+
+    const knownSection = runtimeModelSection('✓ ПОЛУЧЕНО', 'known', known.length);
+    if (known.length) known.forEach(([path,evidence]) => knownSection.append(runtimeFactRow(path, evidence, toolTrace, 'known')));
+    else knownSection.append(create('div', 'ai-runtime-empty', 'Ни один из запрошенных canonical facts не подтверждён.'));
+    stage.append(knownSection);
+
+    const unresolvedSection = runtimeModelSection('? НЕ ПОЛУЧЕНО / UNRESOLVED', 'unknown', unresolved.length);
+    if (unresolved.length) unresolved.forEach(([path,evidence]) => unresolvedSection.append(runtimeFactRow(path, evidence, toolTrace, 'unknown')));
+    else unresolvedSection.append(create('div', 'ai-runtime-empty', 'Запрошенных unresolved-фактов нет.'));
+    stage.append(unresolvedSection);
+
+    const failedTools = toolTrace.filter(trace => !trace?.ok);
+    const errorSection = runtimeModelSection('! ОШИБКИ ЧТЕНИЯ', 'error', failedTools.length);
+    if (failedTools.length) {
+      for (const trace of failedTools) {
+        const affected = runtimeTraceFacts(trace).filter(path => requested.includes(path));
+        const row = create('div', 'ai-runtime-error-row');
+        row.append(
+          create('b', '', `${trace?.tool || 'tool'} · ${trace?.code || 'UNKNOWN'}`),
+          create('span', '', affected.length ? `не подтверждено: ${affected.length} факт(а)` : 'влияние на canonical facts не размечено')
+        );
+        hoverTitle(row, [
+          `tool: ${trace?.tool || '—'}`,
+          `code: ${trace?.code || 'UNKNOWN'}`,
+          `source: ${trace?.source || trace?.data?.source || '—'}`,
+          `этап ошибки: ${trace?.data?.failurePhase || '—'}`,
+          `детали ошибки: ${trace?.data?.failureMessage || '—'}`,
+          `затронутые факты: ${affected.join(', ') || '—'}`,
+          'READ выполнен: ДА',
+          'результат: ошибка; это не доказательство отсутствия данных'
+        ].join('\n'));
+        errorSection.append(row);
+      }
+    } else errorSection.append(create('div', 'ai-runtime-empty', 'Ошибок READ/tool в текущем ходе нет.'));
+    stage.append(errorSection);
+
+    const suggestions = [];
+    const seenSuggestions = new Set();
+    for (const [path,evidence] of unresolved) {
+      const suggestion = runtimeSuggestedRead(path, evidence, toolTrace);
+      const key = `${suggestion.tool}|${suggestion.reason}`;
+      if (seenSuggestions.has(key)) continue;
+      seenSuggestions.add(key);
+      suggestions.push({ path, ...suggestion });
     }
+    const nextSection = runtimeModelSection('→ ПРЕДПОЛАГАЕМОЕ СЛЕДУЮЩЕЕ ЧТЕНИЕ', 'next', suggestions.length);
+    if (suggestions.length) {
+      for (const suggestion of suggestions) {
+        const row = create('div', 'ai-runtime-next-row');
+        row.append(
+          create('b', '', suggestion.tool || 'источник не определён'),
+          create('span', '', `для: ${suggestion.path}`),
+          create('em', '', 'НЕ ВЫПОЛНЕНО')
+        );
+        hoverTitle(row, `${suggestion.reason}\nЭто диагностическая рекомендация UI, а не ACTION и не выполненный READ.`);
+        nextSection.append(row);
+      }
+    } else nextSection.append(create('div', 'ai-runtime-empty', 'Следующее чтение не требуется по текущей трассе.'));
+    stage.append(nextSection);
+
     const kept = Array.isArray(variant?.answerRelevance?.kept) ? variant.answerRelevance.kept : [];
-    for (const item of kept.slice(0,18)) {
-      const row=create('div','ai-runtime-fact');
-      row.append(create('b','',`${item?.fact || 'fact'}: `),document.createTextNode(short(item?.reason || item?.value || 'использован',260)));
-      facts.append(row);
+    if (kept.length) {
+      const used = create('details', 'ai-runtime-used');
+      used.append(create('summary', '', `ИСПОЛЬЗОВАНО В ОТВЕТЕ · ${kept.length}`));
+      const body = create('div', 'ai-runtime-facts');
+      for (const item of kept.slice(0,18)) {
+        const row=create('div','ai-runtime-fact');
+        row.append(create('b','',`${item?.fact || 'fact'}: `),document.createTextNode(short(item?.reason || item?.value || 'использован',260)));
+        body.append(row);
+      }
+      used.append(body);
+      stage.append(used);
     }
-    if (!facts.childNodes.length) facts.append(create('div','ai-runtime-empty','В trace нет отдельной узкой canonical-проекции для этого хода.'));
-    stage.append(facts);
     return stage;
-  }
-
-  async function hydrateRuntimeMap(container, state = {}, experiment = {}, variant = {}, toolTrace = []) {
-    let snapshot = null;
-    try { snapshot = await loadSubscriberSnapshot('customer.snapshot', toolTrace.at(-1) || null); } catch {}
-
-    const head = create('div', 'ai-runtime-map-head');
-    const title = create('div');
-    title.append(create('strong', '', 'КАРТА РАБОТЫ АГЕНТА (AGENT RUNTIME MAP)'), create('span', '', 'что уже знает агент → какой инструмент вызвал → что передал дальше'));
-    const billingId = inspectorBillingId(toolTrace.at(-1) || null, state);
-    head.append(title, create('span', '', billingId ? `абонент ${billingId}` : 'абонент не привязан'));
-
-    const flow = create('div', 'ai-runtime-flow');
-    flow.append(
-      runtimeSnapshotStage(snapshot, state),
-      create('div', 'ai-runtime-arrow', '→'),
-      runtimeToolsStage(toolTrace),
-      create('div', 'ai-runtime-arrow', '→'),
-      runtimeModelStage(experiment, variant, toolTrace)
-    );
-
-    rendering = true;
-    observer?.disconnect();
-    container.replaceChildren(head, flow);
-    observer?.observe(eventsNode, { childList: true, subtree: true });
-    rendering = false;
   }
 
   function jsonBlock(value) {
