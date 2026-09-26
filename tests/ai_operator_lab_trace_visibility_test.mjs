@@ -178,7 +178,7 @@ test('runtime map keeps the default view compact and moves secondary diagnostics
   assert.match(traceJs, /\['вход', 'источник', 'кэш'\]/);
   assert.doesNotMatch(traceJs, /args\.open = true/);
   assert.match(traceJs, /canonical facts:/);
-  assert.match(traceJs, /requested\.slice\(0, 2\)/);
+  assert.match(traceJs, /runtimeRequestedFacts/);
   assert.match(traceJs, /ai-runtime-hover/);
 });
 
