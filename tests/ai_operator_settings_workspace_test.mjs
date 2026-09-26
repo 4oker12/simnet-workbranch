@@ -114,3 +114,14 @@ assert.match(quota, /DeepSeek · лимиты \/ расход/, 'limits panel mu
 assert.match(quota, /Статические 0–100% лимиты не выдумываем/, 'unknown provider limits must remain unknown instead of using fake static percentages');
 assert.doesNotMatch(quota, /qwen\/qwen3\.8-27b|openai\/gpt-oss-120b|openai\/gpt-oss-20b|Prompt Guard 86M/, 'the old four Groq model quota cards must be removed');
 assert.match(quota, /provider !== 'deepseek'/, 'quota panel must disappear for another provider instead of showing DeepSeek data out of context');
+
+
+test('Manual Lab question bank and chat use strong readable contrast', () => {
+  const labCss = fs.readFileSync(new URL('../src/ui/ai-operator-lab.css', import.meta.url), 'utf8');
+  const lightCss = fs.readFileSync(new URL('../src/ui/settings-light.css', import.meta.url), 'utf8');
+  assert.match(labCss, /--ai-text:#0f172a/);
+  assert.match(labCss, /\.ai-lab-message-bubble\{[^}]*font-size:13px/);
+  assert.match(labCss, /\.ai-lab-question-tabs button\.active\{[^}]*background:#dbeafe/);
+  assert.match(labCss, /High-contrast Lab pass/);
+  assert.match(lightCss, /Stronger light-theme hierarchy/);
+});
