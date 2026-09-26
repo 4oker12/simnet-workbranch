@@ -337,7 +337,9 @@ test('explicit current balance and tariff request survives empty semantic requir
     execute: async input => {
       calls.push(input);
       assert.equal(input.tool, 'billing.main_summary');
-      return mainSummary();
+      const fresh = mainSummary();
+      fresh.observedAt = new Date().toISOString();
+      return fresh;
     },
     coreGround: async options => {
       capturedResolution = options.factResolution;
