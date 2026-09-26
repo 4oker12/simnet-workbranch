@@ -165,6 +165,7 @@ jobs:
         run: |
           node --test --test-name-pattern="fresh source cache with a stale requested field" tests/ai_operator_canonical_fact_resolver_test.mjs
           node --test --test-name-pattern="explicit recalculate follow-up" tests/ai_operator_canonical_fact_resolver_test.mjs
+          node --test --test-name-pattern="explicit current balance and tariff request" tests/ai_operator_canonical_fact_resolver_test.mjs
       - name: Finance · settlement-cycle knowledge
         if: always()
         run: node --test tests/ai_operator_settlement_cycle_knowledge_test.mjs
