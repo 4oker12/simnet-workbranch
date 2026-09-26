@@ -11,6 +11,11 @@ const AUTH_SELECTOR = 'table.usrlist.width100';
 const SUMMARY_SELECTOR = 'table.tbg1.nav3.width100';
 const PAYMENTS_SELECTOR = '#my_x_16';
 const CACHE = new Map();
+const NO_RESULT_RETRY_DELAY_MS = 120;
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+}
 
 function clean(value, max = 700) {
   const normalized = String(value == null ? '' : value).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
@@ -452,10 +457,23 @@ export async function readBillingSummaryLive({ billingId: rawBillingId, refresh 
   if (!tabs.length) return { ok: false, code: 'BILLING_TAB_REQUIRED' };
 
   let last = null;
+  const retryableAcrossTabs = new Set([
+    'BILLING_AUTH_REQUIRED',
+    'BILLING_TAB_INVALID',
+    'BILLING_SESSION_REQUIRED',
+    'BILLING_SUMMARY_NO_RESULT',
+    'BILLING_SUMMARY_EXECUTION_FAILED'
+  ]);
   for (const tab of tabs) {
     if (!Number.isInteger(tab?.id)) continue;
     try {
-      const outcome = await executeRead(tab.id, id);
+      let outcome = await executeRead(tab.id, id);
+      if (outcome?.code === 'BILLING_SUMMARY_NO_RESULT') {
+        // A tab can be between navigation/document states immediately after
+        // lookup/bootstrap. Retry once only; never poll indefinitely.
+        await wait(NO_RESULT_RETRY_DELAY_MS);
+        outcome = await executeRead(tab.id, id);
+      }
       last = outcome;
       if (outcome?.ok) {
         const result = {
@@ -470,9 +488,10 @@ export async function readBillingSummaryLive({ billingId: rawBillingId, refresh 
         CACHE.set(id, { cachedAt: Date.now(), result });
         return result;
       }
-      if (!['BILLING_AUTH_REQUIRED', 'BILLING_TAB_INVALID', 'BILLING_SESSION_REQUIRED'].includes(String(outcome?.code || ''))) break;
+      if (!retryableAcrossTabs.has(String(outcome?.code || ''))) break;
     } catch (error) {
-      last = { ok: false, code: 'BILLING_SUMMARY_EXECUTION_FAILED', message: clean(error?.message || error, 500) };
+      last = { ok: false, code: 'BILLING_SUMMARY_EXECUTION_FAILED', message: clean(error?.message || error, 500), tabId: tab.id };
+      continue;
     }
   }
   return { ...(last || { ok: false, code: 'BILLING_SUMMARY_READ_FAILED' }), billingId: id, source: 'billing-main-summary-live-read-only' };
