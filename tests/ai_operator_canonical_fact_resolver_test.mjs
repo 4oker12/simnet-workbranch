@@ -318,6 +318,56 @@ test('explicit recalculate follow-up bypasses a still-fresh canonical source cac
   assert.deepEqual(result.factDiagnostics.cacheHits, []);
 });
 
+test('explicit current balance and tariff request survives empty semantic requiredFacts', async () => {
+  const calls = [];
+  let capturedResolution = null;
+  const result = await groundSubscriberReply({
+    draft: { reply: '', subscriberDataNeeded: [], degraded: false },
+    transcript: [{ role: 'customer', text: 'Видит ли оператор сейчас баланс и тариф абонента?' }],
+    latestCustomer: { text: 'Видит ли оператор сейчас баланс и тариф абонента?' },
+    analysis: {
+      probe: {
+        requiredFacts: [],
+        whatUserWants: 'Узнать, видит ли оператор сейчас баланс и тариф абонента',
+        latestMessageMeans: 'Клиент просит текущие финансовые и тарифные данные',
+        language: 'ru'
+      }
+    },
+    labState: IDENTITY,
+    execute: async input => {
+      calls.push(input);
+      assert.equal(input.tool, 'billing.main_summary');
+      return mainSummary();
+    },
+    coreGround: async options => {
+      capturedResolution = options.factResolution;
+      return {
+        reply: 'Баланс 270,10 грн, тариф SIMNET 500 — 250 грн.',
+        toolTrace: [],
+        toolEvidence: [],
+        toolState: options.factResolution.context,
+        factEvidence: options.factResolution.evidence,
+        factDiagnostics: options.factResolution.diagnostics
+      };
+    }
+  });
+
+  assert.equal(calls.length, 1, 'explicit current balance/tariff request must force one canonical Billing read even when semantic requiredFacts is empty');
+  assert.deepEqual(calls[0].toolArgs.requiredCanonicalFacts, [
+    'subscriber.finance.balance.account',
+    'subscriber.tariff.current.name',
+    'subscriber.tariff.current.price'
+  ]);
+  assert.deepEqual(capturedResolution.requestedFacts, [
+    'subscriber.finance.balance.account',
+    'subscriber.tariff.current.name',
+    'subscriber.tariff.current.price'
+  ]);
+  assert.equal(result.factEvidence.find(item => item.path === 'subscriber.finance.balance.account')?.value, 270.1);
+  assert.equal(result.factEvidence.find(item => item.path === 'subscriber.tariff.current.name')?.value, 'SIMNET 500');
+  assert.equal(result.factEvidence.find(item => item.path === 'subscriber.tariff.current.price')?.value, 250);
+});
+
 test('modern semantic broker resolves canonical facts before synthesis', async () => {
   const calls = [];
   let capturedResolution = null;
