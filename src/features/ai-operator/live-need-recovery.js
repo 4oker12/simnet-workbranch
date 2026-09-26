@@ -125,13 +125,16 @@ function derivedNeedsForRequest(request = '') {
 }
 
 export function recoverLiveDataNeeds({ analysis = {}, draft = {} } = {}) {
-  const existing = (Array.isArray(draft?.subscriberDataNeeded) ? draft.subscriberDataNeeded : [])
-    .map(normalizeNeed)
-    .filter(item => item.system || item.field || item.why);
   const semantic = semanticEvidenceNeeds(analysis);
   const canonical = semanticRequiredFacts(analysis);
   const semanticFactContract = hasSemanticFactContract(analysis);
   const liveNeed = line(analysis?.probe?.liveDataNeed || analysis?.probe?.live_data_need, 20).toLowerCase();
+  const explicitNoLiveNeed = semanticFactContract && canonical.length === 0 && semantic.length === 0 && liveNeed !== 'needed';
+  const existing = explicitNoLiveNeed
+    ? []
+    : (Array.isArray(draft?.subscriberDataNeeded) ? draft.subscriberDataNeeded : [])
+      .map(normalizeNeed)
+      .filter(item => item.system || item.field || item.why);
   const requests = requestList(analysis);
 
   // Once UNDERSTANDING returned the canonical fact contract, an empty requiredFacts
@@ -175,4 +178,4 @@ export function hasLiveDataNeeds(analysis = {}) {
   return planLiveDataNeeds(analysis).length > 0;
 }
 
-export const LIVE_NEED_RECOVERY_VERSION = 7;
+export const LIVE_NEED_RECOVERY_VERSION = 8;
