@@ -419,7 +419,10 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
   });
   const baseRead = () => core.executeOperatorTool({
     tool: baseTool,
-    toolArgs: { ...fallbackToolArgs(toolArgs), refresh: false },
+    // If the canonical caller explicitly asked for a fresh read, the fallback
+    // must also refresh its Billing snapshot. Otherwise a failed dedicated
+    // main-summary read can silently replay stale finance fields.
+    toolArgs: { ...fallbackToolArgs(toolArgs), refresh: Boolean(toolArgs.refresh) },
     labState
   });
 

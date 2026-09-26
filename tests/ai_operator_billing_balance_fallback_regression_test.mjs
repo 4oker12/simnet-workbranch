@@ -72,3 +72,19 @@ test('dedicated Billing parser prefers the main form for На счету and kee
   );
   assert.match(source, /if \(Number\.isFinite\(value\)\) finance\[key\] = value/);
 });
+
+test('fresh billing.main_summary fallback must refresh the broad Billing snapshot too', () => {
+  const source = readFileSync(
+    new URL('../src/features/ai-operator/live-tool-runtime.js', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(
+    source,
+    /toolArgs:\s*\{\s*\.\.\.fallbackToolArgs\(toolArgs\),\s*refresh:\s*Boolean\(toolArgs\.refresh\)\s*\}/s
+  );
+  assert.doesNotMatch(
+    source,
+    /toolArgs:\s*\{\s*\.\.\.fallbackToolArgs\(toolArgs\),\s*refresh:\s*false\s*\}/s
+  );
+});
