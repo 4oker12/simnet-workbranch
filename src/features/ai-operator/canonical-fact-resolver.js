@@ -64,13 +64,28 @@ function readBuildingField(data = {}, field = '') {
   return { observed: false, value: undefined };
 }
 
-function readRaw(data, spec) {
+function readRaw(data, spec, fieldObservedAt = {}) {
   if (spec.field) return readBuildingField(data, spec.field);
-  for (const path of spec.paths || []) {
+  const observed = [];
+  for (const [order, path] of (spec.paths || []).entries()) {
     const result = readPath(data, path);
-    if (result.observed) return { ...result, rawPath: path };
+    if (!result.observed) continue;
+    const timestamp = Date.parse(fieldObservedAt?.[path] || '');
+    observed.push({ ...result, rawPath: path, order, timestamp });
   }
-  return { observed: false, value: undefined, rawPath: spec.paths?.[0] || '' };
+  if (!observed.length) return { observed: false, value: undefined, rawPath: spec.paths?.[0] || '' };
+
+  // Alternative raw paths represent the same canonical fact. When a broad
+  // snapshot contains both an old normalized field and a freshly observed
+  // fallback field, the freshest explicit field timestamp must win.
+  const dated = observed.filter(item => Number.isFinite(item.timestamp));
+  if (dated.length) {
+    dated.sort((left, right) => right.timestamp - left.timestamp || left.order - right.order);
+    const { order: _order, timestamp: _timestamp, ...selected } = dated[0];
+    return selected;
+  }
+  const { order: _order, timestamp: _timestamp, ...selected } = observed[0];
+  return selected;
 }
 
 function money(value) {
@@ -284,7 +299,7 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
     const cachedProvenance = clean(cachedData.source || cachedData?.evidence?.source || cached?.result?.source || sourceSpec.tool, 160);
     const cachedObservedAt = clean(cached?.result?.observedAt || cachedData?.observedAt || cachedData?.evidence?.observedAt, 100);
     const cachedRequestedFieldStale = Boolean(cached?.ok && semanticFactsForSource.some(path => (
-      factEvidence(path, CANONICAL_FACT_CATALOG[path], readRaw(cachedData, CANONICAL_FACT_CATALOG[path]), {
+      factEvidence(path, CANONICAL_FACT_CATALOG[path], readRaw(cachedData, CANONICAL_FACT_CATALOG[path], cachedData?.evidence?.fieldObservedAt || cachedData?.fieldObservedAt || {}), {
         provenance: cachedProvenance,
         observedAt: cachedObservedAt,
         fieldObservedAt: cachedData?.evidence?.fieldObservedAt || cachedData?.fieldObservedAt || {},
@@ -319,7 +334,7 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
     const provenance = clean(data.source || data?.evidence?.source || result?.source || sourceSpec.tool, 160);
     const observedAt = clean(result?.observedAt || data?.observedAt || data?.evidence?.observedAt, 100);
     const groupFacts = result?.ok
-      ? paths.map(path => factEvidence(path, CANONICAL_FACT_CATALOG[path], readRaw(data, CANONICAL_FACT_CATALOG[path]), {
+      ? paths.map(path => factEvidence(path, CANONICAL_FACT_CATALOG[path], readRaw(data, CANONICAL_FACT_CATALOG[path], data?.evidence?.fieldObservedAt || data?.fieldObservedAt || {}), {
         provenance,
         observedAt,
         fieldObservedAt: data?.evidence?.fieldObservedAt || data?.fieldObservedAt || {},
@@ -387,4 +402,4 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
   };
 }
 
-export const CANONICAL_FACT_RESOLVER_VERSION = 5;
+export const CANONICAL_FACT_RESOLVER_VERSION = 6;
