@@ -201,3 +201,12 @@ test('settings workspace gives the runtime map the full viewport width', () => {
   const settingsCss = fs.readFileSync(new URL('../src/ui/settings.css', import.meta.url), 'utf8');
   assert.match(settingsCss, /\.shell\{width:calc\(100vw - 24px\);max-width:none/);
 });
+
+
+test('runtime map uses readable high-contrast typography', () => {
+  assert.match(traceJs, /\.ai-runtime-stage>header strong\{font:900 10px/);
+  assert.match(traceJs, /\.ai-runtime-fact\{[^}]*font-size:9px[^}]*font-weight:600/);
+  assert.match(traceJs, /\.ai-runtime-model-note\{[^}]*font-size:9px[^}]*font-weight:600/);
+  assert.match(traceJs, /\.ai-tool-inspector\{[^}]*width:min\(560px/);
+  assert.match(traceJs, /\.ai-tool-inspector\{[^}]*font:11px\/1\.5/);
+});
