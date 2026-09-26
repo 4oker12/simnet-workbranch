@@ -91,3 +91,26 @@ test('broker recovery is applied before core grounding and dead qwen 3.6 is abse
   assert.match(config, /DEFAULT_MODEL = 'qwen\/qwen3\.8-27b'/);
   assert.match(config, /RETIRED_MODELS = new Set\(\['qwen\/qwen3\.6-27b'\]\)/);
 });
+
+
+test('explicit semantic no-live turn drops stale draft needs from an earlier request', () => {
+  const needs = recoverLiveDataNeeds({
+    analysis: {
+      probe: {
+        whatUserWants: 'Поддержать шутливый follow-up про слово «заключён»',
+        requiredFacts: [],
+        evidenceNeeds: [],
+        liveDataNeed: 'none',
+        unresolvedRequests: ['Старая незакрытая сводка по тарифу и балансу']
+      }
+    },
+    draft: {
+      subscriberDataNeeded: [
+        { system: 'Billing', field: 'subscriber.tariff.current.name', why: 'остаток прошлого хода' },
+        { system: 'Billing', field: 'subscriber.finance.balance.account', why: 'остаток прошлого хода' }
+      ]
+    }
+  });
+
+  assert.deepEqual(needs, []);
+});
