@@ -9,6 +9,7 @@ const lightCss = fs.readFileSync(new URL('../src/ui/settings-light.css', import.
 const focusCss = fs.readFileSync(new URL('../src/ui/settings-focus.css', import.meta.url), 'utf8');
 const lab = fs.readFileSync(new URL('../src/ui/ai-operator-lab.js', import.meta.url), 'utf8');
 const labCss = fs.readFileSync(new URL('../src/ui/ai-operator-lab.css', import.meta.url), 'utf8');
+const quota = fs.readFileSync(new URL('../src/ui/ai-quota-dashboard.js', import.meta.url), 'utf8');
 
 assert.match(html, /data-accordion-group="settings"/, 'settings must use a top-level accordion group');
 assert.match(html, /data-accordion-panel="lab"[^>]*data-accordion-default="true"[^>]*open/, 'AI lab must be the default open settings panel');
@@ -97,3 +98,10 @@ assert.match(lab, /Технические поля RESULT/);
 assert.doesNotMatch(lab, /\$\{number\(event\.totalTokens\)\} tok/, 'RESULT header must not expose token counters');
 assert.match(lab, /НАЙТИ \/ ПРОВЕРИТЬ \(LOOKUP \/ VERIFY\)/);
 assert.match(lab, /ЧИТАТЬ \(READ \/ GET-like\)/);
+
+assert.match(css, /\.shell\{width:min\(960px,calc\(100vw - 32px\)\)/, 'settings/Lab workspace should be slightly wider');
+assert.match(lab, /import\('\.\/ai-quota-dashboard\.js'\)/, 'Manual Lab must mount the provider-aware limits panel');
+assert.match(quota, /DeepSeek · лимиты \/ расход/, 'limits panel must be DeepSeek-first when DeepSeek is active');
+assert.match(quota, /Статические 0–100% лимиты не выдумываем/, 'unknown provider limits must remain unknown instead of using fake static percentages');
+assert.doesNotMatch(quota, /qwen\/qwen3\.8-27b|openai\/gpt-oss-120b|openai\/gpt-oss-20b|Prompt Guard 86M/, 'the old four Groq model quota cards must be removed');
+assert.match(quota, /provider !== 'deepseek'/, 'quota panel must disappear for another provider instead of showing DeepSeek data out of context');
