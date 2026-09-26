@@ -172,6 +172,14 @@
     return text.length > max ? `${text.slice(0, max - 1)}…` : text;
   }
 
+  function hoverTitle(node, detail = '') {
+    const value = short(detail, 1400);
+    if (!node || !value) return node;
+    node.title = value;
+    node.classList.add('ai-runtime-hover');
+    return node;
+  }
+
   function asArray(value) {
     return Array.isArray(value) ? value.filter(item => item != null && String(item).trim() !== '') : [];
   }
@@ -226,15 +234,15 @@
       .ai-trace-json-line.key-data{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#f0f9ff;color:#075985;font-weight:800}
       .ai-trace-json-line.key-relevance{margin:1px -4px;padding:1px 4px;border-radius:4px;background:#f1f5f9;color:#475569;font-weight:800}
       .ai-trace-history-label{margin:10px 0 5px;color:#8a95a5;font:800 8px ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase}
-      .ai-runtime-map{display:grid;gap:9px;margin:8px 0 12px;padding:10px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc}
+      .ai-runtime-map{display:grid;gap:7px;margin:7px 0 10px;padding:8px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc}
       .ai-runtime-map-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.ai-runtime-map-head>div{display:grid;gap:2px}.ai-runtime-map-head strong{font-size:11px;color:#0f172a}.ai-runtime-map-head span{font:8px/1.3 ui-monospace,monospace;color:#64748b}
-      .ai-runtime-flow{display:grid;grid-template-columns:minmax(0,1.05fr) 24px minmax(0,1fr) 24px minmax(0,.9fr);gap:6px;align-items:stretch}.ai-runtime-arrow{display:grid;place-items:center;color:#64748b;font:900 16px ui-monospace,monospace}
-      .ai-runtime-stage{min-width:0;padding:9px;border:1px solid #dbe4ef;border-radius:9px;background:#fff}.ai-runtime-stage>header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px}.ai-runtime-stage>header strong{font:900 9px ui-monospace,monospace;letter-spacing:.05em;color:#334155}.ai-runtime-stage>header span{font:800 8px ui-monospace,monospace;color:#64748b}
+      .ai-runtime-flow{display:grid;grid-template-columns:minmax(0,1.05fr) 18px minmax(0,1fr) 18px minmax(0,.9fr);gap:5px;align-items:stretch}.ai-runtime-arrow{display:grid;place-items:center;color:#64748b;font:900 14px ui-monospace,monospace}
+      .ai-runtime-stage{min-width:0;padding:7px;border:1px solid #dbe4ef;border-radius:9px;background:#fff}.ai-runtime-stage>header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px}.ai-runtime-stage>header strong{font:900 9px ui-monospace,monospace;letter-spacing:.05em;color:#334155}.ai-runtime-stage>header span{font:800 8px ui-monospace,monospace;color:#64748b}
       .ai-runtime-snapshot{border-top:3px solid #2563eb}.ai-runtime-tools-stage{border-top:3px solid #0891b2}.ai-runtime-model-stage{border-top:3px solid #64748b}
       .ai-runtime-status{display:inline-flex;padding:2px 5px;border-radius:999px;background:#eef2f7;color:#475569;font:800 8px ui-monospace,monospace}.ai-runtime-status.ok{background:#ecfdf3;color:#067647}.ai-runtime-status.warn{background:#fff7e6;color:#9a6700}.ai-runtime-status.bad{background:#fff1f1;color:#b42318}
       .ai-runtime-groups{display:grid;gap:6px}.ai-runtime-group{border:1px dashed rgba(15,23,42,.62);border-radius:7px;background:#fbfdff;overflow:hidden}.ai-runtime-group>summary{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:6px 8px;cursor:pointer;color:#111827;background:#f8fafc;font:900 8.5px ui-monospace,monospace}.ai-runtime-group>summary b{color:#111827;letter-spacing:.02em}.ai-runtime-group>summary span{color:#475569;font-weight:750}.ai-runtime-group pre{margin:0;padding:8px;border-top:1px dotted rgba(15,23,42,.38);background:#fff;color:#172033;font:9px/1.52 ui-monospace,monospace;letter-spacing:.005em;white-space:pre-wrap;word-break:break-word;max-height:225px;overflow:auto}
-      .ai-runtime-tool-list{display:grid;gap:6px}.ai-runtime-call{padding:7px;border:1px solid #dbe4ef;border-radius:8px;background:#f8fbff}.ai-runtime-call-head{display:flex;align-items:center;gap:5px;flex-wrap:wrap}.ai-runtime-method{padding:2px 5px;border-radius:5px;background:#dbeafe;color:#1d4ed8;font:900 8px ui-monospace,monospace}.ai-runtime-call-title{font:900 9px ui-monospace,monospace}.ai-runtime-call-purpose{margin-top:4px;color:#475569;font-size:9px;line-height:1.35}.ai-runtime-call-meta{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:2px 6px;margin-top:5px;font-size:8px}.ai-runtime-call-meta b{color:#64748b}.ai-runtime-call-meta span{color:#334155;word-break:break-word}.ai-runtime-call details{margin-top:5px}.ai-runtime-call details>summary{cursor:pointer;color:#475569;font:800 8px ui-monospace,monospace}.ai-runtime-call pre{margin:4px 0 0;padding:6px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#334155;font:8px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;max-height:180px;overflow:auto}
-      .ai-runtime-model-note{margin-bottom:6px;padding:6px 7px;border-radius:6px;background:#f1f5f9;color:#475569;font-size:8px;line-height:1.4}.ai-runtime-facts{display:grid;gap:4px}.ai-runtime-fact{padding:5px 6px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#334155;font-size:8px;line-height:1.4}.ai-runtime-fact b{color:#0f172a}.ai-runtime-empty{padding:7px;border:1px dashed #cbd5e1;border-radius:7px;color:#64748b;font-size:8px}
+      .ai-runtime-tool-list{display:grid;gap:5px}.ai-runtime-call{padding:6px;border:1px solid #dbe4ef;border-radius:8px;background:#f8fbff}.ai-runtime-call-head{display:flex;align-items:center;gap:5px;flex-wrap:wrap}.ai-runtime-method{padding:2px 5px;border-radius:5px;background:#dbeafe;color:#1d4ed8;font:900 8px ui-monospace,monospace}.ai-runtime-call-title{font:900 9px ui-monospace,monospace}.ai-runtime-call-purpose{margin-top:3px;color:#475569;font-size:8.5px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ai-runtime-call-meta{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;font-size:8px}.ai-runtime-call-meta b{display:none}.ai-runtime-call-meta span{max-width:100%;padding:2px 5px;border:1px dotted #cbd5e1;border-radius:5px;background:#fff;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ai-runtime-call details{margin-top:4px}.ai-runtime-call details>summary{cursor:pointer;color:#475569;font:800 8px ui-monospace,monospace}.ai-runtime-call pre{margin:4px 0 0;padding:6px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#334155;font:8px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;max-height:180px;overflow:auto}.ai-runtime-hover{cursor:help;text-decoration:underline dotted rgba(71,85,105,.55);text-underline-offset:2px}
+      .ai-runtime-model-note{margin-bottom:5px;padding:5px 6px;border-radius:6px;background:#f1f5f9;color:#475569;font-size:8px;line-height:1.35}.ai-runtime-facts{display:grid;gap:3px}.ai-runtime-fact{padding:4px 5px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#334155;font-size:8px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ai-runtime-fact b{color:#0f172a}.ai-runtime-empty{padding:6px;border:1px dashed #cbd5e1;border-radius:7px;color:#64748b;font-size:8px}
       .ai-runtime-full{margin-top:6px}.ai-runtime-full>summary{cursor:pointer;color:#2563eb;font:900 8px ui-monospace,monospace}.ai-runtime-full pre{margin:5px 0 0;padding:7px;max-height:320px;overflow:auto;border:1px solid #dbe4ef;border-radius:6px;background:#fff;color:#334155;font:8px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-word}
       .ai-tool-ref{display:inline-flex;align-items:center;max-width:100%;border-bottom:1px dotted #2563eb;color:#1d4ed8;font:800 9px ui-monospace,monospace;cursor:help;outline:none}
       .ai-tool-ref:hover,.ai-tool-ref:focus{color:#1d4ed8;border-bottom-style:solid;background:#eff6ff;border-radius:3px}
@@ -536,21 +544,18 @@
       seen.add(key);
       const value = snapshot[key];
       const details = create('details', 'ai-runtime-group');
-      details.open = ['identity','address','service','finance','technical','bootstrapMeta'].includes(key);
+      details.open = ['identity','finance'].includes(key);
       const summary = create('summary');
       summary.append(create('b', '', key), create('span', '', primitivePreview(value)));
+      hoverTitle(summary, jsonText(value));
       details.append(summary, create('pre', '', jsonText(value)));
       groups.append(details);
     }
     stage.append(groups);
 
-    const meta = create('div', 'ai-runtime-facts');
-    meta.append(
-      create('div', 'ai-runtime-fact', `billingId: ${snapshot.billingId || snapshot.identity?.billingId || '—'}`),
-      create('div', 'ai-runtime-fact', `observedAt: ${snapshot.observedAt || '—'}`),
-      create('div', 'ai-runtime-fact', `source: ${snapshot.source || '—'}`)
-    );
-    stage.append(meta);
+    const snapshotMeta = create('div', 'ai-runtime-fact', `billingId: ${snapshot.billingId || snapshot.identity?.billingId || '—'} · ${snapshot.source || '—'}`);
+    hoverTitle(snapshotMeta, `observedAt: ${snapshot.observedAt || '—'}\nsource: ${snapshot.source || '—'}`);
+    stage.append(snapshotMeta);
 
     const full = create('details', 'ai-runtime-full');
     full.append(create('summary', '', 'ПОЛНЫЙ СНИМОК (FULL SNAPSHOT) · JSON'), create('pre', '', jsonText(snapshot)));
@@ -569,7 +574,13 @@
     title.append(toolRef(tool, tool));
     head.append(title, create('span', `ai-runtime-status ${trace?.ok ? 'ok' : 'bad'}`, trace?.ok ? 'УСПЕХ (OK)' : `ОШИБКА (ERROR) · ${trace?.code || 'UNKNOWN'}`));
     card.append(head);
-    card.append(create('div', 'ai-runtime-call-purpose', meta.purpose || 'Вызов runtime-инструмент.'));
+    const purpose = create('div', 'ai-runtime-call-purpose', short(meta.purpose || 'Вызов runtime-инструмент.', 92));
+    hoverTitle(purpose, [
+      meta.purpose || '',
+      trace?.requestedBy?.why ? `Зачем: ${trace.requestedBy.why}` : '',
+      trace?.requestedBy?.field ? `Нужно: ${trace.requestedBy.field}` : ''
+    ].filter(Boolean).join('\n'));
+    card.append(purpose);
 
     const evidence = trace?.data?.evidence || {};
     const bootstrap = trace?.data?.bootstrap || {};
@@ -591,11 +602,17 @@
       ['кэш', trace?.cache || '—']
     ];
     const grid = create('div', 'ai-runtime-call-meta');
-    for (const [label,value] of rows) grid.append(create('b','',label), create('span','',value));
+    const visibleRows = rows.filter(([label, value]) => (
+      ['вход', 'источник', 'кэш'].includes(label) && String(value || '—') !== '—'
+    ));
+    for (const [label,value] of visibleRows) {
+      const chip = create('span','',`${label}: ${short(value, 74)}`);
+      hoverTitle(chip, rows.map(([fullLabel, fullValue]) => `${fullLabel}: ${fullValue}`).join('\n'));
+      grid.append(chip);
+    }
     card.append(grid);
 
     const args = create('details');
-    args.open = true;
     args.append(create('summary', '', 'ВХОД / АРГУМЕНТЫ (INPUT / ARGS)'), create('pre', '', jsonText(trace?.args || {})));
     card.append(args);
     const result = create('details');
@@ -644,14 +661,19 @@
       ...toolTrace.flatMap(item => Array.isArray(item?.requestedFacts) ? item.requestedFacts : [])
     ])];
     if (requested.length) {
-      const item=create('div','ai-runtime-fact'); item.append(create('b','','запрошенные канонические факты (requested canonical facts): '),document.createTextNode(requested.join(' · '))); facts.append(item);
+      const item=create('div','ai-runtime-fact');
+      const preview = requested.length <= 2 ? requested.join(' · ') : `${requested.slice(0, 2).join(' · ')} · +${requested.length - 2}`;
+      item.append(create('b','','canonical facts: '),document.createTextNode(preview));
+      hoverTitle(item, requested.join('\n'));
+      facts.append(item);
     }
     const factEvidence = Array.isArray(variant?.factEvidence) ? variant.factEvidence : [];
     const requestedSet = new Set(requested);
     for (const evidence of factEvidence.filter(item => !requestedSet.size || requestedSet.has(item?.path)).slice(0,18)) {
       const row=create('div','ai-runtime-fact');
       const value = evidence?.status === 'known' ? jsonText(evidence?.value) : String(evidence?.status || 'unknown');
-      row.append(create('b','',`${evidence?.path || 'fact'}: `),document.createTextNode(short(value,260)));
+      row.append(create('b','',`${evidence?.path || 'fact'}: `),document.createTextNode(short(value,100)));
+      hoverTitle(row, `${evidence?.path || 'fact'}\nstatus: ${evidence?.status || 'unknown'}\nvalue: ${value}\nsource: ${evidence?.source || '—'}`);
       facts.append(row);
     }
     const kept = Array.isArray(variant?.answerRelevance?.kept) ? variant.answerRelevance.kept : [];
