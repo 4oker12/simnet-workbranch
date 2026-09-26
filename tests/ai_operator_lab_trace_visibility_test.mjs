@@ -117,7 +117,7 @@ test('AI Lab renders a Swagger-style runtime map with full subscriber snapshot, 
   assert.match(traceJs, /endpoint/);
   assert.match(traceJs, /selector/);
   assert.match(traceJs, /TRACE PROJECTION/);
-  assert.match(traceJs, /Это не полный скрытый prompt модели, а только видимая проекция данных/);
+  assert.match(traceJs, /Здесь только данные текущего хода: что подтверждено, что запрашивалось, что не удалось получить и почему/);
   assert.match(traceJs, /Технический RAW JSON/);
 });
 
