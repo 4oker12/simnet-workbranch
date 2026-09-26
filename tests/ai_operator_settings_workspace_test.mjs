@@ -76,6 +76,15 @@ assert.match(lab, /READ-tools/, 'Manual Lab diagnostics must expose executed rea
 assert.match(lab, /Подтверждено tools/, 'Manual Lab diagnostics must expose verified tool evidence');
 assert.match(lab, /Нужны live-данные/, 'Manual Lab diagnostics must separate subscriber data needs from KB gaps');
 assert.match(lab, /Пересчитать последний ход/, 'Manual Lab must expose live retuning workflow');
+assert.match(html, /Банк тестовых вопросов/, 'Manual Lab must expose a categorized question bank');
+for (const category of ['summary','internet','tariff','finance','services','promotions','edge']) {
+  assert.match(html, new RegExp(`data-ai-lab-question-category="${category}"`), `question bank must expose ${category}`);
+}
+assert.match(html, /data-ai-lab-question-group="internet"/);
+assert.match(html, /data-ai-lab-prompt="Какой тариф был до блокировки\?"/);
+assert.match(lab, /function selectQuestionCategory\(/);
+assert.match(lab, /button\.hidden = button\.dataset\.aiLabQuestionGroup !== selected/);
+assert.match(lab, /input\.value = String\(button\.dataset\.aiLabPrompt \|\| ''\)/, 'question click must fill the composer without auto-sending');
 assert.match(lab, /UserSide-контекст не выдаётся за свежий глобальный поиск/, 'Manual Lab must disclose UserSide freshness limitations');
 assert.match(labCss, /\.ai-lab-sliders/, 'behavior controls must have dedicated layout');
 assert.match(lightCss, /\.ai-lab-sliders\{display:grid!important/, 'behavior tuning scale must remain visible in the light Lab UI');
