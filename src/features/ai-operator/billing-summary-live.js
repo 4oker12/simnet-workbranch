@@ -174,8 +174,13 @@ async function executeRead(tabId, id) {
         .slice(0, 20);
       const parseMainPage = root => {
         const mainForm = root?.querySelector?.(mainFormSelector);
-        const summaryTable = root?.querySelector?.(summarySelector);
-        if (!mainForm || !summaryTable) return null;
+        const summaryTable = root?.querySelector?.(summarySelector)
+          || root?.querySelector?.('table.tbg1.nav3')
+          || root?.querySelector?.('table.nav3');
+        // The main edit form is the stable authority. Billing deployments can
+        // render the summary rows without the historical width100 class, so a
+        // missing exact summary selector must not invalidate the whole a=user read.
+        if (!mainForm) return null;
 
         // One a=user read produces one rich Billing main-page snapshot.
         // We parse the known data blocks completely, but never expand large
@@ -189,10 +194,10 @@ async function executeRead(tabId, id) {
         const rowFrom = (primary, fallback, patterns) =>
           rowValueFromIndex(primary, patterns) || rowValueFromIndex(fallback, patterns);
 
-        const discount = discountFromRows(summaryRows) || discountFromRows(mainRows);
+        const discount = discountFromRows(summaryRows) || discountFromRows(mainRows) || discountFromRows(pageRows);
         if (discount) discount.appliesTo = 'internet_tariff';
 
-        const tariffDisplay = rowValueFromIndex(summaryIndex, [/^тарифи\s+на\s+інтернет/i, /^тарифы\s+на\s+интернет/i]);
+        const tariffDisplay = rowFrom(summaryIndex, pageIndex, [/^тарифи\s+на\s+інтернет/i, /^тарифы\s+на\s+интернет/i]);
         const tariffMatch = tariffDisplay.match(/^\[(\d+)\]\s*(.+)$/);
         const currentTariffOption = selectedOption(root, 'paket');
         const nextTariffOption = selectedOption(root, 'next_paket');
@@ -231,13 +236,13 @@ async function executeRead(tabId, id) {
         };
         const observedMoney = [
           ['accountBalance', rowFrom(mainIndex, pageIndex, [/^на\s+счету,?\s*грн/i, /^на\s+рахунку,?\s*грн/i])],
-          ['price', rowValueFromIndex(summaryIndex, [/^ціна,?\s*грн/i, /^цена,?\s*грн/i])],
-          ['displayedPlanCost', rowValueFromIndex(summaryIndex, [
+          ['price', rowFrom(summaryIndex, pageIndex, [/^ціна,?\s*грн/i, /^цена,?\s*грн/i])],
+          ['displayedPlanCost', rowFrom(summaryIndex, pageIndex, [
             /^підсумкова\s+вартість\s+тарифного\s+плану/i,
             /^итоговая\s+стоимость\s+тарифного\s+плана/i
           ])],
-          ['totalDue', rowValueFromIndex(summaryIndex, [/^разом\s+до\s+сплати/i, /^итого\s+к\s+оплате/i])],
-          ['balanceAfterTariff', rowValueFromIndex(summaryIndex, [
+          ['totalDue', rowFrom(summaryIndex, pageIndex, [/^разом\s+до\s+сплати/i, /^итого\s+к\s+оплате/i])],
+          ['balanceAfterTariff', rowFrom(summaryIndex, pageIndex, [
             /на\s+счете\s+с\s+учетом\s+стоимости\s+тарифного\s+плана/i,
             /на\s+рахунку\s+з\s+урахуванням\s+вартості\s+тарифного\s+плану/i
           ])],
@@ -302,20 +307,25 @@ async function executeRead(tabId, id) {
           network: {
             ip: compact(input(root, 'ip') || auth.ip || '', 80),
             authorization: auth,
-            trafficIncomingBytes: rowValueFromIndex(summaryIndex, [/^інтернет\s+входящий,?\s*байт/i, /^интернет\s+входящий,?\s*байт/i]),
-            trafficOutgoingBytes: rowValueFromIndex(summaryIndex, [/^інтернет\s+исходящий,?\s*байт/i, /^интернет\s+исходящий,?\s*байт/i]),
-            uaixIncomingBytes: rowValueFromIndex(summaryIndex, [/^ua-ix\s+входящий,?\s*байт/i]),
-            uaixOutgoingBytes: rowValueFromIndex(summaryIndex, [/^ua-ix\s+исходящий,?\s*байт/i]),
-            internetAccountingMb: rowValueFromIndex(summaryIndex, [/^оплата\s+інтернет,?\s*мб:\s*загалом/i, /^оплата\s+интернет,?\s*мб:\s*всего/i]),
-            uaixAccountingMb: rowValueFromIndex(summaryIndex, [/^оплата\s+ua-ix,?\s*мб:\s*загалом/i, /^оплата\s+ua-ix,?\s*мб:\s*всего/i]),
-            direction3AccountingMb: rowValueFromIndex(summaryIndex, [/^оплата\s+['"]?направление\s+3['"]?,?\s*мб:\s*загалом/i]),
-            direction4AccountingMb: rowValueFromIndex(summaryIndex, [/^оплата\s+['"]?направление\s+4['"]?,?\s*мб:\s*загалом/i])
+            trafficIncomingBytes: rowFrom(summaryIndex, pageIndex, [/^інтернет\s+входящий,?\s*байт/i, /^интернет\s+входящий,?\s*байт/i]),
+            trafficOutgoingBytes: rowFrom(summaryIndex, pageIndex, [/^інтернет\s+исходящий,?\s*байт/i, /^интернет\s+исходящий,?\s*байт/i]),
+            uaixIncomingBytes: rowFrom(summaryIndex, pageIndex, [/^ua-ix\s+входящий,?\s*байт/i]),
+            uaixOutgoingBytes: rowFrom(summaryIndex, pageIndex, [/^ua-ix\s+исходящий,?\s*байт/i]),
+            internetAccountingMb: rowFrom(summaryIndex, pageIndex, [/^оплата\s+інтернет,?\s*мб:\s*загалом/i, /^оплата\s+интернет,?\s*мб:\s*всего/i]),
+            uaixAccountingMb: rowFrom(summaryIndex, pageIndex, [/^оплата\s+ua-ix,?\s*мб:\s*загалом/i, /^оплата\s+ua-ix,?\s*мб:\s*всего/i]),
+            direction3AccountingMb: rowFrom(summaryIndex, pageIndex, [/^оплата\s+['"]?направление\s+3['"]?,?\s*мб:\s*загалом/i]),
+            direction4AccountingMb: rowFrom(summaryIndex, pageIndex, [/^оплата\s+['"]?направление\s+4['"]?,?\s*мб:\s*загалом/i])
           },
           parseMeta: {
             blocks: {
               mainForm: { selector: mainFormSelector, rows: mainRows.length },
               authorization: { selector: authSelector, observed: Object.keys(auth).length > 0 },
-              summary: { selector: summarySelector, rows: summaryRows.length },
+              summary: {
+                selector: summarySelector,
+                rows: summaryRows.length,
+                exactSelectorObserved: Boolean(root.querySelector(summarySelector)),
+                fallbackSelectorObserved: Boolean(summaryTable)
+              },
               recentEvents: { selector: paymentsSelector, observed: Boolean(root.querySelector(paymentsSelector)) }
             },
             ignored: ['password', 'old_*', 'session_tokens', 'unselected_select_options']
@@ -395,7 +405,18 @@ async function executeRead(tabId, id) {
       if (!response.ok) return { ok: false, code: 'BILLING_SUMMARY_FETCH_FAILED', status: response.status };
       if (authPage(doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED' };
       const data = parseMainPage(doc);
-      if (!data) return { ok: false, code: 'BILLING_SUMMARY_TABLE_NOT_FOUND', selector: summarySelector };
+      if (!data) {
+        return {
+          ok: false,
+          code: 'BILLING_MAIN_FORM_NOT_FOUND',
+          selector: mainFormSelector,
+          diagnostics: {
+            mainFormObserved: Boolean(doc.querySelector(mainFormSelector)),
+            exactSummaryObserved: Boolean(doc.querySelector(summarySelector)),
+            fallbackSummaryObserved: Boolean(doc.querySelector('table.tbg1.nav3, table.nav3'))
+          }
+        };
+      }
 
       return {
         ok: true,

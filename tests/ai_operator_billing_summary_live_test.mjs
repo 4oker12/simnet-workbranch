@@ -68,3 +68,18 @@ test('configured internet package is authoritative over access/service state lab
     'paket status marker must be classified before current tariff is resolved'
   );
 });
+
+test('Billing main-page reader survives summary table class drift and falls back to full-page rows', () => {
+  const source = requireSource();
+  assert.match(source, /root\?\.querySelector\?\.\('table\.tbg1\.nav3'\)/);
+  assert.match(source, /root\?\.querySelector\?\.\('table\.nav3'\)/);
+  assert.match(source, /if \(!mainForm\) return null/);
+  assert.doesNotMatch(source, /if \(!mainForm \|\| !summaryTable\) return null/);
+  assert.match(source, /const tariffDisplay = rowFrom\(summaryIndex, pageIndex/);
+  assert.match(source, /\['price', rowFrom\(summaryIndex, pageIndex/);
+  assert.match(source, /\['totalDue', rowFrom\(summaryIndex, pageIndex/);
+  assert.match(source, /\['balanceAfterTariff', rowFrom\(summaryIndex, pageIndex/);
+  assert.match(source, /exactSelectorObserved/);
+  assert.match(source, /fallbackSelectorObserved/);
+  assert.match(source, /BILLING_MAIN_FORM_NOT_FOUND/);
+});
