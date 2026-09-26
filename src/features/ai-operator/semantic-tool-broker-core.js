@@ -161,7 +161,16 @@ export async function groundSubscriberReply(options = {}) {
   const compactTranscript = compactRuntimeTranscript(options?.transcript, { maxTurns: 8, maxChars: 380 });
   const requestText = latestRequest(options, compactTranscript);
   const sourceState = originalFactResolution?.context || options?.labState || {};
-  const finance = deriveFinanceDecisionEvidence({ requestText, evidence: originalFactResolution?.evidence || [] });
+  const semanticFinanceRequest = [
+    options?.analysis?.probe?.whatUserWants,
+    options?.analysis?.probe?.latestMessageMeans,
+    ...(Array.isArray(options?.analysis?.probe?.unresolvedRequests) ? options.analysis.probe.unresolvedRequests : [])
+  ].map(item => oneLine(item, 500)).filter(Boolean).join(' ');
+  const finance = deriveFinanceDecisionEvidence({
+    requestText,
+    semanticRequestText: semanticFinanceRequest,
+    evidence: originalFactResolution?.evidence || []
+  });
   const dialoguePolicy = buildDialoguePolicyContext({ analysis: options?.analysis, requestText, labState: sourceState, factResolution: originalFactResolution });
   const compactAnalysis = analysisWithDialoguePolicy(options?.analysis, dialoguePolicy, finance.decision);
 

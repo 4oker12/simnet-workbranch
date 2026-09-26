@@ -179,6 +179,12 @@ export function mapInformationNeedsToTools(needs = []) {
   return core.mapInformationNeedsToTools(routeNeedsForCore(needs));
 }
 
+export function canonicalRefreshRequested(requestText = '') {
+  const request = String(requestText || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!request) return false;
+  return /(?:пересчит(?:ай|айте|ать)|перерах(?:уй|уйте|увати)|перечит(?:ай|айте|ать)|прочит(?:ай|айте)\s+(?:ещ[её]\s+раз|заново)|проверь(?:те)?\s+(?:ещ[её]\s+раз|заново)|перевір(?:те)?\s+(?:ще\s+раз|знову)|обнов(?:и|ите)\s+данн|онов(?:и|іть)\s+дан)/iu.test(request);
+}
+
 function evidenceSource(result = {}) {
   return oneLine(result?.data?.source || result?.data?.evidence?.source || result?.data?.evidence?.workbenchState || result?.tool || '', 140);
 }
@@ -434,12 +440,19 @@ export async function groundSubscriberReply(options = {}) {
       ? await bootstrapExplicitIdentity({ transcript, analysis, labState, execute, includeSnapshot: Boolean(draft?.degraded && needs.length === 0) })
       : { trace: [], labState: cloneState(labState) };
   const identity = core.extractIdentityHints(transcript, analysis);
+  const requestText = oneLine(
+    rest?.latestCustomer?.text
+      || [...(Array.isArray(transcript) ? transcript : [])].reverse().find(item => item?.role === 'customer')?.text
+      || '',
+    1200
+  );
+  const forceCanonicalRefresh = canonicalRefreshRequested(requestText);
   const factResolution = requiredFacts.length
     ? await resolveFacts({
       context: pre.labState,
       facts: requiredFacts,
       execute,
-      request: { address: identity?.address || '', refresh: false }
+      request: { address: identity?.address || '', refresh: forceCanonicalRefresh }
     })
     : null;
   const result = await coreGround({ ...rest, draft: routedDraft, transcript, analysis, labState: pre.labState, execute, factResolution });

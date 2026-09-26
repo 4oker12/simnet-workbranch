@@ -245,6 +245,79 @@ test('fresh source cache avoids repeated reads and reports finance-bundle projec
   assert.doesNotMatch(JSON.stringify(first.evidence), /unrelatedSecret|must-not-reach/);
 });
 
+test('fresh source cache with a stale requested field forces one live refresh', async () => {
+  const old = new Date(NOW - 3600000).toISOString();
+  const cached = mainSummary();
+  cached.data.evidence = { fieldObservedAt: { 'finance.accountBalance': old } };
+  const key = 'billing.mainSummary:subscriber:billing-live:42';
+  const context = createCanonicalDomainContext({
+    ...IDENTITY,
+    factSourceCache: {
+      [key]: { ok: true, cachedAt: NOW - 1000, result: cached }
+    }
+  });
+  const calls = [];
+  const out = await resolveFacts({
+    context,
+    facts: ['subscriber.finance.balance.account'],
+    execute: async input => {
+      calls.push(input);
+      return mainSummary();
+    },
+    now: NOW
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].tool, 'billing.main_summary');
+  assert.equal(calls[0].toolArgs.refresh, true);
+  assert.equal(value(out, 'subscriber.finance.balance.account').value, 270.1);
+  assert.deepEqual(out.diagnostics.sourceReads, ['billing.mainSummary']);
+  assert.deepEqual(out.diagnostics.cacheHits, []);
+  assert.equal(out.sourceTrace[0].cache, 'stale-refresh');
+});
+
+test('explicit recalculate follow-up bypasses a still-fresh canonical source cache', async () => {
+  const key = 'billing.mainSummary:subscriber:billing-live:42';
+  const labState = createCanonicalDomainContext({
+    ...IDENTITY,
+    factSourceCache: {
+      [key]: { ok: true, cachedAt: NOW - 1000, result: mainSummary() }
+    }
+  });
+  const calls = [];
+  const result = await groundSubscriberReply({
+    draft: { reply: '', subscriberDataNeeded: [], degraded: false },
+    transcript: [{ role: 'customer', text: 'пересчитайте' }],
+    latestCustomer: { text: 'пересчитайте' },
+    analysis: {
+      probe: {
+        requiredFacts: ['subscriber.finance.balance.account'],
+        whatUserWants: 'Пересчитать сумму к оплате',
+        language: 'ru'
+      }
+    },
+    labState,
+    execute: async input => {
+      calls.push(input);
+      return mainSummary();
+    },
+    coreGround: async options => ({
+      reply: 'Пересчитал по свежим данным.',
+      toolTrace: [],
+      toolEvidence: [],
+      toolState: options.factResolution.context,
+      factEvidence: options.factResolution.evidence,
+      factDiagnostics: options.factResolution.diagnostics
+    })
+  });
+
+  const billingRead = calls.find(item => item.tool === 'billing.main_summary');
+  assert.ok(billingRead, 'recalculate must perform a Billing main-summary read');
+  assert.equal(billingRead.toolArgs.refresh, true);
+  assert.equal(result.factDiagnostics.sourceCalls, 1);
+  assert.deepEqual(result.factDiagnostics.cacheHits, []);
+});
+
 test('modern semantic broker resolves canonical facts before synthesis', async () => {
   const calls = [];
   let capturedResolution = null;

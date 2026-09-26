@@ -8,6 +8,29 @@ function roundMoney(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }
 
+export function calculateRequiredTopUp({ futureCharges, availableBalance } = {}) {
+  const charges = numeric(futureCharges);
+  const balance = numeric(availableBalance);
+  if (charges === null || charges < 0 || balance === null) {
+    return {
+      status: 'unknown',
+      futureCharges: charges,
+      availableBalance: balance,
+      requiredTopUp: null,
+      formula: ''
+    };
+  }
+  const normalizedCharges = roundMoney(charges);
+  const normalizedBalance = roundMoney(balance);
+  return {
+    status: 'known',
+    futureCharges: normalizedCharges,
+    availableBalance: normalizedBalance,
+    requiredTopUp: roundMoney(Math.max(0, normalizedCharges - normalizedBalance)),
+    formula: `max(0, ${normalizedCharges} - ${normalizedBalance})`
+  };
+}
+
 function kyivYearMonth(now = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Kyiv',
@@ -124,9 +147,11 @@ export function calculateFuturePayment({ service = {}, finance = {}, horizon = {
     : accountBalance !== null
       ? 'accountBalance'
       : 'none';
-  const requiredTopUpNow = availableBalanceForFuture === null
-    ? null
-    : roundMoney(Math.max(0, futureCharges - availableBalanceForFuture));
+  const topUp = calculateRequiredTopUp({
+    futureCharges,
+    availableBalance: availableBalanceForFuture
+  });
+  const requiredTopUpNow = topUp.requiredTopUp;
 
   return {
     ok: true,
@@ -148,9 +173,7 @@ export function calculateFuturePayment({ service = {}, finance = {}, horizon = {
       formula: `${months} × ${composition.monthlyRecurringTotal}`,
       balanceApplied: availableBalanceForFuture !== null,
       balanceBasis,
-      requiredTopUpFormula: availableBalanceForFuture !== null
-        ? `max(0, ${futureCharges} - ${availableBalanceForFuture})`
-        : ''
+      requiredTopUpFormula: topUp.formula
     }
   };
 }

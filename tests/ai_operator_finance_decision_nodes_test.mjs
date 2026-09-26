@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { calculateBalanceCoverage, calculateConnectionUpfrontPayment, deriveFinanceDecisionEvidence, financeRequiredFacts, isBalanceCoverageQuestion, isInactiveReturnNegativeBalanceQuestion } from '../src/features/ai-operator/finance-decision-nodes.js';
+import { calculateBalanceCoverage, calculateConnectionUpfrontPayment, calculateNextMonthTopUp, deriveFinanceDecisionEvidence, financeRequiredFacts, isBalanceCoverageQuestion, isInactiveReturnNegativeBalanceQuestion, isNextMonthTopUpQuestion } from '../src/features/ai-operator/finance-decision-nodes.js';
 assert.deepEqual(calculateBalanceCoverage({ balance: 500, recurringAmount: 250 }), { status: 'known', fullCharges: 2, remainder: 0, balance: 500, recurringAmount: 250 });
 assert.deepEqual(calculateBalanceCoverage({ balance: 775.5, recurringAmount: 300 }), { status: 'known', fullCharges: 2, remainder: 175.5, balance: 775.5, recurringAmount: 300 });
 assert.equal(isBalanceCoverageQuestion('до какого у меня проплачено?'), true);
@@ -7,6 +7,66 @@ assert.deepEqual(financeRequiredFacts('на сколько месяцев хва
 const derived = deriveFinanceDecisionEvidence({ requestText: 'на сколько месяцев хватит денег?', evidence: [{ path: 'subscriber.finance.balance.account', status: 'known', value: 500 }, { path: 'subscriber.finance.recurringTotal', status: 'known', value: 250 }] });
 assert.equal(derived.decision.fullCharges, 2);
 assert.equal(derived.evidence.find(item => item.path === 'derived.finance.coverage.calendarMappingAllowed')?.value, false);
+
+assert.equal(isNextMonthTopUpQuestion('сколько оплатить, чтобы и след. месяц был закрыт?'), true);
+assert.deepEqual(
+  financeRequiredFacts('сколько оплатить, чтобы следующий месяц тоже был закрыт?'),
+  [
+    'subscriber.finance.balance.afterTariff',
+    'subscriber.finance.balance.account',
+    'subscriber.finance.totalDue',
+    'subscriber.tariff.current.price'
+  ]
+);
+
+const negativeTopUp = calculateNextMonthTopUp({
+  balanceAfterTariff: -467.71,
+  accountBalance: -399.71,
+  currentDue: 68,
+  nextRecurringAmount: 400
+});
+assert.equal(negativeTopUp.status, 'known');
+assert.equal(negativeTopUp.requiredTopUp, 867.71);
+assert.equal(negativeTopUp.balanceBasis, 'balanceAfterTariff');
+
+const positiveTopUp = calculateNextMonthTopUp({
+  balanceAfterTariff: 200,
+  nextRecurringAmount: 400
+});
+assert.equal(positiveTopUp.requiredTopUp, 200);
+
+const coveredTopUp = calculateNextMonthTopUp({
+  balanceAfterTariff: 600,
+  nextRecurringAmount: 400
+});
+assert.equal(coveredTopUp.requiredTopUp, 0);
+
+const fallbackTopUp = calculateNextMonthTopUp({
+  accountBalance: -399.71,
+  currentDue: 68,
+  nextRecurringAmount: 400
+});
+assert.equal(fallbackTopUp.requiredTopUp, 867.71);
+assert.equal(fallbackTopUp.balanceBasis, 'accountBalanceMinusCurrentDue');
+
+const recalculatedNextMonth = deriveFinanceDecisionEvidence({
+  requestText: 'пересчитайте',
+  semanticRequestText: 'Пересчитать точную сумму к оплате, чтобы закрыть текущий долг и следующий месяц',
+  evidence: [
+    { path: 'subscriber.finance.balance.afterTariff', status: 'known', value: -467.71 },
+    { path: 'subscriber.finance.balance.account', status: 'known', value: -399.71 },
+    { path: 'subscriber.finance.totalDue', status: 'known', value: 68 },
+    { path: 'subscriber.tariff.current.price', status: 'known', value: 400 }
+  ]
+});
+assert.equal(recalculatedNextMonth.decision.type, 'next_month_top_up');
+assert.equal(recalculatedNextMonth.decision.requiredTopUp, 867.71);
+assert.equal(recalculatedNextMonth.decision.negativeBalanceIsDebtJudgment, false);
+assert.equal(recalculatedNextMonth.decision.disputeRequiresUsageVerification, true);
+assert.equal(
+  recalculatedNextMonth.evidence.find(item => item.path === 'derived.finance.nextMonthTopUp.requiredTopUp')?.value,
+  867.71
+);
 
 const firstPon = calculateConnectionUpfrontPayment({ firstConnection: true, optical: true });
 assert.equal(firstPon.status, 'known');

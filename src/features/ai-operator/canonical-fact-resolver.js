@@ -277,8 +277,23 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
     const key = cacheKey(source, context, request);
     const cached = context.factSourceCache[key];
     const cachedAt = Number(cached?.cachedAt || 0);
-    const fresh = !request.refresh && cached?.ok && cachedAt > 0 && now - cachedAt < ttlMs && cachedAt >= Number(context.invalidatedAt || 0);
     const semanticFactsForSource = sourceSemanticFacts(source, requestedFacts);
+    const cachedData = cached?.result?.data && typeof cached.result.data === 'object' && !Array.isArray(cached.result.data)
+      ? cached.result.data
+      : {};
+    const cachedProvenance = clean(cachedData.source || cachedData?.evidence?.source || cached?.result?.source || sourceSpec.tool, 160);
+    const cachedObservedAt = clean(cached?.result?.observedAt || cachedData?.observedAt || cachedData?.evidence?.observedAt, 100);
+    const cachedRequestedFieldStale = Boolean(cached?.ok && semanticFactsForSource.some(path => (
+      factEvidence(path, CANONICAL_FACT_CATALOG[path], readRaw(cachedData, CANONICAL_FACT_CATALOG[path]), {
+        provenance: cachedProvenance,
+        observedAt: cachedObservedAt,
+        fieldObservedAt: cachedData?.evidence?.fieldObservedAt || cachedData?.fieldObservedAt || {},
+        now,
+        invalidatedAt: Number(context.invalidatedAt || 0)
+      }).code === 'STALE_FIELD'
+    )));
+    const effectiveRequest = cachedRequestedFieldStale ? { ...request, refresh: true } : request;
+    const fresh = !effectiveRequest.refresh && cached?.ok && cachedAt > 0 && now - cachedAt < ttlMs && cachedAt >= Number(context.invalidatedAt || 0);
     const adapterFacts = source === 'billing.mainSummary' && semanticFactsForSource.length ? semanticFactsForSource : paths;
     let result;
     let fromCache = false;
@@ -288,7 +303,7 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
       fromCache = true;
       cacheHits.push(source);
     } else {
-      const toolArgs = adapterArgs(source, context, request, ttlMs, adapterFacts);
+      const toolArgs = adapterArgs(source, context, effectiveRequest, ttlMs, adapterFacts);
       try {
         result = await execute({ tool: sourceSpec.tool, toolArgs, labState: context });
       } catch (error) {
@@ -326,12 +341,12 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
       source,
       requestedFacts: [...paths],
       semanticRequestedFacts: [...semanticFactsForSource],
-      args: adapterArgs(source, context, request, ttlMs, adapterFacts),
+      args: adapterArgs(source, context, effectiveRequest, ttlMs, adapterFacts),
       ok: Boolean(result?.ok),
       code: clean(result?.code || (result?.ok ? 'OK' : 'ERROR'), 100),
       observedAt,
       provenance,
-      cache: fromCache ? 'hit' : 'miss',
+      cache: fromCache ? 'hit' : (cachedRequestedFieldStale ? 'stale-refresh' : 'miss'),
       warnings: (Array.isArray(result?.warnings) ? result.warnings : []).map(item => clean(item, 360)).filter(Boolean).slice(0, 5)
     });
   }
@@ -372,4 +387,4 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
   };
 }
 
-export const CANONICAL_FACT_RESOLVER_VERSION = 4;
+export const CANONICAL_FACT_RESOLVER_VERSION = 5;

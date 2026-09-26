@@ -1,5 +1,7 @@
 'use strict';
 
+import { calculateRequiredTopUp } from './future-payment-calculator.js';
+
 function money(value) {
   if (value === '' || value === null || value === undefined || typeof value === 'boolean') return null;
   const normalized = String(value).replace(/[\s\u00a0]/g, '').replace(',', '.');
@@ -7,6 +9,60 @@ function money(value) {
   return Number(normalized);
 }
 function cents(value) { const numeric = money(value); return numeric === null ? null : Math.round(numeric * 100); }
+
+function financeContextText(requestText = '', semanticRequestText = '') {
+  return `${String(requestText || '').trim()} ${String(semanticRequestText || '').trim()}`.trim();
+}
+
+export function isNextMonthTopUpQuestion(requestText = '') {
+  const request = String(requestText || '').toLowerCase();
+  if (!request) return false;
+  const nextMonth = /(?:след(?:ующ(?:ий|его|ем|ую)|\.)?\s*(?:месяц|мес\.)|наступн(?:ий|ого|ому|ім)?\s+місяц)/iu.test(request);
+  const amount = /(?:сколько|скільки|сумм|сума|оплат|внести|пополн|поповн|закрыт|закр|покрыт|покр|пересчит|перерах)/iu.test(request);
+  return nextMonth && amount;
+}
+
+export function calculateNextMonthTopUp({
+  balanceAfterTariff,
+  accountBalance,
+  currentDue,
+  nextRecurringAmount
+} = {}) {
+  const explicitBalance = money(balanceAfterTariff);
+  const accountCents = cents(accountBalance);
+  const currentDueCents = cents(currentDue);
+  const nextAmount = money(nextRecurringAmount);
+
+  let effectiveBalance = explicitBalance;
+  let balanceBasis = explicitBalance === null ? 'none' : 'balanceAfterTariff';
+  if (effectiveBalance === null && accountCents !== null && currentDueCents !== null) {
+    effectiveBalance = (accountCents - currentDueCents) / 100;
+    balanceBasis = 'accountBalanceMinusCurrentDue';
+  }
+
+  if (nextAmount === null || nextAmount <= 0 || effectiveBalance === null) {
+    return {
+      status: 'unknown',
+      requiredTopUp: null,
+      effectiveBalance,
+      balanceBasis,
+      nextRecurringAmount: nextAmount
+    };
+  }
+
+  const calculation = calculateRequiredTopUp({
+    futureCharges: nextAmount,
+    availableBalance: effectiveBalance
+  });
+  return {
+    status: calculation.status,
+    requiredTopUp: calculation.requiredTopUp,
+    effectiveBalance: calculation.availableBalance,
+    balanceBasis,
+    nextRecurringAmount: calculation.futureCharges,
+    formula: calculation.formula
+  };
+}
 
 export function calculateBalanceCoverage({ balance, recurringAmount } = {}) {
   const balanceCents = cents(balance); const recurringCents = cents(recurringAmount);
@@ -53,6 +109,14 @@ export function financeRequiredFacts(requestText = '') {
   if (isInactiveReturnNegativeBalanceQuestion(requestText)) {
     return ['subscriber.finance.balance.account', 'subscriber.finance.totalDue'];
   }
+  if (isNextMonthTopUpQuestion(requestText)) {
+    return [
+      'subscriber.finance.balance.afterTariff',
+      'subscriber.finance.balance.account',
+      'subscriber.finance.totalDue',
+      'subscriber.tariff.current.price'
+    ];
+  }
   return isBalanceCoverageQuestion(requestText)
     ? ['subscriber.finance.balance.account', 'subscriber.finance.recurringTotal']
     : [];
@@ -61,10 +125,11 @@ export function financeRequiredFacts(requestText = '') {
 function evidenceMap(evidence = []) { return new Map((Array.isArray(evidence) ? evidence : []).map(item => [String(item?.path || ''), item])); }
 function knownValue(map, path) { const item = map.get(path); return item && item.status === 'known' ? item.value : null; }
 
-export function deriveFinanceDecisionEvidence({ requestText = '', evidence = [] } = {}) {
+export function deriveFinanceDecisionEvidence({ requestText = '', semanticRequestText = '', evidence = [] } = {}) {
   const map = evidenceMap(evidence);
+  const decisionRequestText = financeContextText(requestText, semanticRequestText);
 
-  if (isInactiveReturnNegativeBalanceQuestion(requestText)) {
+  if (isInactiveReturnNegativeBalanceQuestion(decisionRequestText)) {
     const balance = money(knownValue(map, 'subscriber.finance.balance.account'));
     const totalDue = money(knownValue(map, 'subscriber.finance.totalDue'));
     if (balance !== null && balance < 0 && totalDue === 0) {
@@ -90,7 +155,32 @@ export function deriveFinanceDecisionEvidence({ requestText = '', evidence = [] 
     }
   }
 
-  if (!isBalanceCoverageQuestion(requestText)) return { decision: null, evidence: [] };
+  if (isNextMonthTopUpQuestion(decisionRequestText)) {
+    const calculation = calculateNextMonthTopUp({
+      balanceAfterTariff: knownValue(map, 'subscriber.finance.balance.afterTariff'),
+      accountBalance: knownValue(map, 'subscriber.finance.balance.account'),
+      currentDue: knownValue(map, 'subscriber.finance.totalDue'),
+      nextRecurringAmount: knownValue(map, 'subscriber.tariff.current.price')
+    });
+    const source = 'deterministic.finance.next-month-top-up';
+    const decision = {
+      type: 'next_month_top_up',
+      ...calculation,
+      negativeBalanceIsDebtJudgment: false,
+      disputeRequiresUsageVerification: true
+    };
+    if (calculation.status !== 'known') return { decision, evidence: [] };
+    return { decision, evidence: [
+      { path: 'derived.finance.nextMonthTopUp.requiredTopUp', status: 'known', observed: true, value: calculation.requiredTopUp, source, derived: true },
+      { path: 'derived.finance.nextMonthTopUp.effectiveBalance', status: 'known', observed: true, value: calculation.effectiveBalance, source, derived: true },
+      { path: 'derived.finance.nextMonthTopUp.nextRecurringAmount', status: 'known', observed: true, value: calculation.nextRecurringAmount, source, derived: true },
+      { path: 'derived.finance.nextMonthTopUp.balanceBasis', status: 'known', observed: true, value: calculation.balanceBasis, source, derived: true },
+      { path: 'derived.finance.nextMonthTopUp.negativeBalanceIsDebtJudgment', status: 'known', observed: true, value: false, source, derived: true },
+      { path: 'derived.finance.nextMonthTopUp.disputeRequiresUsageVerification', status: 'known', observed: true, value: true, source, derived: true }
+    ]};
+  }
+
+  if (!isBalanceCoverageQuestion(decisionRequestText)) return { decision: null, evidence: [] };
   const balance = knownValue(map, 'subscriber.finance.balance.account');
   const recurringAmount = knownValue(map, 'subscriber.finance.recurringTotal');
   const decision = calculateBalanceCoverage({ balance, recurringAmount });
