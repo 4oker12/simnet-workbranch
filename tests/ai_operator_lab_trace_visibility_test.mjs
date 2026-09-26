@@ -160,3 +160,12 @@ test('runtime UI is Russian-first and keeps technical English only as a secondar
   assert.match(traceJs, /Последний результат \(last result\)/);
   assert.doesNotMatch(traceJs, /Снимок абонента \(Снимок абонента/);
 });
+
+test('runtime map exposes canonical source reads and sharp dotted snapshot groups', () => {
+  assert.match(traceJs, /factSourceTrace/, 'canonical resolver source calls must participate in runtime tool trace');
+  assert.match(traceJs, /billing\\.main_summary/, 'Billing main-summary canonical read must be visible as a tool');
+  assert.match(traceJs, /factDiagnostics\?\.requestedFacts/, 'runtime model projection must use canonical requested facts');
+  assert.match(traceJs, /variant\?\.factEvidence/, 'runtime model projection must expose canonical fact evidence');
+  assert.match(traceJs, /border:1px dashed rgba\(15,23,42,\.62\)/, 'snapshot subgroup headers must use the darker dashed treatment');
+  assert.match(traceJs, /font:9px\/1\.52 ui-monospace/, 'snapshot JSON must use the clearer technical typography');
+});
