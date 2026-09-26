@@ -160,6 +160,9 @@ jobs:
       - name: Finance · semantics
         if: always()
         run: node --test tests/ai_operator_finance_semantics_test.mjs
+      - name: Canonical facts · refresh and source cache
+        if: always()
+        run: node --test tests/ai_operator_canonical_fact_resolver_test.mjs
       - name: Finance · settlement-cycle knowledge
         if: always()
         run: node --test tests/ai_operator_settlement_cycle_knowledge_test.mjs
