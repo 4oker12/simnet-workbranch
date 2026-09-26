@@ -83,3 +83,14 @@ test('Billing main-page reader survives summary table class drift and falls back
   assert.match(source, /fallbackSelectorObserved/);
   assert.match(source, /BILLING_MAIN_FORM_NOT_FOUND/);
 });
+
+
+test('Billing no-result is treated as transient and retried only once before trying another tab', () => {
+  const source = requireSource();
+  assert.match(source, /NO_RESULT_RETRY_DELAY_MS = 120/);
+  assert.match(source, /outcome\?\.code === 'BILLING_SUMMARY_NO_RESULT'/);
+  assert.match(source, /await wait\(NO_RESULT_RETRY_DELAY_MS\)/);
+  assert.match(source, /retryableAcrossTabs/);
+  assert.match(source, /BILLING_SUMMARY_EXECUTION_FAILED/);
+  assert.doesNotMatch(source, /while\s*\(/, 'reader must not introduce unbounded polling');
+});
