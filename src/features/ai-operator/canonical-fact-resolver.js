@@ -164,8 +164,10 @@ function updateDomainContext(domainContext = {}, source, data = {}, context = {}
   if (source === 'billing.customer') {
     const identity = data?.identity || {};
     const address = data?.address || {};
+    const billingFamily = clean(data?.technical?.technologyHint || data?.network?.connectionFamily, 80);
     if (identity.billingId) next.activeSubscriberId = `billing:${clean(identity.billingId, 80)}`;
     if (identity.contract) next.activeContractId = `contract:${clean(identity.contract, 80)}`;
+    if (billingFamily) next.activeConnection = { family: billingFamily };
     if (address.full || address.street || address.building) {
       next.activeServiceAddress = {
         street: clean(address.street, 180),
