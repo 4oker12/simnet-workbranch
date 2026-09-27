@@ -89,3 +89,16 @@ test('fresh billing.main_summary fallback must refresh the broad Billing snapsho
     /toolArgs:\s*\{\s*\.\.\.fallbackToolArgs\(toolArgs\),\s*refresh:\s*false\s*\}/s
   );
 });
+
+
+test('billing.main_summary broad fallback is normalized by the same tariff semantic authority', () => {
+  const source = readFileSync(
+    new URL('../src/features/ai-operator/live-tool-runtime.js', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(source, /normalizeBillingTariffSnapshot/);
+  assert.match(source, /normalizedFallbackData = name === 'billing\.main_summary'/);
+  assert.match(source, /normalizeBillingTariffSnapshot\(base\.data \|\| \{\}/);
+  assert.match(source, /tool: name/);
+});
