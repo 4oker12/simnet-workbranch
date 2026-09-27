@@ -94,7 +94,10 @@ export const CANONICAL_FACT_CATALOG = Object.freeze({
   'subscriber.network.session.vendor': network('vendor'),
   'subscriber.network.session.vlan': network('vlan'),
 
-  'subscriber.access.connectionFamily': userside('network.connectionFamily'),
+  // Current access family is already evidenced by Billing technical data (EPON/GPON/PON).
+  // UserSide remains authoritative for deeper port/ONU/OLT details, but a simple
+  // "what technology is this subscriber on?" must not require an open UserSide tab.
+  'subscriber.access.connectionFamily': billingCustomer(['technical.technologyHint', 'network.connectionFamily']),
   'subscriber.access.ethernet.deviceId': userside('network.accessDeviceId'),
   'subscriber.access.ethernet.deviceName': userside('network.accessDeviceName'),
   'subscriber.access.ethernet.deviceIp': userside('network.accessDeviceIp'),
