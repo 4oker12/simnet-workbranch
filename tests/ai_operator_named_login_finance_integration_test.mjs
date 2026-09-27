@@ -34,6 +34,8 @@ function billingMainSummary(observedAt = NOW) {
         temporaryPayment: null,
         totalDue: 330,
         recurringTotal: 330,
+        internetTariffPrice: 330,
+        internetTariffPriceSemantics: 'confirmed_main_summary_internet_tariff_price',
         price: 330
       },
       payments: [
