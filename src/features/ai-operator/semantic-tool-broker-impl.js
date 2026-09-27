@@ -141,6 +141,8 @@ function applyStatePatch(state = {}, patch = {}) {
   return { ...(state && typeof state === 'object' && !Array.isArray(state) ? state : {}), ...(patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : {}) };
 }
 function explicitToolFromNeed(need = {}) {
+  const declared = oneLine(need?.tool, 100);
+  if (declared && TOOL_NAMES.has(declared)) return declared;
   const source = `${oneLine(need?.system, 100)} ${oneLine(need?.field, 220)}`;
   for (const name of TOOL_NAMES) {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

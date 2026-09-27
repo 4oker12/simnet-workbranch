@@ -545,8 +545,11 @@ function behaviorProfile(value = {}) {
 
 function normalizeDataNeeds(value) {
   return (Array.isArray(value) ? value : []).map(item => ({
-    system: oneLine(item?.system || '', 80), field: oneLine(item?.field || '', 120), why: oneLine(item?.why || '', 320)
-  })).filter(item => item.system || item.field || item.why).slice(0, 6);
+    tool: oneLine(item?.tool || '', 100),
+    system: oneLine(item?.system || '', 80),
+    field: oneLine(item?.field || '', 120),
+    why: oneLine(item?.why || '', 320)
+  })).filter(item => item.tool || item.system || item.field || item.why).slice(0, 6);
 }
 
 function normalizeBehaviorEffects(value = {}) {
@@ -596,7 +599,15 @@ function answerPayload(analysis = {}, useKnowledge = true) {
   };
 }
 
-function replySchemaPrompt(profile, capabilities) {
+function replySchemaPrompt(profile, capabilities, toolPlanner = null) {
+  const rawPlanner = toolPlanner && typeof toolPlanner === 'object'
+    ? (typeof toolPlanner.toJSON === 'function' ? toolPlanner.toJSON() : toolPlanner)
+    : {};
+  const toolNames = (Array.isArray(rawPlanner.tools) ? rawPlanner.tools : [])
+    .map(item => oneLine(item?.name || '', 100))
+    .filter(Boolean)
+    .slice(0, 16);
+  const planningRule = oneLine(rawPlanner.planningRule || rawPlanner.instruction || '', 1200);
   return `Ты формируешь ответ абоненту как оператор интернет-провайдера SIMNET. Это лабораторный режим: нужно показать, как будущий оператор ответил бы сейчас, но нельзя изображать выполненную проверку, которой не было.
 
 Главное — естественный полезный ответ человеку на языке разговора. Не показывай внутренние JSON-поля, названия стадий AI, chain-of-thought или скрытые рассуждения.
@@ -628,10 +639,19 @@ ANSWER RELEVANCE GATE — обязательный фильтр перед reply
 
 Capabilities сейчас: Billing=${capabilities.billing ? 'ON' : 'OFF'}, UserSide=${capabilities.userside ? 'ON' : 'OFF'}, Network=${capabilities.network ? 'ON' : 'OFF'}.
 
+READ-tools — это мягкие источники фактов, а не сценарий мышления:
+- сначала сохрани уже полученное semantic understanding и реши, нужен ли вообще live-факт конкретного абонента;
+- если нужен, выбери наиболее подходящий инструмент по СМЫСЛУ из доступного списка, а не по совпадению ключевого слова;
+- поле tool в subscriber_data_needed заполняй точным именем инструмента из списка; system/field/why объясняют потребность, но не заменяют выбор tool;
+- если общий вопрос уже закрывается диалогом/KB и персональный live-факт не нужен, верни subscriber_data_needed=[];
+- не вызывай несколько инструментов «на всякий случай»; каждый вызов должен закрывать конкретный неизвестный факт.
+Доступные READ-tools: ${toolNames.length ? toolNames.join(', ') : 'нет'}.
+Правило планирования: ${planningRule || 'Цель клиента → неизвестный live-факт → один подходящий READ-tool → evidence → ответ.'}
+
 Верни только JSON без markdown. Поля diagnostics — короткое операционное резюме, НЕ chain-of-thought:
 {
   "reply":"готовый ответ абоненту",
-  "subscriber_data_needed":[{"system":"Billing|UserSide|Network","field":"что нужно прочитать","why":"зачем"}],
+  "subscriber_data_needed":[{"tool":"точное имя READ-tool из доступного списка","system":"Billing|UserSide|Network","field":"что нужно прочитать","why":"зачем"}],
   "unresolved_requests":["что из просьб клиента ещё остаётся незакрытым после этого ответа"],
   "clarification_questions":["какие вопросы реально заданы в reply"],
   "verification_needed":["что требует проверки перед утверждением"],
@@ -661,6 +681,7 @@ export async function generateSubscriberReply({
   useKnowledge = true,
   behavior = {},
   capabilities = { billing: false, userside: false, network: false },
+  toolPlanner = null,
   meterContext = {}
 } = {}) {
   const runtime = await readAiRuntimeConfig();
@@ -669,8 +690,12 @@ export async function generateSubscriberReply({
   const profile = behaviorProfile(behavior);
   const dialogue = transcriptForProbe(transcript);
   const grounded = answerPayload(analysis, useKnowledge);
+  const planner = toolPlanner || capabilities?.toolPlanner || null;
+  const plannerPayload = planner && typeof planner === 'object'
+    ? (typeof planner.toJSON === 'function' ? planner.toJSON() : planner)
+    : null;
   const messages = [
-    { role: 'system', content: replySchemaPrompt(profile, capabilities) },
+    { role: 'system', content: replySchemaPrompt(profile, capabilities, planner) },
     {
       role: 'user',
       content: JSON.stringify({
@@ -678,7 +703,8 @@ export async function generateSubscriberReply({
         latest_customer_message: block(latestCustomer?.text || '', 1200),
         grounded_context: grounded,
         behavior_profile: profile,
-        capabilities
+        capabilities,
+        tool_planner: plannerPayload
       })
     }
   ];

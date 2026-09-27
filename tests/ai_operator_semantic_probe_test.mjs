@@ -143,6 +143,9 @@ test('subscriber reply path keeps behavior tunable while truth rules stay invari
   assert.match(source, /internal_knowledge\.enabled=false/i);
   assert.match(source, /не добавляй «обычную практику отрасли»/i);
   assert.match(source, /subscriber_data_needed/);
+  assert.match(source, /"tool":"точное имя READ-tool из доступного списка"/);
+  assert.match(source, /tool_planner/);
+  assert.match(source, /выбери наиболее подходящий инструмент по СМЫСЛУ/i);
   assert.match(source, /behavior_effects/);
   assert.match(source, /Решительность \$\{profile\.confidenceStyle\}/);
   assert.match(source, /Любопытство \$\{profile\.curiosity\}/);

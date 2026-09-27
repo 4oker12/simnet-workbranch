@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   AI_OPERATOR_SOFT_TOOL_CAPABILITIES,
+  AI_OPERATOR_SOFT_TOOL_PLANNER,
   AI_OPERATOR_TOOL_CAPABILITY_DETAILS,
   ensureNonEmptyReply,
   executeInformationNeeds,
@@ -12,8 +13,11 @@ import {
 
 test('soft broker maps information needs to evidence sources without phrase-script actions', () => {
   assert.deepEqual(AI_OPERATOR_SOFT_TOOL_CAPABILITIES, { billing: true, userside: true, network: true });
-  assert.equal(AI_OPERATOR_TOOL_CAPABILITY_DETAILS.billing, 'live-read-only');
+  assert.equal(AI_OPERATOR_TOOL_CAPABILITY_DETAILS.billing, 'billing-main-summary-live-read-only + billing-live-read-only');
   assert.equal(AI_OPERATOR_TOOL_CAPABILITY_DETAILS.userside, 'live-read-only');
+  assert.equal(AI_OPERATOR_TOOL_CAPABILITY_DETAILS.network, 'billing-stat-live-read-only + workbench-fallback');
+  assert.equal(AI_OPERATOR_SOFT_TOOL_PLANNER.version, 10);
+  assert.ok(AI_OPERATOR_SOFT_TOOL_PLANNER.toJSON().tools.some(item => item.name === 'userside.snapshot'));
 
   const calls = mapInformationNeedsToTools([
     { system: 'Billing', field: 'баланс договора', why: 'ответить сколько денег на счёте' },
@@ -31,6 +35,11 @@ test('soft broker maps information needs to evidence sources without phrase-scri
   assert.equal(calls.some(item => Object.hasOwn(item, 'intent')), false, 'broker must not emit hard intent classifications');
   assert.equal(calls.find(item => item.tool === 'userside.snapshot')?.toolArgs?.refresh, true, 'UserSide tool must request fresh data');
   assert.equal(calls.find(item => item.tool === 'pon.signal')?.toolArgs?.refresh, true, 'PON signal tool must request fresh data');
+
+  const explicit = mapInformationNeedsToTools([
+    { tool: 'pon.signal', system: 'Network', field: 'проверить свет на линии', why: 'модель уже выбрала источник по смыслу' }
+  ]);
+  assert.equal(explicit[0]?.tool, 'pon.signal', 'exact model-selected tool must win before keyword compatibility routing');
 });
 
 test('identity hints use explicit dialogue evidence and short numeric answer only in context', () => {

@@ -3,6 +3,7 @@ import { analyzeSubscriberIntent, generateSubscriberReply, generateCleanModelRep
 import { executeOperatorTool } from './live-tool-runtime.js';
 import {
   AI_OPERATOR_SOFT_TOOL_CAPABILITIES,
+  AI_OPERATOR_SOFT_TOOL_PLANNER,
   AI_OPERATOR_TOOL_CAPABILITY_DETAILS,
   ensureNonEmptyReply,
   groundSubscriberReply
@@ -15,6 +16,7 @@ const MAX_SNAPSHOTS = 40;
 const KNOWLEDGE_MODES = new Set(['off', 'auto', 'on', 'ab', 'clean']);
 const DISPLAY_MODES = new Set(['answer', 'answer_analysis', 'analysis']);
 const CAPABILITIES = AI_OPERATOR_SOFT_TOOL_CAPABILITIES;
+const TOOL_PLANNER = AI_OPERATOR_SOFT_TOOL_PLANNER;
 const CAPABILITY_DETAILS = AI_OPERATOR_TOOL_CAPABILITY_DETAILS;
 const CLEAN_CAPABILITIES = Object.freeze({ billing: false, userside: false, network: false });
 
@@ -256,6 +258,7 @@ async function replyVariant({ lab, transcript, customer, analysis, useKnowledge,
       useKnowledge,
       behavior: lab.behavior,
       capabilities: CAPABILITIES,
+      toolPlanner: TOOL_PLANNER,
       meterContext: { scope: lab.id, turnId: customer.id, variant: label }
     });
   } catch (error) {
