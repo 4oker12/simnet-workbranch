@@ -1,6 +1,8 @@
 import { getChatMessages, getCustomerInformation, listInboxChats } from './helpcrunch-client.js';
 import { latestCustomerTurn, normalizeHelpCrunchTranscript } from './message-normalizer.js';
-import { planAutonomousTurn } from './groq-planner.js';
+import { interpretOperatorTurn } from './groq-planner.js';
+import { runFactTurn } from './fact-runtime.js';
+import { executeOperatorTool } from './live-tool-runtime.js';
 
 const CONFIG_KEY = 'simnet_ai_operator_runtime_v1';
 const CASES_KEY = 'simnet_ai_operator_cases_v1';
@@ -188,15 +190,16 @@ async function processChat(chat, config, existingCase = {}) {
   const customer = mergeCustomer(chat, info);
   const feedback = config.learnFromCorrections ? await readFeedback() : [];
 
-  const decision = await planAutonomousTurn({
-    chat,
-    customer,
+  const outcome = await runFactTurn({
+    text: latest.text,
+    state: existingCase.conversationState || {},
     transcript,
-    latestCustomer: latest,
-    operatorConfig: config,
-    corrections: feedback.slice(0, 12)
+    interpret: input => interpretOperatorTurn({ ...input, operatorConfig: config, meterContext: { scope: `shadow:${chatId}`, turnId: `shadow:${chatId}:${latest.id}` } }),
+    execute: executeOperatorTool
   });
+  const decision = outcome.decision;
   const saved = await writeCase(chatId, {
+    conversationState: outcome.state,
     customerId: customer.id,
     provider: String(chat?.provider || ''),
     lastProcessedCustomerMessageId: latest.id,
