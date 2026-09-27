@@ -3,6 +3,7 @@
 import * as core from './live-tool-runtime-core.js';
 import { readNetworkSessionLive } from './network-live-search.js';
 import { readBillingSummaryLive } from './billing-summary-live.js';
+import { normalizeBillingTariffSnapshot } from './billing-tariff-normalizer.js';
 import { readBillingHistoryLive } from './billing-history-live.js';
 import {
   classifyBillingExactIdentity,
@@ -470,8 +471,13 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
 
   if (!live?.ok) {
     if (base?.ok) {
+      const normalizedFallbackData = name === 'billing.main_summary'
+        ? normalizeBillingTariffSnapshot(base.data || {}, { now: new Date() })
+        : (base.data || {});
       return {
         ...base,
+        tool: name,
+        data: normalizedFallbackData,
         warnings: [
           ...(Array.isArray(base.warnings) ? base.warnings : []),
           `Billing main-summary table read недоступен (${String(live?.code || 'unknown')}); использован Billing snapshot fallback.`
@@ -491,7 +497,9 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
   const payments = Array.isArray(live.data?.payments) ? live.data.payments : null;
   const network = live.data?.network || {};
   const evidence = live.data?.evidence || {};
-  const baseData = base?.data || {};
+  const baseData = name === 'billing.main_summary' && base?.data
+    ? normalizeBillingTariffSnapshot(base.data, { now: new Date() })
+    : (base?.data || {});
 
   if (name === 'billing.main_summary') {
     // Dedicated a=user values win only when actually present. A null/empty live
