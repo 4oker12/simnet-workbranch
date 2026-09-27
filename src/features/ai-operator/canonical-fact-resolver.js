@@ -333,7 +333,11 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
       if (result?.statePatch && typeof result.statePatch === 'object') Object.assign(context, clone(result.statePatch));
     }
 
-    const evidenceNow = logicalNow();
+    const resultObservedAtMs = Date.parse(result?.observedAt || '');
+    const evidenceNow = Math.max(
+      logicalNow(),
+      Number.isFinite(resultObservedAtMs) ? resultObservedAtMs : 0
+    );
     const data = result?.data && typeof result.data === 'object' && !Array.isArray(result.data) ? result.data : {};
     broadPayloadChars += JSON.stringify(data).length;
     const provenance = clean(data.source || data?.evidence?.source || result?.source || sourceSpec.tool, 160);
