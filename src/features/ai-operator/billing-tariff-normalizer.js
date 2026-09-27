@@ -45,9 +45,9 @@ function inferTariffNumbers(label) {
     return { priceUAH, speedMbps, serviceCode: 'BZL' };
   }
 
-  const speed = text.match(/\b(\d{2,4})\s*(?:M(?:B|BIT)(?:\/S)?|МБ(?:І|И)?Т(?:\/С)?|МБ)\b/i);
+  const speed = text.match(/(?:^|\s)(\d{2,4})\s*(?:M(?:B|BIT)(?:\/S)?|МБ(?:І|И)?Т(?:\/С)?|МБ)(?=$|\s|[),.;])/iu);
   if (speed) speedMbps = Number(speed[1]);
-  if (!Number.isFinite(speedMbps) && /\b1\s*(?:G(?:BIT|BPS)|ГБ(?:І|И)?Т(?:\/С)?)\b/i.test(text)) speedMbps = 1000;
+  if (!Number.isFinite(speedMbps) && /(?:^|\s)1\s*(?:G(?:BIT|BPS)|ГБ(?:І|И)?Т(?:\/С)?)(?=$|\s|[),.;])/iu.test(text)) speedMbps = 1000;
 
   const explicitPrice = text.match(/\b(\d{2,4}(?:[.,]\d{1,2})?)\s*(?:грн|uah)\b/i);
   if (explicitPrice) priceUAH = finiteMoney(String(explicitPrice[1]).replace(',', '.'));
