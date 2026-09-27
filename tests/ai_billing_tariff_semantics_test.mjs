@@ -22,6 +22,15 @@ assert.equal(codedTariff.displayName, '300 Мбит/с — 310 грн/мес');
 assert.equal(codedTariff.priceUAH, 310);
 assert.equal(codedTariff.speedMbps, 300);
 
+
+const privateGigabitTariff = normalizeTariffLabel('PON Гігабіт 400 (прив.сектор) - (15.10.2024)');
+assert.equal(privateGigabitTariff.priceUAH, 400);
+assert.equal(privateGigabitTariff.speedMbps, 1000);
+
+const namedUnlimitedTariff = normalizeTariffLabel('Безліміт 310 (15.10.2024) Швидкість - 500 Мбіт/с');
+assert.equal(namedUnlimitedTariff.priceUAH, 310);
+assert.equal(namedUnlimitedTariff.speedMbps, 500);
+
 for (const sample of [
   { nextTariff: '', nextTariffDelay: 'в следующем месяце' },
   { nextTariff: '---', nextTariffDelay: 'в следующем месяце' },
@@ -90,6 +99,16 @@ const uncertainPriceSnapshot = normalizeBillingTariffSnapshot({
   finance: { price: 349, priceSemantics: 'generic_price_row_not_guaranteed_to_be_internet_tariff' }
 });
 assert.equal(uncertainPriceSnapshot.finance.recurringTotal, null, 'broad Billing price must not be double-counted as confirmed internet price');
+assert.equal(uncertainPriceSnapshot.finance.internetTariffPrice, null, 'ambiguous generic price must never become canonical tariff price');
+
+const privateGigabitSnapshot = normalizeBillingTariffSnapshot({
+  service: { currentTariff: 'PON Гігабіт 400 (прив.сектор) - (15.10.2024)', activeServices: [] },
+  finance: { price: 0.17, priceSemantics: 'generic_price_row_not_guaranteed_to_be_internet_tariff' }
+});
+assert.equal(privateGigabitSnapshot.finance.internetTariffPrice, 400);
+assert.equal(privateGigabitSnapshot.service.current.priceUAH, 400);
+assert.equal(privateGigabitSnapshot.finance.recurringTotal, 400);
+
 
 assert.deepEqual(classifyBillingLookup({ contract: 'abc-123/7' }), { mode: 'contract', value: 'abc-123/7' });
 assert.deepEqual(classifyBillingLookup({ query: '123456' }), { mode: 'contract', value: '123456' });
@@ -104,6 +123,10 @@ assert.equal(normalizeContractIdentifier(' Договор № AbC-55/1 '), 'AbC-
 assert.equal(CANONICAL_FACT_CATALOG['subscriber.tariff.scheduledChange.hasChange'].type, 'boolean');
 assert.deepEqual(CANONICAL_FACT_CATALOG['subscriber.tariff.scheduledChange.hasChange'].paths, ['service.hasScheduledTariffChange']);
 assert.ok(CANONICAL_FACT_CATALOG['subscriber.finance.recurringTotal']);
+assert.deepEqual(
+  CANONICAL_FACT_CATALOG['subscriber.tariff.current.price'].paths,
+  ['finance.internetTariffPrice', 'service.current.priceUAH', 'service.currentTariffPriceUAH']
+);
 assert.ok(CANONICAL_FACT_CATALOG['subscriber.tariff.current.rawName']);
 
 assert.deepEqual(TARIFF_CATALOG.apartmentExisting.map(item => [item.speedMbps, item.priceUAH]), [
