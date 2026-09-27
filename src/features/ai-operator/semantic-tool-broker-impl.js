@@ -34,6 +34,30 @@ function explicitCurrentAccountFacts({ analysis = {}, requestText = '' } = {}) {
   return normalizeCanonicalFacts(facts);
 }
 
+function minimizePureAccessTechnologyFacts(facts = [], { analysis = {}, requestText = '' } = {}) {
+  const probe = analysis?.probe || {};
+  const context = [
+    requestText,
+    probe.whatUserWants,
+    probe.latestMessageMeans,
+    probe.refersTo,
+    probe.underlyingGoal,
+    ...(Array.isArray(probe.unresolvedRequests) ? probe.unresolvedRequests : [])
+  ].map(value => String(value || '').trim()).filter(Boolean).join(' ').toLowerCase();
+
+  const asksTechnology = /(?:технолог(?:ия|ию|ии)|тип\s+подключ|способ\s+подключ|тип\s+доступ|оптик|\bgpon\b|\bepon\b|\bpon\b|ethernet)/iu.test(context);
+  const asksAccessDetail = /(?:серийн|serial|\bonu\b|\bont\b|\bolt\b|порт|\bport\b|device|устройств|обладнан|\bmac\b|\brx\b|\btx\b|сигнал|затух)/iu.test(context);
+  if (!asksTechnology || asksAccessDetail) return normalizeCanonicalFacts(facts);
+
+  // For a pure "what access technology?" question, the canonical family is
+  // sufficient. Do not manufacture a UserSide dependency by also asking for
+  // mutually exclusive PON/Ethernet implementation details.
+  return normalizeCanonicalFacts(facts).filter(path =>
+    path === 'subscriber.access.connectionFamily'
+    || !path.startsWith('subscriber.access.')
+  );
+}
+
 function removeUnsafeSubstitutions(facts = [], requestText = '') {
   const normalized = normalizeCanonicalFacts(facts);
   if (!isConsumptionStartQuestion(requestText)) return normalized;
@@ -49,7 +73,11 @@ export function augmentRequiredFactsForTurn({ analysis = {}, transcript = [], re
   const dialogueFacts = requiredFactsForDialogueTurn({ analysis, requestText: currentText, labState });
   const deterministicFinanceFacts = financeRequiredFacts(currentText);
   const explicitAccountFacts = explicitCurrentAccountFacts({ analysis, requestText: currentText });
-  return removeUnsafeSubstitutions([...semanticFacts, ...dialogueFacts, ...deterministicFinanceFacts, ...explicitAccountFacts], currentText);
+  const combined = removeUnsafeSubstitutions(
+    [...semanticFacts, ...dialogueFacts, ...deterministicFinanceFacts, ...explicitAccountFacts],
+    currentText
+  );
+  return minimizePureAccessTechnologyFacts(combined, { analysis, requestText: currentText });
 }
 
 export async function groundSubscriberReply(options = {}) {
