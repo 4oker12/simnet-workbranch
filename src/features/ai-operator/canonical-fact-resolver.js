@@ -268,6 +268,8 @@ export function createCanonicalDomainContext(value = {}) {
 
 export async function resolveFacts({ context: inputContext = {}, facts = [], execute, now = Date.now(), request = {} } = {}) {
   if (typeof execute !== 'function') throw new Error('Canonical Fact Resolver requires execute(tool)');
+  const resolutionWallStartedAt = Date.now();
+  const logicalNow = () => Number(now) + Math.max(0, Date.now() - resolutionWallStartedAt);
   const requestedFacts = normalizeCanonicalFacts(facts);
   const resolvedFacts = expandFinanceBundleFacts(requestedFacts);
   const rawRequested = (Array.isArray(facts) ? facts : []).map(item => String(typeof item === 'string' ? item : item?.path || '').trim()).filter(Boolean);
@@ -298,17 +300,18 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
       : {};
     const cachedProvenance = clean(cachedData.source || cachedData?.evidence?.source || cached?.result?.source || sourceSpec.tool, 160);
     const cachedObservedAt = clean(cached?.result?.observedAt || cachedData?.observedAt || cachedData?.evidence?.observedAt, 100);
+    const cacheCheckNow = logicalNow();
     const cachedRequestedFieldStale = Boolean(cached?.ok && semanticFactsForSource.some(path => (
       factEvidence(path, CANONICAL_FACT_CATALOG[path], readRaw(cachedData, CANONICAL_FACT_CATALOG[path], cachedData?.evidence?.fieldObservedAt || cachedData?.fieldObservedAt || {}), {
         provenance: cachedProvenance,
         observedAt: cachedObservedAt,
         fieldObservedAt: cachedData?.evidence?.fieldObservedAt || cachedData?.fieldObservedAt || {},
-        now,
+        now: cacheCheckNow,
         invalidatedAt: Number(context.invalidatedAt || 0)
       }).code === 'STALE_FIELD'
     )));
     const effectiveRequest = cachedRequestedFieldStale ? { ...request, refresh: true } : request;
-    const fresh = !effectiveRequest.refresh && cached?.ok && cachedAt > 0 && now - cachedAt < ttlMs && cachedAt >= Number(context.invalidatedAt || 0);
+    const fresh = !effectiveRequest.refresh && cached?.ok && cachedAt > 0 && cacheCheckNow - cachedAt < ttlMs && cachedAt >= Number(context.invalidatedAt || 0);
     const adapterFacts = source === 'billing.mainSummary' && semanticFactsForSource.length ? semanticFactsForSource : paths;
     let result;
     let fromCache = false;
@@ -322,13 +325,15 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
       try {
         result = await execute({ tool: sourceSpec.tool, toolArgs, labState: context });
       } catch (error) {
-        result = { ok: false, tool: sourceSpec.tool, code: 'SOURCE_UNAVAILABLE', observedAt: new Date(now).toISOString(), data: { message: clean(error?.message || error, 500) }, warnings: [] };
+        result = { ok: false, tool: sourceSpec.tool, code: 'SOURCE_UNAVAILABLE', observedAt: new Date(logicalNow()).toISOString(), data: { message: clean(error?.message || error, 500) }, warnings: [] };
       }
       sourceReads.push(source);
-      context.factSourceCache[key] = { ok: Boolean(result?.ok), cachedAt: now, result: clone(result) };
+      const completedAt = logicalNow();
+      context.factSourceCache[key] = { ok: Boolean(result?.ok), cachedAt: completedAt, result: clone(result) };
       if (result?.statePatch && typeof result.statePatch === 'object') Object.assign(context, clone(result.statePatch));
     }
 
+    const evidenceNow = logicalNow();
     const data = result?.data && typeof result.data === 'object' && !Array.isArray(result.data) ? result.data : {};
     broadPayloadChars += JSON.stringify(data).length;
     const provenance = clean(data.source || data?.evidence?.source || result?.source || sourceSpec.tool, 160);
@@ -338,7 +343,7 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
         provenance,
         observedAt,
         fieldObservedAt: data?.evidence?.fieldObservedAt || data?.fieldObservedAt || {},
-        now,
+        now: evidenceNow,
         invalidatedAt: Number(context.invalidatedAt || 0)
       }))
       : paths.map(path => failedFact(path, CANONICAL_FACT_CATALOG[path], result));
@@ -348,7 +353,7 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
       // Keep both the explicit-address key used for this read and a stable resolved-id alias.
       // A follow-up "там" can then reuse Building B without another read.
       const resolvedKey = cacheKey(source, context, {});
-      context.factSourceCache[resolvedKey] = { ok: true, cachedAt: now, result: clone(result) };
+      context.factSourceCache[resolvedKey] = { ok: true, cachedAt: evidenceNow, result: clone(result) };
     }
 
     sourceTrace.push({
