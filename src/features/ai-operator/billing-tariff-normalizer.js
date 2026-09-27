@@ -56,14 +56,14 @@ function inferTariffNumbers(label) {
   // package label itself, without a "грн" suffix. Keep this deliberately
   // narrow: only known naming families are accepted, never an arbitrary number.
   if (!Number.isFinite(priceUAH)) {
-    const privateGigabit = text.match(/\b(?:PON\s+)?(?:Гігабіт|Гигабит|Gigabit)\s+(\d{2,4}(?:[.,]\d{1,2})?)\b[^\n]{0,80}(?:прив\.?\s*сектор|частн(?:ый|ого)?\s+сектор)/iu);
+    const privateGigabit = text.match(/(?:^|\s)(?:PON\s+)?(?:Гігабіт|Гигабит|Gigabit)\s+(\d{2,4}(?:[.,]\d{1,2})?)(?=\s|\(|$)[^\n]{0,80}(?:прив\.?\s*сектор|частн(?:ый|ого)?\s+сектор)/iu);
     if (privateGigabit) {
       priceUAH = finiteMoney(String(privateGigabit[1]).replace(',', '.'));
       speedMbps = 1000;
     }
   }
   if (!Number.isFinite(priceUAH)) {
-    const namedPrice = text.match(/\b(?:Безліміт|Безлимит|Симнет|SIMNET)\s+(\d{2,4}(?:[.,]\d{1,2})?)\b/iu);
+    const namedPrice = text.match(/(?:^|\s)(?:Безліміт|Безлимит|Симнет|SIMNET)\s+(\d{2,4}(?:[.,]\d{1,2})?)(?=\s|\(|$)/iu);
     if (namedPrice) priceUAH = finiteMoney(String(namedPrice[1]).replace(',', '.'));
   }
 
