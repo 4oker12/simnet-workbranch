@@ -53,7 +53,7 @@ export const CANONICAL_FACT_CATALOG = Object.freeze({
   'subscriber.tariff.current.id': billingMain(['service.tariffId', 'service.current.tariffId']),
   'subscriber.tariff.current.name': billingMain(['service.currentTariffDisplay', 'service.current.name', 'service.currentTariff']),
   'subscriber.tariff.current.rawName': billingMain(['service.currentTariffRaw', 'service.current.rawName', 'service.currentTariff']),
-  'subscriber.tariff.current.price': billingMain(['finance.price', 'service.current.priceUAH', 'service.currentTariffPriceUAH'], 'money'),
+  'subscriber.tariff.current.price': billingMain(['finance.internetTariffPrice', 'service.current.priceUAH', 'service.currentTariffPriceUAH'], 'money'),
   'subscriber.tariff.current.speed': billingMain(['service.current.speedMbps', 'service.currentTariffSpeedMbps', 'service.speed'], 'number'),
   'subscriber.tariff.current.isTemporary': billingMain('service.currentTariffTemporary', 'boolean'),
   'subscriber.tariff.scheduledChange.observed': billingMain('service.hasScheduledTariffChange', 'observed'),
