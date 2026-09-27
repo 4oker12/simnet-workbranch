@@ -41,7 +41,7 @@ test('planner receives the manifest and an explicit goal -> Billing identity -> 
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.billing, true);
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.userside, true);
   assert.equal(AI_OPERATOR_SOFT_TOOL_CAPABILITIES.network, true);
-  assert.equal(planner.version, 9);
+  assert.equal(planner.version, 10);
   assert.equal(planner.tools.length, REQUIRED_TOOLS.length);
   assert.equal(planner.identityPolicy.primarySystem, 'Billing');
   assert.equal(planner.identityPolicy.primaryTool, 'customer.lookup');
@@ -56,7 +56,7 @@ test('planner receives the manifest and an explicit goal -> Billing identity -> 
   assert.match(planner.replyStyleRule, /живой оператор/i);
   assert.match(planner.replyStyleRule, /1–3 коротких предложения/i);
   assert.match(planner.replyStyleRule, /не показывай/i);
-  assert.match(planner.planningRule, /Цель клиента.*Billing customer\.lookup.*неизвестный факт.*tool.*результат tool/i);
+  assert.match(planner.planningRule, /Сначала пойми цель клиента.*персонального live-факта.*customer\.lookup.*САМА выбери.*READ-tool.*Broker не угадывает tool/i);
   assert.match(planner.successRule, /ok=true/i);
   assert.match(planner.successRule, /ok=false/i);
 });
@@ -66,7 +66,7 @@ test('planner keeps full runtime manifest but serializes a compact prompt-safe v
   assert.ok(planner.tools.every(tool => Array.isArray(tool.answers) && tool.answers.length >= 2));
   const serialized = JSON.stringify(AI_OPERATOR_SOFT_TOOL_CAPABILITIES);
   const parsed = JSON.parse(serialized);
-  assert.equal(parsed.toolPlanner.version, 9);
+  assert.equal(parsed.toolPlanner.version, 10);
   assert.match(parsed.toolPlanner.replyStyleRule, /живой оператор/i);
   assert.deepEqual(parsed.toolPlanner.tools.map(tool => tool.name), REQUIRED_TOOLS);
   assert.ok(parsed.toolPlanner.tools.every(tool => !('answers' in tool) && !('returns' in tool) && !('limitations' in tool)));
@@ -114,18 +114,23 @@ test('network.session uses fresh Billing stat.pl a=252 and keeps Workbench only 
   assert.ok(tool.limitations.some(item => /Workbench fallback/i.test(item)));
 });
 
-test('exact tool names placed in subscriber_data_needed.field route to the intended executor', () => {
+test('planner-selected tool names route to the intended executor without keyword inference', () => {
   const needs = [
-    { system: 'Network', field: 'network.session: current/last BRAS session', why: 'Проверить авторизацию при жалобе нет интернета.' },
-    { system: 'UserSide', field: 'userside.snapshot: access family and connection point', why: 'Понять PON это или Ethernet.' },
-    { system: 'UserSide', field: 'pon.onu: ONU/OLT/port', why: 'Проверить PON ветку.' },
-    { system: 'UserSide', field: 'pon.signal: RX/TX/dBm', why: 'Проверить оптический сигнал.' },
-    { system: 'Billing', field: 'billing.balance: current balance', why: 'Ответить на вопрос о балансе.' },
-    { system: 'Billing', field: 'billing.tariff: current tariff', why: 'Ответить про скорость по тарифу.' },
-    { system: 'Billing', field: 'billing.payments: latest payments', why: 'Проверить, виден ли платёж.' }
+    { tool: 'network.session', system: 'Network', field: 'current/last BRAS session', why: 'Проверить авторизацию при жалобе нет интернета.' },
+    { tool: 'userside.snapshot', system: 'UserSide', field: 'access family and connection point', why: 'Понять PON это или Ethernet.' },
+    { tool: 'pon.onu', system: 'UserSide', field: 'ONU/OLT/port', why: 'Проверить PON ветку.' },
+    { tool: 'pon.signal', system: 'UserSide', field: 'RX/TX/dBm', why: 'Проверить оптический сигнал.' },
+    { tool: 'billing.balance', system: 'Billing', field: 'current balance', why: 'Ответить на вопрос о балансе.' },
+    { tool: 'billing.tariff', system: 'Billing', field: 'current tariff', why: 'Ответить про скорость по тарифу.' },
+    { tool: 'billing.payments', system: 'Billing', field: 'latest payments', why: 'Проверить, виден ли платёж.' }
   ];
   assert.deepEqual(
     mapInformationNeedsToTools(needs).map(item => item.tool),
     ['network.session', 'userside.snapshot', 'pon.onu', 'pon.signal', 'billing.balance']
+  );
+  assert.deepEqual(
+    mapInformationNeedsToTools([{ system: 'Billing', field: 'баланс', why: 'no explicit tool' }]),
+    [],
+    'broker must not infer a tool from keywords/system when the model did not select one'
   );
 });
