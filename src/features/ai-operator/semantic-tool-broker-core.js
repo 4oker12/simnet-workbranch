@@ -169,19 +169,7 @@ function needText(need = {}) {
 }
 function toolForNeed(need = {}) {
   const declared = oneLine(need?.tool, 100);
-  if (declared && TOOL_NAMES.has(declared)) return declared;
-  const text = needText(need);
-  const system = oneLine(need.system, 80).toLowerCase();
-  if (/баланс|balance|рахун|финанс|заборг|долг|списан/.test(text)) return 'billing.balance';
-  if (/плат[её]ж|оплат|payment|пополн/.test(text)) return 'billing.payments';
-  if (/тариф|пакет|абонплат|скорост|speed/.test(text) && !/сесс|линк|порт/.test(text)) return 'billing.tariff';
-  if (/сигнал|rx|tx|оптик|затух|dbm/.test(text)) return 'pon.signal';
-  if (/onu|ont|olt|pon|gpon|epon/.test(text)) return system.includes('userside') ? 'userside.snapshot' : 'pon.onu';
-  if (/bras|juniper|сесс|авторизац|dhcp|traffic|трафик|vlan/.test(text)) return 'network.session';
-  if (/userside|user\s*side|тмц|tmc|точк.*подключ|коммут|ethernet|порт/.test(text) || system.includes('userside')) return 'userside.snapshot';
-  if (system.includes('network')) return 'network.session';
-  if (system.includes('billing')) return 'customer.snapshot';
-  return 'customer.snapshot';
+  return declared && TOOL_NAMES.has(declared) ? declared : '';
 }
 
 export function mapInformationNeedsToTools(needs = []) {
