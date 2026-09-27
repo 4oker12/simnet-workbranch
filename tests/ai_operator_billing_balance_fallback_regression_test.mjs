@@ -64,11 +64,12 @@ test('dedicated Billing parser prefers the main form for На счету and kee
 
   assert.match(source, /const mainRows = readRows\(mainForm\)/);
   assert.match(source, /const mainIndex = indexRows\(mainRows\)/);
-  assert.match(source, /const pageRows = readRows\(root\)/);
-  assert.match(source, /const pageIndex = indexRows\(pageRows\)/);
+  assert.match(source, /let pageRows = null/);
+  assert.match(source, /if \(!pageRows\) pageRows = readRows\(root\)/);
+  assert.match(source, /if \(!pageIndex\) pageIndex = indexRows\(fallbackRows\(\)\)/);
   assert.match(
     source,
-    /\['accountBalance',\s*rowFrom\(mainIndex, pageIndex,\s*\[\/\^на\\s\+сч\[её\]т\(\?:е\|у\)/su
+    /\['accountBalance',\s*rowFrom\(mainIndex,\s*\[\/\^на\\s\+сч\[её\]т\(\?:е\|у\)/su
   );
   assert.match(source, /if \(Number\.isFinite\(value\)\) finance\[key\] = value/);
 });
