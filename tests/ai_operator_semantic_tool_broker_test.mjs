@@ -11,19 +11,19 @@ import {
   mapInformationNeedsToTools
 } from '../src/features/ai-operator/semantic-tool-broker.js';
 
-test('soft broker maps information needs to evidence sources without phrase-script actions', () => {
+test('soft broker executes only model-selected read tools and does not keyword-route needs', () => {
   assert.deepEqual(AI_OPERATOR_SOFT_TOOL_CAPABILITIES, { billing: true, userside: true, network: true });
   assert.equal(AI_OPERATOR_TOOL_CAPABILITY_DETAILS.billing, 'billing-main-summary-live-read-only + billing-live-read-only');
   assert.equal(AI_OPERATOR_TOOL_CAPABILITY_DETAILS.userside, 'live-read-only');
   assert.equal(AI_OPERATOR_TOOL_CAPABILITY_DETAILS.network, 'billing-stat-live-read-only + workbench-fallback');
-  assert.equal(AI_OPERATOR_SOFT_TOOL_PLANNER.version, 9);
+  assert.equal(AI_OPERATOR_SOFT_TOOL_PLANNER.version, 10);
   assert.ok(AI_OPERATOR_SOFT_TOOL_PLANNER.toJSON().tools.some(item => item.name === 'userside.snapshot'));
 
   const calls = mapInformationNeedsToTools([
-    { system: 'Billing', field: 'баланс договора', why: 'ответить сколько денег на счёте' },
-    { system: 'UserSide', field: 'точка подключения и порт', why: 'понять тип доступа' },
-    { system: 'Network', field: 'BRAS session', why: 'проверить авторизацию' },
-    { system: 'Network', field: 'оптический RX ONU', why: 'проверить сигнал' }
+    { tool: 'billing.balance', system: 'Billing', field: 'баланс договора', why: 'ответить сколько денег на счёте' },
+    { tool: 'userside.snapshot', system: 'UserSide', field: 'точка подключения и порт', why: 'понять тип доступа' },
+    { tool: 'network.session', system: 'Network', field: 'BRAS session', why: 'проверить авторизацию' },
+    { tool: 'pon.signal', system: 'Network', field: 'оптический RX ONU', why: 'проверить сигнал' }
   ]);
 
   assert.deepEqual(calls.map(item => item.tool), [
@@ -39,7 +39,11 @@ test('soft broker maps information needs to evidence sources without phrase-scri
   const explicit = mapInformationNeedsToTools([
     { tool: 'pon.signal', system: 'Network', field: 'проверить свет на линии', why: 'модель уже выбрала источник по смыслу' }
   ]);
-  assert.equal(explicit[0]?.tool, 'pon.signal', 'exact model-selected tool must win before keyword compatibility routing');
+  assert.equal(explicit[0]?.tool, 'pon.signal', 'exact model-selected tool must win');
+  const implicit = mapInformationNeedsToTools([
+    { system: 'Billing', field: 'баланс договора', why: 'раньше это жёстко мапилось по ключевым словам' }
+  ]);
+  assert.deepEqual(implicit, [], 'broker must not invent a tool when the model did not explicitly choose one');
 });
 
 test('identity hints use explicit dialogue evidence and short numeric answer only in context', () => {
@@ -102,7 +106,7 @@ test('tool loop can identify subscriber and use returned state in the same seman
   };
 
   const result = await executeInformationNeeds({
-    needs: [{ system: 'Billing', field: 'текущий баланс', why: 'ответить клиенту' }],
+    needs: [{ tool: 'billing.balance', system: 'Billing', field: 'текущий баланс', why: 'ответить клиенту' }],
     transcript: [{ role: 'customer', text: 'Договор 146888, какой у меня баланс?' }],
     analysis: { probe: { whatUserWants: 'Узнать текущий баланс' } },
     labState: {},
@@ -151,7 +155,7 @@ test('same turn can identify through Billing then read live UserSide with the co
   };
 
   const result = await executeInformationNeeds({
-    needs: [{ system: 'UserSide', field: 'точка подключения и порт', why: 'проверить линию' }],
+    needs: [{ tool: 'userside.snapshot', system: 'UserSide', field: 'точка подключения и порт', why: 'проверить линию' }],
     transcript: [{ role: 'customer', text: 'abon146888, где я подключен?' }],
     analysis: { probe: { whatUserWants: 'Проверить подключение' } },
     labState: {},
@@ -166,7 +170,7 @@ test('same turn can identify through Billing then read live UserSide with the co
 
 test('tool failure becomes observable evidence and never forces an empty subscriber answer', async () => {
   const result = await executeInformationNeeds({
-    needs: [{ system: 'Network', field: 'BRAS session', why: 'проверить доступ' }],
+    needs: [{ tool: 'network.session', system: 'Network', field: 'BRAS session', why: 'проверить доступ' }],
     transcript: [],
     analysis: { probe: { whatUserWants: 'Понять, почему нет интернета' } },
     labState: {},
