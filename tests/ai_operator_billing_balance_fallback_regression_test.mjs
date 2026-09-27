@@ -74,20 +74,16 @@ test('dedicated Billing parser prefers the main form for На счету and kee
   assert.match(source, /if \(Number\.isFinite\(value\)\) finance\[key\] = value/);
 });
 
-test('fresh billing.main_summary fallback must refresh the broad Billing snapshot too', () => {
+test('billing.main_summary forces a fresh broad fallback after a live failure or missing canonical facts', () => {
   const source = readFileSync(
     new URL('../src/features/ai-operator/live-tool-runtime.js', import.meta.url),
     'utf8'
   );
 
-  assert.match(
-    source,
-    /toolArgs:\s*\{\s*\.\.\.fallbackToolArgs\(toolArgs\),\s*refresh:\s*Boolean\(toolArgs\.refresh\)\s*\}/s
-  );
-  assert.doesNotMatch(
-    source,
-    /toolArgs:\s*\{\s*\.\.\.fallbackToolArgs\(toolArgs\),\s*refresh:\s*false\s*\}/s
-  );
+  assert.match(source, /forceFresh = false/);
+  assert.match(source, /refresh: forceFresh \|\| Boolean\(toolArgs\.refresh\)/);
+  assert.match(source, /maxAgeMs: 1/);
+  assert.match(source, /baseRead\(\{ forceFresh: true \}\)/);
 });
 
 
