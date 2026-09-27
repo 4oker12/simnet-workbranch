@@ -85,6 +85,27 @@ test('fresh fallback tariff path outranks stale display alias in one snapshot', 
   assert.equal(tariff.observedAt, fresh);
 });
 
+test('fresh field observed after a slow source read is not rejected as future/stale', async () => {
+  const observedAt = new Date(NOW + 6000).toISOString();
+  const out = await resolveFacts({
+    context: IDENTITY,
+    facts: ['subscriber.finance.balance.account'],
+    execute: async () => ({
+      ...mainSummary({
+        finance: { accountBalance: 468.29 },
+        evidence: { fieldObservedAt: { 'finance.accountBalance': observedAt } }
+      }),
+      observedAt
+    }),
+    now: NOW
+  });
+
+  const balance = value(out, 'subscriber.finance.balance.account');
+  assert.equal(balance.status, 'known');
+  assert.equal(balance.value, 468.29);
+  assert.equal(balance.observedAt, observedAt);
+});
+
 test('balance and total due share one Billing main-summary source read', async () => {
   let calls = 0;
   const out = await resolveFacts({
