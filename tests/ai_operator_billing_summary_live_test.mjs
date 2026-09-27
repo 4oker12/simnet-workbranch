@@ -94,3 +94,16 @@ test('Billing no-result is treated as transient and retried only once before try
   assert.match(source, /BILLING_SUMMARY_EXECUTION_FAILED/);
   assert.doesNotMatch(source, /while\s*\(/, 'reader must not introduce unbounded polling');
 });
+
+
+test('Billing finance scanner tolerates legacy one-cell rows and preserves labels beside nested controls', () => {
+  const source = requireSource();
+  assert.match(source, /const text = compact\(cell\.textContent \|\| '', 500\)/);
+  assert.doesNotMatch(source, /const text = control \? value : compact\(cell\.textContent/);
+  assert.match(source, /const rowValueFromRows = \(rows, patterns\)/);
+  assert.match(source, /row\.cells\.slice\(1\).*join\(' '\)/s);
+  assert.match(source, /Legacy Billing sometimes renders "Label, unit: value" in one td/);
+  assert.match(source, /rowValueFromRows\(pageRows, patterns\)/);
+  assert.match(source, /\^на\\s\+сч\[её\]т\(\?:е\|у\)/u);
+  assert.match(source, /oneCellRowsObserved/);
+});
