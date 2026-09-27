@@ -193,7 +193,9 @@ test('tool failure becomes observable evidence and never forces an empty subscri
 });
 
 test('soft broker stays independent of deterministic regulator files and distinguishes live evidence from fallback', () => {
-  const source = fs.readFileSync(new URL('../src/features/ai-operator/semantic-tool-broker.js', import.meta.url), 'utf8');
+  const wrapper = fs.readFileSync(new URL('../src/features/ai-operator/semantic-tool-broker.js', import.meta.url), 'utf8');
+  const core = fs.readFileSync(new URL('../src/features/ai-operator/semantic-tool-broker-core.js', import.meta.url), 'utf8');
+  const source = `${wrapper}\n${core}`;
   assert.doesNotMatch(source, /fact-runtime\.js/);
   assert.doesNotMatch(source, /fact-catalog\.js/);
   assert.doesNotMatch(source, /dialogue-state\.js/);
