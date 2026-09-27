@@ -9,7 +9,7 @@ import {
   createCanonicalDomainContext,
   resolveFacts
 } from '../src/features/ai-operator/canonical-fact-resolver.js';
-import { groundSubscriberReply } from '../src/features/ai-operator/semantic-tool-broker-impl.js';
+import { augmentRequiredFactsForTurn, groundSubscriberReply } from '../src/features/ai-operator/semantic-tool-broker-impl.js';
 import { buildSubscriberIntentProbeMessages } from '../src/features/ai-operator/semantic-probe.js';
 import { planLiveDataNeeds } from '../src/features/ai-operator/live-need-recovery.js';
 
@@ -240,13 +240,25 @@ test('building context is stored and reused without a second source call', async
   assert.deepEqual(second.diagnostics.cacheHits, ['userside.building']);
 });
 
-test('PON and Ethernet facts remain separate under one access entity', async () => {
-  let calls = 0;
+test('access family comes from Billing technical evidence while deeper port/ONU facts stay in UserSide', async () => {
+  const calls = [];
   const out = await resolveFacts({
     context: IDENTITY,
     facts: ['subscriber.access.connectionFamily', 'subscriber.access.ethernet.port', 'subscriber.access.pon.onu.serial'],
     execute: async ({ tool }) => {
-      calls += 1;
+      calls.push(tool);
+      if (tool === 'customer.snapshot') {
+        return {
+          ok: true,
+          tool,
+          code: 'OK',
+          observedAt: new Date(NOW).toISOString(),
+          data: {
+            technical: { technologyHint: 'Ethernet' },
+            source: 'billing-live-read-only'
+          }
+        };
+      }
       assert.equal(tool, 'userside.snapshot');
       return {
         ok: true,
@@ -254,7 +266,7 @@ test('PON and Ethernet facts remain separate under one access entity', async () 
         code: 'OK',
         observedAt: new Date(NOW).toISOString(),
         data: {
-          network: { connectionFamily: 'Ethernet', accessPort: '8' },
+          network: { accessPort: '8' },
           pon: { onuSerial: '' },
           source: 'userside-live-read-only'
         }
@@ -262,14 +274,68 @@ test('PON and Ethernet facts remain separate under one access entity', async () 
     },
     now: NOW
   });
-  assert.equal(calls, 1);
+  assert.deepEqual(calls, ['customer.snapshot', 'userside.snapshot']);
   assert.equal(value(out, 'subscriber.access.connectionFamily').value, 'Ethernet');
+  assert.equal(value(out, 'subscriber.access.connectionFamily').source, 'billing.customer');
   assert.equal(value(out, 'subscriber.access.ethernet.port').value, '8');
   assert.equal(value(out, 'subscriber.access.pon.onu.serial').status, 'absent');
+  assert.equal(out.context.domainContext.activeConnection.family, 'Ethernet');
 });
 
-test('IP has NetworkAccess ownership and legacy alias resolves canonically', () => {
+test('simple technology question needs only Billing-backed connection family', async () => {
+  const calls = [];
+  const out = await resolveFacts({
+    context: IDENTITY,
+    facts: ['subscriber.access.connectionFamily'],
+    execute: async ({ tool }) => {
+      calls.push(tool);
+      return {
+        ok: true,
+        tool,
+        code: 'OK',
+        observedAt: new Date(NOW).toISOString(),
+        data: {
+          technical: {
+            technologyHint: 'EPON',
+            eponOnuMac: '00:11:22:33:44:55'
+          },
+          source: 'billing-live-read-only'
+        }
+      };
+    },
+    now: NOW
+  });
+
+  assert.deepEqual(calls, ['customer.snapshot']);
+  assert.equal(value(out, 'subscriber.access.connectionFamily').status, 'known');
+  assert.equal(value(out, 'subscriber.access.connectionFamily').value, 'EPON');
+  assert.equal(out.context.domainContext.activeConnection.family, 'EPON');
+});
+
+test('pure access-technology intent does not over-request UserSide implementation details', () => {
+  const facts = augmentRequiredFactsForTurn({
+    requestText: 'уточните',
+    analysis: {
+      probe: {
+        whatUserWants: 'Узнать технологию доступа (тип подключения) по своему договору',
+        requiredFacts: [
+          'subscriber.access.connectionFamily',
+          'subscriber.access.pon.onu.serial',
+          'subscriber.access.ethernet.deviceId'
+        ],
+        unresolvedRequests: ['Уточнить технологию доступа по договору']
+      }
+    },
+    labState: IDENTITY
+  });
+
+  assert.deepEqual(facts, ['subscriber.access.connectionFamily']);
+});
+
+test('IP and current access family use Billing-backed canonical ownership', () => {
   assert.equal(CANONICAL_FACT_CATALOG['subscriber.network.currentIp'].source, 'billing.customer');
+  assert.equal(CANONICAL_FACT_CATALOG['subscriber.access.connectionFamily'].source, 'billing.customer');
+  assert.deepEqual(CANONICAL_FACT_CATALOG['subscriber.access.connectionFamily'].paths, ['technical.technologyHint', 'network.connectionFamily']);
   assert.equal(Object.hasOwn(CANONICAL_FACT_CATALOG, 'subscriber.identity.ip'), false);
   assert.equal(canonicalFactPath('accountBalance'), 'subscriber.finance.balance.account');
 });
