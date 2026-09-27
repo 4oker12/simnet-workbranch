@@ -228,19 +228,27 @@ async function executeRead(tabId, id) {
         // select catalogs: only each selected option enters the snapshot.
         const mainRows = readRows(mainForm);
         const summaryRows = readRows(summaryTable);
-        const pageRows = readRows(root); // compatibility fallback for rare legacy rows outside known blocks
         const mainIndex = indexRows(mainRows);
         const summaryIndex = indexRows(summaryRows);
-        const pageIndex = indexRows(pageRows);
-        const rowFrom = (primary, fallback, patterns) =>
+        let pageRows = null;
+        let pageIndex = null;
+        const fallbackRows = () => {
+          if (!pageRows) pageRows = readRows(root);
+          return pageRows;
+        };
+        const fallbackIndex = () => {
+          if (!pageIndex) pageIndex = indexRows(fallbackRows());
+          return pageIndex;
+        };
+        const rowFrom = (primary, patterns) =>
           rowValueFromIndex(primary, patterns)
-          || rowValueFromIndex(fallback, patterns)
-          || rowValueFromRows(pageRows, patterns);
+          || rowValueFromIndex(fallbackIndex(), patterns)
+          || rowValueFromRows(fallbackRows(), patterns);
 
-        const discount = discountFromRows(summaryRows) || discountFromRows(mainRows) || discountFromRows(pageRows);
+        const discount = discountFromRows(summaryRows) || discountFromRows(mainRows) || discountFromRows(fallbackRows());
         if (discount) discount.appliesTo = 'internet_tariff';
 
-        const tariffDisplay = rowFrom(summaryIndex, pageIndex, [/^тарифи\s+на\s+інтернет/i, /^тарифы\s+на\s+интернет/i]);
+        const tariffDisplay = rowFrom(summaryIndex, [/^тарифи\s+на\s+інтернет/i, /^тарифы\s+на\s+интернет/i]);
         const tariffMatch = tariffDisplay.match(/^\[(\d+)\]\s*(.+)$/);
         const currentTariffOption = selectedOption(root, 'paket');
         const nextTariffOption = selectedOption(root, 'next_paket');
@@ -278,18 +286,18 @@ async function executeRead(tabId, id) {
           temporaryPaymentSemantics: 'billing_temporary_credit_not_customer_money'
         };
         const observedMoney = [
-          ['accountBalance', rowFrom(mainIndex, pageIndex, [/^на\s+сч[её]т(?:е|у),?\s*грн/i, /^на\s+рахунку,?\s*грн/i])],
-          ['price', rowFrom(summaryIndex, pageIndex, [/^ціна,?\s*грн/i, /^цена,?\s*грн/i])],
-          ['displayedPlanCost', rowFrom(summaryIndex, pageIndex, [
+          ['accountBalance', rowFrom(mainIndex, [/^на\s+сч[её]т(?:е|у),?\s*грн/i, /^на\s+рахунку,?\s*грн/i])],
+          ['price', rowFrom(summaryIndex, [/^ціна,?\s*грн/i, /^цена,?\s*грн/i])],
+          ['displayedPlanCost', rowFrom(summaryIndex, [
             /^підсумкова\s+вартість\s+тарифного\s+плану/i,
             /^итоговая\s+стоимость\s+тарифного\s+плана/i
           ])],
-          ['totalDue', rowFrom(summaryIndex, pageIndex, [/^разом\s+до\s+сплати/i, /^итого\s+к\s+оплате/i])],
-          ['balanceAfterTariff', rowFrom(summaryIndex, pageIndex, [
+          ['totalDue', rowFrom(summaryIndex, [/^разом\s+до\s+сплати/i, /^итого\s+к\s+оплате/i])],
+          ['balanceAfterTariff', rowFrom(summaryIndex, [
             /на\s+сч[её]т(?:е|у)\s+с\s+уч[её]том\s+стоимости\s+тарифного\s+плана/i,
             /на\s+рахунку\s+з\s+урахуванням\s+вартості\s+тарифного\s+плану/i
           ])],
-          ['balanceWithoutTemporary', rowFrom(mainIndex, pageIndex, [
+          ['balanceWithoutTemporary', rowFrom(mainIndex, [
             /на\s+сч[её]т(?:е|у)\s+без\s+уч[её]та\s+временных\s+платежей/i,
             /на\s+рахунку\s+без\s+урахування\s+тимчасових\s+платежів/i
           ])],
@@ -350,19 +358,20 @@ async function executeRead(tabId, id) {
           network: {
             ip: compact(input(root, 'ip') || auth.ip || '', 80),
             authorization: auth,
-            trafficIncomingBytes: rowFrom(summaryIndex, pageIndex, [/^інтернет\s+входящий,?\s*байт/i, /^интернет\s+входящий,?\s*байт/i]),
-            trafficOutgoingBytes: rowFrom(summaryIndex, pageIndex, [/^інтернет\s+исходящий,?\s*байт/i, /^интернет\s+исходящий,?\s*байт/i]),
-            uaixIncomingBytes: rowFrom(summaryIndex, pageIndex, [/^ua-ix\s+входящий,?\s*байт/i]),
-            uaixOutgoingBytes: rowFrom(summaryIndex, pageIndex, [/^ua-ix\s+исходящий,?\s*байт/i]),
-            internetAccountingMb: rowFrom(summaryIndex, pageIndex, [/^оплата\s+інтернет,?\s*мб:\s*загалом/i, /^оплата\s+интернет,?\s*мб:\s*всего/i]),
-            uaixAccountingMb: rowFrom(summaryIndex, pageIndex, [/^оплата\s+ua-ix,?\s*мб:\s*загалом/i, /^оплата\s+ua-ix,?\s*мб:\s*всего/i]),
-            direction3AccountingMb: rowFrom(summaryIndex, pageIndex, [/^оплата\s+['"]?направление\s+3['"]?,?\s*мб:\s*загалом/i]),
-            direction4AccountingMb: rowFrom(summaryIndex, pageIndex, [/^оплата\s+['"]?направление\s+4['"]?,?\s*мб:\s*загалом/i])
+            trafficIncomingBytes: rowFrom(summaryIndex, [/^інтернет\s+входящий,?\s*байт/i, /^интернет\s+входящий,?\s*байт/i]),
+            trafficOutgoingBytes: rowFrom(summaryIndex, [/^інтернет\s+исходящий,?\s*байт/i, /^интернет\s+исходящий,?\s*байт/i]),
+            uaixIncomingBytes: rowFrom(summaryIndex, [/^ua-ix\s+входящий,?\s*байт/i]),
+            uaixOutgoingBytes: rowFrom(summaryIndex, [/^ua-ix\s+исходящий,?\s*байт/i]),
+            internetAccountingMb: rowFrom(summaryIndex, [/^оплата\s+інтернет,?\s*мб:\s*загалом/i, /^оплата\s+интернет,?\s*мб:\s*всего/i]),
+            uaixAccountingMb: rowFrom(summaryIndex, [/^оплата\s+ua-ix,?\s*мб:\s*загалом/i, /^оплата\s+ua-ix,?\s*мб:\s*всего/i]),
+            direction3AccountingMb: rowFrom(summaryIndex, [/^оплата\s+['"]?направление\s+3['"]?,?\s*мб:\s*загалом/i]),
+            direction4AccountingMb: rowFrom(summaryIndex, [/^оплата\s+['"]?направление\s+4['"]?,?\s*мб:\s*загалом/i])
           },
           parseMeta: {
             finance: {
               observedFields: Object.keys(finance).filter(key => !/Semantics$/.test(key) && key !== 'temporaryPaymentText'),
-              oneCellRowsObserved: pageRows.filter(row => row.cells.length === 1).length
+              fullPageFallbackUsed: Boolean(pageRows),
+              oneCellRowsObserved: pageRows ? pageRows.filter(row => row.cells.length === 1).length : 0
             },
             blocks: {
               mainForm: { selector: mainFormSelector, rows: mainRows.length },
