@@ -15,7 +15,10 @@ assert.deepEqual(
     'subscriber.finance.balance.afterTariff',
     'subscriber.finance.balance.account',
     'subscriber.finance.totalDue',
-    'subscriber.tariff.current.price'
+    'subscriber.finance.recurringTotal',
+    'subscriber.tariff.current.price',
+    'subscriber.tariff.scheduledChange.hasChange',
+    'subscriber.tariff.scheduledChange.price'
   ]
 );
 
@@ -56,7 +59,9 @@ const recalculatedNextMonth = deriveFinanceDecisionEvidence({
     { path: 'subscriber.finance.balance.afterTariff', status: 'known', value: -467.71 },
     { path: 'subscriber.finance.balance.account', status: 'known', value: -399.71 },
     { path: 'subscriber.finance.totalDue', status: 'known', value: 68 },
-    { path: 'subscriber.tariff.current.price', status: 'known', value: 400 }
+    { path: 'subscriber.finance.recurringTotal', status: 'known', value: 400 },
+    { path: 'subscriber.tariff.current.price', status: 'known', value: 400 },
+    { path: 'subscriber.tariff.scheduledChange.hasChange', status: 'known', value: false }
   ]
 });
 assert.equal(recalculatedNextMonth.decision.type, 'next_month_top_up');
@@ -67,6 +72,53 @@ assert.equal(
   recalculatedNextMonth.evidence.find(item => item.path === 'derived.finance.nextMonthTopUp.requiredTopUp')?.value,
   867.71
 );
+
+
+const ambiguousGenericPriceCannotCloseNextMonth = deriveFinanceDecisionEvidence({
+  requestText: 'сколько оплатить, чтобы следующий месяц был закрыт?',
+  evidence: [
+    { path: 'subscriber.finance.balance.afterTariff', status: 'known', value: 400.29 },
+    { path: 'subscriber.finance.balance.account', status: 'known', value: 468.29 },
+    { path: 'subscriber.finance.totalDue', status: 'known', value: 68 },
+    { path: 'subscriber.tariff.current.price', status: 'known', value: 0.17 },
+    { path: 'subscriber.finance.recurringTotal', status: 'unknown', value: null },
+    { path: 'subscriber.tariff.scheduledChange.hasChange', status: 'known', value: false }
+  ]
+});
+assert.equal(ambiguousGenericPriceCannotCloseNextMonth.decision.status, 'unknown');
+assert.equal(ambiguousGenericPriceCannotCloseNextMonth.decision.requiredTopUp, null);
+
+const confirmedRecurringClosesNextMonth = deriveFinanceDecisionEvidence({
+  requestText: 'сколько оплатить, чтобы следующий месяц был закрыт?',
+  evidence: [
+    { path: 'subscriber.finance.balance.afterTariff', status: 'known', value: 400.29 },
+    { path: 'subscriber.finance.balance.account', status: 'known', value: 468.29 },
+    { path: 'subscriber.finance.totalDue', status: 'known', value: 68 },
+    { path: 'subscriber.finance.recurringTotal', status: 'known', value: 400 },
+    { path: 'subscriber.tariff.current.price', status: 'known', value: 400 },
+    { path: 'subscriber.tariff.scheduledChange.hasChange', status: 'known', value: false }
+  ]
+});
+assert.equal(confirmedRecurringClosesNextMonth.decision.status, 'known');
+assert.equal(confirmedRecurringClosesNextMonth.decision.requiredTopUp, 0);
+assert.equal(confirmedRecurringClosesNextMonth.decision.nextRecurringAmount, 400);
+assert.equal(confirmedRecurringClosesNextMonth.decision.recurringBasis, 'current_recurring_total_no_scheduled_tariff_change');
+
+const scheduledRecurring = deriveFinanceDecisionEvidence({
+  requestText: 'сколько оплатить, чтобы следующий месяц был закрыт?',
+  evidence: [
+    { path: 'subscriber.finance.balance.afterTariff', status: 'known', value: 200 },
+    { path: 'subscriber.finance.balance.account', status: 'known', value: 268 },
+    { path: 'subscriber.finance.totalDue', status: 'known', value: 68 },
+    { path: 'subscriber.finance.recurringTotal', status: 'known', value: 449 },
+    { path: 'subscriber.tariff.current.price', status: 'known', value: 350 },
+    { path: 'subscriber.tariff.scheduledChange.hasChange', status: 'known', value: true },
+    { path: 'subscriber.tariff.scheduledChange.price', status: 'known', value: 400 }
+  ]
+});
+assert.equal(scheduledRecurring.decision.nextRecurringAmount, 499, 'scheduled internet price must preserve current add-ons');
+assert.equal(scheduledRecurring.decision.requiredTopUp, 299);
+assert.equal(scheduledRecurring.decision.recurringBasis, 'scheduled_internet_price_plus_current_addons');
 
 const firstPon = calculateConnectionUpfrontPayment({ firstConnection: true, optical: true });
 assert.equal(firstPon.status, 'known');
