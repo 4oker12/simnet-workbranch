@@ -26,6 +26,7 @@ export const AI_OPERATOR_SOFT_TOOL_CATALOG = Object.freeze([
 ]);
 
 const ACCOUNT_TOOLS = new Set(['customer.snapshot', 'billing.balance', 'billing.tariff', 'billing.payments', 'userside.snapshot', 'network.session', 'pon.onu', 'pon.signal']);
+const TOOL_NAMES = new Set(AI_OPERATOR_SOFT_TOOL_CATALOG.map(item => item.name));
 const SYNTHESIS_COOLDOWNS = new Map();
 
 function oneLine(value, max = 500) {
@@ -167,6 +168,8 @@ function needText(need = {}) {
   return `${oneLine(need.system, 80)} ${oneLine(need.field, 160)} ${oneLine(need.why, 260)}`.toLowerCase();
 }
 function toolForNeed(need = {}) {
+  const declared = oneLine(need?.tool, 100);
+  if (declared && TOOL_NAMES.has(declared)) return declared;
   const text = needText(need);
   const system = oneLine(need.system, 80).toLowerCase();
   if (/баланс|balance|рахун|финанс|заборг|долг|списан/.test(text)) return 'billing.balance';
@@ -319,7 +322,12 @@ export async function executeInformationNeeds({ needs = [], transcript = [], ana
 }
 
 function normalizeDataNeeds(value) {
-  return (Array.isArray(value) ? value : []).map(item => ({ system: oneLine(item?.system, 80), field: oneLine(item?.field, 160), why: oneLine(item?.why, 300) })).filter(item => item.system || item.field || item.why).slice(0, 6);
+  return (Array.isArray(value) ? value : []).map(item => ({
+    tool: oneLine(item?.tool, 100),
+    system: oneLine(item?.system, 80),
+    field: oneLine(item?.field, 160),
+    why: oneLine(item?.why, 300)
+  })).filter(item => item.tool || item.system || item.field || item.why).slice(0, 6);
 }
 function fallbackFromAnalysis(analysis = {}, toolTrace = []) {
   const failedIdentity = toolTrace.some(item => ['IDENTITY_REQUIRED', 'IDENTITY_HINT_MISSING', 'AMBIGUOUS_IDENTITY'].includes(item.code));

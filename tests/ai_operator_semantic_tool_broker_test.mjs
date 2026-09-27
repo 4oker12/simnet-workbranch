@@ -16,7 +16,7 @@ test('soft broker maps information needs to evidence sources without phrase-scri
   assert.equal(AI_OPERATOR_TOOL_CAPABILITY_DETAILS.billing, 'billing-main-summary-live-read-only + billing-live-read-only');
   assert.equal(AI_OPERATOR_TOOL_CAPABILITY_DETAILS.userside, 'live-read-only');
   assert.equal(AI_OPERATOR_TOOL_CAPABILITY_DETAILS.network, 'billing-stat-live-read-only + workbench-fallback');
-  assert.equal(AI_OPERATOR_SOFT_TOOL_PLANNER.version, 10);
+  assert.equal(AI_OPERATOR_SOFT_TOOL_PLANNER.version, 9);
   assert.ok(AI_OPERATOR_SOFT_TOOL_PLANNER.toJSON().tools.some(item => item.name === 'userside.snapshot'));
 
   const calls = mapInformationNeedsToTools([
