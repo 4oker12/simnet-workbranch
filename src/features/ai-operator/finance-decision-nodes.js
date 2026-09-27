@@ -114,7 +114,10 @@ export function financeRequiredFacts(requestText = '') {
       'subscriber.finance.balance.afterTariff',
       'subscriber.finance.balance.account',
       'subscriber.finance.totalDue',
-      'subscriber.tariff.current.price'
+      'subscriber.finance.recurringTotal',
+      'subscriber.tariff.current.price',
+      'subscriber.tariff.scheduledChange.hasChange',
+      'subscriber.tariff.scheduledChange.price'
     ];
   }
   return isBalanceCoverageQuestion(requestText)
@@ -156,16 +159,38 @@ export function deriveFinanceDecisionEvidence({ requestText = '', semanticReques
   }
 
   if (isNextMonthTopUpQuestion(decisionRequestText)) {
+    const recurringTotal = money(knownValue(map, 'subscriber.finance.recurringTotal'));
+    const currentInternetPrice = money(knownValue(map, 'subscriber.tariff.current.price'));
+    const scheduledChange = knownValue(map, 'subscriber.tariff.scheduledChange.hasChange');
+    const scheduledInternetPrice = money(knownValue(map, 'subscriber.tariff.scheduledChange.price'));
+
+    let nextRecurringAmount = null;
+    let recurringBasis = 'unknown';
+    if (scheduledChange === false && recurringTotal !== null) {
+      nextRecurringAmount = recurringTotal;
+      recurringBasis = 'current_recurring_total_no_scheduled_tariff_change';
+    } else if (
+      scheduledChange === true
+      && recurringTotal !== null
+      && currentInternetPrice !== null
+      && scheduledInternetPrice !== null
+    ) {
+      const addOns = Math.max(0, Math.round((recurringTotal - currentInternetPrice) * 100) / 100);
+      nextRecurringAmount = Math.round((scheduledInternetPrice + addOns) * 100) / 100;
+      recurringBasis = 'scheduled_internet_price_plus_current_addons';
+    }
+
     const calculation = calculateNextMonthTopUp({
       balanceAfterTariff: knownValue(map, 'subscriber.finance.balance.afterTariff'),
       accountBalance: knownValue(map, 'subscriber.finance.balance.account'),
       currentDue: knownValue(map, 'subscriber.finance.totalDue'),
-      nextRecurringAmount: knownValue(map, 'subscriber.tariff.current.price')
+      nextRecurringAmount
     });
     const source = 'deterministic.finance.next-month-top-up';
     const decision = {
       type: 'next_month_top_up',
       ...calculation,
+      recurringBasis,
       negativeBalanceIsDebtJudgment: false,
       disputeRequiresUsageVerification: true
     };
@@ -174,6 +199,7 @@ export function deriveFinanceDecisionEvidence({ requestText = '', semanticReques
       { path: 'derived.finance.nextMonthTopUp.requiredTopUp', status: 'known', observed: true, value: calculation.requiredTopUp, source, derived: true },
       { path: 'derived.finance.nextMonthTopUp.effectiveBalance', status: 'known', observed: true, value: calculation.effectiveBalance, source, derived: true },
       { path: 'derived.finance.nextMonthTopUp.nextRecurringAmount', status: 'known', observed: true, value: calculation.nextRecurringAmount, source, derived: true },
+      { path: 'derived.finance.nextMonthTopUp.recurringBasis', status: 'known', observed: true, value: recurringBasis, source, derived: true },
       { path: 'derived.finance.nextMonthTopUp.balanceBasis', status: 'known', observed: true, value: calculation.balanceBasis, source, derived: true },
       { path: 'derived.finance.nextMonthTopUp.negativeBalanceIsDebtJudgment', status: 'known', observed: true, value: false, source, derived: true },
       { path: 'derived.finance.nextMonthTopUp.disputeRequiresUsageVerification', status: 'known', observed: true, value: true, source, derived: true }
