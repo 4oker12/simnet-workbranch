@@ -28,7 +28,7 @@ function mainSummary(overrides = {}) {
     data: {
       identity: { billingId: '42' },
       service: { currentTariff: 'SIMNET 500', tariffId: '17', nextTariff: '', nextTariffDelay: '' },
-      finance: { accountBalance: 270.1, totalDue: 250, price: 250, balanceAfterTariff: 20.1 },
+      finance: { accountBalance: 270.1, totalDue: 250, internetTariffPrice: 250, price: 250, balanceAfterTariff: 20.1 },
       unrelatedSecret: 'must-not-reach-projection',
       source: 'billing-main-summary-live-read-only',
       ...overrides
