@@ -418,12 +418,16 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
     refresh: Boolean(toolArgs.refresh),
     maxAgeMs: toolArgs.maxAgeMs || 30000
   });
-  const baseRead = () => core.executeOperatorTool({
+  const baseRead = ({ forceFresh = false } = {}) => core.executeOperatorTool({
     tool: baseTool,
-    // If the canonical caller explicitly asked for a fresh read, the fallback
-    // must also refresh its Billing snapshot. Otherwise a failed dedicated
-    // main-summary read can silently replay stale finance fields.
-    toolArgs: { ...fallbackToolArgs(toolArgs), refresh: Boolean(toolArgs.refresh) },
+    // A fallback used because the dedicated current-state read failed or missed
+    // required canonical facts must be a genuinely fresh Billing snapshot.
+    // Otherwise a newly created wrapper can hide hours-old finance fields.
+    toolArgs: {
+      ...fallbackToolArgs(toolArgs),
+      refresh: forceFresh || Boolean(toolArgs.refresh),
+      ...(forceFresh ? { maxAgeMs: 1 } : {})
+    },
     labState
   });
 
@@ -453,7 +457,7 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
     }
     if (!live?.ok) {
       fallbackReason = 'dedicated-reader-unavailable';
-      base = await baseRead();
+      base = await baseRead({ forceFresh: true });
     } else if (!requiredFacts.length) {
       // Legacy/direct callers did not declare canonical intent. Keep the previous
       // broad snapshot merge until they migrate to requiredCanonicalFacts.
@@ -463,7 +467,7 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
       // A present key with null/unparseable money is NOT observed evidence.
       // Fall back to the full Billing snapshot instead of silently returning null.
       fallbackReason = fallbackReason || 'missing-canonical-facts';
-      if (!base) base = await baseRead();
+      if (!base) base = await baseRead({ forceFresh: true });
     }
   } else {
     [live, base] = await Promise.all([liveRead(), baseRead()]);
