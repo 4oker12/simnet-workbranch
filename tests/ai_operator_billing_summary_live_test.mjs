@@ -69,16 +69,19 @@ test('configured internet package is authoritative over access/service state lab
   );
 });
 
-test('Billing main-page reader survives summary table class drift and falls back to full-page rows', () => {
+test('Billing main-page reader survives summary table class drift and uses full-page rows only as fallback', () => {
   const source = requireSource();
   assert.match(source, /root\?\.querySelector\?\.\('table\.tbg1\.nav3'\)/);
   assert.match(source, /root\?\.querySelector\?\.\('table\.nav3'\)/);
   assert.match(source, /if \(!mainForm\) return null/);
   assert.doesNotMatch(source, /if \(!mainForm \|\| !summaryTable\) return null/);
-  assert.match(source, /const tariffDisplay = rowFrom\(summaryIndex, pageIndex/);
-  assert.match(source, /\['price', rowFrom\(summaryIndex, pageIndex/);
-  assert.match(source, /\['totalDue', rowFrom\(summaryIndex, pageIndex/);
-  assert.match(source, /\['balanceAfterTariff', rowFrom\(summaryIndex, pageIndex/);
+  assert.match(source, /const tariffDisplay = rowFrom\(summaryIndex,/);
+  assert.match(source, /\['price', rowFrom\(summaryIndex,/);
+  assert.match(source, /\['totalDue', rowFrom\(summaryIndex,/);
+  assert.match(source, /\['balanceAfterTariff', rowFrom\(summaryIndex,/);
+  assert.match(source, /const fallbackRows = \(\) =>/);
+  assert.match(source, /if \(!pageRows\) pageRows = readRows\(root\)/);
+  assert.match(source, /fullPageFallbackUsed: Boolean\(pageRows\)/);
   assert.match(source, /exactSelectorObserved/);
   assert.match(source, /fallbackSelectorObserved/);
   assert.match(source, /BILLING_MAIN_FORM_NOT_FOUND/);
@@ -103,7 +106,7 @@ test('Billing finance scanner tolerates legacy one-cell rows and preserves label
   assert.match(source, /const rowValueFromRows = \(rows, patterns\)/);
   assert.match(source, /row\.cells\.slice\(1\).*join\(' '\)/s);
   assert.match(source, /Legacy Billing sometimes renders "Label, unit: value" in one td/);
-  assert.match(source, /rowValueFromRows\(pageRows, patterns\)/);
+  assert.match(source, /rowValueFromRows\(fallbackRows\(\), patterns\)/);
   assert.match(source, /\^на\\s\+сч\[её\]т\(\?:е\|у\)/u);
   assert.match(source, /oneCellRowsObserved/);
 });
