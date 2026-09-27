@@ -65,7 +65,12 @@ export function extractStandaloneSubscriberIdentity(transcript = []) {
 
     const token = standaloneToken(source);
     if (/^\d{3,12}$/.test(token)) {
-      return { contract: token, sourceTurn: index, confidence: 'standalone-contract' };
+      const dialogue = Array.isArray(transcript) ? transcript : [];
+      const originalIndex = dialogue.findIndex(item => item === messages[index]);
+      const previous = originalIndex > 0 ? oneLine(dialogue[originalIndex - 1]?.text, 500) : '';
+      if (/(?:договор|договір|номер|лицев(?:ой|ий)?\s*сч[её]т|особов(?:ий|ого)?\s*рахунок|login|логин|логін)/i.test(previous)) {
+        return { contract: token, sourceTurn: index, confidence: 'contextual-standalone-contract' };
+      }
     }
 
     const login = genericLogin(token);
