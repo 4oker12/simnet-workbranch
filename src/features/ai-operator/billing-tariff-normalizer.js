@@ -48,8 +48,25 @@ function inferTariffNumbers(label) {
   const speed = text.match(/\b(\d{2,4})\s*(?:M(?:B|BIT)(?:\/S)?|МБ(?:І|И)?Т(?:\/С)?|МБ)\b/i);
   if (speed) speedMbps = Number(speed[1]);
   if (!Number.isFinite(speedMbps) && /\b1\s*(?:G(?:BIT|BPS)|ГБ(?:І|И)?Т(?:\/С)?)\b/i.test(text)) speedMbps = 1000;
-  const price = text.match(/\b(\d{2,4}(?:[.,]\d{1,2})?)\s*(?:грн|uah)\b/i);
-  if (price) priceUAH = finiteMoney(String(price[1]).replace(',', '.'));
+
+  const explicitPrice = text.match(/\b(\d{2,4}(?:[.,]\d{1,2})?)\s*(?:грн|uah)\b/i);
+  if (explicitPrice) priceUAH = finiteMoney(String(explicitPrice[1]).replace(',', '.'));
+
+  // Some live Billing package names encode the monthly internet price in the
+  // package label itself, without a "грн" suffix. Keep this deliberately
+  // narrow: only known naming families are accepted, never an arbitrary number.
+  if (!Number.isFinite(priceUAH)) {
+    const privateGigabit = text.match(/\b(?:PON\s+)?(?:Гігабіт|Гигабит|Gigabit)\s+(\d{2,4}(?:[.,]\d{1,2})?)\b[^\n]{0,80}(?:прив\.?\s*сектор|частн(?:ый|ого)?\s+сектор)/iu);
+    if (privateGigabit) {
+      priceUAH = finiteMoney(String(privateGigabit[1]).replace(',', '.'));
+      speedMbps = 1000;
+    }
+  }
+  if (!Number.isFinite(priceUAH)) {
+    const namedPrice = text.match(/\b(?:Безліміт|Безлимит|Симнет|SIMNET)\s+(\d{2,4}(?:[.,]\d{1,2})?)\b/iu);
+    if (namedPrice) priceUAH = finiteMoney(String(namedPrice[1]).replace(',', '.'));
+  }
+
   return { priceUAH, speedMbps, serviceCode: /^\s*BZL\b/i.test(text) ? 'BZL' : '' };
 }
 
@@ -181,9 +198,14 @@ export function normalizeBillingTariffSnapshot(snapshot = {}, { now = new Date()
     now
   });
   const activeServices = normalizeActiveServices(service.activeServices);
+  const rawBillingPrice = finiteMoney(finance.price);
   const priceSemantics = String(finance.priceSemantics || '');
-  const internetPriceIsAuthoritative = !/^generic_price_row_not_guaranteed/i.test(priceSemantics);
-  const recurringTotal = internetPriceIsAuthoritative ? calculateRecurringTotal(finance.price, activeServices) : null;
+  const billingPriceIsAuthoritative = /^internet_tariff_price_from_main_summary_table$/i.test(priceSemantics);
+  const labelPrice = finiteMoney(current.priceUAH);
+  const internetTariffPrice = billingPriceIsAuthoritative
+    ? rawBillingPrice
+    : labelPrice;
+  const recurringTotal = calculateRecurringTotal(internetTariffPrice, activeServices);
 
   const selectedMarker = [
     service.tariffSelectorState,
@@ -200,13 +222,13 @@ export function normalizeBillingTariffSnapshot(snapshot = {}, { now = new Date()
   service.tariffStateSemantics = 'configured_internet_package_independent_from_access_or_service_state';
   service.currentTariffRaw = current.rawName;
   service.currentTariffDisplay = current.displayName;
-  service.currentTariffPriceUAH = current.priceUAH;
+  service.currentTariffPriceUAH = internetTariffPrice;
   service.currentTariffSpeedMbps = current.speedMbps;
   service.current = {
     ...(service.current || {}),
     rawName: current.rawName,
     name: current.displayName,
-    priceUAH: current.priceUAH,
+    priceUAH: internetTariffPrice,
     speedMbps: current.speedMbps
   };
   service.nextTariffRaw = scheduled.rawName;
@@ -228,12 +250,16 @@ export function normalizeBillingTariffSnapshot(snapshot = {}, { now = new Date()
     ? Math.round(activeServices.reduce((sum, item) => sum + item.amount, 0) * 100) / 100
     : activeServices.length ? null : 0;
 
+  finance.internetTariffPrice = internetTariffPrice;
+  finance.internetTariffPriceSemantics = billingPriceIsAuthoritative && Number.isFinite(rawBillingPrice)
+    ? 'confirmed_main_summary_internet_tariff_price'
+    : Number.isFinite(labelPrice)
+      ? 'confirmed_live_tariff_label_encoded_price'
+      : 'unknown_no_semantically_confirmed_internet_tariff_price';
   finance.recurringTotal = recurringTotal;
-  finance.recurringTotalSemantics = !internetPriceIsAuthoritative
-    ? 'unknown_because_source_price_is_not_confirmed_as_internet_tariff_price'
-    : recurringTotal == null
-      ? 'unknown_when_internet_or_additional_service_amount_is_missing'
-      : 'exact_internet_tariff_price_plus_active_additional_services';
+  finance.recurringTotalSemantics = recurringTotal == null
+    ? 'unknown_when_confirmed_internet_or_additional_service_amount_is_missing'
+    : 'confirmed_internet_tariff_price_plus_active_additional_services';
 
   return { ...snapshot, service, finance };
 }
