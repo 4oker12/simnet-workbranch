@@ -68,15 +68,18 @@ async function executeRead(tabId, id) {
         if (!root?.querySelectorAll) return [];
         return [...root.querySelectorAll('tr')].map(row => {
           const cells = [...row.querySelectorAll(':scope > td, :scope > th')].map(cell => {
+            // Keep the rendered cell text independent from nested controls.
+            // Billing uses nested tables/controls heavily; replacing label text
+            // with the first descendant control value corrupts row matching.
+            const text = compact(cell.textContent || '', 500);
             const control = cell.querySelector('select,input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),textarea');
             let value = '';
             if (control?.tagName === 'SELECT') value = compact(control.options?.[control.selectedIndex]?.textContent || control.value || '', 500);
             else if (control) value = compact(control.value || '', 500);
-            const text = control ? value : compact(cell.textContent || '', 500);
             if (!value) value = text;
             return { text, value };
           }).filter(cell => cell.text || cell.value);
-          return { cells, text: compact(cells.map(cell => cell.value || cell.text).join(' '), 700) };
+          return { cells, text: compact(cells.map(cell => cell.text || cell.value).join(' '), 700) };
         }).filter(row => row.cells.length);
       };
       const indexRows = rows => {
@@ -85,7 +88,10 @@ async function executeRead(tabId, id) {
           if (row.cells.length < 2) continue;
           const label = compact(row.cells[0]?.text || '', 260).toLowerCase();
           if (!label) continue;
-          const value = compact(row.cells.at(-1)?.value || row.cells.at(-1)?.text || '', 500);
+          const value = compact(
+            row.cells.slice(1).map(cell => cell.value || cell.text).filter(Boolean).join(' '),
+            500
+          );
           // Prefer the first non-empty value when Billing repeats a label.
           if (!byLabel.has(label) || (!byLabel.get(label) && value)) byLabel.set(label, value);
         }
@@ -121,7 +127,37 @@ async function executeRead(tabId, id) {
       };
       const rowValueFromIndex = (index, patterns) => {
         for (const [label, value] of index) {
-          if (patterns.some(pattern => pattern.test(label))) return value;
+          if (!patterns.some(pattern => pattern.test(label))) continue;
+          if (compact(value, 500)) return value;
+        }
+        return '';
+      };
+      const rowValueFromRows = (rows, patterns) => {
+        for (const row of Array.isArray(rows) ? rows : []) {
+          if (!Array.isArray(row.cells) || !row.cells.length) continue;
+          const firstCellText = compact(row.cells[0]?.text || '', 700);
+          if (!firstCellText) continue;
+          const normalized = firstCellText.replace(/ё/giu, 'е');
+          for (const pattern of patterns) {
+            pattern.lastIndex = 0;
+            const match = normalized.match(pattern);
+            if (!match || match.index !== 0) continue;
+
+            // Normal table row: label in the first cell, value in following cells.
+            const directValue = compact(
+              row.cells.slice(1).map(cell => cell.value || cell.text).filter(Boolean).join(' '),
+              500
+            );
+            if (directValue) return directValue;
+
+            // Legacy Billing sometimes renders "Label, unit: value" in one td.
+            // Strip only the matched label prefix and keep the observed remainder.
+            const remainder = compact(
+              normalized.slice(match[0].length).replace(/^[\s:;,.—–-]+/u, ''),
+              500
+            );
+            if (remainder) return remainder;
+          }
         }
         return '';
       };
@@ -197,7 +233,9 @@ async function executeRead(tabId, id) {
         const summaryIndex = indexRows(summaryRows);
         const pageIndex = indexRows(pageRows);
         const rowFrom = (primary, fallback, patterns) =>
-          rowValueFromIndex(primary, patterns) || rowValueFromIndex(fallback, patterns);
+          rowValueFromIndex(primary, patterns)
+          || rowValueFromIndex(fallback, patterns)
+          || rowValueFromRows(pageRows, patterns);
 
         const discount = discountFromRows(summaryRows) || discountFromRows(mainRows) || discountFromRows(pageRows);
         if (discount) discount.appliesTo = 'internet_tariff';
@@ -240,7 +278,7 @@ async function executeRead(tabId, id) {
           temporaryPaymentSemantics: 'billing_temporary_credit_not_customer_money'
         };
         const observedMoney = [
-          ['accountBalance', rowFrom(mainIndex, pageIndex, [/^на\s+счету,?\s*грн/i, /^на\s+рахунку,?\s*грн/i])],
+          ['accountBalance', rowFrom(mainIndex, pageIndex, [/^на\s+сч[её]т(?:е|у),?\s*грн/i, /^на\s+рахунку,?\s*грн/i])],
           ['price', rowFrom(summaryIndex, pageIndex, [/^ціна,?\s*грн/i, /^цена,?\s*грн/i])],
           ['displayedPlanCost', rowFrom(summaryIndex, pageIndex, [
             /^підсумкова\s+вартість\s+тарифного\s+плану/i,
@@ -248,11 +286,11 @@ async function executeRead(tabId, id) {
           ])],
           ['totalDue', rowFrom(summaryIndex, pageIndex, [/^разом\s+до\s+сплати/i, /^итого\s+к\s+оплате/i])],
           ['balanceAfterTariff', rowFrom(summaryIndex, pageIndex, [
-            /на\s+счете\s+с\s+учетом\s+стоимости\s+тарифного\s+плана/i,
+            /на\s+сч[её]т(?:е|у)\s+с\s+уч[её]том\s+стоимости\s+тарифного\s+плана/i,
             /на\s+рахунку\s+з\s+урахуванням\s+вартості\s+тарифного\s+плану/i
           ])],
           ['balanceWithoutTemporary', rowFrom(mainIndex, pageIndex, [
-            /на\s+счете\s+без\s+учета\s+временных\s+платежей/i,
+            /на\s+сч[её]т(?:е|у)\s+без\s+уч[её]та\s+временных\s+платежей/i,
             /на\s+рахунку\s+без\s+урахування\s+тимчасових\s+платежів/i
           ])],
           ['temporaryPayment', temporaryText]
@@ -322,6 +360,10 @@ async function executeRead(tabId, id) {
             direction4AccountingMb: rowFrom(summaryIndex, pageIndex, [/^оплата\s+['"]?направление\s+4['"]?,?\s*мб:\s*загалом/i])
           },
           parseMeta: {
+            finance: {
+              observedFields: Object.keys(finance).filter(key => !/Semantics$/.test(key) && key !== 'temporaryPaymentText'),
+              oneCellRowsObserved: pageRows.filter(row => row.cells.length === 1).length
+            },
             blocks: {
               mainForm: { selector: mainFormSelector, rows: mainRows.length },
               authorization: { selector: authSelector, observed: Object.keys(auth).length > 0 },
