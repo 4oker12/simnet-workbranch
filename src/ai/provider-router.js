@@ -6,6 +6,15 @@
   if (!nativeFetch) return;
   globalThis.__SIMNET_AI_PROVIDER_ROUTER__ = true;
 
+  const manifest = chrome.runtime.getManifest();
+  const SAFE_DEMO_MODE = /safe-demo/i.test(String(manifest.version_name || '')) || /safe demo/i.test(String(manifest.name || ''));
+  const SAFE_DEMO_ORIGINS = new Set([
+    'https://userside.simnet.kiev.ua',
+    'https://admin.simnet.kiev.ua',
+    'https://admin.looknet.kiev.ua',
+    'https://pbx.simnet.kiev.ua'
+  ]);
+
   const CONFIG_KEY = 'simnet_workbench_ai_runtime_v1';
   const GROQ_BASE = 'https://api.groq.com/openai/v1';
   const DEEPSEEK_BASE = 'https://api.deepseek.com';
@@ -177,6 +186,14 @@
 
   globalThis.fetch = async function simnetAiProviderFetch(input, init = {}) {
     const sourceUrl = typeof input === 'string' ? input : String(input?.url || '');
+
+    if (SAFE_DEMO_MODE && /^https?:\/\//i.test(sourceUrl)) {
+      let origin = '';
+      try { origin = new URL(sourceUrl).origin; } catch {}
+      if (!SAFE_DEMO_ORIGINS.has(origin)) {
+        throw new Error('SAFE DEMO blocks external network access');
+      }
+    }
     const isGroqCompat = sourceUrl.startsWith(GROQ_BASE);
     const isDeepSeek = sourceUrl.startsWith(DEEPSEEK_BASE);
     if (!isGroqCompat && !isDeepSeek) return nativeFetch(input, init);
