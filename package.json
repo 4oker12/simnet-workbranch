@@ -8,7 +8,8 @@
     "test": "npm run check:syntax && node --test --test-concurrency=1",
     "test:ai-operator": "node scripts/check-ai-operator.mjs",
     "package:extension": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-extension.ps1",
-    "update:workbench": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sync-workbench.ps1"
+    "update:workbench": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sync-workbench.ps1",
+    "package:safe-demo": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-safe-demo.ps1"
   },
   "engines": {
     "node": ">=20"
