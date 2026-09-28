@@ -1,3 +1,5 @@
+const runtimeManifest = chrome.runtime.getManifest();
+const SAFE_DEMO_MODE = /safe-demo/i.test(String(runtimeManifest.version_name || '')) || /safe demo/i.test(String(runtimeManifest.name || ''));
 const AI_RUNTIME_CONFIG_KEY = 'simnet_workbench_ai_runtime_v1';
 const PROVIDERS = Object.freeze({
   groq: Object.freeze({
@@ -116,6 +118,20 @@ function render(config = {}) {
   }
 
   renderModels(config, provider);
+
+  if (SAFE_DEMO_MODE) {
+    for (const control of [providerSelect, keyInput, saveKeyButton, testKeyButton, removeKeyButton, chatModel, saveChatModelButton]) {
+      if (control) control.disabled = true;
+    }
+    if (keyBadge) {
+      keyBadge.textContent = 'SAFE DEMO';
+      keyBadge.className = 'badge ok';
+    }
+    if (keyStatus) {
+      keyStatus.textContent = 'Внешние AI API отключены профилем SAFE DEMO и отсутствуют в host_permissions.';
+      keyStatus.className = 'status ok';
+    }
+  }
 }
 
 async function currentOrTypedKey(provider) {
