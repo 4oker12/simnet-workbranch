@@ -42,15 +42,15 @@ test('AI Lab renders the latest decision as one ordered human-readable pipeline'
   assert.doesNotThrow(() => new Function(traceJs));
 
   const stages = [
-    "'ПОНЯЛ'",
-    "'КОНТЕКСТ'",
-    "'НУЖНО УЗНАТЬ'",
-    "'ПЛАН'",
-    "'TOOL'",
-    "'ФАКТЫ'",
-    "'ПРОВЕРКА'",
-    "'ВЫВОД'",
-    "'ОТВЕТ'"
+    "'ЧТО ПОНЯЛ'",
+    "'ЧТО УЖЕ ЗНАЕМ'",
+    "'ЧЕГО НЕ ХВАТАЕТ'",
+    "'ЧТО РЕШИЛ ПРОВЕРИТЬ'",
+    "'ЧТО ПРОВЕРИЛ'",
+    "'ЧТО ПОДТВЕРДИЛОСЬ'",
+    "'ЧТО ЕЩЁ НЕЯСНО'",
+    "'РЕШЕНИЕ'",
+    "'ОТВЕТ КЛИЕНТУ'"
   ];
   let previous = -1;
   for (const stage of stages) {
@@ -59,20 +59,21 @@ test('AI Lab renders the latest decision as one ordered human-readable pipeline'
     previous = index;
   }
 
-  assert.match(traceJs, /ЦЕПОЧКА ПОСЛЕДНЕГО ХОДА/);
-  assert.match(traceJs, /Сырой журнал событий ниже/);
+  assert.match(traceJs, /КАК AI ПРИШЁЛ К ОТВЕТУ/);
+  assert.match(traceJs, /Технический журнал ниже — только если нужна детализация/);
   assert.match(traceJs, /AI_OPERATOR_LAB_GET/);
 });
 
 test('AI Lab highlights semantic-to-tool mismatches and important raw JSON fields', () => {
   assert.match(traceJs, /pon\\\.signal/);
   assert.match(traceJs, /billing\\\.tariff/);
-  assert.match(traceJs, /НЕСООТВЕТСТВИЕ: запросил/);
-  assert.match(traceJs, /ОЖИДАЛСЯ \$\{mismatch\.expected\} → ФАКТИЧЕСКИ \$\{mismatch\.actual\}/);
+  assert.match(traceJs, /План не совпал с проверкой/);
+  assert.match(traceJs, /План: \$\{mismatch\.expected\} → фактически: \$\{mismatch\.actual\}/);
 
   for (const key of ['field', 'why', 'tool', 'ok', 'code', 'source', 'data', 'requestedBy']) {
     assert.match(traceJs, new RegExp(`['\"]${key}['\"]`), `raw JSON must specially handle ${key}`);
   }
+  assert.match(traceJs, /discountText/, 'discount evidence must be surfaced in the compact fact trace');
   for (const className of ['key-intent', 'key-tool', 'key-status', 'key-source', 'key-data']) {
     assert.match(traceJs, new RegExp(className));
   }

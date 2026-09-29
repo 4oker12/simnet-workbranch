@@ -69,6 +69,36 @@ test('balance and total due share one Billing main-summary source read', async (
   assert.deepEqual(out.diagnostics.sourceReads, ['billing.mainSummary']);
 });
 
+test('Billing discount is a canonical observed fact and missing discount stays unknown', async () => {
+  assert.equal(CANONICAL_FACT_CATALOG['subscriber.finance.discount'].source, 'billing.mainSummary');
+
+  const known = await resolveFacts({
+    context: IDENTITY,
+    facts: ['subscriber.finance.discount'],
+    execute: async () => mainSummary({
+      finance: {
+        accountBalance: 270.1,
+        totalDue: 250,
+        price: 250,
+        balanceAfterTariff: 20.1,
+        discountText: '15'
+      }
+    }),
+    now: NOW
+  });
+  assert.equal(value(known, 'subscriber.finance.discount').status, 'known');
+  assert.equal(value(known, 'subscriber.finance.discount').value, '15');
+
+  const missing = await resolveFacts({
+    context: IDENTITY,
+    facts: ['subscriber.finance.discount'],
+    execute: async () => mainSummary(),
+    now: NOW
+  });
+  assert.equal(value(missing, 'subscriber.finance.discount').status, 'unknown');
+  assert.equal(value(missing, 'subscriber.finance.discount').observed, false);
+});
+
 test('successful empty next tariff is observed no, not unknown', async () => {
   const out = await resolveFacts({
     context: IDENTITY,

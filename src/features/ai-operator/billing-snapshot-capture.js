@@ -41,6 +41,9 @@
         if (!label) continue;
         const last = cells[cells.length - 1];
         const control = last.querySelector('select,input:not([type="hidden"]),textarea');
+        const hiddenValues = [...last.querySelectorAll('input[type="hidden"]')]
+          .map(node => clean(node.value || ''))
+          .filter(Boolean);
         let value = '';
         if (control?.tagName === 'SELECT') {
           value = clean(control.options?.[control.selectedIndex]?.textContent || control.value || '');
@@ -48,6 +51,8 @@
           value = clean(control.value || '');
         } else {
           value = clean(last.textContent || '');
+          const discountRow = /^(?:скидк|знижк|discount)/i.test(label);
+          if (hiddenValues.length === 1 && (discountRow || !value)) value = hiddenValues[0];
         }
         map.push([label, value]);
       }
@@ -183,6 +188,7 @@
     const derivedBaseTariffAmount = Number.isFinite(totalDue) && Number.isFinite(activeServicesTotal)
       ? Math.max(0, totalDue - activeServicesTotal)
       : null;
+    const discountText = rowValue([/^скидк/i, /^знижк/i, /^discount/i]);
 
     return {
       identity: {
@@ -214,7 +220,11 @@
         balanceAfterTariff: money(rowValue([/на счете с учетом стоимости тарифного плана/i, /на рахунку з урахуванням вартості тарифного плану/i])),
         balanceWithoutTemporary: money(rowValue([/на счете без учета временных платежей/i, /на рахунку без урахування тимчасових платежів/i])),
         temporaryPayment: money(temporaryText),
-        temporaryPaymentText: temporaryText
+        temporaryPaymentText: temporaryText,
+        ...(discountText ? {
+          discountText,
+          discountSemantics: 'billing_observed_discount_field_raw_units_not_assumed'
+        } : {})
       },
       network: {
         ip: clean(input('ip') || auth.ip, 80),

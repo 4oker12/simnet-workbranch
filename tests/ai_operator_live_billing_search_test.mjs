@@ -54,6 +54,10 @@ assert.match(searchSource, /#my_x_16/, 'payments table must be read from the liv
 for (const field of ['accountBalance', 'balanceAfterTariff', 'balanceWithoutTemporary', 'temporaryPayment', 'totalDue']) {
   assert.match(searchSource, new RegExp(`\\b${field}\\b`), `finance field ${field} must remain readable`);
 }
+assert.match(searchSource, /input\[type="hidden"\]/, 'hidden-only Billing values must have a safe fallback reader');
+assert.match(searchSource, /discountText/, 'live Billing fallback must expose observed discount');
+assert.match(searchSource, /billing_observed_discount_field_raw_units_not_assumed/, 'discount units must not be guessed');
+
 for (const field of ['paket', 'next_paket', 'state', 'cstate', 'grp']) {
   assert.match(searchSource, new RegExp(field), `service field ${field} must remain readable`);
 }
