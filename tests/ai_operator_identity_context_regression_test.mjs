@@ -231,3 +231,42 @@ test('failed lookup for a new explicit identity cannot fall back to the previous
   assert.equal(result.trace.length, 1);
   assert.equal(result.trace[0].code, 'NOT_FOUND');
 });
+
+test('a later address remains the lookup identity after a failed rebind and "другой" follow-up', async () => {
+  const address = 'проспект героів мирноі долини 42/7 кв 6\nЧому немає інтернету?';
+  const transcript = [
+    { role: 'customer', text: 'абонент abon700011' },
+    { role: 'agent', text: 'Ответ по предыдущему абоненту' },
+    { role: 'customer', text: address }
+  ];
+  const analysis = { probe: { whatUserWants: 'Проверить доступ по новому адресу', ids: { address } } };
+  const first = await executeInformationNeeds({
+    needs: [], transcript, analysis,
+    labState: { confirmedCaseId: 'billing-live:70001', confirmedSubscriber: { login: 'abon700011', billingId: '70001' } },
+    execute: async ({ tool, toolArgs }) => {
+      assert.equal(tool, 'customer.lookup');
+      assert.equal(toolArgs.address, address.replace(/\s+/g, ' '));
+      return { ok: false, tool, code: 'ADDRESS_STREET_NOT_FOUND', data: {}, statePatch: {} };
+    }
+  });
+  assert.equal(first.labState.confirmedCaseId, '');
+  transcript.push({ role: 'agent', text: 'Это предыдущий абонент или другой?' }, { role: 'customer', text: 'другой' });
+  const calls = [];
+  const next = await executeInformationNeeds({
+    needs: [], transcript, analysis, labState: first.labState,
+    execute: async ({ tool, toolArgs }) => {
+      calls.push({ tool, toolArgs });
+      return { ok: false, tool, code: 'NOT_FOUND', data: {}, statePatch: {} };
+    }
+  });
+  assert.deepEqual(calls, [{ tool: 'customer.lookup', toolArgs: { address: address.replace(/\s+/g, ' ') } }]);
+  assert.equal(next.labState.confirmedCaseId, '');
+  assert.equal(next.labState.confirmedSubscriber, null);
+});
+
+test('a newly supplied login takes precedence over an older address', () => {
+  assert.deepEqual(extractIdentityHints([
+    { role: 'customer', text: 'вул. Тестова 42, кв. 6' },
+    { role: 'customer', text: 'логин OtherSyntheticUser' }
+  ], {}), { login: 'OtherSyntheticUser' });
+});

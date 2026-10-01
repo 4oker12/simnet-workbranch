@@ -97,6 +97,55 @@ test('semantic named-login hint survives a typo in the surrounding word only whe
   );
 });
 
+test('a newer literal address outranks an older login across the shared identity paths', () => {
+  const transcript = [
+    { role: 'customer', text: 'мой договор abon700011' },
+    { role: 'customer', text: 'проспект героів мирноі долини 42/7 кв 6' },
+    { role: 'customer', text: 'другой' }
+  ];
+  const secondary = { address: transcript[1].text };
+  assert.deepEqual(resolveSubscriberIdentityHints(transcript, {}, secondary), secondary);
+});
+
+test('a newer IP outranks an older explicit contract', () => {
+  const transcript = [
+    { role: 'customer', text: 'договор 700011' },
+    { role: 'customer', text: 'проверь 192.0.2.42' }
+  ];
+  assert.deepEqual(resolveSubscriberIdentityHints(transcript, {}, { ip: '192.0.2.42' }), { ip: '192.0.2.42' });
+});
+
+test('a newer literal semantic login hint outranks an older identifier', () => {
+  const transcript = [
+    { role: 'customer', text: 'договор abon700011' },
+    { role: 'customer', text: 'мой логен SyntheticNew, проверь тариф' }
+  ];
+  assert.deepEqual(resolveSubscriberIdentityHints(transcript, { probe: { ids: { login: 'SyntheticNew' } } }), { login: 'SyntheticNew' });
+});
+
+test('an address hint requires its street and house in the same customer turn', () => {
+  assert.deepEqual(resolveSubscriberIdentityHints([
+    { role: 'customer', text: 'вул. Тестова' },
+    { role: 'customer', text: 'здесь 42 метра кабеля' }
+  ], {}, { address: 'вул. Тестова 42' }), {});
+});
+
+test('an address hint cannot invent a street sharing only the prefix and house number', () => {
+  assert.deepEqual(resolveSubscriberIdentityHints([
+    { role: 'customer', text: 'проспект Тестовий 42' }
+  ], {}, { address: 'проспект Вигаданий 42' }), {});
+});
+
+test('semantic address hints support unlabelled aliases and descent addresses without reusing an older login', () => {
+  for (const address of ['Давня Тестова 42/Б/2, кв.6', 'Синтетичний узвіз 42, кв.6']) {
+    const transcript = [
+      { role: 'customer', text: 'договор abon700011' },
+      { role: 'customer', text: address }
+    ];
+    assert.deepEqual(resolveSubscriberIdentityHints(transcript, { probe: { ids: { address } } }, { login: 'abon700011' }), { address });
+  }
+});
+
 test('semantic prompt exposes identity hints and forbids reconstructing identifier values', () => {
   const prompt = buildSubscriberIntentProbeMessages({
     transcript: [{ role: 'customer', text: 'особов рахонок 2421' }],

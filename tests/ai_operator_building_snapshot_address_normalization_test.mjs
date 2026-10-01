@@ -12,7 +12,7 @@ function installStorage() {
     schema: 'simnet-crm-building-snapshot-v1',
     version: 1,
     generatedAt: '2026-08-25T23:53:03.997Z',
-    stats: { parsed: 4, complete: true },
+    stats: { parsed: 5, complete: true },
     buildings: [
       {
         id: '1024',
@@ -33,6 +33,11 @@ function installStorage() {
         id: 'other-8a',
         address: 'Киев, вул. Олександра Махова (Святошинський) (Жолудєва), 8/А',
         fields: [{ key: 'gpon', label: 'GPON', text: 'Нет', source: 'main_card' }]
+      },
+      {
+        id: 'synthetic-compound',
+        address: 'м. Київ, б-р. Синтетичного Майстра (Солом\\`янський) (Давня Тестова), 42/Б/2',
+        fields: [{ key: 'gpon', label: 'GPON', text: 'Да', source: 'main_card' }]
       }
     ]
   };
@@ -92,4 +97,13 @@ test('historical street alias in parentheses still resolves the building', async
   assert.equal(result.ok, true);
   assert.equal(result.code, 'OK');
   assert.equal(result.data.buildingId, '2');
+});
+
+test('multi-slash house is preserved for both canonical street and historical alias', async () => {
+  for (const address of ['бульвар Синтетичного Майстра 42/Б/2', 'Давня Тестова, буд. 42/Б/2']) {
+    const result = await read(address);
+    assert.equal(result.code, 'OK');
+    assert.equal(result.data.buildingId, 'synthetic-compound');
+    assert.equal(result.data.query.house, '42/б/2');
+  }
 });

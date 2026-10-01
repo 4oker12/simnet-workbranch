@@ -42,7 +42,7 @@ function normalizeHouse(value) {
     .replace(/-+/g, '-');
 }
 
-function normalizeHouseSuffix(value) {
+export function normalizeHouseSuffix(value) {
   const suffix = String(value || '').toLowerCase();
   // A common operator input is Latin "a" while UserSide stores Cyrillic "А".
   if (suffix === 'a') return 'а';
@@ -77,13 +77,13 @@ function houseVariantsFromAddress(addressValue = '', houseValue = '') {
   return [...new Set(variants.filter(Boolean))];
 }
 
-function normalizeStreetPart(value) {
+export function normalizeStreetPart(value) {
   return text(value, 260)
     .toLowerCase()
     .replace(/ё/g, 'е')
-    .replace(/[’'`]/g, '')
-    .replace(/[().,;:№#]/g, ' ')
-    .replace(/(?:^|\s)(?:м|місто|город|київ|киев|вул|вулиця|улица|ул|просп|проспект|проспекту|пров|провулок|переулок|бул|бульвар|пл|площа|площадь)(?=\s|$)/giu, ' ')
+    .replace(/[’'`\\]/g, '')
+    .replace(/[().,;:№#"«»]/g, ' ')
+    .replace(/(?:^|\s)(?:м|місто|город|київ|киев|вул|вулиця|улица|ул|просп|проспект|проспекту|пров|провулок|переулок|бул|б-р|бульвар|узвіз|спуск|пл|площа|площадь)(?=\s|$)/giu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -95,7 +95,7 @@ function isAdministrativeStreetAnnotation(value = '') {
   return Boolean(normalized && ADMINISTRATIVE_STREET_ANNOTATION_RE.test(normalized));
 }
 
-function streetVariants(value) {
+export function streetVariants(value) {
   const source = text(value, 500);
   if (!source) return [];
   const aliases = [source.replace(/\([^)]*\)/g, ' ')];
@@ -131,11 +131,11 @@ function parseStreetHouse(addressValue) {
   if (!address) return { street: '', streetAliases: [], house: '', houseAliases: [] };
   const clean = address.replace(/\u00a0/g, ' ');
 
-  const marker = clean.match(/^(.*?)(?:\s*,?\s*(?:буд\.?|будинок|дом|д\.?|house)(?=\s|[:№#-])\s*[:№#-]?\s*)(\d+[\p{L}]?(?:\s*[\/-]\s*[\p{L}\d]+)?)/iu);
+  const marker = clean.match(/^(.*?)(?:\s*,?\s*(?:буд\.?|будинок|дом|д\.?|house)(?=\s|[:№#-])\s*[:№#-]?\s*)(\d+[\p{L}]?(?:\s*[\/-]\s*[\p{L}\d]+)*)/iu);
   if (marker) return parsedStreet(marker[1], marker[2], clean);
 
   const beforeUnit = clean.split(/(?:^|\s)(?:під'?їзд|подъезд|поверх|этаж|кв\.?|квартира|офіс|офис)(?=\s|[.,:№#-]|$)/iu)[0];
-  const simple = beforeUnit.match(/^(.*?)[,\s]+(\d+[\p{L}]?(?:\s*[\/-]\s*[\p{L}\d]+)?)\s*[,;]?\s*$/u);
+  const simple = beforeUnit.match(/^(.*?)[,\s]+(\d+[\p{L}]?(?:\s*[\/-]\s*[\p{L}\d]+)*)\s*[,;]?\s*$/u);
   if (simple) return parsedStreet(simple[1], simple[2], beforeUnit);
 
   const streetAliases = streetVariants(beforeUnit);

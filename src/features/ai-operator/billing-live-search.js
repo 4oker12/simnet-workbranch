@@ -1,6 +1,7 @@
 'use strict';
 
 import { normalizeBillingTariffSnapshot } from './billing-tariff-normalizer.js';
+import { normalizeHouseSuffix, normalizeStreetPart, streetVariants } from './building-snapshot-tool.js';
 
 const BILLING_TAB_URLS = Object.freeze([
   'https://admin.simnet.kiev.ua/*',
@@ -86,6 +87,60 @@ async function billingTabs() {
   return rankBillingTabs(await chrome.tabs.query({ url: [...BILLING_TAB_URLS] }));
 }
 
+// Share the existing building tool's street/alias rules. Spelling tolerance is
+// for lookup only; the canonical address remains the label returned by Billing.
+function resolveAddressRequest(streets = [], value = '') {
+  const normalize = input => normalizeStreetPart(input).replace(/ї/g, 'і');
+  const sought = ` ${normalize(value)} `;
+  const options = streets
+    .filter(item => item.value && item.label && !/выбер|оберіть|---/i.test(item.label))
+    .map(item => {
+      const forms = streetVariants(item.label).map(normalize);
+      const scores = forms.map(core => {
+        const tokens = core.split(' ').filter(token => token.length >= 3);
+        const matched = tokens.filter(token => sought.includes(` ${token} `)).length;
+        const ratio = tokens.length ? matched / tokens.length : 0;
+        const direct = core && sought.includes(` ${core} `) ? 100 : 0;
+        return { core, score: direct + Math.round(ratio * 60) };
+      }).sort((a, b) => b.score - a.score);
+      return { ...item, forms, ...(scores[0] || { core: '', score: 0 }) };
+    })
+    .filter(item => item.score >= 35)
+    .sort((a, b) => b.score - a.score);
+  if (!options.length) return { ok: false, code: 'ADDRESS_STREET_NOT_FOUND' };
+  const best = options[0];
+  const tied = options.filter(item => item.score === best.score);
+  if (tied.length > 1) return { ok: false, code: 'ADDRESS_STREET_AMBIGUOUS', streets: tied.slice(0, 8).map(item => item.label) };
+  const source = String(value || '');
+  const apartment = source.match(/(?:^|[\s,;])(?:кв(?:артира)?|apartment)(?:\.\s*|\s+|[:#№-]\s*|(?=\d))[:#№-]?\s*([\p{L}\d/-]+)/iu)?.[1] || '';
+  const explicitBuilding = source.match(/(?:^|[\s,;])(?:буд(?:инок)?|дом|д|house)\.?\s*[:#№-]?\s*(\d+(?:\s*[/\-]\s*[\p{L}\d]+)*(?:\s*[\p{L}])?)(?=$|[\s,;.!?"»])/iu);
+  let building = explicitBuilding?.[1] || '';
+  const block = source.match(/(?:^|[\s,;])(?:блок|корпус|корп|block|літера|литера)(?:\.\s*|\s+|[:#№-]\s*)[:#№-]?\s*([\p{L}\d]+)/iu)?.[1] || '';
+  if (!building) {
+    const beforeUnit = source.split(/(?:^|[\s,;])(?:кв(?:артира)?|apartment|блок|корпус|корп|block|літера|литера|під'?їзд|подъезд|поверх|этаж)\.?(?=[\s.:#№\d-])/iu)[0];
+    // A later question can contain amounts and other numbers. Only a number
+    // immediately after a matched street form is an unlabelled house.
+    const streetForms = [...best.forms, normalize(best.label)];
+    for (const match of beforeUnit.matchAll(/(?:^|[,\s])(\d+(?:\s*[/\-]\s*[\p{L}\d]+)*(?:\s*[\p{L}])?)(?=$|[\s,;.!?"»])/gu)) {
+      const prefix = normalize(beforeUnit.slice(0, match.index).replace(/\([^)]*\)/g, ' '));
+      if (streetForms.some(street => prefix === street || prefix.endsWith(` ${street}`))) {
+        building = match[1];
+        break;
+      }
+    }
+  }
+  building = building.replace(/\s+/g, '');
+  if (!building) return { ok: false, code: 'ADDRESS_BUILDING_REQUIRED', street: best.label };
+  const compound = building.match(/^(\d+)[/\-]([\p{L}\d]+)$/u) || building.match(/^(\d+)([\p{L}])$/u);
+  let alternate = null;
+  if (!block && compound) {
+    const normalized = normalizeHouseSuffix(compound[2]);
+    const suffix = compound[2] === compound[2].toUpperCase() ? normalized.toUpperCase() : normalized;
+    alternate = { building: compound[1], block: suffix };
+  }
+  return { ok: true, streetId: best.value, street: best.label, building, block, apartment, alternate };
+}
+
 async function executeSearch(tabId, request) {
   const [execution] = await chrome.scripting.executeScript({
     target: { tabId },
@@ -98,12 +153,6 @@ async function executeSearch(tabId, request) {
         const normalized = String(value == null ? '' : value).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
         return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
       };
-      const normalize = value => compact(value, 400)
-        .toLowerCase()
-        .replace(/[.,;:()№#'"`]/g, ' ')
-        .replace(/\b(?:м\.?|місто|город|с\.?|село|вул\.?|улица|ул\.?|просп\.?|проспект|пров\.?|переулок|буд\.?|будинок|дом|д\.?|кв\.?|квартира)\b/gi, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
       const input = (doc, name) => compact(doc.querySelector(`[name="${CSS.escape(name)}"]`)?.value || '', 240);
       const selected = (doc, name) => {
         const node = doc.querySelector(`select[name="${CSS.escape(name)}"]`);
@@ -344,41 +393,31 @@ async function executeSearch(tabId, request) {
       const baseParams = { pp, ...(uu ? { uu } : {}), a: 'listuser' };
       let searchUrl = null;
       let addressResolution = null;
+      let alternateAddress = null;
+      const addressSearchUrl = address => makeUrl({
+        ...baseParams, tmpl: '2', f: 'd',
+        dopfield_5: address.streetId, dopfield_full_5: '1',
+        dopfield_6: address.building, dopfield_full_6: '1',
+        dopfield_11: address.block, dopfield_full_11: '1',
+        dopfield_8: address.apartment, dopfield_full_8: '1'
+      });
       if (lookupRequest.mode === 'address') {
-        const listPage = await fetchDoc(makeUrl(baseParams));
-        if (!listPage.ok || authPage(listPage.doc)) return { ok: false, code: authPage(listPage.doc) ? 'BILLING_AUTH_REQUIRED' : 'BILLING_SEARCH_FAILED', status: listPage.status };
-        const streetSelect = listPage.doc.querySelector('select[name="dopfield_5"]');
-        if (!streetSelect) return { ok: false, code: 'BILLING_ADDRESS_FORM_UNAVAILABLE' };
-        const sought = normalize(lookupRequest.value);
-        const options = [...streetSelect.options]
-          .map(option => ({ value: String(option.value || '').trim(), label: compact(option.textContent || '', 180) }))
-          .filter(item => item.value && item.label && !/выбер|оберіть|---/i.test(item.label))
-          .map(item => {
-            const core = normalize(item.label.replace(/\([^)]*\)/g, ' '));
-            const tokens = core.split(' ').filter(token => token.length >= 3);
-            const matched = tokens.filter(token => sought.includes(token)).length;
-            const ratio = tokens.length ? matched / tokens.length : 0;
-            const direct = core && sought.includes(core) ? 100 : 0;
-            return { ...item, score: direct + Math.round(ratio * 60), core };
-          })
-          .filter(item => item.score >= 35)
-          .sort((a, b) => b.score - a.score);
-        if (!options.length) return { ok: false, code: 'ADDRESS_STREET_NOT_FOUND' };
-        const best = options[0];
-        const tied = options.filter(item => item.score === best.score);
-        if (tied.length > 1) return { ok: false, code: 'ADDRESS_STREET_AMBIGUOUS', streets: tied.slice(0, 8).map(item => item.label) };
-        const source = String(lookupRequest.value || '');
-        const apartment = source.match(/(?:кв(?:артира)?\.?|apartment)\s*[:#№-]?\s*([0-9A-Za-zА-Яа-яІіЇїЄєҐґ/-]+)/i)?.[1] || '';
-        const explicitBuilding = source.match(/(?:буд(?:инок)?\.?|дом|д\.?|house)\s*[:#№-]?\s*(\d+)\s*([A-Za-zА-Яа-яІіЇїЄєҐґ]?)\b/i);
-        let building = explicitBuilding?.[1] || '';
-        let block = explicitBuilding?.[2] || '';
-        if (!building) {
-          const numericParts = source.split(',').map(part => part.trim()).filter(Boolean).map(part => part.match(/^(\d+)\s*([A-Za-zА-Яа-яІіЇїЄєҐґ]?)$/)).filter(Boolean);
-          if (numericParts.length) { building = numericParts[0][1] || ''; block = numericParts[0][2] || ''; }
+        if (!lookupRequest.addressSelection) {
+          const listPage = await fetchDoc(makeUrl(baseParams));
+          if (!listPage.ok || authPage(listPage.doc)) return { ok: false, code: authPage(listPage.doc) ? 'BILLING_AUTH_REQUIRED' : 'BILLING_SEARCH_FAILED', status: listPage.status };
+          const streetSelect = listPage.doc.querySelector('select[name="dopfield_5"]');
+          if (!streetSelect) return { ok: false, code: 'BILLING_ADDRESS_FORM_UNAVAILABLE' };
+          return {
+            ok: true, code: 'ADDRESS_STREET_OPTIONS',
+            streets: [...streetSelect.options].map(option => ({
+              value: String(option.value || '').trim(), label: compact(option.textContent || '', 500)
+            }))
+          };
         }
-        if (!building) return { ok: false, code: 'ADDRESS_BUILDING_REQUIRED', street: best.label };
-        addressResolution = { street: best.label, building, block, apartment };
-        searchUrl = makeUrl({ ...baseParams, tmpl: '2', f: 'd', dopfield_5: best.value, dopfield_full_5: '1', dopfield_6: building, dopfield_full_6: '1', dopfield_11: block, dopfield_full_11: '1', dopfield_8: apartment, dopfield_full_8: '1' });
+        const { ok: _ok, streetId, alternate, ...address } = lookupRequest.addressSelection;
+        addressResolution = address;
+        searchUrl = addressSearchUrl({ ...address, streetId });
+        if (alternate) alternateAddress = { ...address, streetId, ...alternate };
       } else {
         searchUrl = makeUrl({ ...baseParams, f: 'n', what_search: lookupRequest.mode, name: lookupRequest.value });
       }
@@ -392,13 +431,26 @@ async function executeSearch(tabId, request) {
         if (!normalizedId) return;
         if (!ids.has(normalizedId)) ids.set(normalizedId, compact(rowText, 800));
       };
-      if (String(searchPage.url.searchParams.get('a') || '').toLowerCase() === 'user') addCandidate(searchPage.url.searchParams.get('id') || '', searchPage.doc.body?.textContent || '');
-      for (const link of searchPage.doc.querySelectorAll('a[href]')) {
-        try {
-          const target = new URL(link.getAttribute('href') || '', searchPage.url);
-          if (String(target.searchParams.get('a') || '').toLowerCase() !== 'user') continue;
-          addCandidate(target.searchParams.get('id') || '', link.closest('tr')?.textContent || link.textContent || '');
-        } catch {}
+      const collectCandidates = page => {
+        if (String(page.url.searchParams.get('a') || '').toLowerCase() === 'user') addCandidate(page.url.searchParams.get('id') || '', page.doc.body?.textContent || '');
+        for (const link of page.doc.querySelectorAll('a[href]')) {
+          try {
+            const target = new URL(link.getAttribute('href') || '', page.url);
+            if (String(target.searchParams.get('a') || '').toLowerCase() !== 'user') continue;
+            addCandidate(target.searchParams.get('id') || '', link.closest('tr')?.textContent || link.textContent || '');
+          } catch {}
+        }
+      };
+      collectCandidates(searchPage);
+      // Some Billing installations store 42/7 as house=42, block=7. Try that
+      // exact form once, only after the literal house produced no candidates.
+      if (!ids.size && alternateAddress) {
+        const alternatePage = await fetchDoc(addressSearchUrl(alternateAddress));
+        if (!alternatePage.ok) return { ok: false, code: 'BILLING_SEARCH_FAILED', status: alternatePage.status };
+        if (authPage(alternatePage.doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED' };
+        const { streetId: _streetId, ...resolved } = alternateAddress;
+        addressResolution = resolved;
+        collectCandidates(alternatePage);
       }
       const foundIds = [...ids.keys()].slice(0, 8);
       if (!foundIds.length) return { ok: true, code: 'NOT_FOUND', candidates: [], snapshots: {}, addressResolution };
@@ -437,7 +489,15 @@ async function executeSearch(tabId, request) {
       return { ok: true, code: candidates.length ? 'OK' : 'NOT_FOUND', candidates, snapshots, addressResolution };
     }
   });
-  return execution?.result || { ok: false, code: 'BILLING_SEARCH_NO_RESULT' };
+  const outcome = execution?.result || { ok: false, code: 'BILLING_SEARCH_NO_RESULT' };
+  // One preparation hop obtains live street options. The second injection skips
+  // that read and submits the selected native form; this cannot repeat forever.
+  if (request.mode === 'address' && !request.addressSelection && outcome.code === 'ADDRESS_STREET_OPTIONS') {
+    const selection = resolveAddressRequest(outcome.streets, request.value);
+    if (!selection.ok) return selection;
+    return executeSearch(tabId, { ...request, addressSelection: selection });
+  }
+  return outcome;
 }
 
 function normalizeSearchSnapshots(snapshots = {}) {

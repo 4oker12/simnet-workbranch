@@ -26,7 +26,9 @@ const NON_LOGIN_WORDS = new Set([
   'ethernet', 'gpon', 'epon', 'pon', 'onu', 'olt', 'optical', 'fiber', 'fibre'
 ]);
 const GENERIC_ADDRESS_WORDS = new Set([
-  'ул', 'улица', 'вул', 'вулиця', 'дом', 'будинок', 'д', 'кв', 'квартира', 'apt', 'apartment',
+  'ул', 'улица', 'вул', 'вулиця', 'просп', 'проспект', 'пров', 'провулок', 'переулок',
+  'бул', 'б-р', 'бульвар', 'узвіз', 'спуск', 'пл', 'площа', 'площадь', 'київ', 'киев',
+  'дом', 'буд', 'будинок', 'д', 'кв', 'квартира', 'apt', 'apartment',
   'адрес', 'адреса', 'город', 'місто', 'г', 'м'
 ]);
 const CONTRACT_WORD = '(?:договор(?:а|у|ом|е)?|договір(?:у|ом|і)?|лицев(?:ой|ого|ому|ым|ий)?\\s*сч[её]т|особов(?:ий|ого|ому|им)?\\s*рахунок)';
@@ -79,14 +81,17 @@ function literalIp(transcript = [], candidate = '') {
 function literalAddress(transcript = [], candidate = '') {
   const address = oneLine(candidate, 260);
   if (!address) return '';
-  const source = customerMessages(transcript).map(item => oneLine(item?.text, 1200).toLowerCase()).join(' | ');
   const tokens = (address.toLowerCase().match(/[\p{L}\p{N}.-]+/gu) || [])
     .map(token => token.replace(/^[.-]+|[.-]+$/g, ''))
     .filter(Boolean);
   const street = tokens.find(token => /\p{L}/u.test(token) && token.length >= 3 && !GENERIC_ADDRESS_WORDS.has(token));
   const house = tokens.find(token => /\d/u.test(token));
   if (!street || !house) return '';
-  return source.includes(street) && source.includes(house) ? address : '';
+  return customerMessages(transcript).some(item => {
+    const tokens = oneLine(item?.text, 1200).toLowerCase().match(/[\p{L}\p{N}.-]+/gu) || [];
+    const literal = tokens.map(token => token.replace(/^[.-]+|[.-]+$/g, ''));
+    return literal.includes(street) && literal.includes(house);
+  }) ? address : '';
 }
 
 function containsLiteralLogin(messages = [], login = '') {
@@ -160,18 +165,31 @@ export function identityToolArgs(identity = {}) {
 
 export function resolveSubscriberIdentityHints(transcript = [], analysis = {}, secondary = null) {
   const messages = customerMessages(transcript);
-  const fromText = identityToolArgs(extractStandaloneSubscriberIdentity(transcript));
-  if (Object.keys(fromText).length) return fromText;
-
-  if (secondary && typeof secondary === 'object' && !Array.isArray(secondary)) {
-    const ip = literalIp(transcript, secondary.ip);
-    if (ip) return { ip };
-    const address = literalAddress(transcript, secondary.address);
-    if (address) return { address };
-  }
-
   const hinted = identityToolArgs(identityFromAnalysisHints(analysis));
-  if (hinted.login && containsLiteralLogin(messages, hinted.login)) return hinted;
-  if (hinted.contract && containsLiteralContract(messages, hinted.contract)) return hinted;
+  const semanticIds = analysis?.probe?.ids || analysis?.ids || {};
+  // Resolve all identifier types within each turn before going back in history.
+  // An older exact login must not outrank a later address after a failed rebind.
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const turn = [messages[index]];
+    const fromText = identityToolArgs(extractStandaloneSubscriberIdentity(turn));
+    if (Object.keys(fromText).length) return fromText;
+
+    if (secondary && typeof secondary === 'object' && !Array.isArray(secondary)) {
+      const ip = literalIp(turn, secondary.ip);
+      if (ip) return { ip };
+      const address = literalAddress(turn, secondary.address);
+      if (address) return { address };
+    }
+
+    // Semantic understanding can recognize unlabelled or renamed addresses
+    // without another phrase parser; require literal evidence in this turn.
+    const semanticIp = literalIp(turn, semanticIds.ip);
+    if (semanticIp) return { ip: semanticIp };
+    const semanticAddress = literalAddress(turn, semanticIds.address);
+    if (semanticAddress) return { address: semanticAddress };
+
+    if (hinted.login && containsLiteralLogin(turn, hinted.login)) return hinted;
+    if (hinted.contract && containsLiteralContract(turn, hinted.contract)) return hinted;
+  }
   return {};
 }
