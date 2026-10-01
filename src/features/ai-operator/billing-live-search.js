@@ -2,6 +2,9 @@
 
 import { normalizeBillingTariffSnapshot } from './billing-tariff-normalizer.js';
 import { normalizeHouseSuffix, normalizeStreetPart, streetVariants } from './building-snapshot-tool.js';
+import { requestBillingCapture } from './billing-login-live.js';
+
+const ADDRESS_READ_MESSAGE = 'SIMNET_AI_BILLING_ADDRESS_READ_V1';
 
 const BILLING_TAB_URLS = Object.freeze([
   'https://admin.simnet.kiev.ua/*',
@@ -89,28 +92,73 @@ async function billingTabs() {
 
 // Share the existing building tool's street/alias rules. Spelling tolerance is
 // for lookup only; the canonical address remains the label returned by Billing.
+function lookupStreetPart(value) {
+  return normalizeStreetPart(value).replace(/^[-–—>\s]+/, '').replace(/[ії]/g, 'и').replace(/є/g, 'е');
+}
+
+function streetWordDistance(left, right) {
+  if (left === right) return 0;
+  // Numbers and short words cannot be repaired into a different street name.
+  const limit = Math.min(left.length, right.length) >= 6 ? 2 : 1;
+  if (Math.min(left.length, right.length) < 4 || Math.abs(left.length - right.length) > limit
+      || !/^[\p{L}-]+$/u.test(left) || !/^[\p{L}-]+$/u.test(right)) return Infinity;
+  let row = Array.from({ length: right.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= left.length; i += 1) {
+    const next = [i];
+    for (let j = 1; j <= right.length; j += 1) {
+      next[j] = Math.min(next[j - 1] + 1, row[j] + 1, row[j - 1] + Number(left[i - 1] !== right[j - 1]));
+    }
+    row = next;
+  }
+  return row[right.length] <= limit ? row[right.length] : Infinity;
+}
+
+function matchStreetForm(form, queryTokens) {
+  const tokens = form.split(' ').filter(Boolean);
+  if (!tokens.length) return null;
+  let best = null;
+  for (let start = 0; start <= queryTokens.length - tokens.length; start += 1) {
+    const words = queryTokens.slice(start, start + tokens.length);
+    const distances = tokens.map((token, i) => streetWordDistance(token, words[i]));
+    const edits = distances.reduce((sum, distance) => sum + distance, 0);
+    if (!Number.isFinite(edits) || edits > Math.max(1, Math.floor(tokens.join('').length / 4))) continue;
+    if (edits && (tokens.length === 1 ? edits > 1 : !distances.includes(0))) continue;
+    const score = (edits ? 100 - edits : 1000) + tokens.length;
+    if (!best || score > best.score) best = { score, edits, form, queryForm: words.join(' ') };
+  }
+  return best;
+}
+
 function resolveAddressRequest(streets = [], value = '') {
-  const normalize = input => normalizeStreetPart(input).replace(/ї/g, 'і');
-  const sought = ` ${normalize(value)} `;
-  const options = streets
-    .filter(item => item.value && item.label && !/выбер|оберіть|---/i.test(item.label))
+  const normalize = lookupStreetPart;
+  const queryTokens = normalize(value).split(' ').filter(Boolean);
+  const usable = [...new Map(streets
+    .filter(item => {
+      const label = String(item.label || '').trim().replace(/^[-–—\s]+/, '');
+      return item.value && label && !item.disabled && !/^(?:выбер[\p{L}]*|обер[\p{L}]*|select|choose)(?:\s|$)/iu.test(label);
+    })
+    .map(item => [item.value, item])).values()];
+  if (!usable.length) return { ok: false, code: 'BILLING_STREET_DICTIONARY_UNAVAILABLE' };
+  const options = usable
     .map(item => {
       const forms = streetVariants(item.label).map(normalize);
-      const scores = forms.map(core => {
-        const tokens = core.split(' ').filter(token => token.length >= 3);
-        const matched = tokens.filter(token => sought.includes(` ${token} `)).length;
-        const ratio = tokens.length ? matched / tokens.length : 0;
-        const direct = core && sought.includes(` ${core} `) ? 100 : 0;
-        return { core, score: direct + Math.round(ratio * 60) };
-      }).sort((a, b) => b.score - a.score);
-      return { ...item, forms, ...(scores[0] || { core: '', score: 0 }) };
+      const matches = forms.map(form => matchStreetForm(form, queryTokens)).filter(Boolean).sort((a, b) => b.score - a.score);
+      return { ...item, forms, match: matches[0] };
     })
-    .filter(item => item.score >= 35)
-    .sort((a, b) => b.score - a.score);
+    .filter(item => item.match)
+    .sort((a, b) => b.match.score - a.match.score);
   if (!options.length) return { ok: false, code: 'ADDRESS_STREET_NOT_FOUND' };
   const best = options[0];
-  const tied = options.filter(item => item.score === best.score);
+  // A unique exact name wins. Several plausible typo matches require an
+  // explicit clarification, even if one happens to be one edit closer.
+  let tied = options.filter(item => best.match.edits ? item.match.edits : item.match.score === best.match.score);
+  if (tied.length > 1) {
+    const contextScore = item => item.forms.filter(form => form !== item.match.form && ` ${queryTokens.join(' ')} `.includes(` ${form} `)).length;
+    const mostContext = Math.max(...tied.map(contextScore));
+    if (mostContext) tied = tied.filter(item => contextScore(item) === mostContext);
+  }
   if (tied.length > 1) return { ok: false, code: 'ADDRESS_STREET_AMBIGUOUS', streets: tied.slice(0, 8).map(item => item.label) };
+  const selectedStreet = tied[0];
   const source = String(value || '');
   const apartment = source.match(/(?:^|[\s,;])(?:кв(?:артира)?|apartment)(?:\.\s*|\s+|[:#№-]\s*|(?=\d))[:#№-]?\s*([\p{L}\d/-]+)/iu)?.[1] || '';
   const explicitBuilding = source.match(/(?:^|[\s,;])(?:буд(?:инок)?|дом|д|house)\.?\s*[:#№-]?\s*(\d+(?:\s*[/\-]\s*[\p{L}\d]+)*(?:\s*[\p{L}])?)(?=$|[\s,;.!?"»])/iu);
@@ -120,7 +168,7 @@ function resolveAddressRequest(streets = [], value = '') {
     const beforeUnit = source.split(/(?:^|[\s,;])(?:кв(?:артира)?|apartment|блок|корпус|корп|block|літера|литера|під'?їзд|подъезд|поверх|этаж)\.?(?=[\s.:#№\d-])/iu)[0];
     // A later question can contain amounts and other numbers. Only a number
     // immediately after a matched street form is an unlabelled house.
-    const streetForms = [...best.forms, normalize(best.label)];
+    const streetForms = [selectedStreet.match.queryForm, ...selectedStreet.forms, normalize(selectedStreet.label)];
     for (const match of beforeUnit.matchAll(/(?:^|[,\s])(\d+(?:\s*[/\-]\s*[\p{L}\d]+)*(?:\s*[\p{L}])?)(?=$|[\s,;.!?"»])/gu)) {
       const prefix = normalize(beforeUnit.slice(0, match.index).replace(/\([^)]*\)/g, ' '));
       if (streetForms.some(street => prefix === street || prefix.endsWith(` ${street}`))) {
@@ -130,7 +178,7 @@ function resolveAddressRequest(streets = [], value = '') {
     }
   }
   building = building.replace(/\s+/g, '');
-  if (!building) return { ok: false, code: 'ADDRESS_BUILDING_REQUIRED', street: best.label };
+  if (!building) return { ok: false, code: 'ADDRESS_BUILDING_REQUIRED', street: selectedStreet.label };
   const compound = building.match(/^(\d+)[/\-]([\p{L}\d]+)$/u) || building.match(/^(\d+)([\p{L}])$/u);
   let alternate = null;
   if (!block && compound) {
@@ -138,7 +186,78 @@ function resolveAddressRequest(streets = [], value = '') {
     const suffix = compound[2] === compound[2].toUpperCase() ? normalized.toUpperCase() : normalized;
     alternate = { building: compound[1], block: suffix };
   }
-  return { ok: true, streetId: best.value, street: best.label, building, block, apartment, alternate };
+  return { ok: true, streetId: selectedStreet.value, street: selectedStreet.label, building, block, apartment, alternate,
+    matchType: selectedStreet.match.edits ? 'source-name-typo' : 'normalized-source-name' };
+}
+
+function nativeAddressParams(address) {
+  return {
+    a: 'listuser', tmpl: '2', f: 'd',
+    dopfield_5: address.streetId, dopfield_full_5: '1',
+    dopfield_6: address.building, dopfield_full_6: '1',
+    dopfield_11: address.block, dopfield_full_11: '1',
+    dopfield_8: address.apartment, dopfield_full_8: '1'
+  };
+}
+
+async function readRenderedStreetOptions(tabId) {
+  const [execution] = await chrome.scripting.executeScript({
+    target: { tabId }, world: 'MAIN',
+    func: () => {
+      if (!/^(?:admin\.simnet\.kiev\.ua|admin\.looknet\.kiev\.ua)$/i.test(location.hostname)) return [];
+      const select = document.querySelector('select[name="dopfield_5"]');
+      if (!select) return [];
+      const widget = select.selectize;
+      if (widget?.options && Object.keys(widget.options).length) {
+        const valueField = widget.settings?.valueField || 'value';
+        const labelField = widget.settings?.labelField || 'text';
+        return Object.entries(widget.options).map(([key, option]) => ({
+          value: String(option[valueField] ?? key).trim(),
+          label: String(option[labelField] || '').replace(/\s+/g, ' ').trim().slice(0, 500),
+          disabled: Boolean(option.disabled)
+        }));
+      }
+      return [...select.options].map(option => ({
+        value: String(option.value || '').trim(), label: String(option.label || option.textContent || '').trim().slice(0, 500),
+        disabled: Boolean(option.disabled)
+      }));
+    }
+  });
+  return Array.isArray(execution?.result) ? execution.result : [];
+}
+
+async function executeAddressSearch(tabId, request) {
+  const prepared = await requestBillingCapture(tabId, { phase: 'streets' }, ADDRESS_READ_MESSAGE);
+  if (!prepared?.ok) return prepared;
+  let selection = resolveAddressRequest(prepared.streets || [], request.value);
+  let diagnostics = { ...prepared.addressSearch, nativeOptionCount: prepared.streets?.length || 0, renderedOptionCount: 0 };
+  if (['ADDRESS_STREET_NOT_FOUND', 'BILLING_STREET_DICTIONARY_UNAVAILABLE'].includes(selection.code)) {
+    // Enhanced controls may keep only the selected option in native HTML. Read
+    // the actual initialized widget once; never infer a dictionary from the user.
+    let rendered = [];
+    try { rendered = await readRenderedStreetOptions(tabId); } catch {}
+    if (rendered.length) selection = resolveAddressRequest([...rendered, ...(prepared.streets || [])], request.value);
+    diagnostics = { ...diagnostics, renderedOptionCount: rendered.length,
+      dictionarySource: rendered.length ? 'native-address-form+rendered-street-widget' : diagnostics.dictionarySource };
+  }
+  if (!selection.ok) return { ...selection, addressSearch: { ...diagnostics, stage: 'street-selection',
+    // Public street labels only; no subscriber records or session parameters.
+    streetSamples: (prepared.streets || []).filter(item => item.value && item.label && !item.disabled).slice(0, 3).map(item => clean(item.label, 180))
+  } };
+  const { ok: _ok, streetId, alternate, matchType, ...literalAddress } = selection;
+  let address = literalAddress;
+  let formAttempts = 1;
+  let searched = await requestBillingCapture(tabId, { phase: 'search', params: nativeAddressParams(selection) }, ADDRESS_READ_MESSAGE);
+  if (searched?.ok && !searched.candidateRefs?.length && alternate) {
+    formAttempts += 1;
+    address = { ...literalAddress, ...alternate };
+    searched = await requestBillingCapture(tabId, { phase: 'search', params: nativeAddressParams({ ...address, streetId }) }, ADDRESS_READ_MESSAGE);
+  }
+  diagnostics = { ...diagnostics, stage: 'address-submit', matchType, formAttempts, street: selection.street, building: address.building, block: address.block, apartment: address.apartment };
+  if (!searched?.ok) return { ...searched, addressSearch: diagnostics };
+  if (!searched.candidateRefs?.length) return { ok: true, code: 'NOT_FOUND', candidates: [], snapshots: {}, addressResolution: address, addressSearch: diagnostics };
+  const outcome = await executeSearch(tabId, { ...request, addressSelection: { ...address, streetId }, candidateRefs: searched.candidateRefs });
+  return { ...outcome, addressSearch: { ...diagnostics, stage: 'candidate-read' }, transport: 'native-form-submit-hidden-iframe' };
 }
 
 async function executeSearch(tabId, request) {
@@ -391,40 +510,7 @@ async function executeSearch(tabId, request) {
       if (!pp) return { ok: false, code: 'BILLING_SESSION_REQUIRED' };
 
       const baseParams = { pp, ...(uu ? { uu } : {}), a: 'listuser' };
-      let searchUrl = null;
       let addressResolution = null;
-      let alternateAddress = null;
-      const addressSearchUrl = address => makeUrl({
-        ...baseParams, tmpl: '2', f: 'd',
-        dopfield_5: address.streetId, dopfield_full_5: '1',
-        dopfield_6: address.building, dopfield_full_6: '1',
-        dopfield_11: address.block, dopfield_full_11: '1',
-        dopfield_8: address.apartment, dopfield_full_8: '1'
-      });
-      if (lookupRequest.mode === 'address') {
-        if (!lookupRequest.addressSelection) {
-          const listPage = await fetchDoc(makeUrl(baseParams));
-          if (!listPage.ok || authPage(listPage.doc)) return { ok: false, code: authPage(listPage.doc) ? 'BILLING_AUTH_REQUIRED' : 'BILLING_SEARCH_FAILED', status: listPage.status };
-          const streetSelect = listPage.doc.querySelector('select[name="dopfield_5"]');
-          if (!streetSelect) return { ok: false, code: 'BILLING_ADDRESS_FORM_UNAVAILABLE' };
-          return {
-            ok: true, code: 'ADDRESS_STREET_OPTIONS',
-            streets: [...streetSelect.options].map(option => ({
-              value: String(option.value || '').trim(), label: compact(option.textContent || '', 500)
-            }))
-          };
-        }
-        const { ok: _ok, streetId, alternate, ...address } = lookupRequest.addressSelection;
-        addressResolution = address;
-        searchUrl = addressSearchUrl({ ...address, streetId });
-        if (alternate) alternateAddress = { ...address, streetId, ...alternate };
-      } else {
-        searchUrl = makeUrl({ ...baseParams, f: 'n', what_search: lookupRequest.mode, name: lookupRequest.value });
-      }
-
-      const searchPage = await fetchDoc(searchUrl);
-      if (!searchPage.ok) return { ok: false, code: 'BILLING_SEARCH_FAILED', status: searchPage.status };
-      if (authPage(searchPage.doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED' };
       const ids = new Map();
       const addCandidate = (id, rowText = '') => {
         const normalizedId = String(id || '').replace(/\D+/g, '').slice(0, 12);
@@ -441,16 +527,16 @@ async function executeSearch(tabId, request) {
           } catch {}
         }
       };
-      collectCandidates(searchPage);
-      // Some Billing installations store 42/7 as house=42, block=7. Try that
-      // exact form once, only after the literal house produced no candidates.
-      if (!ids.size && alternateAddress) {
-        const alternatePage = await fetchDoc(addressSearchUrl(alternateAddress));
-        if (!alternatePage.ok) return { ok: false, code: 'BILLING_SEARCH_FAILED', status: alternatePage.status };
-        if (authPage(alternatePage.doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED' };
-        const { streetId: _streetId, ...resolved } = alternateAddress;
-        addressResolution = resolved;
-        collectCandidates(alternatePage);
+      if (lookupRequest.mode === 'address') {
+        const { streetId: _streetId, ...address } = lookupRequest.addressSelection;
+        addressResolution = address;
+        for (const candidate of lookupRequest.candidateRefs || []) addCandidate(candidate.billingId, candidate.rowText);
+      } else {
+        const searchUrl = makeUrl({ ...baseParams, f: 'n', what_search: lookupRequest.mode, name: lookupRequest.value });
+        const searchPage = await fetchDoc(searchUrl);
+        if (!searchPage.ok) return { ok: false, code: 'BILLING_SEARCH_FAILED', status: searchPage.status };
+        if (authPage(searchPage.doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED' };
+        collectCandidates(searchPage);
       }
       const foundIds = [...ids.keys()].slice(0, 8);
       if (!foundIds.length) return { ok: true, code: 'NOT_FOUND', candidates: [], snapshots: {}, addressResolution };
@@ -489,15 +575,7 @@ async function executeSearch(tabId, request) {
       return { ok: true, code: candidates.length ? 'OK' : 'NOT_FOUND', candidates, snapshots, addressResolution };
     }
   });
-  const outcome = execution?.result || { ok: false, code: 'BILLING_SEARCH_NO_RESULT' };
-  // One preparation hop obtains live street options. The second injection skips
-  // that read and submits the selected native form; this cannot repeat forever.
-  if (request.mode === 'address' && !request.addressSelection && outcome.code === 'ADDRESS_STREET_OPTIONS') {
-    const selection = resolveAddressRequest(outcome.streets, request.value);
-    if (!selection.ok) return selection;
-    return executeSearch(tabId, { ...request, addressSelection: selection });
-  }
-  return outcome;
+  return execution?.result || { ok: false, code: 'BILLING_SEARCH_NO_RESULT' };
 }
 
 function normalizeSearchSnapshots(snapshots = {}) {
@@ -517,7 +595,7 @@ export async function searchBillingLive(toolArgs = {}) {
   for (const tab of tabs) {
     if (!Number.isInteger(tab?.id)) continue;
     try {
-      const outcome = await executeSearch(tab.id, request);
+      const outcome = request.mode === 'address' ? await executeAddressSearch(tab.id, request) : await executeSearch(tab.id, request);
       last = outcome;
       if (outcome?.ok || !['BILLING_SESSION_REQUIRED', 'BILLING_AUTH_REQUIRED', 'BILLING_TAB_INVALID'].includes(String(outcome?.code || ''))) {
         return {

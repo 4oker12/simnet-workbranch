@@ -59,17 +59,19 @@ async function billingTabs() {
 const EXACT_LOOKUP_MESSAGE = 'SIMNET_AI_BILLING_EXACT_LOOKUP_V3';
 const BILLING_CAPTURE_SCRIPT = 'src/features/ai-operator/billing-snapshot-capture.js';
 
-async function sendExactLookup(tabId, request) {
+async function sendBillingRead(tabId, request, type) {
   return chrome.tabs.sendMessage(tabId, {
-    type: EXACT_LOOKUP_MESSAGE,
+    type,
     request
   });
 }
 
-async function executeExactIdentitySearch(tabId, request) {
+// The current content bridge owns native Billing READ forms. Address and exact
+// identity lookups share its bounded reinjection when an extension was reloaded.
+export async function requestBillingCapture(tabId, request, type = EXACT_LOOKUP_MESSAGE) {
   let initialBridgeError = '';
   try {
-    const result = await sendExactLookup(tabId, request);
+    const result = await sendBillingRead(tabId, request, type);
     if (result && typeof result === 'object') return result;
     initialBridgeError = 'Billing bridge returned an empty response';
   } catch (error) {
@@ -92,7 +94,7 @@ async function executeExactIdentitySearch(tabId, request) {
       target: { tabId },
       files: [BILLING_CAPTURE_SCRIPT]
     });
-    const retried = await sendExactLookup(tabId, request);
+    const retried = await sendBillingRead(tabId, request, type);
     if (retried && typeof retried === 'object') {
       return {
         ...retried,
@@ -136,7 +138,7 @@ export async function searchBillingExactIdentityLive(args = {}) {
     if (!Number.isInteger(tab?.id)) continue;
     lastTabId = tab.id;
     try {
-      const outcome = await executeExactIdentitySearch(tab.id, request);
+      const outcome = await requestBillingCapture(tab.id, request);
       last = outcome;
       if (outcome?.ok) {
         return { ...outcome, request, tabId: tab.id, source: 'billing-live-read-only' };

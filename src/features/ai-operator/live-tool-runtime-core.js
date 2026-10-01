@@ -152,10 +152,18 @@ async function liveLookup(toolArgs = {}) {
   }
   if (!live?.ok) {
     const code = String(live?.code || 'BILLING_SEARCH_FAILED');
+    const addressMessages = {
+      BILLING_STREET_DICTIONARY_UNAVAILABLE: 'Billing не предоставил доступный справочник улиц. По этому результату нельзя заключить, что адреса или абонента нет.',
+      BILLING_ADDRESS_FORM_UNAVAILABLE: 'Billing не предоставил адресную форму поиска. Поиск по адресу поддерживается, но этот источник сейчас недоступен.',
+      ADDRESS_STREET_NOT_FOUND: 'В доступном справочнике Billing не найдено совпадение с названием улицы. Уточните написание или населённый пункт; отсутствие абонента не установлено.',
+      ADDRESS_STREET_AMBIGUOUS: 'Название соответствует нескольким улицам Billing. Нужны населённый пункт или уточнение названия улицы.',
+      ADDRESS_BUILDING_REQUIRED: 'Улица найдена в Billing, но не указан номер дома. Номер квартиры не заменяет номер дома.'
+    };
     return result('customer.lookup', false, code, {
-      message: 'Не удалось выполнить поиск абонента в Billing.',
+      message: addressMessages[code] || 'Не удалось выполнить поиск абонента в Billing.',
       streets: live?.streets || [],
       street: live?.street || '',
+      ...(live?.addressSearch ? { addressSearch: live.addressSearch } : {}),
       source: 'billing-live-read-only'
     });
   }
@@ -165,7 +173,8 @@ async function liveLookup(toolArgs = {}) {
     return result('customer.lookup', false, 'NOT_FOUND', {
       message: 'Абонент не найден штатным поиском Billing.',
       source: 'billing-live-read-only',
-      searchMode: live?.request?.mode || ''
+      searchMode: live?.request?.mode || '',
+      ...(live?.addressSearch ? { addressSearch: live.addressSearch } : {})
     });
   }
   if (candidates.length !== 1) {
@@ -173,7 +182,8 @@ async function liveLookup(toolArgs = {}) {
       count: candidates.length,
       candidates,
       source: 'billing-live-read-only',
-      searchMode: live?.request?.mode || ''
+      searchMode: live?.request?.mode || '',
+      ...(live?.addressSearch ? { addressSearch: live.addressSearch } : {})
     }, ['Нужно уточнить идентификатор или адрес, чтобы выбрать конкретного абонента.']);
   }
   const candidate = candidates[0];
@@ -194,7 +204,8 @@ async function liveLookup(toolArgs = {}) {
     candidate,
     requiresConfirmation: true,
     source: 'billing-live-read-only',
-    searchMode: live?.request?.mode || ''
+    searchMode: live?.request?.mode || '',
+    ...(live?.addressSearch ? { addressSearch: live.addressSearch } : {})
   }, ['Кандидат найден по адресу. Нужно убедиться, что выбрано нужное подключение.'], {
     pendingCandidate: candidate,
     confirmedCaseId: '',

@@ -23,6 +23,7 @@
   const PAYMENTS_SELECTOR = '#my_x_16';
   const EXACT_LOOKUP_MESSAGE = 'SIMNET_AI_BILLING_EXACT_LOOKUP_V3';
   const HISTORY_READ_MESSAGE = 'SIMNET_AI_BILLING_HISTORY_READ_V1';
+  const ADDRESS_READ_MESSAGE = 'SIMNET_AI_BILLING_ADDRESS_READ_V1';
   if (!/^(?:admin\.simnet\.kiev\.ua|admin\.looknet\.kiev\.ua)$/i.test(location.hostname)) return;
 
   const params = new URLSearchParams(location.search);
@@ -593,6 +594,7 @@
             status: 200,
             url: loadedUrl,
             doc,
+            characterSet: clean(liveDoc.characterSet || '', 40),
             transport: 'native-form-submit-hidden-iframe'
           });
         } catch (error) {
@@ -610,6 +612,67 @@
         fail(error);
       }
     });
+  }
+
+  function billingPageCandidates(page) {
+    const ids = new Map();
+    const add = (id, rowText = '') => {
+      const normalized = String(id || '').replace(/\D+/g, '').slice(0, 12);
+      if (normalized && !ids.has(normalized)) ids.set(normalized, clean(rowText, 800));
+    };
+    if (String(page.url.searchParams.get('a') || '').toLowerCase() === 'user') {
+      add(page.url.searchParams.get('id'), page.doc.body?.textContent || '');
+    }
+    for (const link of page.doc.querySelectorAll('a[href]')) {
+      try {
+        const target = new URL(link.getAttribute('href') || '', page.url);
+        if (target.origin !== location.origin || target.searchParams.get('a') !== 'user') continue;
+        add(target.searchParams.get('id'), link.closest('tr')?.textContent || link.textContent || '');
+      } catch {}
+    }
+    return [...ids].slice(0, 8).map(([billingId, rowText]) => ({ billingId, rowText }));
+  }
+
+  async function readBillingAddressSearch(request = {}) {
+    const phase = String(request.phase || '');
+    if (!['streets', 'search'].includes(phase)) return { ok: false, code: 'BILLING_ADDRESS_REQUEST_INVALID' };
+    const pp = billingSessionToken();
+    if (!pp) return { ok: false, code: 'BILLING_SESSION_REQUIRED' };
+    const uu = clean(new URL(location.href).searchParams.get('uu') || document.querySelector('input[name="uu"]')?.value || '', 80);
+    const fields = {};
+    if (phase === 'search') {
+      // Accept only the native address READ fields. Callers cannot change the
+      // action or forward a save/edit operation through this bridge.
+      for (const key of ['dopfield_5', 'dopfield_6', 'dopfield_11', 'dopfield_8']) {
+        fields[key] = clean(request.params?.[key] || '', key === 'dopfield_5' ? 500 : 80);
+        fields[key.replace('dopfield_', 'dopfield_full_')] = '1';
+      }
+      if (!fields.dopfield_5 || !fields.dopfield_6) return { ok: false, code: 'BILLING_ADDRESS_REQUEST_INVALID' };
+    }
+    const page = await submitBillingForm({
+      pp, ...(uu ? { uu } : {}), a: 'listuser', tmpl: '2',
+      ...(phase === 'search' ? { f: 'd', ...fields } : {})
+    }, phase === 'streets' ? 'address-street-form' : 'address-search-submit');
+    const addressSearch = {
+      version: 1,
+      stage: phase === 'streets' ? 'street-dictionary' : 'address-submit',
+      dictionarySource: 'native-address-form',
+      template: '2',
+      characterSet: page.characterSet,
+      transport: page.transport
+    };
+    if (authPage(page.doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED', addressSearch };
+    if (phase === 'streets') {
+      const select = page.doc.querySelector('select[name="dopfield_5"]');
+      if (!select) return { ok: false, code: 'BILLING_ADDRESS_FORM_UNAVAILABLE', addressSearch };
+      const streets = [...select.options].map(option => ({
+        value: String(option.value || '').trim(),
+        label: clean(option.label || option.textContent || '', 500),
+        disabled: Boolean(option.disabled)
+      }));
+      return { ok: true, code: 'ADDRESS_STREET_OPTIONS', streets, addressSearch: { ...addressSearch, optionCount: streets.length } };
+    }
+    return { ok: true, code: 'OK', candidateRefs: billingPageCandidates(page), addressSearch };
   }
 
   async function readBillingHistory(request = {}) {
@@ -744,16 +807,7 @@
         if (!searchPage.ok) continue;
         if (authPage(searchPage.doc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED', candidates: [] };
 
-        if (String(searchPage.url.searchParams.get('a') || '').toLowerCase() === 'user') {
-          addCandidate(searchPage.url.searchParams.get('id') || '', searchPage.doc.body?.textContent || '');
-        }
-        for (const link of searchPage.doc.querySelectorAll('a[href]')) {
-          try {
-            const target = new URL(link.getAttribute('href') || '', searchPage.url);
-            if (String(target.searchParams.get('a') || '').toLowerCase() !== 'user') continue;
-            addCandidate(target.searchParams.get('id') || '', link.closest('tr')?.textContent || link.textContent || '');
-          } catch {}
-        }
+        for (const candidate of billingPageCandidates(searchPage)) addCandidate(candidate.billingId, candidate.rowText);
         if (ids.size) {
           matchedQuery = nativeQuery;
           lookupStrategy = 'native-listuser-fallback';
@@ -1117,6 +1171,19 @@
           failurePhase: clean(error?.simnetPhase || 'history-runtime', 80),
           message: clean(error?.message || error, 500),
           history: null
+        })
+      );
+      return true;
+    }
+    if (type === ADDRESS_READ_MESSAGE) {
+      void readBillingAddressSearch(message?.request || {}).then(
+        result => sendResponse(result),
+        error => sendResponse({
+          ok: false,
+          code: 'BILLING_SEARCH_EXECUTION_FAILED',
+          failurePhase: clean(error?.simnetPhase || 'address-runtime', 80),
+          message: 'Не удалось прочитать адресную форму Billing.',
+          addressSearch: { version: 1, stage: clean(error?.simnetPhase || 'address-runtime', 80), transport: 'native-form-submit-hidden-iframe' }
         })
       );
       return true;
