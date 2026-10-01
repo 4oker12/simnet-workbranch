@@ -4,7 +4,9 @@ import fs from 'node:fs';
 const replayBackground = fs.readFileSync(new URL('../src/features/ai-operator/replay-background.js', import.meta.url), 'utf8');
 const replayCases = fs.readFileSync(new URL('../src/features/ai-operator/replay-cases.js', import.meta.url), 'utf8');
 const replayUi = fs.readFileSync(new URL('../src/ui/ai-operator-replay.js', import.meta.url), 'utf8');
-const settingsHtml = fs.readFileSync(new URL('../src/ui/settings.html', import.meta.url), 'utf8');
+const settingsHost = fs.readFileSync(new URL('../src/ui/settings.html', import.meta.url), 'utf8');
+const bootstrap = fs.readFileSync(new URL('../src/ui/ai-operator-lab-host.js', import.meta.url), 'utf8');
+const settingsHtml = settingsHost + fs.readFileSync(new URL('../src/ui/ai-operator-lab-view.html', import.meta.url), 'utf8');
 const entry = fs.readFileSync(new URL('../src/background-entry.js', import.meta.url), 'utf8');
 
 assert.match(replayCases, /extractReplayCases/, 'replay case extractor must be present');
@@ -34,7 +36,7 @@ assert.match(settingsHtml, /id="aiReplayFile"/, 'replay lab must accept a HelpCr
 assert.match(settingsHtml, /PASS/, 'replay lab must expose PASS verdict');
 assert.match(settingsHtml, /GAP · сохранить правило/, 'replay lab must expose rule-gap verdict');
 assert.match(settingsHtml, /tool_required/, 'UI must explain that historical CRM facts are not fabricated');
-assert.match(settingsHtml, /type="module" src="ai-operator-replay\.js"/, 'replay UI must load as a module');
+assert.match(bootstrap, /'\.\/ai-operator-replay\.js'/, 'shared host must import the existing Replay UI module');
 
 assert.match(replayUi, /selectReplayBatchCases/, 'replay UI must build a bounded chat batch');
 assert.match(replayUi, /aiReplayStartCase/, 'batch replay must allow starting from an arbitrary replay case number');

@@ -6,7 +6,9 @@ const read = path => fs.readFileSync(new URL(`../${path}`, import.meta.url), 'ut
 const lab = read('src/features/ai-operator/lab-background.js');
 const batch = read('src/features/ai-operator/lab-batch-background.js');
 const entry = read('src/background-entry.js');
-const html = read('src/ui/settings.html');
+const settingsHost = read('src/ui/settings.html');
+const bootstrap = read('src/ui/ai-operator-lab-host.js');
+const html = settingsHost + read('src/ui/ai-operator-lab-view.html');
 const ui = read('src/ui/ai-operator-batch.js');
 
 assert.match(lab, /export\s+async\s+function\s+runIsolatedLabCase\s*\(/, 'Lab must export an isolated full-pipeline case runner.');
@@ -31,7 +33,7 @@ for (const id of ['aiBatchSeed', 'aiBatchCount', 'aiBatchVariants', 'aiBatchGene
   assert.ok(html.includes(`id=\"${id}\"`), `Settings must expose ${id}.`);
 }
 assert.ok(html.includes('ai-operator-batch.css'), 'Settings must load batch CSS.');
-assert.ok(html.includes('ai-operator-batch.js'), 'Settings must load batch UI JS.');
+assert.ok(bootstrap.includes('./ai-operator-batch.js'), 'Shared Lab host must load batch UI JS.');
 assert.match(ui, /AI_OPERATOR_BATCH_GENERATE/);
 assert.match(ui, /AI_OPERATOR_BATCH_RUN/);
 assert.match(ui, /AI_OPERATOR_BATCH_CLEAR/);

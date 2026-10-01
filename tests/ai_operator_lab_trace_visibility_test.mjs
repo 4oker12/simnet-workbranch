@@ -5,7 +5,7 @@ import fs from 'node:fs';
 const labJs = fs.readFileSync(new URL('../src/ui/ai-operator-lab.js', import.meta.url), 'utf8');
 const traceJs = fs.readFileSync(new URL('../src/ui/ai-operator-lab-trace.js', import.meta.url), 'utf8');
 const css = fs.readFileSync(new URL('../src/ui/ai-operator-lab.css', import.meta.url), 'utf8');
-const html = fs.readFileSync(new URL('../src/ui/settings.html', import.meta.url), 'utf8');
+const bootstrap = fs.readFileSync(new URL('../src/ui/ai-operator-lab-host.js', import.meta.url), 'utf8');
 
 test('AI Lab visibly exposes KB hit/miss/skip, identity, tools and fallback while keeping raw JSON', () => {
   assert.match(labJs, /KB HIT/);
@@ -38,7 +38,7 @@ test('AI Lab visibly exposes KB hit/miss/skip, identity, tools and fallback whil
 });
 
 test('AI Lab renders the latest decision as one ordered human-readable pipeline', () => {
-  assert.match(html, /src="ai-operator-lab-trace\.js"/);
+  assert.match(bootstrap, /'\.\/ai-operator-lab-trace\.js'/);
   assert.doesNotThrow(() => new Function(traceJs));
 
   const stages = [

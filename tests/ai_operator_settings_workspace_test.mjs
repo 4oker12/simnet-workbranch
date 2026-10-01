@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const html = fs.readFileSync(new URL('../src/ui/settings.html', import.meta.url), 'utf8');
+const settingsHost = fs.readFileSync(new URL('../src/ui/settings.html', import.meta.url), 'utf8');
+const bootstrap = fs.readFileSync(new URL('../src/ui/ai-operator-lab-host.js', import.meta.url), 'utf8');
+const html = settingsHost + fs.readFileSync(new URL('../src/ui/ai-operator-lab-view.html', import.meta.url), 'utf8');
 const settingsJs = fs.readFileSync(new URL('../src/ui/settings.js', import.meta.url), 'utf8');
 const workspace = fs.readFileSync(new URL('../src/ui/settings-accordion.js', import.meta.url), 'utf8');
 const css = fs.readFileSync(new URL('../src/ui/settings.css', import.meta.url), 'utf8');
@@ -16,8 +18,8 @@ assert.match(html, /data-accordion-panel="lab"[^>]*data-accordion-default="true"
 assert.match(html, /data-accordion-group="lab"/, 'lab must have its own nested accordion');
 assert.match(html, /data-accordion-panel="manual"[^>]*data-accordion-default="true"[^>]*open/, 'Manual AI Lab must be the default open lab section');
 assert.doesNotMatch(html, /data-accordion-panel="replay"[^>]*data-accordion-default="true"/, 'Replay should not steal initial focus from the live manual trace');
-assert.match(html, /src="settings-accordion\.js"/, 'settings workspace behavior must be loaded');
-assert.match(html, /src="ai-operator-lab-trace\.js"/, 'linear AI decision trace must be loaded explicitly');
+assert.match(bootstrap, /'\.\/settings-accordion\.js'/, 'shared host must load settings workspace behavior after mounting Lab');
+assert.match(bootstrap, /'\.\/ai-operator-lab-trace\.js'/, 'shared host must explicitly load the linear AI decision trace');
 assert.match(html, /href="settings-focus\.css"/, 'focused settings overrides must be loaded explicitly');
 assert.match(html, /id="aiReplayExport"[^>]*>JSON</, 'full Replay JSON export must remain available');
 assert.match(html, /id="aiReplayExportCsv"[^>]*>Таблица CSV</, 'Replay must expose a review-table export');

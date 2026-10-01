@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SIMNET Autonomous AI Operator Lab</title>
+  <link rel="stylesheet" href="src/ui/settings.css">
+  <link rel="stylesheet" href="src/ui/ai-operator-lab.css">
+  <link rel="stylesheet" href="src/ui/ai-operator-batch.css">
+  <link rel="stylesheet" href="src/ui/settings-light.css">
+  <link rel="stylesheet" href="src/ui/settings-focus.css">
+</head>
+<body class="ai-lab-standalone">
+  <main class="shell">
+    <header class="top">
+      <div>
+        <div class="eyebrow">SIMNET Workbench</div>
+        <h1>Autonomous AI Operator Lab</h1>
+      </div>
+      <a class="ai-lab-settings-link" href="src/ui/settings.html" target="_blank" rel="noopener">AI provider / модель ↗</a>
+    </header>
+    <div class="ai-lab-host" data-ai-lab-host="standalone" aria-busy="true">
+      <p class="status">Загрузка AI Operator Lab…</p>
+    </div>
+  </main>
+  <script type="module" src="src/ui/ai-operator-lab-host.js"></script>
+</body>
+</html>

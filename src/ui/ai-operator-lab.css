@@ -47,3 +47,16 @@
 .ai-lab-result-step b{font-size:10px!important;color:#0f172a!important}.ai-lab-result-step small{font-size:9px!important;color:#475569!important}
 .ai-lab-result-technical>summary{font-size:9px!important;color:#334155!important}
 .ai-lab-result-technical pre{font-size:9px!important;color:#1e293b!important}
+
+/* Both pages host the same Lab view without changing its existing layout. */
+.ai-lab-host{display:contents}
+.ai-lab-settings-link{color:#2563eb;font-size:12px;font-weight:600}
+.ai-lab-standalone .settings-panel-lab>.settings-panel-summary{display:none}
+/* The compact Settings theme hides implemented experiment controls. The full
+   standalone host exposes them without copying or replacing their controller. */
+.ai-lab-standalone .ai-lab-modes{display:grid!important}
+.ai-lab-standalone .ai-lab-experiment-actions{display:flex!important}
+.ai-lab-standalone .ai-lab-comparison:not([hidden]),
+.ai-lab-standalone .ai-lab-diagnostics:not([hidden]){display:block!important}
+.ai-lab-standalone .ai-lab-diagnostic-row{display:grid!important;grid-template-columns:minmax(140px,220px) minmax(0,1fr);gap:8px}
+@media(max-width:640px){.ai-lab-standalone .ai-lab-diagnostic-row{grid-template-columns:1fr;gap:3px}}
