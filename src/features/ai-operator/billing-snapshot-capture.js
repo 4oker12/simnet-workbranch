@@ -9,7 +9,7 @@
     try { chrome.runtime.onMessage.removeListener(previousBridge.listener); } catch {}
   }
   const bridgeState = {
-    revision: 4,
+    revision: 5,
     listener: null,
     captureStarted: Boolean(previousBridge?.captureStarted),
     requestSeq: Number(previousBridge?.requestSeq || 0)
@@ -23,7 +23,7 @@
   const PAYMENTS_SELECTOR = '#my_x_16';
   const EXACT_LOOKUP_MESSAGE = 'SIMNET_AI_BILLING_EXACT_LOOKUP_V3';
   const HISTORY_READ_MESSAGE = 'SIMNET_AI_BILLING_HISTORY_READ_V1';
-  const ADDRESS_READ_MESSAGE = 'SIMNET_AI_BILLING_ADDRESS_READ_V1';
+  const ADDRESS_READ_MESSAGE = 'SIMNET_AI_BILLING_ADDRESS_READ_V2';
   if (!/^(?:admin\.simnet\.kiev\.ua|admin\.looknet\.kiev\.ua)$/i.test(location.hostname)) return;
 
   const params = new URLSearchParams(location.search);
@@ -654,7 +654,7 @@
       ...(phase === 'search' ? { f: 'd', ...fields } : {})
     }, phase === 'streets' ? 'address-street-form' : 'address-search-submit');
     const addressSearch = {
-      version: 1,
+      version: 2,
       stage: phase === 'streets' ? 'street-dictionary' : 'address-submit',
       dictionarySource: 'native-address-form',
       template: '2',
@@ -665,12 +665,43 @@
     if (phase === 'streets') {
       const select = page.doc.querySelector('select[name="dopfield_5"]');
       if (!select) return { ok: false, code: 'BILLING_ADDRESS_FORM_UNAVAILABLE', addressSearch };
-      const streets = [...select.options].map(option => ({
+      const readOptions = control => [...(control?.options || [])].map(option => ({
         value: String(option.value || '').trim(),
         label: clean(option.label || option.textContent || '', 500),
         disabled: Boolean(option.disabled)
       }));
-      return { ok: true, code: 'ADDRESS_STREET_OPTIONS', streets, addressSearch: { ...addressSearch, optionCount: streets.length } };
+      let streets = readOptions(select);
+      const usableCount = options => options.filter(option => option.value && option.label && !option.disabled).length;
+      const renderedOptionCount = streets.length;
+      let rawReadCode = 'NOT_REQUIRED';
+      // Selectize removes unselected <option>s from the live DOM. The cloned
+      // iframe HTML therefore loses the dictionary. Read the same native GET
+      // result without running its scripts; never synthesize Billing option IDs.
+      if (!usableCount(streets)) {
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 10000);
+        try {
+          const response = await fetch(page.url.href, { method: 'GET', credentials: 'include', cache: 'no-store', signal: controller.signal });
+          const finalUrl = new URL(response.url || page.url.href);
+          if (finalUrl.origin !== location.origin || finalUrl.searchParams.get('a') !== 'listuser') throw new Error('Invalid address dictionary response');
+          if (!response.ok) throw new Error('Address dictionary HTTP error');
+          const charset = response.headers.get('content-type')?.match(/charset=([^;\s]+)/i)?.[1] || page.characterSet || 'windows-1251';
+          const html = new TextDecoder(charset).decode(await response.arrayBuffer());
+          const rawDoc = new DOMParser().parseFromString(html, 'text/html');
+          if (authPage(rawDoc)) return { ok: false, code: 'BILLING_AUTH_REQUIRED', addressSearch };
+          const rawOptions = readOptions(rawDoc.querySelector('select[name="dopfield_5"]'));
+          rawReadCode = usableCount(rawOptions) ? 'OK' : 'EMPTY';
+          if (usableCount(rawOptions)) {
+            streets = rawOptions;
+            addressSearch.dictionarySource = 'native-address-form-raw-response';
+          }
+        } catch {
+          rawReadCode = controller.signal.aborted ? 'TIMEOUT' : 'FAILED';
+        } finally { window.clearTimeout(timeout); }
+      }
+      return { ok: true, code: 'ADDRESS_STREET_OPTIONS', streets, addressSearch: {
+        ...addressSearch, optionCount: streets.length, usableOptionCount: usableCount(streets), renderedOptionCount, rawReadCode
+      } };
     }
     return { ok: true, code: 'OK', candidateRefs: billingPageCandidates(page), addressSearch };
   }

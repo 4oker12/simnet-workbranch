@@ -12,7 +12,7 @@ const STREET = 'просп. Героїв Мирної Долини (Тестов
 const ADDRESS = 'проспект героів мирноі долини 42/7 кв 6\nЧому за цією адресою немає інтернету наразі?';
 const captureSource = readFileSync(new URL('../src/features/ai-operator/billing-snapshot-capture.js', import.meta.url), 'utf8');
 
-function billingHarness({ streets = [STREET], matches = () => ['70001'], renderedSelect = null, auth = false, formMissing = false, formTimeout = false } = {}) {
+function billingHarness({ streets = [STREET], matches = () => ['70001'], renderedSelect = null, auth = false, formMissing = false, formTimeout = false, enhancedStreetWidget = false, rawDictionaryFails = false } = {}) {
   const requests = [];
   const store = {};
   const injections = [];
@@ -37,8 +37,10 @@ function billingHarness({ streets = [STREET], matches = () => ['70001'], rendere
     let doc;
     if (action === 'listuser' && !url.searchParams.has('f')) {
       assert.equal(url.searchParams.get('tmpl'), '2', 'dictionary must use the native address template');
-      assert.equal(options.transport, 'native-form-submit-hidden-iframe', 'address dictionary must load in the native bridge');
-      doc = emptyDoc(auth ? { 'input[type="password"]': {} } : formMissing ? {} : { 'select[name="dopfield_5"]': { options: streetOptions } });
+      const rawRead = !options.transport;
+      if (rawRead && rawDictionaryFails) throw new Error('synthetic dictionary transport failed');
+      if (!rawRead) assert.equal(options.transport, 'native-form-submit-hidden-iframe', 'address dictionary must load in the native bridge');
+      doc = emptyDoc(auth ? { 'input[type="password"]': {} } : formMissing ? {} : { 'select[name="dopfield_5"]': { options: enhancedStreetWidget && !rawRead ? [{value:'',label:'',textContent:''}] : streetOptions } });
     } else if (action === 'listuser') {
       assert.equal(options.transport, 'native-form-submit-hidden-iframe', 'address search must use native GET form-submit');
       const links = matches(url.searchParams).map(id => ({
@@ -106,7 +108,7 @@ function billingHarness({ streets = [STREET], matches = () => ['70001'], rendere
   };
   let bridgeListener = null;
   const context = {
-    URL, TextDecoder, Uint8Array, fetch: fetchPage,
+    URL, TextDecoder, Uint8Array, AbortController, fetch: fetchPage,
     URLSearchParams,
     CSS: { escape: value => value },
     location: { hostname: 'admin.simnet.kiev.ua', origin: 'https://admin.simnet.kiev.ua', href: 'https://admin.simnet.kiev.ua/cgi-bin/adm/adm.pl?pp=synthetic-session', search: '?pp=synthetic-session' },
@@ -422,7 +424,7 @@ test('an initialized selectize dictionary supplies real options absent from the 
     assert.equal(harness.searches()[0].url.searchParams.get('dopfield_5'), '73');
     assert.equal(result.addressSearch.renderedOptionCount, 1);
     assert.equal(harness.injections.filter(item => item.world === 'MAIN').length, 1);
-    assert.equal(harness.requests.filter(r => r.url.searchParams.get('a') === 'listuser' && !r.url.searchParams.has('f')).length, 1);
+    assert.equal(harness.requests.filter(r => r.url.searchParams.get('a') === 'listuser' && !r.url.searchParams.has('f')).length, 2);
   } finally { harness.restore(); }
 });
 
@@ -493,7 +495,7 @@ test('native address bridge ignores injected actions and forwards only the READ 
   const harness = billingHarness();
   try {
     await searchBillingLive({ address: ADDRESS });
-    const result = await chrome.tabs.sendMessage(1, { type: 'SIMNET_AI_BILLING_ADDRESS_READ_V1', request: {
+    const result = await chrome.tabs.sendMessage(1, { type: 'SIMNET_AI_BILLING_ADDRESS_READ_V2', request: {
       phase: 'search', params: { a: 'saveuser', save: '1', pp: 'untrusted', dopfield_5: '1', dopfield_6: '42' }
     } });
     assert.equal(result.ok, true);
@@ -529,4 +531,29 @@ test('shared bridge retains exact identity messages and performs at most one rei
     if (savedChrome === undefined) delete globalThis.chrome;
     else globalThis.chrome = savedChrome;
   }
+});
+
+
+test('enhanced street widget cannot erase the dictionary from address lookup', async () => {
+ const harness=billingHarness({enhancedStreetWidget:true});
+ try {
+  const result=await searchBillingLive({address:ADDRESS});
+  assert.equal(result.code,'OK');
+  assert.equal(result.addressSearch.dictionarySource,'native-address-form-raw-response');
+  assert.equal(result.addressSearch.rawReadCode,'OK');
+  assert.equal(result.addressSearch.usableOptionCount,1);
+  assert.equal(harness.requests.filter(r=>!r.options.transport && r.url.searchParams.get('a')==='listuser').length,1);
+  assert.equal(harness.nodes.size,0);assert.equal(harness.timers.size,0);
+  assert.doesNotMatch(JSON.stringify(result),/synthetic-session/);
+ } finally {harness.restore();}
+});
+
+test('failed raw dictionary recovery stays unknown and never searches a guessed street ID', async () => {
+ const harness=billingHarness({enhancedStreetWidget:true,rawDictionaryFails:true});
+ try {
+  const result=await searchBillingLive({address:ADDRESS});
+  assert.equal(result.code,'BILLING_STREET_DICTIONARY_UNAVAILABLE');
+  assert.equal(result.addressSearch.rawReadCode,'FAILED');
+  assert.equal(harness.searches().length,0);assert.equal(harness.timers.size,0);
+ } finally {harness.restore();}
 });

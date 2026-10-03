@@ -4,7 +4,7 @@ import { normalizeBillingTariffSnapshot } from './billing-tariff-normalizer.js';
 import { normalizeHouseSuffix, normalizeStreetPart, streetVariants } from './building-snapshot-tool.js';
 import { requestBillingCapture } from './billing-login-live.js';
 
-const ADDRESS_READ_MESSAGE = 'SIMNET_AI_BILLING_ADDRESS_READ_V1';
+const ADDRESS_READ_MESSAGE = 'SIMNET_AI_BILLING_ADDRESS_READ_V2';
 
 const BILLING_TAB_URLS = Object.freeze([
   'https://admin.simnet.kiev.ua/*',
