@@ -228,7 +228,10 @@ export function snapshotToCrmEntries(snapshot) {
     const entityId = String(building?.id || '').trim();
     const address = String(building?.address || '').trim();
     if (!entityId || !address) continue;
-    for (const field of Array.isArray(building?.fields) ? building.fields : []) {
+    const fields = snapshot.addressOnly
+      ? [{ key: 'address_catalog', label: 'Адресный справочник', text: `Историческая запись адреса: ${address}. Данные об абонентах, покрытии и условиях подключения отсутствуют.` }]
+      : (Array.isArray(building?.fields) ? building.fields : []);
+    for (const field of fields) {
       const text = String(field?.text || '').trim();
       const label = String(field?.label || field?.key || 'Поле').trim();
       if (!text || !label) continue;
@@ -709,9 +712,17 @@ function chromeStorageGet(key) {
   return new Promise(resolve => api.get(key, value => resolve(value || {})));
 }
 
+let bundledSnapshotPromise;
 export async function loadCrmSnapshot() {
   const stored = await chromeStorageGet(CRM_SNAPSHOT_STORAGE_KEY);
-  return stored?.[CRM_SNAPSHOT_STORAGE_KEY] || null;
+  const imported = stored?.[CRM_SNAPSHOT_STORAGE_KEY];
+  if (imported && Array.isArray(imported.buildings) && imported.buildings.length) return imported;
+  if (!globalThis.chrome?.runtime?.getURL || typeof fetch !== 'function') return null;
+  bundledSnapshotPromise ||= fetch(chrome.runtime.getURL('src/ai/data/userside-building-addresses.json'))
+    .then(response => response.ok ? response.json() : null)
+    .then(snapshot => snapshot?.schema === 'simnet-crm-building-snapshot-v1' && snapshot?.buildings?.length ? snapshot : null)
+    .catch(() => { bundledSnapshotPromise = null; return null; });
+  return bundledSnapshotPromise;
 }
 
 export async function queryCrmIndex(query, { activeContext = null, maxResults = 32 } = {}) {

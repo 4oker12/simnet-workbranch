@@ -1,5 +1,7 @@
 'use strict';
 
+import { loadCrmSnapshot } from '../../ai/crm-search-index-base.js';
+
 const SNAPSHOT_KEY = 'simnet_crm_building_snapshot_v1';
 const LAB_KEY = 'simnet_ai_operator_lab_v1';
 const TOOL_NAME = 'building.snapshot';
@@ -45,7 +47,8 @@ function normalizeHouse(value) {
 export function normalizeHouseSuffix(value) {
   const suffix = String(value || '').toLowerCase();
   // A common operator input is Latin "a" while UserSide stores Cyrillic "А".
-  if (suffix === 'a') return 'а';
+  const lookalikes = { a: 'а', b: 'в', c: 'с', e: 'е', h: 'н', k: 'к', m: 'м', o: 'о', p: 'р', t: 'т', x: 'х' };
+  if (lookalikes[suffix]) return lookalikes[suffix];
   return suffix;
 }
 
@@ -338,7 +341,7 @@ export function findBuildingInSnapshot(snapshot = {}, query = {}) {
 
 export async function readBuildingSnapshot({ toolArgs = {}, labState = {} } = {}) {
   const stored = await chrome.storage.local.get([SNAPSHOT_KEY, LAB_KEY]);
-  const snapshot = stored?.[SNAPSHOT_KEY];
+  const snapshot = stored?.[SNAPSHOT_KEY] || await loadCrmSnapshot();
   if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
     const query = queryFromArgs(toolArgs, labState);
     return result(false, 'BUILDING_SNAPSHOT_MISSING', {
@@ -400,8 +403,9 @@ export async function readBuildingSnapshot({ toolArgs = {}, labState = {} } = {}
     snapshotKey: SNAPSHOT_KEY,
     snapshotGeneratedAt: text(snapshot.generatedAt, 100),
     snapshotComplete: Boolean(snapshot?.stats?.complete ?? snapshot?.complete),
+    addressOnly: Boolean(snapshot.addressOnly),
     query
-  });
+  }, snapshot.addressOnly ? ['Встроенный индекс подтверждает только историческую запись адреса; актуальные условия подключения и заметки требуют UserSide или полного локального импорта.'] : []);
 }
 
 export const BUILDING_SNAPSHOT_TOOL = Object.freeze({
