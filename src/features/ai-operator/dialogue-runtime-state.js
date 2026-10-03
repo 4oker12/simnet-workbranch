@@ -113,7 +113,8 @@ export function requiredFactsForDialogueTurn({ analysis = {}, requestText = '', 
   const previous = readDialogueMemory(labState);
   const discourseAct = deriveDiscourseAct({ analysis, requestText });
   if (discourseAct === DISCOURSE_ACT.CANCEL || discourseAct === DISCOURSE_ACT.CHANGE_TOPIC) return current;
-  if (discourseAct === DISCOURSE_ACT.CORRECT && current.length === 0) return previous.activeRequiredFacts;
+  if (current.length === 0 && (discourseAct === DISCOURSE_ACT.CORRECT
+    || (discourseAct === DISCOURSE_ACT.CONFIRM && labState.pendingCandidate))) return previous.activeRequiredFacts;
   return current;
 }
 

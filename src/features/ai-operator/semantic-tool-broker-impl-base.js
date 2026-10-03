@@ -4,6 +4,7 @@ import * as core from './semantic-tool-broker-core.js';
 import { recoverLiveDataNeeds } from './live-need-recovery.js';
 import { normalizeCanonicalFacts } from './canonical-fact-catalog.js';
 import { resolveFacts } from './canonical-fact-resolver.js';
+import { updateDialogueMemory } from './dialogue-runtime-state.js';
 
 /*
 Evidence contract inherited from the core broker and enforced again by the runtime fallback:
@@ -446,6 +447,31 @@ export async function groundSubscriberReply(options = {}) {
       || '',
     1200
   );
+  // Canonical reads bypass the legacy information-needs cycle, including its
+  // pending-candidate confirmation. Run that existing confirmation authority
+  // before resolving subscriber facts; do not let an unbound READ hide a match.
+  if (requiredFacts.length && pre.labState.pendingCandidate && !pre.labState.confirmedCaseId) {
+    const confirmation = await core.executeInformationNeeds({ needs: [], transcript, analysis, labState: pre.labState, execute });
+    pre.trace.push(...confirmation.trace);
+    pre.labState = confirmation.labState;
+    if (pre.labState.pendingCandidate && !pre.labState.confirmedCaseId) {
+      pre.labState = updateDialogueMemory({ labState: pre.labState, analysis, requestText, factResolution: null });
+      const candidate = pre.labState.pendingCandidate;
+      const uk = analysis?.probe?.language === 'uk';
+      const address = oneLine(candidate.address, 400);
+      const contract = oneLine(candidate.contract, 80);
+      const reply = uk
+        ? `Знайшов ${contract ? `договір ${contract}` : 'підключення'}${address ? ` за адресою ${address}` : ''}. Це ваше підключення? Після підтвердження перевірю запитані дані.`
+        : `Нашёл ${contract ? `договор ${contract}` : 'подключение'}${address ? ` по адресу ${address}` : ''}. Это ваше подключение? После подтверждения проверю запрошенные данные.`;
+      return { ...draft, reply, subscriberDataNeeded: [], clarificationQuestions: [uk ? 'Це ваше підключення?' : 'Это ваше подключение?'],
+        toolTrace: pre.trace, toolEvidence: uniqueEvidence(pre.trace), factSourceTrace: [], factEvidence: [],
+        factDiagnostics: { requestedFacts: requiredFacts, sourceCalls: 0 }, toolState: pre.labState, degraded: false };
+    }
+    if (confirmation.trace.some(item => item.tool === 'customer.confirm' && item.ok) && !pre.labState.confirmedCaseId) {
+      return { ...draft, reply: analysis?.probe?.language === 'uk' ? 'Зрозумів, це інше підключення. Уточніть адресу, номер договору або логін.' : 'Понял, это другое подключение. Уточните адрес, номер договора или логин.',
+        toolTrace: pre.trace, toolEvidence: uniqueEvidence(pre.trace), factSourceTrace: [], factEvidence: [], toolState: pre.labState, degraded: false };
+    }
+  }
   const forceCanonicalRefresh = canonicalRefreshRequested(requestText);
   const factResolution = requiredFacts.length
     ? await resolveFacts({
