@@ -372,6 +372,13 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
       code: clean(result?.code || (result?.ok ? 'OK' : 'ERROR'), 100),
       observedAt,
       provenance,
+      requestEvidence: {
+        endpoint: clean(data.evidence?.endpoint, 1000),
+        url: clean(data.evidence?.url, 2000),
+        method: clean(data.evidence?.method, 40),
+        transport: clean(data.evidence?.transport || data.transport, 160),
+        selector: clean(data.evidence?.selector, 1000)
+      },
       cache: fromCache ? 'hit' : (cachedRequestedFieldStale ? 'stale-refresh' : 'miss'),
       warnings: (Array.isArray(result?.warnings) ? result.warnings : []).map(item => clean(item, 360)).filter(Boolean).slice(0, 5)
     });

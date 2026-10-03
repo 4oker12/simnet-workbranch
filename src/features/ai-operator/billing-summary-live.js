@@ -418,6 +418,14 @@ async function executeRead(tabId, id) {
       };
       const authPage = doc => Boolean(doc.querySelector('input[type="password"]'));
 
+      const diagnosticUrl = value => {
+        const safe = new URL(value, location.origin);
+        for (const key of ['pp', 'uu']) {
+          if (safe.searchParams.has(key)) safe.searchParams.set(key, '[hidden]');
+        }
+        return safe.href;
+      };
+
       if (currentPageMatches()) {
         const data = parseMainPage(document);
         if (data) {
@@ -429,6 +437,8 @@ async function executeRead(tabId, id) {
               evidence: {
                 source: 'billing-main-summary-live-read-only',
                 endpoint: 'current-document',
+                url: diagnosticUrl(location.href),
+                method: 'DOM',
                 selector: summarySelector,
                 blocks: data.parseMeta?.blocks || {},
                 transport: 'dom'
@@ -482,6 +492,8 @@ async function executeRead(tabId, id) {
           evidence: {
             source: 'billing-main-summary-live-read-only',
             endpoint: '/cgi-bin/adm/adm.pl?a=user&id=<billingId>',
+            url: diagnosticUrl(url.href),
+            method: 'GET',
             selector: summarySelector,
             blocks: data.parseMeta?.blocks || {},
             transport: 'fetch'

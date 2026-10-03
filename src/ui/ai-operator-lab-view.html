@@ -49,7 +49,7 @@
             <section class="ai-lab-question-bank" aria-label="Банк тестовых вопросов">
               <div class="ai-lab-question-bank-head">
                 <div>
-                  <strong>Банк тестовых вопросов</strong>
+                  <strong>Тестовые реплики</strong>
                   <span>Выбери тему: обычный вопрос или сценарий с контекстом, неоднозначностью и продолжением диалога. Нажатие вставляет реплику; отправляешь сам.</span>
                 </div>
               </div>
@@ -63,6 +63,7 @@
                 <button type="button" data-ai-lab-question-category="edge">Нестандартное</button>
               </div>
               <div id="aiLabQuestionOptions" class="ai-lab-question-options">
+                <div class="ai-lab-question-basic">
                 <button type="button" data-ai-lab-question data-ai-lab-question-group="summary" data-ai-lab-prompt="Дай сводку по моему договору">Дай сводку по моему договору</button>
                 <button type="button" data-ai-lab-question data-ai-lab-question-group="summary" data-ai-lab-prompt="Что сейчас с моим договором и услугой?">Что сейчас с договором и услугой?</button>
                 <button type="button" data-ai-lab-question data-ai-lab-question-group="summary" data-ai-lab-prompt="Какой адрес подключения и какая технология?">Какой адрес и технология подключения?</button>
@@ -101,6 +102,8 @@
                 <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="edge" data-ai-lab-prompt="Я раньше здесь пользовался интернетом и хочу снова подключиться. Можно восстановить старый договор или открыть новый?">Вернулся старый абонент</button>
                 <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="edge" data-ai-lab-prompt="Роутер раньше использовался на другом договоре. Его можно подключить здесь?">Роутер привязан к другому договору</button>
                 <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="edge" data-ai-lab-prompt="Хочу перенести интернет на другой адрес. Что нужно проверить?">Перенос на другой адрес</button>
+                </div>
+                <div class="ai-lab-question-scenarios">
                 <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="summary" data-ai-lab-prompt="Я недавно въехал, интернет уже работает. Это мой договор или прежнего жильца?" data-ai-lab-scenario="Контекст"><span class="ai-lab-scenario-label">Контекст</span>Я недавно въехал, интернет уже работает. Это мой договор или прежнего жильца?</button>
                 <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="summary" data-ai-lab-prompt="У меня тут два подключения. По какому сейчас смотрим данные?" data-ai-lab-scenario="Неоднозначно"><span class="ai-lab-scenario-label">Неоднозначно</span>У меня тут два подключения. По какому сейчас смотрим данные?</button>
                 <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="summary" data-ai-lab-prompt="Да, это мой договор. А что на нём сейчас подключено?" data-ai-lab-scenario="Продолжение"><span class="ai-lab-scenario-label">Продолжение</span>Да, это мой договор. А что на нём сейчас подключено?</button>
@@ -122,6 +125,7 @@
                 <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="edge" data-ai-lab-prompt="Договор на мужа, плачу я. Можно посмотреть баланс по адресу?" data-ai-lab-scenario="Контекст"><span class="ai-lab-scenario-label">Контекст</span>Договор на мужа, плачу я. Можно посмотреть баланс по адресу?</button>
                 <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="edge" data-ai-lab-prompt="Это не мой договор, но квартира моя. Можно просто переоформить?" data-ai-lab-scenario="Неоднозначно"><span class="ai-lab-scenario-label">Неоднозначно</span>Это не мой договор, но квартира моя. Можно просто переоформить?</button>
                 <button type="button" hidden data-ai-lab-question data-ai-lab-question-group="edge" data-ai-lab-prompt="Нет, тот адрес старый. Сейчас живу в другом доме — ищем новое подключение." data-ai-lab-scenario="Продолжение"><span class="ai-lab-scenario-label">Продолжение</span>Нет, тот адрес старый. Сейчас живу в другом доме — ищем новое подключение.</button>
+                </div>
               </div>
             </section>
 

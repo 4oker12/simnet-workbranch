@@ -286,6 +286,8 @@
       .ai-runtime-model-section.error{background:#fee2e2;border-color:#eaa0a0}
       .ai-runtime-model-section.next{background:#dbeafe;border-color:#93b8ef}
       .ai-runtime-next-row b,.ai-runtime-next-row em{font-size:10px}
+      .ai-runtime-request{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:5px 9px;margin:9px 0;padding:9px;border:1px solid #a5d8df;border-radius:7px;background:#f0fdff;font:11px/1.5 ui-monospace,monospace}
+      .ai-runtime-request dt{font-weight:800;color:#155e75}.ai-runtime-request dd{margin:0;color:#172033;overflow-wrap:anywhere;white-space:pre-wrap}
       @media(max-width:900px){.ai-runtime-flow{grid-template-columns:1fr}.ai-runtime-arrow{transform:rotate(90deg);height:18px}}
       @media(max-width:760px){.ai-trace-step{grid-template-columns:26px 88px minmax(0,1fr)}.ai-tool-inspector{left:12px!important;right:12px!important;width:auto!important;max-height:65vh}}
     `;
@@ -618,7 +620,7 @@
     ].filter(Boolean).join('\n'));
     card.append(purpose);
 
-    const evidence = trace?.data?.evidence || {};
+    const evidence = trace?.requestEvidence || trace?.data?.evidence || {};
     const bootstrap = trace?.data?.bootstrap || {};
     const rows = [
       ['вызов №', String(index + 1)],
@@ -627,11 +629,12 @@
       ['читает', meta.reads || '—'],
       ['возвращает', meta.returns || '—'],
       ['источник', trace?.source || trace?.data?.source || '—'],
-      ['транспорт', trace?.data?.transport || '—'],
+      ['транспорт', evidence.transport || trace?.data?.transport || '—'],
+      ['метод чтения', evidence.method || '—'],
       ['стратегия поиска', trace?.data?.lookupStrategy || '—'],
       ['вычисленный Billing ID', trace?.data?.derivedBillingId || '—'],
       ['штатный запрос', trace?.data?.nativeQuery || '—'],
-      ['endpoint / URL', evidence.endpoint || bootstrap.endpoint || '—'],
+      ['endpoint / URL', evidence.url || evidence.endpoint || bootstrap.endpoint || '—'],
       ['DOM selector', evidence.selector || '—'],
       ['этап ошибки', trace?.data?.failurePhase || '—'],
       ['детали ошибки', trace?.data?.failureMessage || '—'],
@@ -647,6 +650,11 @@
       grid.append(chip);
     }
     card.append(grid);
+    const request = create('dl', 'ai-runtime-request');
+    for (const [label, value] of rows.filter(([label]) => ['endpoint / URL', 'метод чтения', 'транспорт', 'DOM selector', 'кэш'].includes(label))) {
+      request.append(create('dt', '', label), create('dd', '', String(value || '—')));
+    }
+    card.append(request);
 
     const args = create('details');
     args.append(create('summary', '', 'ВХОД / АРГУМЕНТЫ (INPUT / ARGS)'), create('pre', '', jsonText(trace?.args || {})));

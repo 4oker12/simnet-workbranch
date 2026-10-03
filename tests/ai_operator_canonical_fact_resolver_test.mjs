@@ -590,3 +590,17 @@ test('canonical source diagnostics are separated from legacy tool evidence and f
   assert.equal(result.evidenceFallback.used, false);
   assert.deepEqual(result.factEvidence.map(item => item.path), ['subscriber.tariff.current.name']);
 });
+
+test('request diagnostics survive source trace and cache without entering fact evidence', async () => {
+  const context = { ...IDENTITY };
+  const evidence = { endpoint: '/cgi-bin/adm/adm.pl?a=user&id=<billingId>', url: 'https://billing.example/cgi-bin/adm/adm.pl?a=user&id=42&pp=%5Bhidden%5D', method: 'GET', transport: 'fetch', selector: 'table.nav3' };
+  let calls = 0;
+  const execute = async () => { calls++; return mainSummary({ evidence }); };
+  const first = await resolveFacts({ context, facts: ['subscriber.finance.balance.account'], execute, now: NOW });
+  assert.deepEqual(first.sourceTrace[0].requestEvidence, evidence);
+  assert.doesNotMatch(JSON.stringify(first.evidence), /billing\.example|table\.nav3/);
+  const cached = await resolveFacts({ context: first.context, facts: ['subscriber.finance.balance.account'], execute, now: NOW + 1000 });
+  assert.deepEqual(cached.sourceTrace[0].requestEvidence, evidence);
+  assert.equal(cached.sourceTrace[0].cache, 'hit');
+  assert.equal(calls, 1);
+});

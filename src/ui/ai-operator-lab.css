@@ -74,3 +74,12 @@
 .ai-lab-question-bank .ai-lab-question-options button:focus-visible{outline:3px solid #4338ca;outline-offset:2px}
 .ai-lab-compose textarea#aiLabInput{font-size:14px;font-weight:550;line-height:1.6;color:#172033}
 .ai-lab-message .ai-lab-message-bubble{font-size:14px;font-weight:600;line-height:1.6}
+
+/* Keep the work area readable on wide monitors. */
+.card.settings-panel.settings-panel-lab{max-width:1440px;margin-inline:auto;box-sizing:border-box;width:100%}
+.ai-lab-question-bank .ai-lab-question-options{display:grid;grid-template-columns:1fr}
+.ai-lab-question-basic{display:flex;flex-wrap:wrap;gap:6px}
+.ai-lab-question-bank .ai-lab-question-basic button{padding:6px 10px;font-size:12px;border-radius:999px;background:#fff;min-height:0}
+.ai-lab-question-scenarios{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.ai-lab-question-bank .ai-lab-question-scenarios button{font-size:12px;padding:9px 11px}
+@media(max-width:760px){.ai-lab-question-scenarios{grid-template-columns:1fr}}
