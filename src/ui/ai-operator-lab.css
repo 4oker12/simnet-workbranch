@@ -60,3 +60,17 @@
 .ai-lab-standalone .ai-lab-diagnostics:not([hidden]){display:block!important}
 .ai-lab-standalone .ai-lab-diagnostic-row{display:grid!important;grid-template-columns:minmax(140px,220px) minmax(0,1fr);gap:8px}
 @media(max-width:640px){.ai-lab-standalone .ai-lab-diagnostic-row{grid-template-columns:1fr;gap:3px}}
+
+/* Clear visual hierarchy for both standalone and embedded Lab. */
+.ai-lab-question-bank{background:#eef2ff;border:1px solid #b4baf2;border-left:5px solid #6366f1;padding:14px}
+.ai-lab-question-bank .ai-lab-question-bank-head strong{font-size:15px;font-weight:800}
+.ai-lab-question-bank .ai-lab-question-bank-head span{font-size:12px;font-weight:600;color:#334155}
+.ai-lab-question-bank .ai-lab-question-tabs button{font-size:12px;padding:8px 12px;font-weight:750}
+.ai-lab-question-bank .ai-lab-question-tabs button.active{background:#4338ca;color:#fff;border-color:#4338ca}
+.ai-lab-question-bank .ai-lab-question-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,270px),1fr));gap:8px;border-top-color:#c7d2fe}
+.ai-lab-question-bank .ai-lab-question-options button{font-size:13px;font-weight:650;line-height:1.5;padding:10px 12px;border-color:#b8c3db}
+.ai-lab-question-bank .ai-lab-question-options button[data-ai-lab-scenario]{background:#fffbeb;border-color:#e7c46b;border-left:4px solid #d97706}
+.ai-lab-scenario-label{display:block;color:#92400e;font-size:11px;font-weight:800;margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em}
+.ai-lab-question-bank .ai-lab-question-options button:focus-visible{outline:3px solid #4338ca;outline-offset:2px}
+.ai-lab-compose textarea#aiLabInput{font-size:14px;font-weight:550;line-height:1.6;color:#172033}
+.ai-lab-message .ai-lab-message-bubble{font-size:14px;font-weight:600;line-height:1.6}

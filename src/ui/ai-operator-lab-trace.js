@@ -261,6 +261,31 @@
       .ai-tool-inspector details>summary{cursor:pointer;color:#475569;font:800 9px ui-monospace,monospace}
       .ai-tool-inspector-empty{color:#94a3b8;font-style:italic}
       .ai-tool-inspector-pin{padding:2px 5px;border-radius:5px;background:#e0f2fe;color:#0369a1;font:800 8px ui-monospace,monospace}
+
+      /* Color identifies each stage; labels also preserve meaning without color. */
+      .ai-runtime-map{padding:12px;background:#eaf0f7;gap:12px}
+      .ai-runtime-flow{gap:8px}
+      .ai-runtime-stage{padding:12px;border-width:1px;border-top-width:5px}
+      .ai-runtime-snapshot{background:#eff6ff;border-color:#93b8ef;border-top-color:#2563eb}
+      .ai-runtime-tools-stage{background:#ecfeff;border-color:#67cbd6;border-top-color:#0891b2}
+      .ai-runtime-model-stage{background:#f5f3ff;border-color:#c4b5fd;border-top-color:#7c3aed}
+      .ai-runtime-stage>header strong{font:800 13px/1.4 system-ui,sans-serif;letter-spacing:0}
+      .ai-runtime-map-head strong{font-size:15px}
+      .ai-runtime-map-head span,.ai-runtime-stage>header span,.ai-runtime-status{font-size:11px}
+      .ai-runtime-group>summary,.ai-runtime-snapshot-portrait-head b,.ai-runtime-model-section-head b{font:750 12px/1.45 system-ui,sans-serif}
+      .ai-runtime-group>summary{background:#dbeafe}
+      .ai-runtime-group pre,.ai-runtime-call pre,.ai-runtime-full pre{font-size:11px;line-height:1.6}
+      .ai-runtime-call{padding:10px;background:#fff;border-color:#a5d8df}
+      .ai-runtime-call-title{font:750 12px/1.5 system-ui,sans-serif}
+      .ai-runtime-method,.ai-runtime-call-meta,.ai-runtime-call details>summary,.ai-runtime-full>summary,.ai-runtime-used>summary{font-size:11px}
+      .ai-runtime-call-purpose,.ai-runtime-fact,.ai-runtime-error-row,.ai-runtime-next-row,.ai-runtime-model-note,.ai-runtime-empty{font-size:12px;line-height:1.55;font-weight:600;white-space:normal;overflow-wrap:anywhere}
+      .ai-runtime-snapshot-portrait .ai-tool-inspector-grid{font-size:12px;line-height:1.55}
+      .ai-runtime-model-section{padding:8px;gap:6px}
+      .ai-runtime-model-section.known{background:#dcfce7;border-color:#86cda0}
+      .ai-runtime-model-section.unknown{background:#fef3c7;border-color:#e7ba4d}
+      .ai-runtime-model-section.error{background:#fee2e2;border-color:#eaa0a0}
+      .ai-runtime-model-section.next{background:#dbeafe;border-color:#93b8ef}
+      .ai-runtime-next-row b,.ai-runtime-next-row em{font-size:10px}
       @media(max-width:900px){.ai-runtime-flow{grid-template-columns:1fr}.ai-runtime-arrow{transform:rotate(90deg);height:18px}}
       @media(max-width:760px){.ai-trace-step{grid-template-columns:26px 88px minmax(0,1fr)}.ai-tool-inspector{left:12px!important;right:12px!important;width:auto!important;max-height:65vh}}
     `;
