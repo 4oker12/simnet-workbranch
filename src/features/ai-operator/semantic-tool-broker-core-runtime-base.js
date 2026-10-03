@@ -236,12 +236,20 @@ function customerMessages(transcript = []) {
 function latestCustomerText(transcript = []) {
   return oneLine(customerMessages(transcript).at(-1)?.text, 500);
 }
-function pendingConfirmation(transcript = [], state = {}) {
+export function pendingConfirmation(transcript = [], state = {}) {
   if (!state?.pendingCandidate || state?.confirmedCaseId) return null;
-  const source = latestCustomerText(transcript).toLowerCase().replace(/[.!?,;:]+$/g, '').trim();
-  if (!source) return null;
+  const raw = latestCustomerText(transcript).toLowerCase().trim();
+  // Questions, conditionals and quotations are not confirmation. Only the
+  // current customer turn can confirm a pending match; an AI reply cannot.
+  if (!raw || /[?]|(?:^|\s)(?:если|якщо|может|можливо|как|як)(?=\s|$)/u.test(raw)) return null;
+  const source = raw.replace(/[.!?,;:—–-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (/^(?:нет|ні|неа|не\s+он|не\s+він|не\s+мой|не\s+мій|неверно|невірно)$/.test(source)
+      || /(?:^|\s)(?:не\s+(?:мой|мій|мое|моє|наш|наше|он|він)|чужой|чуже)(?=\s|$)/u.test(source)) return false;
   if (/^(?:да|так|ага|угу|верно|вірно|правильно|це\s+він|это\s+он|це\s+мій|это\s+мой|мій|мой)$/.test(source)) return true;
-  if (/^(?:нет|ні|неа|не\s+он|не\s+він|не\s+мой|не\s+мій|неверно|невірно)$/.test(source)) return false;
+  const ownership = '(?:мой|мій|мое|моё|моє|наш|наше)(?:\\s+(?:договор|договір|подключение|підключення|адрес|адреса))?';
+  const prefix = '(?:(?:да|так|ага|угу|верно|вірно|правильно|подтверждаю|підтверджую)\\s+)?(?:(?:говорю|кажу|это|це|именно|саме)\\s+)*';
+  if (new RegExp(`^${prefix}${ownership}$`, 'u').test(source)) return true;
+  if (/^(?:да|так)\s+(?:это|це)\s+(?:он|він)$/.test(source)) return true;
   return null;
 }
 

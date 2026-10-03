@@ -460,7 +460,10 @@ export async function groundSubscriberReply(options = {}) {
       const uk = analysis?.probe?.language === 'uk';
       const address = oneLine(candidate.address, 400);
       const contract = oneLine(candidate.contract, 80);
-      const reply = uk
+      const asksHow = /(?:как|як)[^.!?]{0,80}(?:подтверд|підтверд)/iu.test(requestText);
+      const reply = asksHow
+        ? (uk ? 'Достатньо відповісти «так», якщо знайдене підключення ваше, або «ні», якщо це інше підключення.' : 'Достаточно ответить «да», если найденное подключение ваше, или «нет», если это другое подключение.')
+        : uk
         ? `Знайшов ${contract ? `договір ${contract}` : 'підключення'}${address ? ` за адресою ${address}` : ''}. Це ваше підключення? Після підтвердження перевірю запитані дані.`
         : `Нашёл ${contract ? `договор ${contract}` : 'подключение'}${address ? ` по адресу ${address}` : ''}. Это ваше подключение? После подтверждения проверю запрошенные данные.`;
       return { ...draft, reply, subscriberDataNeeded: [], clarificationQuestions: [uk ? 'Це ваше підключення?' : 'Это ваше подключение?'],

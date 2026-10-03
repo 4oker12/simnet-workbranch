@@ -2,9 +2,9 @@
 
 import * as base from './semantic-tool-broker-impl-base.js';
 import { normalizeCanonicalFacts } from './canonical-fact-catalog.js';
-import { isConsumptionStartQuestion, requiredFactsForDialogueTurn } from './dialogue-runtime-state.js';
+import { isConsumptionStartQuestion, requiredFactsForDialogueTurn, readDialogueMemory } from './dialogue-runtime-state.js';
 import { financeRequiredFacts } from './finance-decision-nodes.js';
-import { canonicalEvidenceFallbackResult } from './semantic-tool-broker-core.js';
+import { canonicalEvidenceFallbackResult, pendingConfirmation } from './semantic-tool-broker-core.js';
 
 export * from './semantic-tool-broker-impl-base.js';
 
@@ -71,10 +71,12 @@ export function augmentRequiredFactsForTurn({ analysis = {}, transcript = [], re
   const currentText = String(requestText || latestCustomerText(transcript) || '').trim();
   const semanticFacts = analysis?.probe?.requiredFacts || analysis?.probe?.required_facts || [];
   const dialogueFacts = requiredFactsForDialogueTurn({ analysis, requestText: currentText, labState });
+  const pendingFacts = pendingConfirmation([{ role: 'customer', text: currentText }], labState) === true
+    ? readDialogueMemory(labState).activeRequiredFacts : [];
   const deterministicFinanceFacts = financeRequiredFacts(currentText);
   const explicitAccountFacts = explicitCurrentAccountFacts({ analysis, requestText: currentText });
   const combined = removeUnsafeSubstitutions(
-    [...semanticFacts, ...dialogueFacts, ...deterministicFinanceFacts, ...explicitAccountFacts],
+    [...semanticFacts, ...dialogueFacts, ...pendingFacts, ...deterministicFinanceFacts, ...explicitAccountFacts],
     currentText
   );
   return minimizePureAccessTechnologyFacts(combined, { analysis, requestText: currentText });
