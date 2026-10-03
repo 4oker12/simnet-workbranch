@@ -39,7 +39,7 @@ test('both extension pages mount one shared view and the existing UI controllers
   }
   assert.deepEqual(LAB_UI_MODULES, [
     './ai-operator-lab.js', './ai-operator-behavior-v2.js', './ai-operator-lab-trace.js',
-    './ai-operator-batch.js', './ai-operator-replay.js', './ai-operator-scenario-replay.js', './settings-accordion.js'
+    './ai-operator-batch.js', './ai-operator-replay.js', './ai-operator-scenario-replay.js', './ai-operator-lab-workspace.js', './settings-accordion.js'
   ]);
   for (const name of LAB_UI_MODULES) assert.ok(read(`src/ui/${name.slice(2)}`).length);
   const settingsStyles = [...settings.matchAll(/rel="stylesheet" href="([^"]+)"/g)].map(match => match[1]);

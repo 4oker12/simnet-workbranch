@@ -280,6 +280,12 @@
           : message?.variant === 'clean_model' ? ' · CLEAN'
             : message?.variant === 'degraded' ? ' · fallback' : '';
       row.append(create('div', 'ai-lab-message-label', role === 'agent' ? `AI оператор${variant}` : 'Ты · абонент'), create('div', 'ai-lab-message-bubble', message?.text || ''));
+      if (role === 'agent') {
+        const inspect = create('button', 'ai-workspace-inspect-answer', 'Разобрать ответ');
+        inspect.type = 'button'; inspect.dataset.messageId = message.id || '';
+        inspect.addEventListener('click', () => document.dispatchEvent(new CustomEvent('ai-lab-inspect-answer', { detail: { messageId: message.id || '' } })));
+        row.append(inspect);
+      }
       transcriptNode.append(row);
     }
     transcriptNode.scrollTop = transcriptNode.scrollHeight;

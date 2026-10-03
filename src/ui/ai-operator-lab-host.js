@@ -7,6 +7,7 @@ export const LAB_UI_MODULES = Object.freeze([
   './ai-operator-batch.js',
   './ai-operator-replay.js',
   './ai-operator-scenario-replay.js',
+  './ai-operator-lab-workspace.js',
   './settings-accordion.js'
 ]);
 

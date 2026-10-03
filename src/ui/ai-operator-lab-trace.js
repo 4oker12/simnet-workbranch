@@ -148,6 +148,8 @@
     'onuSerial', 'onuMac', 'oltName', 'oltIp', 'port', 'foundOnOlt', 'rx', 'tx', 'oltRx', 'onuLanLinkState'
   ]);
 
+  let selectedMessageId = '';
+  const inspectedTurns = new Map();
   let eventsNode = null;
   let observer = null;
   let timer = 0;
@@ -682,7 +684,12 @@
       return stage;
     }
     const list = create('div', 'ai-runtime-tool-list');
-    toolTrace.forEach((trace,index)=>list.append(runtimeToolCallCard(trace,index)));
+    toolTrace.forEach((trace, index) => {
+      const fold = create('details', 'ai-runtime-call-fold');
+      const method = trace?.requestEvidence?.method || trace?.data?.evidence?.method || 'READ';
+      fold.append(create('summary', '', `${trace.tool || 'Инструмент'} · ${method} · ${trace.ok ? 'успешно' : trace.code || 'ошибка'}`), runtimeToolCallCard(trace, index));
+      list.append(fold);
+    });
     stage.append(list);
     return stage;
   }
@@ -867,7 +874,9 @@
 
   async function hydrateRuntimeMap(container, state = {}, experiment = {}, variant = {}, toolTrace = []) {
     let snapshot = null;
-    try { snapshot = await loadSubscriberSnapshot('customer.snapshot', toolTrace.at(-1) || null); } catch {}
+    if (!state.historicalInspection) {
+      try { snapshot = await loadSubscriberSnapshot('customer.snapshot', toolTrace.at(-1) || null); } catch {}
+    }
 
     const head = create('div', 'ai-runtime-map-head');
     const title = create('div');
@@ -884,6 +893,7 @@
       runtimeModelStage(experiment, variant, toolTrace)
     );
 
+    if (!container.isConnected) return;
     rendering = true;
     observer?.disconnect();
     container.replaceChildren(head, flow);
@@ -1141,6 +1151,26 @@
   function renderTrace(state = {}) {
     if (!eventsNode) return;
     ensureStyles();
+    const latestExperiment = state?.lastExperiment;
+    const modelLabel = document.getElementById('aiLabWorkspaceModel');
+    if (modelLabel && latestExperiment?.model) modelLabel.textContent = String(latestExperiment.model).split('→').at(-1).trim();
+    const messages = Array.isArray(state.messages) ? state.messages : [];
+    const customerIndex = messages.findIndex(message => message.id === latestExperiment?.customerMessageId);
+    const answers = customerIndex >= 0 ? messages.slice(customerIndex + 1).filter(message => message.role === 'agent') : [];
+    for (const answer of answers) {
+      if (latestExperiment) inspectedTurns.set(answer.id, { lastExperiment: latestExperiment, toolState: state.toolState });
+    }
+    while (inspectedTurns.size > 20) inspectedTurns.delete(inspectedTurns.keys().next().value);
+    const selected = selectedMessageId ? inspectedTurns.get(selectedMessageId) : null;
+    if (selectedMessageId && !selected) {
+      rendering = true; observer?.disconnect();
+      document.getElementById(TRACE_ID)?.remove();
+      const empty = create('section', 'ai-trace-root'); empty.id = TRACE_ID;
+      empty.append(create('p', 'ai-workspace-history-empty', 'Подробная трасса этого ответа не сохранена в текущем сеансе. Выбери последний ответ или проведи новый ход.'));
+      eventsNode.prepend(empty); observer?.observe(eventsNode, { childList: true, subtree: true }); rendering = false;
+      return;
+    }
+    if (selected) state = { ...state, ...selected, historicalInspection: selected.lastExperiment.id !== latestExperiment?.id };
     const experiment = state?.lastExperiment;
     if (!experiment) return;
 
@@ -1160,6 +1190,17 @@
     head.append(create('strong', '', 'DECISION TRACE · ПОСЛЕДНИЙ ХОД'));
     head.append(create('span', '', `${experiment?.knowledgeMode === 'clean' ? 'CLEAN · ' : ''}${Math.round(Number(probe?.confidence || 0) * 100)}% semantic · ${toolTrace.length} tool · ${Number(experiment?.elapsedMs || 0)} ms`));
     root.append(head);
+    const decision = create('section', 'ai-workspace-decision');
+    for (const [label, value] of [
+      ['Понял', probe.latestMessageMeans || probe.whatUserWants || 'Понимание не записано'],
+      ['Проверил', toolTrace.length ? toolTrace.map(item => item.tool).join(', ') : 'Вызовов инструментов не было']
+    ]) {
+      const row = create('div', 'ai-workspace-decision-row');
+      row.append(create('strong', '', label), create('p', '', value)); decision.append(row);
+    }
+    const conclusion = create('div', 'ai-workspace-decision-row');
+    conclusion.append(create('strong', '', 'Результат'), conclusionNode(variant, toolTrace)); decision.append(conclusion);
+    root.append(decision);
     const runtimeMap = create('section', 'ai-runtime-map');
     runtimeMap.id = RUNTIME_MAP_ID;
     runtimeMap.append(create('div', 'ai-runtime-empty', 'Собираю runtime map…'));
@@ -1217,7 +1258,9 @@
     }));
     list.append(step(index++, 'ОТВЕТ', answer, 'answer'));
 
-    root.append(list, create('div', 'ai-trace-history-label', 'Сырой журнал событий ниже'));
+    const advanced = create('details', 'ai-workspace-advanced');
+    advanced.append(create('summary', '', 'Полная трасса и JSON'), list);
+    root.append(advanced, create('div', 'ai-trace-history-label', 'Сырой журнал событий ниже'));
 
     rendering = true;
     observer?.disconnect();
@@ -1248,6 +1291,12 @@
     ensureStyles();
     observer = new MutationObserver(() => schedule());
     observer.observe(eventsNode, { childList: true, subtree: true });
+    document.addEventListener('ai-lab-inspect-answer', event => {
+      selectedMessageId = String(event.detail?.messageId || '');
+      schedule();
+    });
+    document.getElementById('aiLabSend')?.addEventListener('click', () => { selectedMessageId = ''; });
+    document.getElementById('aiLabReset')?.addEventListener('click', () => { selectedMessageId = ''; inspectedTurns.clear(); });
     document.addEventListener('keydown', event => {
       if (event.key === 'Escape') hideInspector(true);
     });
