@@ -9,6 +9,8 @@
     const node = document.createElement(tag); node.className = className || '';
     if (text) node.textContent = text; return node;
   };
+  // Keep the node reference before moving its parent into a detached workspace.
+  const sendButton = document.getElementById('aiLabSend');
   const style = create('link'); style.rel = 'stylesheet';
   style.href = chrome.runtime.getURL('src/ui/ai-operator-lab-workspace.css');
   document.head.append(style);
@@ -47,7 +49,7 @@
   questions.querySelector('.ai-lab-question-tabs').after(questionControls); selectKind('basic');
   questions.querySelectorAll('[data-ai-lab-prompt]').forEach(button => button.addEventListener('click', () => { questions.open = false; document.getElementById('aiLabInput').focus(); }));
   chat.append(chatHead, document.getElementById('aiLabTranscript'), questions, body.querySelector('.ai-lab-compose'), document.getElementById('aiLabStatus'));
-  document.getElementById('aiLabSend').textContent = 'Отправить';
+  sendButton.textContent = 'Отправить';
   const inspector = create('aside', 'ai-workspace-inspector'); inspector.setAttribute('aria-label', 'Разбор ответа'); inspector.dataset.view = 'decision';
   const inspectorHead = create('header', 'ai-workspace-inspector-head'); inspectorHead.append(create('strong', '', 'Разбор ответа'));
   const tabs = create('div', 'ai-workspace-tabs'); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Разделы разбора');
