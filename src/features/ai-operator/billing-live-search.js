@@ -129,7 +129,17 @@ function matchStreetForm(form, queryTokens) {
   return best;
 }
 
-function resolveAddressRequest(streets = [], value = '') {
+function addressLocality(value = '') {
+  return lookupStreetPart(value)
+    .replace(/(?:^|\s)(?:сб|софиевская(?:\s+борщаговка)?|софіївська(?:\s+борщагівка)?)(?=\s|$)/gu, ' софиевская борщаговка ')
+    .replace(/\s+/g, ' ').trim();
+}
+
+function isLocalityAlias(value = '') {
+  return /^(?:сб|софиевская(?: борщаговка)?|софиивська(?: борщагивка)?|с\s|село\s|смт\s)/u.test(lookupStreetPart(value));
+}
+
+export function resolveAddressRequest(streets = [], value = '') {
   const normalize = lookupStreetPart;
   const queryTokens = normalize(value).split(' ').filter(Boolean);
   const usable = [...new Map(streets
@@ -141,7 +151,7 @@ function resolveAddressRequest(streets = [], value = '') {
   if (!usable.length) return { ok: false, code: 'BILLING_STREET_DICTIONARY_UNAVAILABLE' };
   const options = usable
     .map(item => {
-      const forms = streetVariants(item.label).map(normalize);
+      const forms = streetVariants(item.label).filter((form, index) => index === 0 || !isLocalityAlias(form)).map(normalize);
       const matches = forms.map(form => matchStreetForm(form, queryTokens)).filter(Boolean).sort((a, b) => b.score - a.score);
       return { ...item, forms, match: matches[0] };
     })
@@ -153,7 +163,8 @@ function resolveAddressRequest(streets = [], value = '') {
   // explicit clarification, even if one happens to be one edit closer.
   let tied = options.filter(item => best.match.edits ? item.match.edits : item.match.score === best.match.score);
   if (tied.length > 1) {
-    const contextScore = item => item.forms.filter(form => form !== item.match.form && ` ${queryTokens.join(' ')} `.includes(` ${form} `)).length;
+    const contextScore = item => [...String(item.label).matchAll(/\(([^()]*)\)/g)]
+      .map(match => addressLocality(match[1])).filter(form => form && ` ${addressLocality(value)} `.includes(` ${form} `)).length;
     const mostContext = Math.max(...tied.map(contextScore));
     if (mostContext) tied = tied.filter(item => contextScore(item) === mostContext);
   }
@@ -170,7 +181,7 @@ function resolveAddressRequest(streets = [], value = '') {
     // immediately after a matched street form is an unlabelled house.
     const streetForms = [selectedStreet.match.queryForm, ...selectedStreet.forms, normalize(selectedStreet.label)];
     for (const match of beforeUnit.matchAll(/(?:^|[,\s])(\d+(?:\s*[/\-]\s*[\p{L}\d]+)*(?:\s*[\p{L}])?)(?=$|[\s,;.!?"»])/gu)) {
-      const prefix = normalize(beforeUnit.slice(0, match.index).replace(/\([^)]*\)/g, ' '));
+      const prefix = normalize(beforeUnit.slice(0, match.index).replace(/\([^)]*\)/g, ' ')).replace(/(?:\s+)(?:сб|софиевская борщаговка|софиивська борщагивка)$/u, '').trim();
       if (streetForms.some(street => prefix === street || prefix.endsWith(` ${street}`))) {
         building = match[1];
         break;

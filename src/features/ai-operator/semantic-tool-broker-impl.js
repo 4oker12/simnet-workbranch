@@ -75,13 +75,25 @@ export function augmentRequiredFactsForTurn({ analysis = {}, transcript = [], re
   const dialogueFacts = requiredFactsForDialogueTurn({ analysis, requestText: currentText, labState });
   const pendingFacts = pendingConfirmation([{ role: 'customer', text: currentText }], labState) === true
     ? readDialogueMemory(labState).activeRequiredFacts : [];
-  const deterministicFinanceFacts = financeRequiredFacts(currentText);
+  const customers = transcript.filter(turn => turn?.role === 'customer');
+  const previousText = String(customers.at(-2)?.text || '');
+  const balanceQuestion = text => /баланс|(?:по|на)\s+сч[её]т|(?:по|на)\s+рахунк/iu.test(text);
+  const addressBalanceContinuation = !/\d/.test(currentText)
+    && /софиев|софіїв|борщаг|святопетр|киев|київ|другой\s+договор|інший\s+договір/iu.test(currentText)
+    && /\d/.test(previousText) && balanceQuestion(previousText);
+  const addressBalanceRequest = balanceQuestion(currentText) && /\d/.test(currentText);
+  const deterministicFinanceFacts = [
+    ...financeRequiredFacts(currentText),
+    ...(addressBalanceContinuation || addressBalanceRequest ? ['subscriber.finance.balance.account'] : [])
+  ];
   const explicitAccountFacts = explicitCurrentAccountFacts({ analysis, requestText: currentText });
   const combined = removeUnsafeSubstitutions(
     [...semanticFacts, ...dialogueFacts, ...pendingFacts, ...deterministicFinanceFacts, ...explicitAccountFacts],
     currentText
   );
-  return minimizePureAccessTechnologyFacts(combined, { analysis, requestText: currentText });
+  const scoped = addressBalanceContinuation || addressBalanceRequest
+    ? combined.filter(path => !path.startsWith('building.')) : combined;
+  return minimizePureAccessTechnologyFacts(scoped, { analysis, requestText: currentText });
 }
 
 export async function groundSubscriberReply(options = {}) {

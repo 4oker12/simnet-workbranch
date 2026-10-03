@@ -456,6 +456,19 @@ test('explicit locality disambiguates otherwise identical source street names', 
   } finally { harness.restore(); }
 });
 
+test('SB locality selects the named street and submits the exact house and apartment', async () => {
+  const harness = billingHarness({ streets: ['вул. Синтетична (СБ)', 'вул. Рожева (СБ)', 'вул. Южная (СБ)', 'вул. Синтетична (с. Святопетровское)'] });
+  try {
+    const result = await searchBillingLive({ address: 'ул. Синтетична СБ 42/10 кв 9 шо там по счету меня?' });
+    assert.equal(result.code, 'OK');
+    const params = harness.searches()[0].url.searchParams;
+    assert.equal(params.get('dopfield_5'), '1');
+    assert.equal(params.get('dopfield_6'), '42/10');
+    assert.equal(params.get('dopfield_8'), '9');
+    assert.ok(result.candidates.length);
+  } finally { harness.restore(); }
+});
+
 test('unrelated street tokens and numeric street differences cannot manufacture a lookup', async t => {
   for (const [street, address] of [
     [STREET, 'Героїв Сонячної Долини, буд.42, кв.6'],

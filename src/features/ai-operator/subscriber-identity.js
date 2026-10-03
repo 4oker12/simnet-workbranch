@@ -163,6 +163,16 @@ export function identityToolArgs(identity = {}) {
   return {};
 }
 
+function addressWithClarification(address, laterTurns = []) {
+  address = String(address).replace(/\s+(?:(?:шо|что|сколько|скільки|чому|почему)\s|(?:проверь|перевір|посмотри)\b).*$/iu, '').trim();
+  // Only literal locality clarification; never take a place from model prose.
+  const places = /(?:софиевская(?:\s+борщаговка)?|софіївська(?:\s+борщагівка)?|святопетровское|святопетрівське|киев|київ)/giu;
+  const clarification = laterTurns.map(turn => oneLine(turn?.text, 500))
+    .filter(text => !/\d/.test(text)).join(' ');
+  const locality = [...clarification.matchAll(places)].at(-1)?.[0];
+  return locality ? `${address}, ${locality}` : address;
+}
+
 export function resolveSubscriberIdentityHints(transcript = [], analysis = {}, secondary = null) {
   const messages = customerMessages(transcript);
   const hinted = identityToolArgs(identityFromAnalysisHints(analysis));
@@ -178,7 +188,7 @@ export function resolveSubscriberIdentityHints(transcript = [], analysis = {}, s
       const ip = literalIp(turn, secondary.ip);
       if (ip) return { ip };
       const address = literalAddress(turn, secondary.address);
-      if (address) return { address };
+      if (address) return { address: addressWithClarification(address, messages.slice(index + 1)) };
     }
 
     // Semantic understanding can recognize unlabelled or renamed addresses
@@ -186,7 +196,7 @@ export function resolveSubscriberIdentityHints(transcript = [], analysis = {}, s
     const semanticIp = literalIp(turn, semanticIds.ip);
     if (semanticIp) return { ip: semanticIp };
     const semanticAddress = literalAddress(turn, semanticIds.address);
-    if (semanticAddress) return { address: semanticAddress };
+    if (semanticAddress) return { address: addressWithClarification(semanticAddress, messages.slice(index + 1)) };
 
     if (hinted.login && containsLiteralLogin(turn, hinted.login)) return hinted;
     if (hinted.contract && containsLiteralContract(turn, hinted.contract)) return hinted;
