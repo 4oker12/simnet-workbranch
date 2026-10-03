@@ -24,7 +24,9 @@ function explicitCurrentAccountFacts({ analysis = {}, requestText = '' } = {}) {
 
   const facts = [];
   const asksBalance = /(?:баланс|на\s+сч[её]т|на\s+рахунк|остаток[^.!?]{0,30}(?:сч[её]т|рахунк))/iu.test(context);
-  const asksTariff = /(?:тариф|пакет)/iu.test(context);
+  const televisionPackage = /(?:omega|омега|viasat|віасат|виасат|телевид|телебач|канал(?:ы|ів|ов|и)|\biptv\b)/iu.test(context);
+  const explicitInternetTariff = /(?:интернет[^.!?]{0,35}тариф|тариф[^.!?]{0,35}интернет|інтернет[^.!?]{0,35}тариф|скорост|швидк)/iu.test(context);
+  const asksTariff = /(?:тариф|пакет)/iu.test(context) && (!televisionPackage || explicitInternetTariff);
   const subscriberScoped = asksBalance || /(?:\bмой\b|\bмо[её]м\b|у\s+меня|сейчас|зараз|текущ|поточн|абонент|договор|договір|видит[^.!?]{0,35}оператор|бачить[^.!?]{0,35}оператор)/iu.test(context);
 
   if (asksBalance) facts.push('subscriber.finance.balance.account');
