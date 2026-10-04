@@ -16,7 +16,11 @@ test('bundled catalog loads without import; imported full snapshot wins', async 
    assert.equal(findBuildingInSnapshot(bundled,{rawAddress:address}).code,'OK',address);
   }
   const result = await readBuildingSnapshot({toolArgs:{address:'Тестова 32А'}});
-  assert.equal(result.code,'OK');assert.equal(result.data.addressOnly,true);assert.equal(result.warnings.length,1);
+  assert.equal(result.ok,false);
+  assert.equal(result.code,'USERSIDE_BUILDING_LIVE_RUNTIME_UNAVAILABLE');
+  assert.equal(result.data.addressOnly,true);
+  assert.equal(result.data.liveVerified,false);
+  assert.match(result.warnings.join(' '),/живой карточки UserSide|техническим фактом/i);
   imported = {...bundled,addressOnly:false,generatedAt:'newer',buildings:[{id:'other',address:'Тестова 1',fields:[]}]};
   assert.equal(await loadCrmSnapshot(),imported);assert.equal(requests,1);
  } finally {globalThis.chrome=originalChrome;globalThis.fetch=originalFetch;}
