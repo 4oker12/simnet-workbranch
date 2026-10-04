@@ -129,6 +129,7 @@ jobs:
         run: |
           node --test \
             tests/ai_operator_building_snapshot_tool_test.mjs \
+            tests/ai_operator_bundled_address_catalog_test.mjs \
             tests/crm_building_snapshot_import_test.mjs
       - name: AI Lab · runtime map UI
         run: |
@@ -159,7 +160,10 @@ jobs:
             tests/ai_operator_tool_manifest_test.mjs
       - name: Finance · semantics
         if: always()
-        run: node --test tests/ai_operator_finance_semantics_test.mjs
+        run: |
+          node --test \
+            tests/ai_operator_finance_semantics_test.mjs \
+            tests/ai_operator_grounding_regression_test.mjs
       - name: Canonical facts · refresh and source cache
         if: always()
         run: |
