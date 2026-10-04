@@ -7,6 +7,7 @@ const SNAPSHOT_KEY = 'simnet_crm_building_snapshot_v1';
 const LAB_KEY = 'simnet_ai_operator_lab_v1';
 const TOOL_NAME = 'building.snapshot';
 const SOURCE = 'userside-building-snapshot-local';
+const LIVE_SOURCE = 'userside-building-live-read-only';
 
 function nowIso() { return new Date().toISOString(); }
 function text(value, max = 600) {
@@ -330,6 +331,177 @@ export function findBuildingInSnapshot(snapshot = {}, query = {}) {
   return { code: 'NOT_FOUND', matches: [] };
 }
 
+async function readLiveBuildingCard(building = {}) {
+  if (!globalThis.chrome?.tabs?.query || !globalThis.chrome?.scripting?.executeScript) {
+    return { ok: false, code: 'USERSIDE_BUILDING_LIVE_RUNTIME_UNAVAILABLE' };
+  }
+
+  const tabs = await chrome.tabs.query({ url: ['https://userside.simnet.kiev.ua/*'] });
+  const ranked = [...tabs].sort((a, b) => (
+    Number(Boolean(b?.active)) - Number(Boolean(a?.active))
+    || Number(b?.lastAccessed || 0) - Number(a?.lastAccessed || 0)
+  ));
+  if (!ranked.length) return { ok: false, code: 'USERSIDE_TAB_REQUIRED' };
+
+  const path = text(building.url, 240) || (building.id ? `/building/${building.id}` : '');
+  if (!path) return { ok: false, code: 'USERSIDE_BUILDING_ID_REQUIRED' };
+
+  for (const tab of ranked.slice(0, 3)) {
+    try {
+      const [execution] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        args: [path],
+        func: async relativePath => {
+          if (location.hostname !== 'userside.simnet.kiev.ua') {
+            return { ok: false, code: 'USERSIDE_TAB_INVALID' };
+          }
+
+          const compact = (value, max = 1800) => {
+            const normalized = String(value == null ? '' : value)
+              .replace(/\u00a0/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+            return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
+          };
+          const keyOf = labelValue => {
+            const clean = compact(labelValue, 160).replace(/[:：]\s*$/, '').toLowerCase();
+            const known = new Map([
+              ['id', 'building_id'],
+              ['абоненты', 'subscriber_count'],
+              ['активность', 'activity'],
+              ['тип здания', 'building_type'],
+              ['подъездов', 'entrances'],
+              ['этажей', 'floors'],
+              ['квартир', 'apartments'],
+              ['процент проникновения', 'penetration'],
+              ['координаты', 'coordinates'],
+              ['ключи', 'keys'],
+              ['менеджер', 'manager'],
+              ['собственник', 'owner'],
+              ['заметки', 'notes'],
+              ['рабочая заметка', 'working_note'],
+              ['название ук/осбб', 'management'],
+              ['есть ктв', 'ktv'],
+              ['gpon', 'gpon']
+            ]);
+            if (known.has(clean)) return known.get(clean);
+            return clean
+              .replace(/[^a-zа-я0-9іїєґ]+/giu, '_')
+              .replace(/^_+|_+$/g, '')
+              .slice(0, 64) || 'field';
+          };
+
+          const response = await fetch(new URL(relativePath, location.origin).href, {
+            method: 'GET',
+            credentials: 'include',
+            cache: 'no-store',
+            headers: { 'X-SIMNET-WB-READONLY': 'ai-operator-building' }
+          });
+          const html = await response.text();
+          const doc = new DOMParser().parseFromString(html, 'text/html');
+          const finalUrl = String(response.url || '');
+          if (/\/sso\.php(?:[?#]|$)/i.test(finalUrl)
+            || doc.querySelector('input[type="password"], form[action*="login" i]')) {
+            return { ok: false, code: 'USERSIDE_AUTH_REQUIRED', status: response.status };
+          }
+          if (!response.ok) {
+            return { ok: false, code: 'USERSIDE_BUILDING_FETCH_FAILED', status: response.status };
+          }
+
+          const main = doc.querySelector('#div_contentplace');
+          if (!main) return { ok: false, code: 'USERSIDE_BUILDING_PARSE_FAILED' };
+          const boundary = main.querySelector('#ref_start, #navigation');
+          const fields = [];
+          const seen = new Set();
+
+          const add = (labelValue, value, source = 'main_card', fieldId = '') => {
+            const label = compact(labelValue, 180).replace(/[:：]\s*$/, '');
+            const fieldText = compact(value, 2200);
+            if (!label || !fieldText) return;
+            if (keyOf(label) === 'keys' && /^(ключи|добавить)$/iu.test(fieldText)) return;
+            const fingerprint = `${label.toLowerCase()}\u0000${fieldText.toLowerCase()}`;
+            if (seen.has(fingerprint)) return;
+            seen.add(fingerprint);
+            fields.push({
+              key: keyOf(label),
+              label,
+              text: fieldText,
+              source,
+              ...(fieldId ? { fieldId } : {})
+            });
+          };
+
+          const topTableBlocks = Array.from(main.querySelectorAll('.table_block')).filter(block => {
+            if (!boundary || typeof block.compareDocumentPosition !== 'function') return true;
+            return Boolean(block.compareDocumentPosition(boundary) & Node.DOCUMENT_POSITION_FOLLOWING);
+          });
+
+          for (const block of topTableBlocks) {
+            for (const item of block.querySelectorAll(':scope > .item, .item')) {
+              if (boundary && typeof item.compareDocumentPosition === 'function') {
+                const beforeBoundary = Boolean(item.compareDocumentPosition(boundary) & Node.DOCUMENT_POSITION_FOLLOWING);
+                if (!beforeBoundary) continue;
+              }
+              const labelEl = item.querySelector(':scope > .left_data, .left_data');
+              if (!labelEl) continue;
+              const clone = item.cloneNode(true);
+              clone.querySelectorAll('script,style,noscript,svg').forEach(el => el.remove());
+              clone.querySelector('.left_data')?.remove();
+              clone.querySelectorAll('[style*="display: none"], [hidden]').forEach(el => el.remove());
+              add(labelEl.textContent || '', clone.textContent || '');
+            }
+          }
+
+          for (const caption of main.querySelectorAll('#div_yellow_info .caption')) {
+            if (boundary && typeof caption.compareDocumentPosition === 'function') {
+              const beforeBoundary = Boolean(caption.compareDocumentPosition(boundary) & Node.DOCUMENT_POSITION_FOLLOWING);
+              if (!beforeBoundary) continue;
+            }
+            const raw = compact(caption.textContent || '', 2200);
+            if (!raw) continue;
+            const colon = raw.indexOf(':');
+            if (colon > 0) {
+              add(raw.slice(0, colon), raw.slice(colon + 1), 'highlight', caption.dataset?.fieldid || '');
+            }
+          }
+
+          const id = String(relativePath).match(/\/building\/(\d+)/i)?.[1] || '';
+          const address = compact(
+            main.querySelector('.label_h2')?.textContent
+              || doc.title?.replace(/\s*-\s*Покрытие.*$/iu, '')
+              || '',
+            500
+          );
+          return {
+            ok: true,
+            code: 'OK',
+            endpoint: id ? `/building/${id}` : relativePath,
+            building: {
+              id,
+              address,
+              url: id ? `/building/${id}` : relativePath,
+              fields
+            }
+          };
+        }
+      });
+
+      const value = execution?.result;
+      if (value?.ok) return { ...value, tabId: tab.id };
+      if (value?.code === 'USERSIDE_AUTH_REQUIRED') continue;
+      if (value) return value;
+    } catch (error) {
+      return {
+        ok: false,
+        code: 'USERSIDE_BUILDING_LIVE_EXECUTION_FAILED',
+        message: text(error?.message || error, 500)
+      };
+    }
+  }
+
+  return { ok: false, code: 'USERSIDE_AUTH_REQUIRED' };
+}
+
 export async function readBuildingSnapshot({ toolArgs = {}, labState = {} } = {}) {
   const stored = await chrome.storage.local.get([SNAPSHOT_KEY, LAB_KEY]);
   const snapshot = stored?.[SNAPSHOT_KEY] || await loadCrmSnapshot();
@@ -384,7 +556,7 @@ export async function readBuildingSnapshot({ toolArgs = {}, labState = {} } = {}
   }
 
   const building = found.matches[0];
-  return result(true, 'OK', {
+  const localData = {
     buildingId: text(building.id, 80),
     address: text(building.address, 320),
     url: text(building.url, 240),
@@ -396,7 +568,48 @@ export async function readBuildingSnapshot({ toolArgs = {}, labState = {} } = {}
     snapshotComplete: Boolean(snapshot?.stats?.complete ?? snapshot?.complete),
     addressOnly: Boolean(snapshot.addressOnly),
     query
-  }, snapshot.addressOnly ? ['Встроенный индекс подтверждает только историческую запись адреса; актуальные условия подключения и заметки требуют UserSide или полного локального импорта.'] : []);
+  };
+
+  const live = await readLiveBuildingCard(building);
+  if (live?.ok && live?.building) {
+    return result(true, 'OK', {
+      ...localData,
+      buildingId: text(live.building.id || building.id, 80),
+      address: text(live.building.address || building.address, 320),
+      url: text(live.building.url || building.url, 240),
+      fields: fieldMap(live.building.fields),
+      fieldList: Array.isArray(live.building.fields) ? live.building.fields : [],
+      source: LIVE_SOURCE,
+      endpoint: text(live.endpoint, 240),
+      tabId: Number(live.tabId || 0) || null,
+      liveVerified: true
+    });
+  }
+
+  if (snapshot.addressOnly) {
+    return result(false, live?.code || 'USERSIDE_BUILDING_LIVE_REQUIRED', {
+      ...localData,
+      liveVerified: false,
+      liveRead: {
+        ok: false,
+        code: text(live?.code || 'USERSIDE_BUILDING_LIVE_REQUIRED', 120),
+        message: text(live?.message || '', 500)
+      }
+    }, [
+      'Адрес найден во встроенном индексе, но текущие GPON/возможность подключения нужно прочитать из живой карточки UserSide.',
+      'Не считать пустые поля адресного индекса отрицательным техническим фактом.'
+    ]);
+  }
+
+  return result(true, 'OK', {
+    ...localData,
+    liveVerified: false,
+    liveRead: {
+      ok: false,
+      code: text(live?.code || 'USERSIDE_LIVE_UNAVAILABLE', 120),
+      message: text(live?.message || '', 500)
+    }
+  }, ['Использована сохранённая полная карточка здания; live UserSide сейчас не подтвердил свежесть данных.']);
 }
 
 export const BUILDING_SNAPSHOT_TOOL = Object.freeze({
