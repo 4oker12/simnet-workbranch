@@ -421,6 +421,127 @@ function synthesisEvidenceData(item = {}) {
   return compactObject(data);
 }
 
+function knownFactValue(factResolution = null, path = '') {
+  const item = (Array.isArray(factResolution?.evidence) ? factResolution.evidence : [])
+    .find(entry => entry?.path === path);
+  return item?.status === 'known' ? item.value : null;
+}
+
+function numericFact(factResolution, path) {
+  const value = knownFactValue(factResolution, path);
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function assertiveWorkingClaim(reply = '') {
+  const source = oneLine(reply, 2200).toLowerCase();
+  if (!source) return false;
+  if (/(?:не|нельзя|невозможно|не\s+подтверждено|не\s+означает).{0,40}(?:работает|працює|работоспособ|працездат)/iu.test(source)) return false;
+  return /(?:интернет|услуг[аи]|подключени[ея]).{0,30}(?:работает|працює|всё\s+ок|все\s+ок|в\s+порядке)|(?:всё|все).{0,12}(?:работает|працює|в\s+порядке)/iu.test(source);
+}
+
+function actualGigabitClaim(reply = '') {
+  const source = oneLine(reply, 2200).toLowerCase();
+  if (!source) return false;
+  if (/(?:тариф|пакет).{0,35}(?:1000|1\s*гбит|гигабит|гігабіт)/iu.test(source)
+    && !/(?:фактич|реальн|линк|лінк|работает|працює)/iu.test(source)) return false;
+  return /(?:гигабит|гігабіт|1\s*гбит|1000\s*(?:мбит|мбіт)).{0,30}(?:работает|працює|линк|лінк|фактич|реальн)|(?:скорост|швидк|линк|лінк).{0,30}(?:1000\s*(?:мбит|мбіт)|1\s*гбит|гигабит|гігабіт)/iu.test(source);
+}
+
+function currentPaymentClaim(reply = '', amount = null) {
+  if (!Number.isFinite(amount) || amount <= 0) return false;
+  const source = oneLine(reply, 2200).toLowerCase().replace(',', '.');
+  const amountText = String(Math.round(amount * 100) / 100).replace('.', '[\\.,]');
+  return new RegExp(`(?:внес|попол|доплат|оплат|заплат|потрібно|нужно|надо|требуется)[^\\d]{0,35}${amountText}(?:\\s*грн)?`, 'iu').test(source);
+}
+
+export function groundedReplyIssues({ reply = '', factResolution = null, latestCustomer = {}, analysis = {} } = {}) {
+  if (!factResolution) return [];
+  const issues = [];
+  const request = [
+    latestCustomer?.text,
+    analysis?.probe?.whatUserWants,
+    ...(analysis?.probe?.unresolvedRequests || [])
+  ].filter(Boolean).join(' ').toLowerCase();
+
+  const accountBalance = numericFact(factResolution, 'subscriber.finance.balance.account');
+  const totalDue = numericFact(factResolution, 'subscriber.finance.totalDue');
+  const balanceAfterTariff = numericFact(factResolution, 'subscriber.finance.balance.afterTariff');
+  const sessionStatus = knownFactValue(factResolution, 'subscriber.network.session.status');
+  const ethernetLinkSpeed = numericFact(factResolution, 'subscriber.access.ethernet.speedMbps');
+  const futureScope = /(?:следующ|наступн|майбутн|будущ|через\s+месяц)/iu.test(request);
+
+  if (!futureScope
+    && accountBalance !== null
+    && totalDue !== null
+    && totalDue > 0
+    && accountBalance + 0.0001 >= totalDue
+    && currentPaymentClaim(reply, totalDue)) {
+    issues.push('CURRENT_DUE_ALREADY_COVERED');
+  }
+
+  if (!futureScope
+    && balanceAfterTariff !== null
+    && balanceAfterTariff >= 0
+    && totalDue !== null
+    && currentPaymentClaim(reply, totalDue)
+    && !issues.includes('CURRENT_DUE_ALREADY_COVERED')) {
+    issues.push('CURRENT_DUE_ALREADY_COVERED');
+  }
+
+  if (assertiveWorkingClaim(reply) && (sessionStatus === null || sessionStatus === '')) {
+    issues.push('WORKING_STATE_NOT_VERIFIED');
+  }
+
+  if (actualGigabitClaim(reply) && ethernetLinkSpeed === null) {
+    issues.push('TARIFF_SPEED_IS_NOT_LINE_SPEED');
+  }
+
+  return issues;
+}
+
+function moneyText(value) {
+  if (!Number.isFinite(value)) return '';
+  return (Math.round(value * 100) / 100).toLocaleString('uk-UA', {
+    minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
+    maximumFractionDigits: 2
+  });
+}
+
+export function deterministicGroundedFallback({ factResolution = null, issues = [] } = {}) {
+  const accountBalance = numericFact(factResolution, 'subscriber.finance.balance.account');
+  const totalDue = numericFact(factResolution, 'subscriber.finance.totalDue');
+  const balanceAfterTariff = numericFact(factResolution, 'subscriber.finance.balance.afterTariff');
+  const accessState = knownFactValue(factResolution, 'subscriber.service.accessState');
+  const tariffSpeed = numericFact(factResolution, 'subscriber.tariff.current.speed');
+  const parts = [];
+
+  if (issues.includes('CURRENT_DUE_ALREADY_COVERED') && accountBalance !== null && totalDue !== null) {
+    parts.push(`На счёте ${moneyText(accountBalance)} грн; текущая сумма ${moneyText(totalDue)} грн уже покрывается этим балансом, поэтому доплачивать именно её сейчас не нужно.`);
+    if (balanceAfterTariff !== null) {
+      parts.push(`После её учёта остаётся ${moneyText(balanceAfterTariff)} грн.`);
+    }
+  }
+
+  if (issues.includes('WORKING_STATE_NOT_VERIFIED')) {
+    if (accessState) {
+      parts.push(`В Billing доступ указан как «${oneLine(accessState, 80)}», но это не подтверждает фактическую работу интернета — для этого нужна проверка линии/сетевой сессии.`);
+    } else {
+      parts.push('Фактическая работа интернета текущими данными не подтверждена; для этого нужна проверка линии/сетевой сессии.');
+    }
+  }
+
+  if (issues.includes('TARIFF_SPEED_IS_NOT_LINE_SPEED')) {
+    if (tariffSpeed !== null) {
+      parts.push(`По тарифу указано ${moneyText(tariffSpeed)} Мбит/с; это тарифная скорость, а не подтверждение фактической скорости или гигабитного линка.`);
+    } else {
+      parts.push('Тарифная скорость сама по себе не подтверждает фактическую скорость или состояние линка.');
+    }
+  }
+
+  return parts.join(' ').trim();
+}
+
 function synthesisMessages({ transcript = [], latestCustomer = {}, analysis = {}, draft = {}, toolTrace = [], factResolution = null, useKnowledge = true, labState = {} } = {}) {
   const dialogue = (Array.isArray(transcript) ? transcript : []).slice(-14).map(item => ({ role: item?.role === 'customer' ? 'customer' : 'operator', text: block(item?.text, 700) })).filter(item => item.text);
   const evidence = factResolution ? [] : toolTrace.map(item => ({
@@ -454,6 +575,10 @@ READ-only проверки уже выполнены. Сформируй ест�
 - Источник Billing сам по себе не доказывает свежесть: учитывай observed_at, fieldObservedAt и fallback;
 - dialogue_policy задаёт принадлежность договора: NEW_OCCUPANT запрещает приписывать найденный баланс и оплату новому жильцу; это не мешает общей консультации и проверке адреса;
 - startDay=0 без подтверждённой семантики не является датой и не доказывает отсутствие настройки;
+- положительный/разрешённый статус Billing не доказывает, что интернет фактически работает; для такого вывода нужен отдельный live-факт линии/сетевой сессии;
+- тарифная скорость (например 1000 Мбит/с в названии пакета) — характеристика тарифа, а не измеренная скорость и не доказательство работающего гигабитного линка;
+- если текущий баланс уже покрывает отображаемую текущую сумму Billing, не проси повторно внести эту же сумму; сначала проверь арифметику balance → due → remainder;
+- общая тарифная статья описывает сетку предложений, но сама по себе не доказывает право конкретного действующего договора перейти на любую цену без проверки его тарифного контекста;
 - source=userside-live-read-only — свежая READ-проверка UserSide;
 - source=userside-building-snapshot-local — сохранённая карточка здания; учитывай snapshotGeneratedAt/snapshotComplete;
 - ok=false означает только «проверить не удалось/нет данных в этом источнике», а не отрицательный факт;
@@ -545,31 +670,100 @@ export async function groundSubscriberReply({ draft = {}, transcript = [], lates
       messages,
       { ...meterContext, stage: 'tool_synthesis' }
     );
-    const normalized = normalizeSynthesis(parseJsonObject(response.answer), draft);
+    let normalized = normalizeSynthesis(parseJsonObject(response.answer), draft);
     normalized.reply = ensureNonEmptyReply(normalized.reply, analysis, cycle.trace);
+
+    let issues = groundedReplyIssues({
+      reply: normalized.reply,
+      factResolution,
+      latestCustomer,
+      analysis
+    });
+    let correction = null;
+
+    if (issues.length) {
+      try {
+        correction = await requestSynthesis([
+          ...messages,
+          { role: 'assistant', content: response.answer },
+          {
+            role: 'user',
+            content: `Исправь предыдущий JSON-ответ, не меняя исходный запрос. Найдены недопустимые выводы: ${issues.join(', ')}. Не утверждай фактическую работу интернета без live evidence, не выдавай тарифную скорость за реальную и не требуй повторно оплатить текущую сумму, если она уже покрывается балансом. Верни только исправленный JSON по той же схеме.`
+          }
+        ], { ...meterContext, stage: 'tool_synthesis_correction' });
+
+        const corrected = normalizeSynthesis(parseJsonObject(correction.answer), draft);
+        corrected.reply = ensureNonEmptyReply(corrected.reply, analysis, cycle.trace);
+        const correctedIssues = groundedReplyIssues({
+          reply: corrected.reply,
+          factResolution,
+          latestCustomer,
+          analysis
+        });
+
+        if (!correctedIssues.length) {
+          normalized = corrected;
+          issues = [];
+        } else {
+          issues = correctedIssues;
+        }
+      } catch (_) {}
+    }
+
+    if (issues.length) {
+      const fallback = deterministicGroundedFallback({ factResolution, issues });
+      if (fallback) {
+        normalized.reply = fallback;
+        normalized.verificationNeeded = [
+          ...new Set([
+            ...(normalized.verificationNeeded || []),
+            ...(issues.includes('WORKING_STATE_NOT_VERIFIED')
+              ? ['Фактическая работа линии/сетевой сессии не подтверждена.']
+              : []),
+            ...(issues.includes('TARIFF_SPEED_IS_NOT_LINE_SPEED')
+              ? ['Фактическая скорость/линк не подтверждены тарифной скоростью.']
+              : [])
+          ])
+        ];
+      }
+    }
+
     return {
       ...draft,
       ...normalized,
-      model: [draft?.model, response.model].filter(Boolean).join(' → '),
-      usage: usageTotal(draft?.usage, response.usage),
-      rateLimit: response.rateLimit || draft?.rateLimit || {},
+      model: [draft?.model, response.model, correction?.model].filter(Boolean).join(' → '),
+      usage: usageTotal(draft?.usage, response.usage, correction?.usage),
+      rateLimit: correction?.rateLimit || response.rateLimit || draft?.rateLimit || {},
       toolTrace: cycle.trace,
       toolEvidence: cycle.trace.filter(item => item.ok),
       factEvidence: compactObject(factResolution?.evidence || []),
       factDiagnostics: compactObject(factResolution?.diagnostics || {}),
+      groundingIssues: issues,
       degraded: false,
       degradationReason: '',
       toolState: cycle.labState
     };
   } catch (error) {
+    const draftReply = ensureNonEmptyReply(safeDraft, analysis, cycle.trace);
+    const issues = groundedReplyIssues({
+      reply: draftReply,
+      factResolution,
+      latestCustomer,
+      analysis
+    });
+    const fallback = issues.length
+      ? deterministicGroundedFallback({ factResolution, issues })
+      : '';
+
     return {
       ...draft,
-      reply: ensureNonEmptyReply(safeDraft, analysis, cycle.trace),
+      reply: fallback || draftReply,
       subscriberDataNeeded: needs,
       toolTrace: cycle.trace,
       toolEvidence: cycle.trace.filter(item => item.ok),
       factEvidence: compactObject(factResolution?.evidence || []),
       factDiagnostics: compactObject(factResolution?.diagnostics || {}),
+      groundingIssues: issues,
       degraded: true,
       degradationReason: oneLine(error?.message || error, 600),
       toolState: cycle.labState
