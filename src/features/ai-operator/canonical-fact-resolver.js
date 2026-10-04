@@ -223,6 +223,9 @@ function factEvidence(path, spec, raw, meta = {}) {
     };
   }
   const value = normalizedValue(raw.value, spec.type);
+  if (Array.isArray(spec.unsetValues) && value !== null && spec.unsetValues.includes(value)) {
+    return { path, status: 'absent', observed: true, value: null, source: spec.source, rawPath: raw.rawPath || spec.paths?.[0] || '', provenance: meta.provenance || '', observedAt: fieldTimestamp, code: 'FIELD_UNSET', catalogStatus: spec.status || 'confirmed' };
+  }
   const absent = value === null && !['observed', 'presence'].includes(spec.type);
   return {
     path,
@@ -287,10 +290,12 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
   const returned = [];
   const sourceTrace = [];
   const sourceReads = [];
+  const batchSourceResults = new Map();
   const cacheHits = [];
   let broadPayloadChars = 0;
 
-  for (const [source, paths] of groups) {
+  const processGroups = async groupMap => {
+  for (const [source, paths] of groupMap) {
     const sourceSpec = CANONICAL_SOURCE_CATALOG[source];
     const ttlMs = Math.min(...paths.map(path => CANONICAL_FACT_CATALOG[path].ttlMs || sourceSpec.ttlMs));
     const key = cacheKey(source, context, request);
@@ -318,7 +323,11 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
     let result;
     let fromCache = false;
 
-    if (fresh) {
+    if (batchSourceResults.has(key)) {
+      result = clone(batchSourceResults.get(key));
+      fromCache = true;
+      cacheHits.push(source);
+    } else if (fresh) {
       result = clone(cached.result);
       fromCache = true;
       cacheHits.push(source);
@@ -335,6 +344,7 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
       if (result?.statePatch && typeof result.statePatch === 'object') Object.assign(context, clone(result.statePatch));
     }
 
+    batchSourceResults.set(key, clone(result));
     const resultObservedAtMs = Date.parse(result?.observedAt || '');
     const evidenceNow = Math.max(
       logicalNow(),
@@ -384,6 +394,46 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
     });
   }
 
+  };
+  await processGroups(groups);
+
+  // Bounded fallback pass: each missing fact with declared alternatives gets at most one
+  // extra read, in the declared order. Reuse alternatives already resolved in this batch.
+  // There is no recursion, so a failing alternative can never trigger an endless chain.
+  const fallbackLinks = [];
+  for (const item of [...returned]) {
+    if (item.status === 'known') continue;
+    const alternatives = CANONICAL_FACT_CATALOG[item.path]?.fallbacks;
+    if (!Array.isArray(alternatives) || !alternatives.length) continue;
+    const next = alternatives.find(path => CANONICAL_FACT_CATALOG[path]);
+    if (next) fallbackLinks.push({ original: item, alternative: next });
+  }
+  if (fallbackLinks.length) {
+    const before = returned.length;
+    const fallbackGroups = new Map();
+    for (const { alternative } of fallbackLinks) {
+      if (returned.some(item => item.path === alternative)) continue;
+      const spec = CANONICAL_FACT_CATALOG[alternative];
+      if (!fallbackGroups.has(spec.source)) fallbackGroups.set(spec.source, []);
+      if (!fallbackGroups.get(spec.source).includes(alternative)) fallbackGroups.get(spec.source).push(alternative);
+    }
+    await processGroups(fallbackGroups);
+    const alternativeFacts = [...returned.slice(0, before), ...returned.splice(before)];
+    for (const { original, alternative } of fallbackLinks) {
+      const found = alternativeFacts.find(item => item.path === alternative);
+      if (!found) continue;
+      const index = returned.indexOf(original);
+      if (found.status === 'known') {
+        returned[index] = { ...found, path: original.path, viaFallbackOf: original.path, fallbackFrom: { source: original.source, status: original.status, code: original.code || '' } };
+      } else if (found.status === 'absent' && original.status === 'absent') {
+        returned[index] = { ...original, fallbackChecked: { source: found.source, status: 'absent' } };
+      } else {
+        // Alternative unavailable/unobserved: stay unknown. Never invent a negative from it.
+        returned[index] = { ...original, status: 'unknown', observed: false, value: null, code: found.code || original.code || 'FALLBACK_UNAVAILABLE', fallbackChecked: { source: found.source, status: found.status, code: found.code || '' } };
+      }
+    }
+  }
+
   const compactFacts = returned.map(item => ({
     path: item.path,
     status: item.status,
@@ -392,7 +442,9 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
     source: item.source,
     provenance: item.provenance,
     observedAt: item.observedAt || '',
-    ...(item.code ? { code: item.code } : {})
+    ...(item.code ? { code: item.code } : {}),
+    ...(item.viaFallbackOf ? { viaFallbackOf: item.viaFallbackOf, fallbackFrom: item.fallbackFrom } : {}),
+    ...(item.fallbackChecked ? { fallbackChecked: item.fallbackChecked } : {})
   }));
   context.factSourceCache = pruneSourceCache(context.factSourceCache);
   const evidenceChars = projectionChars(compactFacts);
@@ -420,4 +472,4 @@ export async function resolveFacts({ context: inputContext = {}, facts = [], exe
   };
 }
 
-export const CANONICAL_FACT_RESOLVER_VERSION = 6;
+export const CANONICAL_FACT_RESOLVER_VERSION = 7;

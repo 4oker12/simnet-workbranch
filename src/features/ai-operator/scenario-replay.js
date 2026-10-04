@@ -1,9 +1,20 @@
 'use strict';
+import { compactText } from './compact-value.js';
 const clone=v=>v==null?v:JSON.parse(JSON.stringify(v));
-const compact=(v,m=1200)=>{const s=String(v??'').replace(/\s+/g,' ').trim();return s.length>m?`${s.slice(0,m-1)}…`:s};
+const compact=(v,m=1200)=>compactText(v,m);
 const iso=()=>new Date().toISOString();
 const rid=()=>`scenario_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
 const transcript=v=>(Array.isArray(v)?v:[]).map(x=>({role:x?.role==='agent'?'agent':'customer',text:compact(x?.text,5000),at:x?.at||iso()})).filter(x=>x.text).slice(-80);
+
+// Replies that a green "complete" status must never hide.
+const UNBACKED_PROMISE=/(?:уточню|проверю|узнаю|выясню|уточню[^.]{0,20}вернусь|вернусь\s+с\s+ответом|могу\s+уточнить\s+и\s+вернуться|перезвоню|свяжусь\s+с\s+вами|уточню\s+і\s+повернусь|перевірю\s+і\s+повернусь)/iu;
+const DENIES_KNOWN_KNOWLEDGE=/(?:каталог[ау]?\s+(?:тарифов\s+)?(?:нет|нету|отсутствует)|нет\s+(?:информации|данных)\s+о\s+(?:тарифах|ценах)|каталогу\s+немає|немає\s+(?:інформації|даних)\s+про\s+тарифи)/iu;
+export function replyIssues(reply='',knowledgeIds=[]){
+  const text=String(reply||''),issues=[];
+  if(UNBACKED_PROMISE.test(text)) issues.push('UNBACKED_PROMISE');
+  if(DENIES_KNOWN_KNOWLEDGE.test(text)&&!(knowledgeIds||[]).length) issues.push('DENIES_KNOWN_KNOWLEDGE');
+  return issues;
+}
 
 export function validateScenario(s={}){
   const id=compact(s.id,120),title=compact(s.title||id,240),src=Array.isArray(s.turns)?s.turns:[];
@@ -12,9 +23,19 @@ export function validateScenario(s={}){
 }
 const variant=e=>{const a=Array.isArray(e?.variants)?e.variants:[];return a.find(x=>x?.label===e?.activeVariant)||a[0]||{}};
 const state=t=>{const d=t?.domainContext?.dialogue||{}, intents=Array.isArray(t?.conversationState?.activeIntents)?t.conversationState.activeIntents:(t?.activeIntents||[]);return{confirmedSubscriber:clone(t?.confirmedSubscriber||t?.conversationState?.confirmedSubscriber||null),activeSubscriberId:compact(t?.domainContext?.activeSubscriberId,160),activeBuildingId:compact(t?.domainContext?.activeBuildingId,160),activeRequests:clone(d.activeRequests||[]),activeRequiredFacts:clone(d.activeRequiredFacts||[]),activeIntents:clone((intents||[]).filter(x=>!x?.status||x.status==='unresolved').slice(0,12)),alreadyExplainedFacts:clone(d.alreadyExplainedFacts||t?.alreadyExplainedFacts||[]),offeredActions:clone(d.offeredActions||t?.offeredActions||[]),lastDiscourseAct:compact(d.lastDiscourseAct||t?.conversationState?.lastDiscourseAct,80)}};
-const trace=a=>(Array.isArray(a)?a:[]).map(x=>({tool:compact(x?.tool,120),ok:Boolean(x?.ok),code:compact(x?.code,120),source:compact(x?.source,160),requestedFacts:clone(x?.requestedFacts||[]),requestedBy:clone(x?.requestedBy||null)})).slice(0,30);
+const trace=a=>(Array.isArray(a)?a:[]).map(x=>({tool:compact(x?.tool,120),ok:Boolean(x?.ok),code:compact(x?.code,120),source:compact(x?.source,160),cache:compact(x?.cache,40),observedAt:compact(x?.observedAt,80),requestEvidence:clone(x?.requestEvidence||{}),requestedFacts:clone(x?.requestedFacts||[]),requestedBy:clone(x?.requestedBy||null)})).slice(0,30);
 const evidence=a=>(Array.isArray(a)?a:[]).map(x=>({path:compact(x?.path,220),status:compact(x?.status,40),value:x?.value===undefined?undefined:clone(x.value),source:compact(x?.source,160),derived:Boolean(x?.derived)})).slice(0,80);
 
+function mergeSourceTrace(legacy, canonical) {
+  const result = legacy.map(item => ({ ...item }));
+  for (const item of canonical) {
+    const existing = result.findIndex(old => old.observedAt && old.observedAt === item.observedAt
+      && old.tool === item.tool && JSON.stringify(old.requestedFacts || []) === JSON.stringify(item.requestedFacts || []));
+    if (existing < 0) result.push(item);
+    else result[existing] = { ...result[existing], ...item };
+  }
+  return result;
+}
 export function compactTurnOutcome({outcome={},user='',turnIndex=0,checkpointBefore=null,elapsedMs=0}={}){
   const e=outcome.experiment||{},p=e.analysis?.probe||{},k=e.analysis?.knowledge||{},v=variant(e),fe=evidence(v.factEvidence||v.canonicalFactEvidence||[]),fd=v.factDiagnostics||{};
   const required=p.requiredFacts||p.required_facts||[];
@@ -24,11 +45,12 @@ export function compactTurnOutcome({outcome={},user='',turnIndex=0,checkpointBef
   const returned=allReturned.filter(path=>requiredSet.size===0||requiredSet.has(path));
   const unknown=allUnknown.filter(path=>requiredSet.has(path));
   const supportUnknownFacts=allUnknown.filter(path=>!requiredSet.has(path));
-  const reply=compact(v.reply||outcome.decision?.reply,6000), tr=trace(v.toolTrace||[]), police=v.dialoguePolice||outcome.decision?.dialoguePolice||{}, unresolved=p.unresolvedRequests||[], degraded=Boolean(v.degraded);
-  const status=!reply?'failed':degraded||unknown.length||(police.violations||[]).includes('NON_ANSWER')?'incomplete':'complete';
-  return{index:turnIndex,user:compact(user,4000),reply,status,degraded,degradationReason:compact(v.degradationReason,1000),semantic:{whatUserWants:compact(p.whatUserWants,1000),latestMessageMeans:compact(p.latestMessageMeans,1000),underlyingGoal:compact(p.underlyingGoal,1000),discourseAct:compact(p.dialoguePolicy?.discourseAct||p.discourseAct||p.speechAct,80),unresolvedRequests:clone(unresolved),confidence:Number(p.confidence||0)||0},requiredFacts:clone(required),returnedFacts:clone(returned),unknownFacts:clone(unknown),supportUnknownFacts:clone(supportUnknownFacts),factEvidence:fe,toolTrace:tr,knowledgeArticles:(k.usedArticles||[]).map(x=>x?.id).filter(Boolean).slice(0,30),dialoguePolice:{violations:clone(police.violations||[]),changed:Boolean(police.changed),notes:clone(police.notes||[])},usage:clone(e.usage||outcome.decision?.usage||{}),elapsedMs:Number(e.elapsedMs||elapsedMs||0)||0,stateBefore:clone(checkpointBefore?.stateSummary||{}),stateAfter:state(outcome.toolState||{}),checkpointBefore:checkpointBefore?{transcript:clone(checkpointBefore.transcript),toolState:clone(checkpointBefore.toolState)}:null,rawExperimentId:compact(e.id,160)};
+  const reply=compact(v.reply||outcome.decision?.reply,6000), tr=trace(mergeSourceTrace(v.toolTrace||[],v.factSourceTrace||[])), police=v.dialoguePolice||outcome.decision?.dialoguePolice||{}, unresolved=p.unresolvedRequests||[], degraded=Boolean(v.degraded);
+  const knowledgeIds=(k.usedArticles||[]).map(x=>x?.id).filter(Boolean), issues=replyIssues(reply,knowledgeIds);
+  const status=!reply?'failed':degraded||unknown.length||issues.length||(police.violations||[]).includes('NON_ANSWER')?'incomplete':'complete';
+  return{index:turnIndex,user:compact(user,4000),reply,status,checks:{execution:degraded?"degraded":"completed",facts:unknown.length?"incomplete":"covered",answer:issues.length?"issues_detected":"not_verified"},replyIssues:issues,degraded,degradationReason:compact(v.degradationReason,1000),semantic:{whatUserWants:compact(p.whatUserWants,1000),latestMessageMeans:compact(p.latestMessageMeans,1000),underlyingGoal:compact(p.underlyingGoal,1000),discourseAct:compact(p.dialoguePolicy?.discourseAct||p.discourseAct||p.speechAct,80),unresolvedRequests:clone(unresolved),confidence:Number(p.confidence||0)||0},requiredFacts:clone(required),returnedFacts:clone(returned),unknownFacts:clone(unknown),supportUnknownFacts:clone(supportUnknownFacts),factEvidence:fe,toolTrace:tr,knowledgeArticles:(k.usedArticles||[]).map(x=>x?.id).filter(Boolean).slice(0,30),dialoguePolice:{violations:clone(police.violations||[]),changed:Boolean(police.changed),notes:clone(police.notes||[])},usage:clone(e.usage||outcome.decision?.usage||{}),elapsedMs:Number(e.elapsedMs||elapsedMs||0)||0,stateBefore:clone(checkpointBefore?.stateSummary||{}),stateAfter:state(outcome.toolState||{}),checkpointBefore:checkpointBefore?{transcript:clone(checkpointBefore.transcript),toolState:clone(checkpointBefore.toolState)}:null,rawExperimentId:compact(e.id,160)};
 }
-function summary(turns,status){const ms=turns.reduce((s,x)=>s+Number(x.elapsedMs||0),0),viol={};for(const t of turns)for(const c of t.dialoguePolice?.violations||[])viol[c]=(viol[c]||0)+1;return{turns:turns.length,complete:turns.filter(x=>x.status==='complete').length,incomplete:turns.filter(x=>x.status==='incomplete').length,failed:turns.filter(x=>x.status==='failed').length,toolCalls:turns.reduce((s,x)=>s+(x.toolTrace?.length||0),0),totalTokens:turns.reduce((s,x)=>s+Number(x.usage?.total_tokens||0),0),totalElapsedMs:ms,averageLatencyMs:turns.length?Math.round(ms/turns.length):0,dialoguePolice:viol,status}}
+function summary(turns,status){const ms=turns.reduce((s,x)=>s+Number(x.elapsedMs||0),0),viol={};for(const t of turns)for(const c of t.dialoguePolice?.violations||[])viol[c]=(viol[c]||0)+1;return{turns:turns.length,complete:turns.filter(x=>x.status==='complete').length,incomplete:turns.filter(x=>x.status==='incomplete').length,failed:turns.filter(x=>x.status==='failed').length,toolCalls:turns.reduce((s,x)=>s+(x.toolTrace||[]).filter(t=>t.cache!=="hit").length,0),totalTokens:turns.reduce((s,x)=>s+Number(x.usage?.total_tokens||0),0),totalElapsedMs:ms,averageLatencyMs:turns.length?Math.round(ms/turns.length):0,dialoguePolice:viol,status}}
 
 export async function runScenario({scenario,runTurn,signal=null,onProgress=null,startIndex=0,endIndex=null,seedTranscript=[],seedToolState={},existingTurns=[],runId=''}={}){
   const s=validateScenario(scenario);if(typeof runTurn!=='function')throw new Error('Scenario runner requires runTurn callback.');

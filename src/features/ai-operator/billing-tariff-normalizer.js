@@ -45,9 +45,15 @@ function inferTariffNumbers(label) {
     return { priceUAH, speedMbps, serviceCode: 'BZL' };
   }
 
-  const speed = text.match(/(?:^|\s)(\d{2,4})\s*(?:M(?:B|BIT)(?:\/S)?|МБ(?:І|И)?Т(?:\/С)?|МБ)(?=$|\s|[),.;])/iu);
+  // An explicit speed token: a number glued to a unit (Mbit, Mbps, Mb/s, Мбит, Мбіт/с, Мб/с).
+  // The number may follow a space, "(" or "-" ("SIMNET-100Mbit"), but never another digit or
+  // a decimal separator, so a price like "300" is not read as a speed without a unit.
+  const speed = text.match(/(?<![\d.,])(\d{2,4})\s*(?:M(?:B(?:IT|PS)?|BIT)(?:\/S)?|МБ(?:І|И)?Т?(?:\/С)?|МБПС)(?![A-Za-zА-Яа-яІіЇїЄє])/iu);
   if (speed) speedMbps = Number(speed[1]);
-  if (!Number.isFinite(speedMbps) && /(?:^|\s)1\s*(?:G(?:BIT|BPS)|ГБ(?:І|И)?Т(?:\/С)?)(?=$|\s|[),.;])/iu.test(text)) speedMbps = 1000;
+  if (!Number.isFinite(speedMbps)) {
+    const gigabit = text.match(/(?<![\d.,])(\d{1,2})\s*(?:G(?:BIT|BPS|B\/S)|ГБ(?:І|И)?Т?(?:\/С)?)(?![A-Za-zА-Яа-яІіЇїЄє])/iu);
+    if (gigabit) speedMbps = Number(gigabit[1]) * 1000;
+  }
 
   const explicitPrice = text.match(/\b(\d{2,4}(?:[.,]\d{1,2})?)\s*(?:грн|uah)\b/i);
   if (explicitPrice) priceUAH = finiteMoney(String(explicitPrice[1]).replace(',', '.'));

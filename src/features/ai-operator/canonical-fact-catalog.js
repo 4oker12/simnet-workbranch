@@ -97,7 +97,12 @@ export const CANONICAL_FACT_CATALOG = Object.freeze({
   // Current access family is already evidenced by Billing technical data (EPON/GPON/PON).
   // UserSide remains authoritative for deeper port/ONU/OLT details, but a simple
   // "what technology is this subscriber on?" must not require an open UserSide tab.
-  'subscriber.access.connectionFamily': billingCustomer(['technical.technologyHint', 'network.connectionFamily']),
+  // Ordered, finite alternatives: when Billing has no technology hint the resolver makes ONE
+  // extra read of the listed fallback fact (UserSide). A source failure there stays "unknown".
+  'subscriber.access.connectionFamily': billingCustomer(['technical.technologyHint', 'network.connectionFamily'], 'text', { fallbacks: Object.freeze(['subscriber.access.userside.connectionFamily']) }),
+  'subscriber.access.userside.connectionFamily': userside('network.connectionFamily'),
+  // Preserve Billing start_day as a raw number; the business meaning of zero is not verified.
+  'subscriber.service.startDay': billingMain('service.startDay', 'number'),
   'subscriber.access.ethernet.deviceId': userside('network.accessDeviceId'),
   'subscriber.access.ethernet.deviceName': userside('network.accessDeviceName'),
   'subscriber.access.ethernet.deviceIp': userside('network.accessDeviceIp'),

@@ -730,6 +730,7 @@ export async function generateGroundedSubscriberReply({
   const stageInstruction = `ЭТАП: FINAL ANSWER AFTER READ.
 
 READ уже выполнен. Ответь абоненту по правилам AUTONOMOUS_OPERATOR, используя dialogue, grounded_context и переданный evidence. Не запускай новый semantic-разбор.
+Учитывай grounded_context.understanding.dialoguePolicy: NEW_OCCUPANT — новый жилец, финансы прежнего договора не являются его обязательствами. Поле subscriber.service.startDay — исходное поле Billing; значение 0 не трактуй как дату или «не задано» без подтверждённой семантики.
 Для canonical_fact_evidence: status=known — значение подтверждено; status=absent — источник успешно наблюдал пустое поле; status=unknown — факт не подтверждён. Для tool_evidence учитывай только реально возвращённые поля.
 
 ${compactBehaviorGuidance(profile)}

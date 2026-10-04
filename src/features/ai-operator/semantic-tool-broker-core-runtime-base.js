@@ -1,3 +1,5 @@
+import { compactValue, preserveState } from './compact-value.js';
+import { buildDialoguePolicyContext } from './dialogue-runtime-state.js';
 'use strict';
 
 import { recordApiUsage } from './api-cost.js';
@@ -42,16 +44,8 @@ function block(value, max = 2600) {
 function stringList(value, maxItems = 8, maxChars = 360) {
   return (Array.isArray(value) ? value : []).map(item => oneLine(item, maxChars)).filter(Boolean).slice(0, maxItems);
 }
-function compactObject(input, maxDepth = 4, depth = 0) {
-  if (depth >= maxDepth) return oneLine(input, 320);
-  if (Array.isArray(input)) return input.slice(0, 12).map(item => compactObject(item, maxDepth, depth + 1));
-  if (!input || typeof input !== 'object') return input;
-  const output = {};
-  for (const [key, value] of Object.entries(input).slice(0, 60)) {
-    if (/^(?:pp|password|passwd|pass|token|secret|csrf|authorization)$/i.test(key)) continue;
-    output[key] = compactObject(value, maxDepth, depth + 1);
-  }
-  return output;
+function compactObject(input, maxDepth = 8) {
+  return compactValue(input, { maxDepth, maxArray: 40, maxText: 1800 });
 }
 function usageTotal(...items) {
   return items.reduce((total, item) => {
@@ -290,7 +284,7 @@ export function extractIdentityHints(transcript = [], analysis = {}) {
 function applyStatePatch(state = {}, patch = {}) {
   const next = state && typeof state === 'object' && !Array.isArray(state) ? { ...state } : {};
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return next;
-  for (const [key, value] of Object.entries(patch)) next[key] = compactObject(value);
+  for (const [key, value] of Object.entries(patch)) next[key] = preserveState(value);
   return next;
 }
 function evidenceSource(result = {}) {
@@ -427,7 +421,7 @@ function synthesisEvidenceData(item = {}) {
   return compactObject(data);
 }
 
-function synthesisMessages({ transcript = [], latestCustomer = {}, analysis = {}, draft = {}, toolTrace = [], factResolution = null, useKnowledge = true } = {}) {
+function synthesisMessages({ transcript = [], latestCustomer = {}, analysis = {}, draft = {}, toolTrace = [], factResolution = null, useKnowledge = true, labState = {} } = {}) {
   const dialogue = (Array.isArray(transcript) ? transcript : []).slice(-14).map(item => ({ role: item?.role === 'customer' ? 'customer' : 'operator', text: block(item?.text, 700) })).filter(item => item.text);
   const evidence = factResolution ? [] : toolTrace.map(item => ({
     tool: item.tool,
@@ -457,7 +451,9 @@ READ-only проверки уже выполнены. Сформируй ест�
 - tool_evidence с ok=true подтверждает только реально возвращённые поля;
 - canonical_fact_evidence содержит только запрошенные канонические факты: status=known подтверждает значение, status=absent означает успешно наблюдавшееся пустое поле, status=unknown означает, что факт не прочитан/не подтверждён;
 - requested_by показывает, ради какого факта был сделан READ; соседние возвращённые поля не обязаны попадать в ответ;
-- source=billing-live-read-only и source=billing-main-live-read-only — свежая READ-проверка Billing;
+- Источник Billing сам по себе не доказывает свежесть: учитывай observed_at, fieldObservedAt и fallback;
+- dialogue_policy задаёт принадлежность договора: NEW_OCCUPANT запрещает приписывать найденный баланс и оплату новому жильцу; это не мешает общей консультации и проверке адреса;
+- startDay=0 без подтверждённой семантики не является датой и не доказывает отсутствие настройки;
 - source=userside-live-read-only — свежая READ-проверка UserSide;
 - source=userside-building-snapshot-local — сохранённая карточка здания; учитывай snapshotGeneratedAt/snapshotComplete;
 - ok=false означает только «проверить не удалось/нет данных в этом источнике», а не отрицательный факт;
@@ -490,6 +486,7 @@ READ-only проверки уже выполнены. Сформируй ест�
       content: JSON.stringify({
         dialogue,
         latest_customer_message: block(latestCustomer?.text, 1200),
+        dialogue_policy: buildDialoguePolicyContext({ analysis, requestText: latestCustomer?.text || "", labState, factResolution }),
         understanding: compactObject(analysis?.probe || {}),
         internal_knowledge: useKnowledge ? compactObject(analysis?.knowledge || {}) : { skipped: true },
         draft_reply: block(draft?.reply, 1800),
@@ -542,8 +539,8 @@ export async function groundSubscriberReply({ draft = {}, transcript = [], lates
   }
   try {
     const messages = factResolution
-      ? synthesisMessages({ transcript, latestCustomer, analysis, draft: { ...draft, reply: rawDraftReply }, toolTrace: cycle.trace, factResolution, useKnowledge })
-      : synthesisMessages({ transcript, latestCustomer, analysis, draft: { ...draft, reply: rawDraftReply }, toolTrace: cycle.trace, useKnowledge });
+      ? synthesisMessages({ transcript, latestCustomer, analysis, draft: { ...draft, reply: rawDraftReply }, toolTrace: cycle.trace, factResolution, useKnowledge, labState })
+      : synthesisMessages({ transcript, latestCustomer, analysis, draft: { ...draft, reply: rawDraftReply }, toolTrace: cycle.trace, useKnowledge, labState });
     const response = await requestSynthesis(
       messages,
       { ...meterContext, stage: 'tool_synthesis' }

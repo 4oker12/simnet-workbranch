@@ -37,10 +37,15 @@ test('passive Billing snapshot mirrors the wide a=user main-page fields', () => 
   assert.match(source, /unselected_select_options/);
 });
 
-test('local subscriber snapshot preserves captured discount for canonical fallback', () => {
-  const source = readFileSync(
-    new URL('../src/features/ai-operator/tool-runtime.js', import.meta.url),
-    'utf8'
-  );
-  assert.match(source, /discount:\s*finance\.discount.*compactObject\(finance\.discount\)/s);
+test('local subscriber snapshot preserves captured discount for canonical fallback', async () => {
+  const { executeOperatorTool } = await import('../src/features/ai-operator/tool-runtime.js');
+  const discount = { percent: 10, amountUAH: 25, appliesTo: 'internet_tariff', evidence: { rows: Array.from({ length: 20 }, (_, i) => ({ i })) } };
+  const memory = {
+    simnet_workbench_state_v5: { cases: { '900001': { identity: { billingId: '900001' } } } },
+    simnet_ai_operator_billing_snapshots_v1: { '900001': { billingId: '900001', service: { currentTariff: 'Test tariff' }, finance: { discount } } }
+  };
+  globalThis.chrome = { storage: { local: { async get(keys) { return Object.fromEntries((Array.isArray(keys) ? keys : [keys]).map(k => [k, memory[k]])); } } } };
+  const result = await executeOperatorTool({ tool: 'customer.snapshot', labState: { confirmedCaseId: '900001' } });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.data.finance.discount, discount);
 });

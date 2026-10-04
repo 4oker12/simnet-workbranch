@@ -105,7 +105,7 @@ test('canonical instruction locks IDENTIFY → BOOTSTRAP → STORE → ANSWER MA
   const source = fs.readFileSync(new URL('../src/features/ai-operator/instructions/AUTONOMOUS_OPERATOR.md', import.meta.url), 'utf8');
   const hash = crypto.createHash('sha256').update(source).digest('hex');
 
-  assert.equal(AUTONOMOUS_OPERATOR_INSTRUCTION_VERSION, 11);
+  assert.equal(AUTONOMOUS_OPERATOR_INSTRUCTION_VERSION, 12);
   assert.equal(AUTONOMOUS_OPERATOR_INSTRUCTION, source);
   assert.equal(AUTONOMOUS_OPERATOR_INSTRUCTION_SHA256, hash);
   assert.match(source, /IDENTIFY ONCE → BOOTSTRAP ONCE → SNAPSHOT WIDE → NORMALIZE ONCE → STORE LOCALLY → ANSWER MANY/);

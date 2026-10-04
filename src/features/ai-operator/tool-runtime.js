@@ -1,5 +1,7 @@
 'use strict';
 
+import { preserveState } from './compact-value.js';
+
 const WORKBENCH_STATE_KEYS = Object.freeze([
   'simnet_workbench_state_v5',
   'simnet_workbench_state_v4'
@@ -64,17 +66,7 @@ function normalizeIp(value) {
   const parts = match[0].split('.').map(Number);
   return parts.every(part => part >= 0 && part <= 255) ? match[0] : '';
 }
-function compactObject(input, maxDepth = 5, depth = 0) {
-  if (depth >= maxDepth) return text(input, 300);
-  if (Array.isArray(input)) return input.slice(0, 12).map(item => compactObject(item, maxDepth, depth + 1));
-  if (!input || typeof input !== 'object') return input;
-  const output = {};
-  for (const [key, raw] of Object.entries(input).slice(0, 60)) {
-    if (/^(?:pp|password|passwd|pass|token|secret|csrf|authorization)$/i.test(key)) continue;
-    output[key] = compactObject(raw, maxDepth, depth + 1);
-  }
-  return output;
-}
+
 async function loadWorkbenchState() {
   const stored = await chrome.storage.local.get([...WORKBENCH_STATE_KEYS]);
   for (const key of WORKBENCH_STATE_KEYS) {
@@ -162,7 +154,7 @@ function candidateMatchScore(summary, query = {}) {
 }
 function result(tool, ok, code, data = {}, warnings = [], statePatch = {}) {
   return { ok: Boolean(ok), tool: String(tool || ''), code: String(code || (ok ? 'OK' : 'ERROR')), observedAt: nowIso(),
-    data: compactObject(data), warnings: Array.isArray(warnings) ? warnings.map(item => text(item, 400)).filter(Boolean) : [], statePatch: compactObject(statePatch) };
+    data: preserveState(data), warnings: Array.isArray(warnings) ? warnings.map(item => text(item, 400)).filter(Boolean) : [], statePatch: preserveState(statePatch) };
 }
 async function lookupCustomer(toolArgs = {}) {
   const [{ key, state }, snapshots] = await Promise.all([loadWorkbenchState(), loadBillingSnapshots()]);
@@ -236,7 +228,7 @@ function richSubscriberSnapshot(caseId, caseData = {}, snapshot = null, sourceKe
   const auth = network?.authorization && typeof network.authorization === 'object' ? network.authorization : {};
   return {
     identity: { billingId: canonical.billingId, contract: canonical.contract, login: canonical.login, fullName: canonical.fullName, contractDate: text(snapshot?.identity?.contractDate, 80) },
-    address: compactObject(snapshot?.address || (canonical.address ? { full: canonical.address } : {})), contacts: compactObject(snapshot?.contacts || {}), customer: compactObject(snapshot?.customer || {}),
+    address: preserveState(snapshot?.address || (canonical.address ? { full: canonical.address } : {})), contacts: preserveState(snapshot?.contacts || {}), customer: preserveState(snapshot?.customer || {}),
     service: { group: text(service.group, 260), currentTariff: text(firstDefined(service.currentTariff, firstValue(caseData, ['profile.tariff'])), 320),
       nextTariff: typeof service.nextTariff === 'string' ? text(service.nextTariff, 320) : null, nextTariffDelay: text(service.nextTariffDelay, 120),
       nextTariffPrice: service.nextTariffPrice ?? null, activeServices: service.activeServices, activeServicesTotal: service.activeServicesTotal,
@@ -245,12 +237,12 @@ function richSubscriberSnapshot(caseId, caseData = {}, snapshot = null, sourceKe
     finance: { accountBalance: firstDefined(finance.accountBalance, ''), price: firstDefined(finance.price, ''), totalDue: firstDefined(finance.totalDue, ''),
       balanceAfterTariff: firstDefined(finance.balanceAfterTariff, firstValue(caseData, ['profile.balance'])), balanceWithoutTemporary: firstDefined(finance.balanceWithoutTemporary, ''),
       temporaryPayment: firstDefined(finance.temporaryPayment, ''), temporaryPaymentText: text(finance.temporaryPaymentText, 260),
-      discount: finance.discount && typeof finance.discount === 'object' ? compactObject(finance.discount) : null },
+      discount: finance.discount && typeof finance.discount === 'object' ? preserveState(finance.discount) : null },
     network: { ip: text(firstDefined(network.ip, firstValue(caseData, ['network.ip'])), 80), mac: text(firstDefined(technical.subscriberMac, firstValue(caseData, ['network.mac'])), 100),
       authStatus: text(auth.title, 180), authorized: auth.authorized === true ? true : auth.authorized === false ? false : null,
       accessAllowed: auth.accessAllowed === true ? true : auth.accessAllowed === false ? false : null, lastActivity: text(auth.lastActivity, 100),
       trafficIncomingBytes: text(network.trafficIncomingBytes, 120), trafficOutgoingBytes: text(network.trafficOutgoingBytes, 120) },
-    technical: compactObject(technical), pon: ponSnapshot(caseData), payments: Array.isArray(snapshot?.payments) ? compactObject(snapshot.payments) : [],
+    technical: preserveState(technical), pon: ponSnapshot(caseData), payments: Array.isArray(snapshot?.payments) ? preserveState(snapshot.payments) : [],
     evidence: { workbenchState: sourceKey, billingSnapshot: snapshot ? BILLING_SNAPSHOT_KEY : '', billingSnapshotObservedAt: text(snapshot?.financeObservedAt || snapshot?.observedAt, 100), fieldObservedAt: snapshot?.fieldObservedAt }
   };
 }

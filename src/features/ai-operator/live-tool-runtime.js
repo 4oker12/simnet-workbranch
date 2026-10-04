@@ -1,5 +1,6 @@
 'use strict';
 
+import { preserveState } from './compact-value.js';
 import * as core from './live-tool-runtime-core.js';
 import { readNetworkSessionLive } from './network-live-search.js';
 import { readBillingSummaryLive } from './billing-summary-live.js';
@@ -19,26 +20,16 @@ function text(value, max = 500) {
   const normalized = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
   return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
 }
-function compactObject(input, maxDepth = 5, depth = 0) {
-  if (depth >= maxDepth) return text(input, 300);
-  if (Array.isArray(input)) return input.slice(0, 16).map(item => compactObject(item, maxDepth, depth + 1));
-  if (!input || typeof input !== 'object') return input;
-  const output = {};
-  for (const [key, raw] of Object.entries(input).slice(0, 80)) {
-    if (/^(?:pp|password|passwd|pass|token|secret|csrf|authorization)$/i.test(key)) continue;
-    output[key] = compactObject(raw, maxDepth, depth + 1);
-  }
-  return output;
-}
+
 function result(tool, ok, code, data = {}, warnings = [], statePatch = {}) {
   return {
     ok: Boolean(ok),
     tool: String(tool || ''),
     code: String(code || (ok ? 'OK' : 'ERROR')),
     observedAt: nowIso(),
-    data: compactObject(data),
+    data: preserveState(data),
     warnings: Array.isArray(warnings) ? warnings.map(item => text(item, 400)).filter(Boolean) : [],
-    statePatch: compactObject(statePatch)
+    statePatch: preserveState(statePatch)
   };
 }
 function billingIdFromLab(labState = {}) {
@@ -481,7 +472,8 @@ async function executeBillingSummaryTool(name, toolArgs = {}, labState = {}) {
       return {
         ...base,
         tool: name,
-        data: normalizedFallbackData,
+        observedAt: base.data?.evidence?.observedAt || base.observedAt || "",
+        data: { ...normalizedFallbackData, evidence: { ...(normalizedFallbackData.evidence || {}), lastAttemptAt: live?.observedAt || nowIso(), reason: live?.code || "BILLING_SUMMARY_READ_FAILED", fallback: true } },
         warnings: [
           ...(Array.isArray(base.warnings) ? base.warnings : []),
           `Billing main-summary table read недоступен (${String(live?.code || 'unknown')}); использован Billing snapshot fallback.`

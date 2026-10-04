@@ -69,6 +69,14 @@ function isRestorePaymentQuestion(requestText = '') {
 }
 
 export function canonicalEvidenceFallbackResult({ requestText = '', factResolution = null, language = '' } = {}) {
+  const policy = buildDialoguePolicyContext({ requestText, labState: factResolution?.context || {} });
+  const hasPersonalFacts = (factResolution?.requestedFacts || []).some(path => /^subscriber\.(?:finance|tariff|service)\./.test(path));
+  if (policy.contractRelationshipClaim === 'NEW_OCCUPANT' && hasPersonalFacts) {
+    const reply = language === 'uk'
+      ? 'Баланс знайденого договору не визначає вашу оплату як нового мешканця. Для нового договору потрібно враховувати умови підключення.'
+      : 'Баланс найденного договора не определяет вашу оплату как нового жильца. Для нового договора нужно учитывать условия подключения.';
+    return { used: true, complete: false, reply, reason: 'new-occupant-contract-ownership' };
+  }
   const requested = Array.isArray(factResolution?.requestedFacts) ? factResolution.requestedFacts : [];
   const map = factMap(factResolution || {});
   const requestedEvidence = requested.map(path => map.get(path)).filter(Boolean);
@@ -166,12 +174,13 @@ export async function groundSubscriberReply(options = {}) {
     options?.analysis?.probe?.latestMessageMeans,
     ...(Array.isArray(options?.analysis?.probe?.unresolvedRequests) ? options.analysis.probe.unresolvedRequests : [])
   ].map(item => oneLine(item, 500)).filter(Boolean).join(' ');
-  const finance = deriveFinanceDecisionEvidence({
+  const dialoguePolicy = buildDialoguePolicyContext({ analysis: options?.analysis, requestText, labState: sourceState, factResolution: originalFactResolution });
+  const newOccupant = dialoguePolicy.contractRelationshipClaim === 'NEW_OCCUPANT';
+  const finance = newOccupant ? { decision: null, evidence: [] } : deriveFinanceDecisionEvidence({
     requestText,
     semanticRequestText: semanticFinanceRequest,
     evidence: originalFactResolution?.evidence || []
   });
-  const dialoguePolicy = buildDialoguePolicyContext({ analysis: options?.analysis, requestText, labState: sourceState, factResolution: originalFactResolution });
   const compactAnalysis = analysisWithDialoguePolicy(options?.analysis, dialoguePolicy, finance.decision);
 
   if (!originalFactResolution) {
@@ -181,7 +190,7 @@ export async function groundSubscriberReply(options = {}) {
 
   const projectedFacts = compactFactResolutionForSynthesis(originalFactResolution);
   const trace = canonicalTrace(originalFactResolution);
-  const canonicalFactEvidence = [...(projectedFacts?.evidence || []), ...finance.evidence];
+  const canonicalFactEvidence = [...(projectedFacts?.evidence || []).filter(item => !newOccupant || !/^subscriber\.(?:finance|tariff|service)\./.test(item.path)), ...finance.evidence];
   const draft = options?.draft || {};
   try {
     const finalReply = await generateGroundedSubscriberReply({

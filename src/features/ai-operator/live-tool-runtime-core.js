@@ -1,5 +1,6 @@
 'use strict';
 
+import { preserveState } from './compact-value.js';
 import { executeOperatorTool as executeLocalOperatorTool, AI_OPERATOR_TOOL_STATE_KEYS } from './tool-runtime.js';
 import { searchBillingLive } from './billing-live-search.js';
 import { searchUserSideLive } from './userside-live-search.js';
@@ -22,26 +23,16 @@ function text(value, max = 500) {
   const normalized = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
   return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
 }
-function compactObject(input, maxDepth = 5, depth = 0) {
-  if (depth >= maxDepth) return text(input, 300);
-  if (Array.isArray(input)) return input.slice(0, 16).map(item => compactObject(item, maxDepth, depth + 1));
-  if (!input || typeof input !== 'object') return input;
-  const output = {};
-  for (const [key, raw] of Object.entries(input).slice(0, 80)) {
-    if (/^(?:pp|password|passwd|pass|token|secret|csrf|authorization)$/i.test(key)) continue;
-    output[key] = compactObject(raw, maxDepth, depth + 1);
-  }
-  return output;
-}
+
 function result(tool, ok, code, data = {}, warnings = [], statePatch = {}) {
   return {
     ok: Boolean(ok),
     tool: String(tool || ''),
     code: String(code || (ok ? 'OK' : 'ERROR')),
     observedAt: nowIso(),
-    data: compactObject(data),
+    data: preserveState(data),
     warnings: Array.isArray(warnings) ? warnings.map(item => text(item, 400)).filter(Boolean) : [],
-    statePatch: compactObject(statePatch)
+    statePatch: preserveState(statePatch)
   };
 }
 function mergeObject(currentValue, incomingValue) {
@@ -92,7 +83,7 @@ export async function persistBillingSnapshots(patch = {}) {
       }
       for (const [field, value] of Object.entries(snapshot[section] || {})) {
         if (value === null || value === undefined || (value === '' && field !== 'nextTariff')) continue;
-        fieldObservedAt[`${section}.${field}`] = snapshot.observedAt || '';
+        fieldObservedAt[`${section}.${field}`] = snapshot.fieldObservedAt?.[`${section}.${field}`] || snapshot.observedAt || '';
       }
     }
     merged[String(billingId)] = {
@@ -603,7 +594,7 @@ export async function executeOperatorTool({ tool, toolArgs = {}, labState = {} }
           liveResult = liveBillingSnapshotResult(name, liveSnapshot);
         }
       }
-      return liveResult;
+      return { ...liveResult, observedAt: liveSnapshot.financeObservedAt || liveSnapshot.observedAt || "" };
     }
   }
 

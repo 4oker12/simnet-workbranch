@@ -18,7 +18,7 @@ test('canonical autonomous instruction generated artifact exactly matches MD sou
   assert.equal(AUTONOMOUS_OPERATOR_INSTRUCTION_SHA256, expectedHash, 'instruction hash must identify exact canonical content');
   assert.deepEqual(AUTONOMOUS_OPERATOR_INSTRUCTION_META, {
     name: 'AUTONOMOUS_OPERATOR',
-    version: 11,
+    version: 12,
     hash: expectedHash
   });
 });

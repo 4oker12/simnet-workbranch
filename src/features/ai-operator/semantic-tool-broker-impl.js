@@ -66,7 +66,7 @@ function removeUnsafeSubstitutions(facts = [], requestText = '') {
   // Contract signing date is a different business fact. Until a dedicated
   // Billing-backed consumption-start canonical fact is verified, keep this
   // request unresolved rather than answering from subscriber.contract.date.
-  return normalized.filter(path => path !== 'subscriber.contract.date');
+  return normalizeCanonicalFacts([...normalized.filter(path => path !== 'subscriber.contract.date'), 'subscriber.service.startDay']);
 }
 
 export function augmentRequiredFactsForTurn({ analysis = {}, transcript = [], requestText = '', labState = {} } = {}) {
@@ -121,7 +121,7 @@ export async function groundSubscriberReply(options = {}) {
   // overwritten while crossing that compatibility bridge.
   const fallback = canonicalEvidenceFallbackResult({
     requestText,
-    factResolution: { requestedFacts: requiredFacts, evidence: result.factEvidence },
+    factResolution: { requestedFacts: requiredFacts, evidence: result.factEvidence, context: result.toolState || options.labState },
     language: nextAnalysis?.probe?.language || ''
   });
   if (!fallback.used) return result;

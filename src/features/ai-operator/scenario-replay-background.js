@@ -3,6 +3,7 @@
 import { AI_OPERATOR_LAB_KEY, runIsolatedLabCase } from './lab-background.js';
 import { executeOperatorTool } from './live-tool-runtime.js';
 import { SCENARIO_REPLAY_CASES, getScenarioReplayCase, listScenarioReplayCases } from './scenario-replay-cases.js';
+import { compactText } from './compact-value.js';
 import { checkpointForTurn, compareScenarioRuns, firstRetryableTurn, runScenario } from './scenario-replay.js';
 
 const STORAGE_KEY = 'simnet_ai_operator_scenario_replay_v1';
@@ -20,10 +21,7 @@ let activeController = null;
 let activeMeta = null;
 
 function clone(value) { return value == null ? value : JSON.parse(JSON.stringify(value)); }
-function compact(value, max = 1000) {
-  const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
-}
+function compact(value, max = 1000) { return compactText(value, max); }
 
 async function currentLabState() {
   const raw = (await chrome.storage.local.get(AI_OPERATOR_LAB_KEY))?.[AI_OPERATOR_LAB_KEY];

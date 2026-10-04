@@ -1,5 +1,6 @@
 'use strict';
 
+import { isGeneralProductQuestion } from './dialogue-policy.js';
 import * as base from './semantic-probe-runtime-base.js';
 import {
   SIMNET_KNOWLEDGE_VERSION,
@@ -100,7 +101,7 @@ export async function analyzeSubscriberIntent(options = {}) {
   };
 
   const shouldRetrieve = requestedMode === 'on'
-    || (requestedMode === 'auto' && base.shouldReadKnowledge(semanticWithContext?.probe || {}));
+    || (requestedMode === 'auto' && (base.shouldReadKnowledge(semanticWithContext?.probe || {}) || isGeneralProductQuestion(options?.latestCustomer?.text || '')));
   if (!shouldRetrieve) {
     return {
       ...semanticWithContext,
