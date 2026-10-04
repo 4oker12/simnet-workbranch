@@ -1,6 +1,6 @@
 import { recordApiUsage } from './api-cost.js';
 import { AI_CONFIG, readAiRuntimeConfig } from '../../config/ai-config.js';
-import { SIMNET_KNOWLEDGE_VERSION, knowledgeQueryFromUnderstanding, searchKnowledgeLibrary } from './knowledge/index.js';
+import { SIMNET_KNOWLEDGE_VERSION, SIMNET_KNOWLEDGE, knowledgeQueryFromUnderstanding, searchKnowledgeLibrary } from './knowledge/index.js';
 import { autonomousOperatorSystemMessages } from './instructions/autonomous-operator-instruction.generated.js';
 import { behaviorRuntimeHints } from './behavior-profile.js';
 import { CANONICAL_FACT_PATHS, normalizeCanonicalFacts } from './canonical-fact-catalog.js';
@@ -384,6 +384,56 @@ export function shouldReadKnowledge(probe = {}) {
   return normalizeKnowledgeNeed(probe.knowledgeNeed || probe.knowledge_need) !== 'none';
 }
 
+function knowledgeScopeText({ probe = {}, latestCustomer = {} } = {}) {
+  return [
+    probe.whatUserWants,
+    probe.latestMessageMeans,
+    probe.refersTo,
+    probe.underlyingGoal,
+    ...(probe.unresolvedRequests || []),
+    latestCustomer?.text
+  ].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+}
+
+export function isGeneralTariffCatalogQuestion({ probe = {}, latestCustomer = {} } = {}) {
+  const source = knowledgeScopeText({ probe, latestCustomer }).toLowerCase();
+  if (!source) return false;
+  const tariffWord = /(?:тариф|пакет|швидк|скорост)/iu.test(source);
+  const catalogCue = /(?:какие|які|что есть|що є|вообще|взагалі|обычн|звичайн|для квартиры|для квартири|вариант|варіант)/iu.test(source);
+  const personalCue = /(?:мой|мо[её]м|у меня|мого|моєму|у мене|по договору|за договором).{0,45}(?:тариф|пакет|скорост|швидк)|(?:тариф|пакет|скорост|швидк).{0,45}(?:мой|у меня|мого|у мене|по договору|за договором)/iu.test(source);
+  return tariffWord && catalogCue && !personalCue;
+}
+
+function mergeKnowledgeCandidates(primary = [], forcedIds = []) {
+  const byId = new Map((Array.isArray(primary) ? primary : []).map(item => [item.id, item]));
+  for (const id of forcedIds) {
+    if (byId.has(id)) continue;
+    const article = SIMNET_KNOWLEDGE.find(item => item.id === id);
+    if (article) byId.set(id, { ...article, score: 1000 });
+  }
+  return [...byId.values()].slice(0, 6);
+}
+
+function forceTariffCatalogKnowledge(knowledge = {}, candidateArticles = []) {
+  const forcedIds = ['tariff.residential', 'tariff.residential-new-connection'];
+  const selected = new Map((knowledge.usedArticles || []).map(item => [item.id, item]));
+  for (const id of forcedIds) {
+    if (!candidateArticles.some(article => article.id === id)) continue;
+    if (!selected.has(id)) selected.set(id, {
+      id,
+      why: 'Общий вопрос о квартирных тарифах требует сравнить действующую и новую квартирную сетку.'
+    });
+  }
+  const usedArticles = [...selected.values()].slice(0, 6);
+  return {
+    ...knowledge,
+    skipped: false,
+    skipReason: '',
+    usedArticles,
+    articleEvidence: selectedArticleEvidence(usedArticles, candidateArticles)
+  };
+}
+
 function articlePayload(article) {
   return { id: article.id, title: article.title, summary: article.summary, text: block(article.text, 2400) };
 }
@@ -522,16 +572,21 @@ export async function analyzeSubscriberIntent({ transcript = [], latestCustomer 
   let candidateArticles = [];
   let knowledgeMessages = [];
   let knowledgeResponse = null;
-  const readKnowledge = mode === 'on' || (mode === 'auto' && shouldReadKnowledge(probe));
+  const forcedTariffCatalog = mode !== 'off' && isGeneralTariffCatalogQuestion({ probe, latestCustomer });
+  const readKnowledge = mode === 'on' || (mode === 'auto' && (shouldReadKnowledge(probe) || forcedTariffCatalog));
   let knowledge = skippedKnowledge(probe, mode === 'off' ? 'knowledge_mode_off' : 'semantic_gate_none');
 
   if (readKnowledge) {
     const query = knowledgeQueryFromUnderstanding({ probe, latestCustomer });
-    candidateArticles = searchKnowledgeLibrary(query, { limit: 4, minScore: 4 });
+    candidateArticles = searchKnowledgeLibrary(query, { limit: 6, minScore: 4 });
+    if (forcedTariffCatalog) {
+      candidateArticles = mergeKnowledgeCandidates(candidateArticles, ['tariff.residential', 'tariff.residential-new-connection']);
+    }
     if (candidateArticles.length) {
       knowledgeMessages = buildKnowledgeReflectionMessages({ probe, candidateArticles });
       knowledgeResponse = await requestJsonWithFallback(knowledgeMessages, runtime, { ...meterContext, stage: 'knowledge' }, { maxTokens: JSON_REPAIR_TOKENS });
       knowledge = normalizeKnowledgeReflection(knowledgeResponse.parsed || parseJsonObject(knowledgeResponse.answer), candidateArticles);
+      if (forcedTariffCatalog) knowledge = forceTariffCatalogKnowledge(knowledge, candidateArticles);
     } else {
       knowledge = skippedKnowledge(probe, 'no_relevant_articles');
     }
@@ -561,7 +616,7 @@ export async function analyzeSubscriberIntent({ transcript = [], latestCustomer 
       language: probe.language,
       diagnostic: {
         promptGuard: { model: guard.model, output: guard.output, error: guard.error || '', skipped: Boolean(guard.skipped), skipReason: guard.skipReason || '' },
-        knowledgeGate: { mode, need: probe.knowledgeNeed, reason: probe.knowledgeReason, skipped: knowledge.skipped },
+        knowledgeGate: { mode, need: probe.knowledgeNeed, reason: probe.knowledgeReason, skipped: knowledge.skipped, forcedTariffCatalog },
         evidencePlan: { liveDataNeed: probe.liveDataNeed, needs: probe.evidenceNeeds },
         understanding: probe,
         knowledge,
