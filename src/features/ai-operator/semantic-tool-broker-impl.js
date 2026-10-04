@@ -5,6 +5,7 @@ import { normalizeCanonicalFacts } from './canonical-fact-catalog.js';
 import { isConsumptionStartQuestion, requiredFactsForDialogueTurn } from './dialogue-runtime-state.js';
 import { financeRequiredFacts } from './finance-decision-nodes.js';
 import { canonicalEvidenceFallbackResult } from './semantic-tool-broker-core.js';
+import { isAddressSpecificAvailabilityQuestion, isGeneralProductQuestion } from './dialogue-policy.js';
 
 export * from './semantic-tool-broker-impl-base.js';
 
@@ -22,12 +23,46 @@ function removeUnsafeSubstitutions(facts = [], requestText = '') {
   return normalized.filter(path => path !== 'subscriber.contract.date');
 }
 
+function hasKnownServiceAddress(labState = {}) {
+  return Boolean(
+    String(labState?.confirmedSubscriber?.address || '').trim()
+    || String(labState?.domainContext?.activeServiceAddress?.fullAddress || '').trim()
+    || String(labState?.domainContext?.activeBuildingAddress || '').trim()
+  );
+}
+
+function addressContextSupportFacts(requestText = '', labState = {}) {
+  if (!hasKnownServiceAddress(labState) || !isAddressSpecificAvailabilityQuestion(requestText)) return [];
+  const request = String(requestText || '').toLowerCase();
+  const facts = ['subscriber.serviceAddress.fullAddress'];
+  if (/(?:gpon|epon|\bpon\b|оптик|технолог|волокн)/iu.test(request)) {
+    facts.push('subscriber.access.connectionFamily');
+  }
+  if (/(?:гигабит|гігабіт|\b1000\b|скорост|швидк)/iu.test(request)) {
+    facts.push('subscriber.tariff.current.speed');
+  }
+  return facts;
+}
+
+function removeIrrelevantBuildingFacts(facts = [], requestText = '') {
+  const normalized = normalizeCanonicalFacts(facts);
+  if (!isGeneralProductQuestion(requestText) || isAddressSpecificAvailabilityQuestion(requestText)) return normalized;
+  // General tariff/payment/process questions do not become building-coverage questions
+  // merely because this dialogue already has a service address.
+  return normalized.filter(path => !path.startsWith('building.'));
+}
+
 export function augmentRequiredFactsForTurn({ analysis = {}, transcript = [], requestText = '', labState = {} } = {}) {
   const currentText = String(requestText || latestCustomerText(transcript) || '').trim();
   const semanticFacts = analysis?.probe?.requiredFacts || analysis?.probe?.required_facts || [];
   const dialogueFacts = requiredFactsForDialogueTurn({ analysis, requestText: currentText, labState });
   const deterministicFinanceFacts = financeRequiredFacts(currentText);
-  return removeUnsafeSubstitutions([...semanticFacts, ...dialogueFacts, ...deterministicFinanceFacts], currentText);
+  const addressSupportFacts = addressContextSupportFacts(currentText, labState);
+  const safeFacts = removeUnsafeSubstitutions(
+    [...semanticFacts, ...dialogueFacts, ...deterministicFinanceFacts, ...addressSupportFacts],
+    currentText
+  );
+  return removeIrrelevantBuildingFacts(safeFacts, currentText);
 }
 
 export async function groundSubscriberReply(options = {}) {
