@@ -88,6 +88,8 @@ export function canonicalEvidenceFallbackResult({ requestText = '', factResoluti
   const serviceState = known(map, 'subscriber.service.serviceState');
   const tariffName = known(map, 'subscriber.tariff.current.name');
   const tariffPrice = known(map, 'subscriber.tariff.current.price');
+  const tariffSpeed = known(map, 'subscriber.tariff.current.speed');
+  const serviceAddress = known(map, 'subscriber.serviceAddress.fullAddress');
   const connectionFamily = known(map, 'subscriber.access.connectionFamily');
   const buildingGpon = known(map, 'building.gpon');
   const contractNumber = known(map, 'subscriber.contract.number');
@@ -116,6 +118,14 @@ export function canonicalEvidenceFallbackResult({ requestText = '', factResoluti
     const value = moneyText(tariffPrice);
     if (value) add('subscriber.tariff.current.price', uk ? `Ціна: ${value} грн.` : `Цена: ${value} грн.`);
   }
+  if (tariffSpeed !== undefined) {
+    const value = numberValue(tariffSpeed);
+    if (value !== null) add('subscriber.tariff.current.speed', uk ? `На знайденому підключенні тарифна швидкість: ${value} Мбіт/с.` : `На найденном подключении тарифная скорость: ${value} Мбит/с.`);
+  }
+  if (serviceAddress !== undefined) {
+    const value = humanState(serviceAddress);
+    if (value) add('subscriber.serviceAddress.fullAddress', uk ? `Адреса цього підключення: ${value}.` : `Адрес этого подключения: ${value}.`);
+  }
   if (connectionFamily !== undefined) {
     const value = humanState(connectionFamily);
     if (value) add('subscriber.access.connectionFamily', uk ? `Тип підключення: ${value}.` : `Тип подключения: ${value}.`);
@@ -142,6 +152,18 @@ export function canonicalEvidenceFallbackResult({ requestText = '', factResoluti
         : 'Точную сумму именно для восстановления услуги по этим данным однозначно определить нельзя.';
       complete = false;
     }
+  }
+
+  const unresolvedBuildingAvailability = requested.some(path => (
+    ['building.gpon', 'building.canConnectSubscribers'].includes(path)
+    && !['known'].includes(String(map.get(path)?.status || 'unknown'))
+  ));
+  if (unresolvedBuildingAvailability && (connectionFamily !== undefined || tariffSpeed !== undefined)) {
+    const scopeNote = uk
+      ? 'Ці дані підтверджують параметри знайденого підключення за цією адресою, але не замінюють окрему перевірку покриття всього будинку.'
+      : 'Эти данные подтверждают параметры найденного подключения по этому адресу, но не заменяют отдельную проверку покрытия всего дома.';
+    note = [note, scopeNote].filter(Boolean).join(' ');
+    complete = false;
   }
 
   const reply = oneLine([...parts, note].filter(Boolean).join(' '), 1800);

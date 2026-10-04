@@ -30,8 +30,11 @@ export function isGeneralProductQuestion(requestText = '') {
 
 export function isAddressSpecificAvailabilityQuestion(requestText = '') {
   const request = lower(requestText);
-  return /(?:у\s+меня\s+дома|у\s+мене\s+вдома|по\s+адресу|по\s+моєму\s+адресу|на\s+моей\s+улице).{0,40}(?:gpon|epon|оптик|гигабит|гігабіт|доступн)/iu.test(request)
-    || /(?:есть\s+ли|чи\s+є).{0,30}(?:gpon|оптик).{0,30}(?:дом|адрес|вул)/iu.test(request);
+  const place = '(?:у\\s+меня\\s+дома|у\\s+мене\\s+вдома|по\\s+(?:(?:моему|цьому|этому)\\s+)?дому|по\\s+(?:(?:моєму|цьому)\\s+)?будинку|на\\s+(?:(?:мо[её]м|цьому|этом)\\s+)?доме|на\\s+(?:(?:моєму|цьому)\\s+)?будинку|(?:(?:моему|этому|цьому)\\s+дому|(?:моєму|цьому)\\s+будинку)|по\\s+адресу|за\\s+адресою|по\\s+моєму\\s+адресу|на\\s+моей\\s+улице)';
+  const capability = '(?:gpon|epon|\\bpon\\b|оптик|гиг(?:абит)?|гіг(?:абіт)?|покрыт|покрит|доступн|возможн|можлив)';
+  return new RegExp(`${place}.{0,55}${capability}`, 'iu').test(request)
+    || new RegExp(`${capability}.{0,55}${place}`, 'iu').test(request)
+    || /(?:есть\\s+ли|чи\\s+є).{0,30}(?:gpon|epon|\\bpon\\b|оптик|гиг(?:абит)?|гіг(?:абіт)?).{0,35}(?:дом|будин|адрес|вул)/iu.test(request);
 }
 
 function hasConfirmedServiceAddress(labState = {}) {
@@ -123,8 +126,9 @@ export function evaluateDialoguePolicy({ reply = '', requestText = '', labState 
   }
 
   if (explained.length && body.length > 180) {
-    const hits = explained.filter(fact => fact && lower(body).includes(fact)).length;
-    if (hits >= 2 && /(?:как\s+я\s+(?:уже\s+)?(?:говорил|писал)|напомню|повторю|як\s+я\s+(?:вже\s+)?(?:казав|писав))/iu.test(body)) violations.push({ code: DIALOGUE_VIOLATION.REPEATED_INFORMATION, reason: 'Reply re-explains multiple already shared facts on a short follow-up path' });
+    const normalizedBody = lower(body);
+    const hits = explained.filter(fact => fact && fact.length >= 12 && normalizedBody.includes(fact)).length;
+    if (hits >= 2) violations.push({ code: DIALOGUE_VIOLATION.REPEATED_INFORMATION, reason: 'Reply re-explains multiple already shared facts instead of advancing the current turn' });
   }
 
   const corporateBotPhrase = hasCorporateBotPhrase(body);

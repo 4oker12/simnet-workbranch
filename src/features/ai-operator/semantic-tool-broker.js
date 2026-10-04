@@ -2,6 +2,7 @@
 
 import * as base from './semantic-tool-broker-runtime-base.js';
 import { applyDialoguePolicy } from './dialogue-policy.js';
+import { recordDialogueReply } from './dialogue-runtime-state.js';
 
 export * from './semantic-tool-broker-runtime-base.js';
 
@@ -20,10 +21,24 @@ function latestRequest(options = {}) {
  * outside that legacy trace, so a source-backed canonical fallback must have
  * higher priority than raw/summary KB text.
  */
+function withReplyMemory(result = {}, options = {}) {
+  const reply = String(result?.reply || '').trim();
+  if (!reply) return result;
+  return {
+    ...result,
+    toolState: recordDialogueReply({
+      labState: result?.toolState || options?.labState || {},
+      reply
+    })
+  };
+}
+
 export async function groundSubscriberReply(options = {}) {
   const result = await base.groundSubscriberReply(options);
   const fallback = result?.evidenceFallback;
-  if (!result?.generationDegraded || !fallback?.used || !String(fallback?.reply || '').trim()) return result;
+  if (!result?.generationDegraded || !fallback?.used || !String(fallback?.reply || '').trim()) {
+    return withReplyMemory(result, options);
+  }
 
   const toolState = result?.toolState || options?.labState || {};
   const actionToolsCalled = (Array.isArray(result?.toolTrace) ? result.toolTrace : [])
@@ -40,7 +55,7 @@ export async function groundSubscriberReply(options = {}) {
     hasWriteCapability: false
   });
 
-  return {
+  return withReplyMemory({
     ...result,
     reply: policed.reply || fallback.reply,
     dialoguePolice: policed.dialoguePolice || null,
@@ -50,5 +65,5 @@ export async function groundSubscriberReply(options = {}) {
     degraded: fallback.complete ? false : true,
     degradationReason: fallback.complete ? '' : String(result?.degradationReason || result?.generationDegradationReason || ''),
     generationDegraded: true
-  };
+  }, options);
 }

@@ -194,3 +194,37 @@ assert.equal(absentFactFallback.complete, false, 'an absent fact that was not re
 assert.deepEqual(absentFactFallback.representedRequestedFacts, ['subscriber.finance.balance.account']);
 
 console.log('ai_operator_scenario_audit_regressions_test: ok');
+
+
+const scopedCoverageFallback = canonicalEvidenceFallbackResult({
+  requestText: 'По дому есть GPON или гигабитная возможность?',
+  language: 'ru',
+  factResolution: {
+    requestedFacts: [
+      'building.gpon',
+      'subscriber.serviceAddress.fullAddress',
+      'subscriber.access.connectionFamily',
+      'subscriber.tariff.current.speed'
+    ],
+    evidence: [
+      { path: 'building.gpon', status: 'unknown', value: null },
+      { path: 'subscriber.serviceAddress.fullAddress', status: 'known', value: 'вул. Планерна, буд. 1, блок 28, кв. 3' },
+      { path: 'subscriber.access.connectionFamily', status: 'known', value: 'EPON' },
+      { path: 'subscriber.tariff.current.speed', status: 'known', value: 1000 }
+    ]
+  }
+});
+assert.equal(scopedCoverageFallback.complete, false);
+assert.match(scopedCoverageFallback.reply, /EPON/);
+assert.match(scopedCoverageFallback.reply, /1000/);
+assert.match(scopedCoverageFallback.reply, /не заменяют отдельную проверку покрытия всего дома/i);
+
+const repeatedBackground = applyDialoguePolicy({
+  requestText: 'А скорость какая?',
+  alreadyExplainedFacts: [
+    'Старый договор прежнего владельца к новому жильцу не относится.',
+    'По этому адресу уже найдено существующее подключение.'
+  ],
+  reply: 'Старый договор прежнего владельца к новому жильцу не относится. По этому адресу уже найдено существующее подключение. Эти два факта мы уже установили раньше и повторять их здесь не нужно; по текущему вопросу важна только скорость тарифа — 1000 Мбит/с.'
+});
+assert.ok(repeatedBackground.dialoguePolice.violations.includes(DIALOGUE_VIOLATION.REPEATED_INFORMATION));

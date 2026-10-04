@@ -131,6 +131,56 @@ export function buildDialoguePolicyContext({ analysis = {}, requestText = '', la
   };
 }
 
+
+
+function replyMemoryUnits(reply = '') {
+  const source = text(reply, 2600);
+  if (!source) return [];
+  return unique(
+    source
+      .split(/(?<=[.!?])\s+/u)
+      .map(sentence => text(sentence, 320))
+      .filter(sentence => sentence.length >= 12)
+      .filter(sentence => !/\?\s*$/u.test(sentence))
+      .filter(sentence => !/^(?:понял|понимаю|зрозумів|розумію|хорошо|добре|спасибо|дякую|поздравляю)\b/iu.test(sentence))
+      .filter(sentence => !/(?:если\s+хотите|якщо\s+хочете|хотите[, ]|хочете[, ]|могу\s+(?:уточнить|подсказать|проверить|передать|оформить)|можу\s+(?:уточнити|підказати|перевірити|передати|оформити)|подскажите|підкажіть|уточните|уточніть|как\s+удобнее|як\s+зручніше)/iu.test(sentence)),
+    12
+  );
+}
+
+/**
+ * Remember what the customer was actually told after final reply synthesis/policy.
+ *
+ * This is dialogue-progress memory only. It must never be treated as evidence:
+ * an earlier AI answer can suppress repetition, but cannot prove a business fact.
+ */
+export function recordDialogueReply({ labState = {}, reply = '' } = {}) {
+  const state = labState && typeof labState === 'object' && !Array.isArray(labState)
+    ? JSON.parse(JSON.stringify(labState))
+    : {};
+  const communicated = replyMemoryUnits(reply);
+  if (!communicated.length) return state;
+
+  const domain = state.domainContext && typeof state.domainContext === 'object' && !Array.isArray(state.domainContext)
+    ? state.domainContext
+    : {};
+  const dialogue = domain.dialogue && typeof domain.dialogue === 'object' && !Array.isArray(domain.dialogue)
+    ? domain.dialogue
+    : {};
+  const previous = readDialogueMemory(state);
+  // Prefer recent communication if the bounded memory is full.
+  const explained = unique([...previous.alreadyExplainedFacts.slice(-20), ...communicated], 32);
+  state.domainContext = {
+    ...domain,
+    dialogue: {
+      ...dialogue,
+      alreadyExplainedFacts: explained
+    }
+  };
+  state.alreadyExplainedFacts = explained;
+  return state;
+}
+
 export function updateDialogueMemory({ labState = {}, analysis = {}, requestText = '', factResolution = null } = {}) {
   const state = labState && typeof labState === 'object' && !Array.isArray(labState) ? JSON.parse(JSON.stringify(labState)) : {};
   const domain = state.domainContext && typeof state.domainContext === 'object' && !Array.isArray(state.domainContext) ? state.domainContext : {};
