@@ -38,7 +38,7 @@ function addressContextSupportFacts(requestText = '', labState = {}) {
   if (/(?:gpon|epon|\bpon\b|оптик|технолог|волокн)/iu.test(request)) {
     facts.push('subscriber.access.connectionFamily');
   }
-  if (/(?:гигабит|гігабіт|\b1000\b|скорост|швидк)/iu.test(request)) {
+  if (/(?:гиг(?:абит)?|гіг(?:абіт)?|\b1000\b|скорост|швидк)/iu.test(request)) {
     facts.push('subscriber.tariff.current.speed');
   }
   return facts;
