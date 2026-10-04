@@ -58,3 +58,21 @@ const afterPaymentFacts = augmentRequiredFactsForTurn({
   labState: addressState
 });
 assert.ok(!afterPaymentFacts.some(path => path.startsWith('building.')), 'payment/process follow-up must not drag building coverage into the turn');
+
+
+const colloquialCoverageFacts = augmentRequiredFactsForTurn({
+  analysis: { probe: { requiredFacts: ['building.gpon'] } },
+  requestText: 'Гиг на доме есть вообще?',
+  transcript: [],
+  labState: addressState
+});
+assert.ok(colloquialCoverageFacts.includes('subscriber.tariff.current.speed'));
+assert.ok(colloquialCoverageFacts.includes('subscriber.serviceAddress.fullAddress'));
+
+const ironyCoverageFacts = augmentRequiredFactsForTurn({
+  analysis: { probe: { requiredFacts: ['building.gpon'] } },
+  requestText: 'Гигабит этому дому цивилизация уже принесла?',
+  transcript: [],
+  labState: addressState
+});
+assert.ok(ironyCoverageFacts.includes('subscriber.tariff.current.speed'));
