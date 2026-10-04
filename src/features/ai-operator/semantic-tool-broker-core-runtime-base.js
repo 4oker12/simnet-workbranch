@@ -429,6 +429,7 @@ function knownFactValue(factResolution = null, path = '') {
 
 function numericFact(factResolution, path) {
   const value = knownFactValue(factResolution, path);
+  if (value === null || value === undefined || value === '') return null;
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
 }
@@ -436,7 +437,7 @@ function numericFact(factResolution, path) {
 function assertiveWorkingClaim(reply = '') {
   const source = oneLine(reply, 2200).toLowerCase();
   if (!source) return false;
-  if (/(?:не|нельзя|невозможно|не\s+подтверждено|не\s+означает).{0,40}(?:работает|працює|работоспособ|працездат)/iu.test(source)) return false;
+  if (/(?:\bне\b|\bнельзя\b|\bневозможно\b|\bне\s+подтверждено\b|\bне\s+означает\b).{0,40}(?:работает|працює|работоспособ|працездат)/iu.test(source)) return false;
   return /(?:интернет|услуг[аи]|подключени[ея]).{0,30}(?:работает|працює|всё\s+ок|все\s+ок|в\s+порядке)|(?:всё|все).{0,12}(?:работает|працює|в\s+порядке)/iu.test(source);
 }
 
