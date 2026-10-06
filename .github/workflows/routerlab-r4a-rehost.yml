@@ -88,6 +88,12 @@ jobs:
               "get_languages",
               "location",
               "language",
+              "getLoginInfo",
+              "getLoginDesp",
+              "setCookie",
+              "token",
+              "init:1",
+              "init=1",
           )
 
           for path in candidates:
@@ -549,6 +555,46 @@ jobs:
 
           echo "languages_after_http=$(req GET languages-after /cgi-bin/luci/api/xqsystem/get_languages)" | tee -a "$OUT/result.txt"
           cat "$OUT/languages-after.json" | tee -a "$OUT/result.txt"
+
+          # Compare the same calls after the exact factory init login. If the
+          # unauthenticated browser path is rejected but the stok path succeeds,
+          # the missing compatibility contract is pre-init auth/session handling,
+          # not the country/language business logic itself.
+          account_hash="$(awk '/option .admin./ {gsub(/\047/,"",$3); print $3; exit}' "$BASE/runtime/rootfs/etc/config/account")"
+          device='routerlab-browser'
+          now="$(date +%s)"
+          nonce="0_${device}_${now}_3001"
+          oldpwd="$(python3 -c 'import hashlib,sys; print(hashlib.sha1((sys.argv[1]+sys.argv[2]).encode()).hexdigest())' "$nonce" "$account_hash")"
+          login_http="$(curl -sS --max-time 20 -G             -H 'Host: router.miwifi.com'             -c "$OUT/factory.cookies"             -o "$OUT/factory-login.json"             -w '%{http_code}'             --data-urlencode 'username=admin'             --data-urlencode 'logtype=2'             --data-urlencode "password=$oldpwd"             --data-urlencode "nonce=$nonce"             --data-urlencode 'init=1'             'http://127.0.0.1:18090/cgi-bin/luci/api/xqsystem/login')"
+          echo "factory_login_http=$login_http" | tee -a "$OUT/result.txt"
+          cat "$OUT/factory-login.json" | tee -a "$OUT/result.txt"
+          token="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("token",""))' "$OUT/factory-login.json")"
+          test "${#token}" = "32"
+
+          auth_req() {
+            local method="$1" tag="$2" path="$3" data="${4:-}"
+            local url="http://127.0.0.1:18090/cgi-bin/luci/;stok=$token$path"
+            if [ "$method" = "GET" ]; then
+              curl -sS --max-time 20                 -H 'Host: router.miwifi.com'                 -b "$OUT/factory.cookies"                 -D "$OUT/$tag.headers"                 -o "$OUT/$tag.json"                 -w '%{http_code}'                 "$url"
+            else
+              curl -sS --max-time 20                 -H 'Host: router.miwifi.com'                 -H 'Content-Type: application/x-www-form-urlencoded'                 -b "$OUT/factory.cookies"                 -D "$OUT/$tag.headers"                 -o "$OUT/$tag.json"                 -w '%{http_code}'                 --data "$data"                 "$url"
+            fi
+          }
+
+          echo "auth_languages_http=$(auth_req GET auth-languages /api/xqsystem/get_languages)" | tee -a "$OUT/result.txt"
+          cat "$OUT/auth-languages.json" | tee -a "$OUT/result.txt"
+
+          echo "auth_set_location_ua_http=$(auth_req POST auth-set-location-ua /api/misystem/set_location 'location=UA')" | tee -a "$OUT/result.txt"
+          cat "$OUT/auth-set-location-ua.json" | tee -a "$OUT/result.txt"
+
+          echo "auth_init_after_location_http=$(curl -sS --max-time 20 -H 'Host: router.miwifi.com' -o "$OUT/auth-init-after-location.json" -w '%{http_code}' 'http://127.0.0.1:18090/cgi-bin/luci/api/xqsystem/init_info')" | tee -a "$OUT/result.txt"
+          cat "$OUT/auth-init-after-location.json" | tee -a "$OUT/result.txt"
+
+          echo "auth_set_language_uk_http=$(auth_req POST auth-set-language-uk /api/xqsystem/set_language 'language=uk_ua')" | tee -a "$OUT/result.txt"
+          cat "$OUT/auth-set-language-uk.json" | tee -a "$OUT/result.txt"
+
+          echo "auth_set_language_en_http=$(auth_req POST auth-set-language-en /api/xqsystem/set_language 'language=en')" | tee -a "$OUT/result.txt"
+          cat "$OUT/auth-set-language-en.json" | tee -a "$OUT/result.txt"
 
           cp "$BASE/logs/frontdoor.log" "$OUT/frontdoor.log" || true
           cp "$BASE/logs/fcgi.log" "$OUT/fcgi.log" || true
