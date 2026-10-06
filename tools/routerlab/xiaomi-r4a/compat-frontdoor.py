@@ -16,6 +16,7 @@ No router business logic is implemented here.
 from __future__ import annotations
 
 import argparse
+import json
 import mimetypes
 import os
 import socket
@@ -181,6 +182,24 @@ class RouterLabHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlsplit(self.path)
         path = parsed.path
 
+        # Stock sysapihttpd redirects browser access to /init.html while the
+        # router is uninitialized. The custom Xiaomi transport cannot run under
+        # qemu-user, so reproduce only that transport decision and ask the exact
+        # stock LuCI init_info endpoint for the authoritative state.
+        if (
+            self.cfg.stock_init_gate
+            and self.command in {"GET", "HEAD"}
+            and path in {"/", "/cgi-bin/luci", "/cgi-bin/luci/", "/cgi-bin/luci/web", "/cgi-bin/luci/web/"}
+        ):
+            inited = self._stock_inited()
+            if inited is False:
+                self.send_response(302)
+                self.send_header("Location", "/init.html")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+
         if path == "/api-third-party" or path.startswith("/api-third-party/"):
             self._cgi(parsed, head_only)
             return
@@ -189,6 +208,55 @@ class RouterLabHandler(BaseHTTPRequestHandler):
             return
 
         self._static(path, head_only)
+
+    def _stock_inited(self) -> bool | None:
+        path = "/cgi-bin/luci/api/xqsystem/init_info"
+        env = {
+            "GATEWAY_INTERFACE": "CGI/1.1",
+            "SERVER_SOFTWARE": "nginx/1.2.2",
+            "SERVER_PROTOCOL": self.request_version,
+            "REQUEST_METHOD": "GET",
+            "REQUEST_URI": path,
+            "DOCUMENT_URI": path,
+            "DOCUMENT_ROOT": "/www",
+            "SCRIPT_FILENAME": "/www/cgi-bin/luci",
+            "SCRIPT_NAME": "/cgi-bin/luci",
+            "PATH_INFO": "/api/xqsystem/init_info",
+            "QUERY_STRING": "",
+            "REMOTE_ADDR": self.cfg.client_ip,
+            "REMOTE_PORT": str(self.client_address[1]),
+            "SERVER_ADDR": self.cfg.router_ip,
+            "SERVER_PORT": "80",
+            "SERVER_NAME": self.cfg.router_host,
+            "HTTP_HOST": self.headers.get("Host", self.cfg.router_host),
+            "CONTENT_TYPE": "",
+            "CONTENT_LENGTH": "0",
+            "HTTPS": "",
+        }
+        try:
+            raw, fcgi_stderr = fastcgi_request(
+                self.cfg.fcgi_host,
+                self.cfg.fcgi_port,
+                env,
+                b"",
+                self.cfg.fcgi_timeout,
+            )
+            if fcgi_stderr:
+                sys.stderr.write(
+                    "[compat-frontdoor] init gate fcgi stderr: "
+                    + fcgi_stderr.decode("utf-8", "replace")
+                    + "\n"
+                )
+            status, _, payload = parse_cgi_response(raw)
+            if status != 200:
+                return None
+            data = json.loads(payload.decode("utf-8", "replace"))
+            value = data.get("inited")
+            if value in (0, 1):
+                return bool(value)
+        except Exception as exc:
+            sys.stderr.write(f"[compat-frontdoor] init gate unavailable: {exc}\n")
+        return None
 
     def _body(self) -> bytes:
         raw_len = self.headers.get("Content-Length", "0")
@@ -309,6 +377,11 @@ def main() -> int:
     parser.add_argument("--router-host", default="router.miwifi.com")
     parser.add_argument("--client-ip", default="192.168.31.100")
     parser.add_argument("--max-body", type=int, default=64 * 1024 * 1024)
+    parser.add_argument(
+        "--stock-init-gate",
+        action="store_true",
+        help="reproduce stock sysapihttpd's uninitialized-browser redirect using stock init_info",
+    )
     args = parser.parse_args()
 
     args.rootfs = args.rootfs.resolve()
