@@ -53,3 +53,12 @@ test('rehost is bounded and has explicit classifications', () => {
     assert.match(script, new RegExp(state));
   }
 });
+
+
+test('rehost script structure is not duplicated or truncated', () => {
+  assert.equal((script.match(/#!\/usr\/bin\/env bash/g) || []).length, 1);
+  assert.equal((script.match(/stop_previous\(\) \{/g) || []).length, 1);
+  assert.equal((script.match(/# Reproduce ngxld's runtime-config preparation/g) || []).length, 1);
+  assert.equal((script.match(/# Start exact stock FCGI\/LuCI/g) || []).length, 1);
+  assert.match(script, /STOCK RUNTIME DIAGNOSTIC/);
+});
