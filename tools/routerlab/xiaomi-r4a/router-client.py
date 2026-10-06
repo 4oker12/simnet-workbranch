@@ -30,6 +30,7 @@ from typing import Any
 PWDKEY = "a2ffa5c9be07488bbb04a3a47d3c5f6a"
 PWD_IV = "64175472480004614961023454661220"
 FACTORY_ADMIN = "admin"
+HEAVY_FIRST_RUN_TIMEOUT_SECONDS = 35.0
 
 
 class RouterClientError(RuntimeError):
@@ -278,21 +279,26 @@ class XiaomiR4AClient:
         new_hash = _stock_password_hash(admin_password)
         new_pwd = _encrypt_new_password(new_hash, account_hash)
 
-        data = self.stock_post(
-            token,
-            "/api/misystem/set_router_normal",
-            {
-                "name": router_name,
-                "locale": "Home",
-                "ssid": ssid,
-                "password": wifi_password,
-                "encryption": "mixed-psk",
-                "nonce": nonce,
-                "newPwd": new_pwd,
-                "oldPwd": _nonce_password(nonce, account_hash),
-                "txpwr": "0",
-            },
-        )
+        original_timeout = self.timeout
+        self.timeout = max(self.timeout, HEAVY_FIRST_RUN_TIMEOUT_SECONDS)
+        try:
+            data = self.stock_post(
+                token,
+                "/api/misystem/set_router_normal",
+                {
+                    "name": router_name,
+                    "locale": "Home",
+                    "ssid": ssid,
+                    "password": wifi_password,
+                    "encryption": "mixed-psk",
+                    "nonce": nonce,
+                    "newPwd": new_pwd,
+                    "oldPwd": _nonce_password(nonce, account_hash),
+                    "txpwr": "0",
+                },
+            )
+        finally:
+            self.timeout = original_timeout
         if int(data.get("code", -1)) != 0:
             raise RouterClientError(
                 f"set_router_normal failed: code={data.get('code')}"
