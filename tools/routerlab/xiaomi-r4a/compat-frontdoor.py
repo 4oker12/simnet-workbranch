@@ -36,6 +36,20 @@ FCGI_STDOUT = 6
 FCGI_STDERR = 7
 FCGI_RESPONDER = 1
 
+HEAVY_FCGI_ROUTE_SUFFIXES = (
+    "/api/misystem/set_router_normal",
+)
+
+HEAVY_FCGI_TIMEOUT_SECONDS = 30.0
+
+
+def _fcgi_timeout_for_path(path: str, default_timeout: float) -> float:
+    normalized = path.rstrip("/")
+    if any(normalized.endswith(suffix) for suffix in HEAVY_FCGI_ROUTE_SUFFIXES):
+        return max(default_timeout, HEAVY_FCGI_TIMEOUT_SECONDS)
+    return default_timeout
+
+
 UNSUPPORTED_UI_SUFFIXES = (
     "/web/setting/qos",
     "/web/prosetting/qos",
@@ -392,7 +406,7 @@ h1{{font-size:24px;margin:0 0 14px}}p{{line-height:1.55}}code{{word-break:break-
                 self.cfg.fcgi_port,
                 env,
                 body,
-                self.cfg.fcgi_timeout,
+                _fcgi_timeout_for_path(path, self.cfg.fcgi_timeout),
             )
         except Exception as exc:  # evidence first: expose transport failure, not fake API data
             payload = f"FastCGI transport error: {exc}\n".encode()
