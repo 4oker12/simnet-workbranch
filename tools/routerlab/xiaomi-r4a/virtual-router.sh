@@ -414,27 +414,41 @@ start_runtime() {
   printf '%s\n' "$HTTP_PORT" > "$RUNTIME/http-port"
   printf '%s\n' "$ROOTFS" > "$RUNTIME/source-rootfs"
 
+  local inited
+  inited="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("inited","?"))' "$body" 2>/dev/null || echo "?")"
+
   echo "[virtual-router] READY"
   echo "[virtual-router] URL: http://127.0.0.1:$HTTP_PORT/"
-  echo "[virtual-router] stock lab login: admin / admin"
+  echo "[virtual-router] STOCK_INITED=$inited"
+  if [[ "$inited" == "0" ]]; then
+    echo "[virtual-router] mode: factory setup; open the URL and follow the stock Xiaomi wizard"
+  else
+    echo "[virtual-router] mode: configured; stock admin login is active"
+  fi
   echo "[virtual-router] persistent state: $STATE_CONFIG"
 }
 
 show_status() {
-  local http=down fcgi=down code=000
+  local http=down fcgi=down code=000 inited=unknown tmp
   nc -z -w1 127.0.0.1 "$HTTP_PORT" 2>/dev/null && http=up || true
   nc -z -w1 127.0.0.1 "$FCGI_PORT" 2>/dev/null && fcgi=up || true
+  tmp="$RUNTIME/status-init-info.json"
   if [[ "$http" == "up" ]]; then
-    code="$(curl -sS --max-time 3 -H 'Host: router.miwifi.com' -o /dev/null -w '%{http_code}' \
+    code="$(curl -sS --max-time 3 -H 'Host: router.miwifi.com' -o "$tmp" -w '%{http_code}' \
       "http://127.0.0.1:$HTTP_PORT/cgi-bin/luci/api/xqsystem/init_info" || true)"
+    if [[ "$code" == "200" ]]; then
+      inited="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("inited","unknown"))' "$tmp" 2>/dev/null || echo unknown)"
+    fi
   fi
   echo "HTTP_FRONTDOOR=$http port=$HTTP_PORT"
   echo "STOCK_FCGI=$fcgi port=$FCGI_PORT"
   echo "STOCK_INIT_INFO_HTTP=$code"
+  echo "STOCK_INITED=$inited"
+  [[ -f "$STATE/PROFILE" ]] && echo "STATE_PROFILE=$(cat "$STATE/PROFILE")"
   if [[ -f "$STATE/LAST_SAVED" ]]; then
     echo "STATE_LAST_SAVED=$(cat "$STATE/LAST_SAVED")"
   elif [[ -f "$STATE/FORMAT" ]]; then
-    echo "STATE_LAST_SAVED=factory"
+    echo "STATE_LAST_SAVED=seed"
   else
     echo "STATE_LAST_SAVED=none"
   fi
