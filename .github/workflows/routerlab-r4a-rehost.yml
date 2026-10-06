@@ -463,11 +463,7 @@ jobs:
           device='routerlab'
           t1="$(date +%s)"
           nonce1="0_${device}_${t1}_1001"
-          oldpwd1="$(python3 - "$nonce1" "$account_hash" <<'PY'
-import hashlib, sys
-print(hashlib.sha1((sys.argv[1] + sys.argv[2]).encode()).hexdigest())
-PY
-)"
+          oldpwd1="$(python3 -c 'import hashlib,sys; print(hashlib.sha1((sys.argv[1]+sys.argv[2]).encode()).hexdigest())' "$nonce1" "$account_hash")"
           init_login_code="$(curl -sS --max-time 15 -H 'Host: router.miwifi.com' -H 'Content-Type: application/x-www-form-urlencoded' -c "$OUT/factory.cookies" -o "$OUT/factory-login.json" -w '%{http_code}' --data-urlencode 'username=admin' --data-urlencode 'logtype=2' --data-urlencode "password=$oldpwd1" --data-urlencode "nonce=$nonce1" --data-urlencode 'init=1' 'http://127.0.0.1:18090/cgi-bin/luci/api/xqsystem/login')"
           test "$init_login_code" = "200"
           grep -q '"code":0' "$OUT/factory-login.json"
@@ -477,19 +473,11 @@ PY
           new_admin='RouterLabAdmin88'
           new_wifi='RouterLabFirstRun'
           new_wifi_pwd='RouterLabWifi88'
-          new_hash="$(python3 - "$new_admin" "$pwdkey" <<'PY'
-import hashlib, sys
-print(hashlib.sha1((sys.argv[1] + sys.argv[2]).encode()).hexdigest())
-PY
-)"
+          new_hash="$(python3 -c 'import hashlib,sys; print(hashlib.sha1((sys.argv[1]+sys.argv[2]).encode()).hexdigest())' "$new_admin" "$pwdkey")"
           newpwd="$(printf '%s' "$new_hash" | openssl enc -aes-128-cbc -K "${account_hash:0:32}" -iv "$iv" -base64 -A)"
           t2="$((t1 + 1))"
           nonce2="0_${device}_${t2}_1002"
-          oldpwd2="$(python3 - "$nonce2" "$account_hash" <<'PY'
-import hashlib, sys
-print(hashlib.sha1((sys.argv[1] + sys.argv[2]).encode()).hexdigest())
-PY
-)"
+          oldpwd2="$(python3 -c 'import hashlib,sys; print(hashlib.sha1((sys.argv[1]+sys.argv[2]).encode()).hexdigest())' "$nonce2" "$account_hash")"
 
           set_normal_code="$(curl -sS --max-time 20 -H 'Host: router.miwifi.com' -H 'User-Agent: Mozilla/5.0 RouterLab' -H 'Content-Type: application/x-www-form-urlencoded' -b "$OUT/factory.cookies" -o "$OUT/set-router-normal.json" -w '%{http_code}' --data-urlencode 'name=RouterLabFirstRun' --data-urlencode 'locale=Home' --data-urlencode "ssid=$new_wifi" --data-urlencode "password=$new_wifi_pwd" --data-urlencode 'encryption=mixed-psk' --data-urlencode "nonce=$nonce2" --data-urlencode "newPwd=$newpwd" --data-urlencode "oldPwd=$oldpwd2" --data-urlencode 'txpwr=0' "http://127.0.0.1:18090/cgi-bin/luci/;stok=$token/api/misystem/set_router_normal" || true)"
           echo "set_router_normal_http=$set_normal_code" | tee "$OUT/setup-result.txt"
