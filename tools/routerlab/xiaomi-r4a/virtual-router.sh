@@ -311,11 +311,9 @@ stop_runtime() {
   fi
   sleep 0.5
 
-  local port_pids
-  port_pids="$(ss -lntp 2>/dev/null | awk -v p=":$FCGI_PORT" '$4 ~ p"$" {print}' | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u || true)"
-  for p in $port_pids; do
-    kill -TERM "$p" 2>/dev/null || true
-  done
+  # Never kill an arbitrary listener just because it uses the same port.
+  reclaim_stale_routerlab_port "$FCGI_PORT" fcgi || true
+  reclaim_stale_routerlab_port "$HTTP_PORT" http || true
 
   rm -rf "$PIDDIR"
 }
