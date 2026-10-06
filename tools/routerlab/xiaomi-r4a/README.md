@@ -99,3 +99,45 @@ This is enough for the current DHCP + Wi-Fi configuration acceptance. File-backe
 `management-plane-agent.sh` and `management-plane-rehost.sh` remain evidence/research tools. Full-system FirmAE was retired for this target after a bounded run showed that it was not economical for reaching the stock Web UI.
 
 The primary development target is now `virtual-router.sh`, not full SoC emulation.
+
+
+## First Router Agent client
+
+`router-client.py` is the first programmatic client that drives the exact stock Xiaomi API through RouterLab.
+
+Safety rules for this research version:
+
+- `inspect` is read-only;
+- `configure` is restricted to `localhost / 127.0.0.1 / ::1`;
+- writes use the stock Xiaomi login, `set_wan`, `set_wifi` and `wifi_detail_all`;
+- Wi-Fi is considered confirmed only after stock API read-back;
+- a successful WAN setter response is recorded as an acknowledgement, but live WAN/link state remains unknown in the emulator and is not claimed.
+
+Examples:
+
+```powershell
+python .\tools\routerlab\xiaomi-r4a\router-client.py inspect
+
+python .\tools\routerlab\xiaomi-r4a\router-client.py inspect --admin-password admin
+
+python .\tools\routerlab\xiaomi-r4a\router-client.py configure `
+  --admin-password admin `
+  --ssid-24 RouterLab24 `
+  --ssid-5 RouterLab5G `
+  --wifi-password RouterLabPass88
+```
+
+## Ukraine target scope
+
+For SIMNET RouterLab, Xiaomi variants sold for or commonly used in Ukraine should be prioritized as **Global / International / EU** firmware targets.
+
+China-only firmware variants are secondary compatibility targets unless field evidence shows that they are common among subscribers.
+
+The current first authority remains:
+
+```text
+Xiaomi Mi Router 4A Gigabit Edition (R4A)
+Global / International firmware 3.0.24
+```
+
+Do not create a separate emulator per retail SKU by default. First compare the management-plane contract: login, `stok`, initial setup, WAN APIs and Wi-Fi APIs. Reuse one adapter/profile when those contracts are materially the same; split only when firmware behavior actually diverges.
