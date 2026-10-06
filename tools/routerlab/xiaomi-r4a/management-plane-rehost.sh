@@ -245,26 +245,31 @@ HTTPD_PID=$!
 echo "$HTTPD_PID" >> "$PIDS"
 
 # Observe stock runtime for a short bounded grace period before HTTP probing.
-# This distinguishes process exit from listener/binding failure without another
-# long blind wait.
-FCGI_ALIVE=0
+# Important: spawn-fcgi is only a launcher. The stock Xiaomi init script supervises
+# /usr/bin/fcgi-cgi itself (PROCFLAG), so launcher PID exit is not a failure signal.
 HTTPD_ALIVE=0
-FCGI_LISTEN=0
 HTTPD_LISTEN=0
+FCGI_LISTEN=0
+FCGI_CHILD=0
 for _ in {1..12}; do
-  kill -0 "$FCGI_PID" 2>/dev/null && FCGI_ALIVE=1 || FCGI_ALIVE=0
   kill -0 "$HTTPD_PID" 2>/dev/null && HTTPD_ALIVE=1 || HTTPD_ALIVE=0
-  nc -z -w1 127.0.0.1 8920 2>/dev/null && FCGI_LISTEN=1 || FCGI_LISTEN=0
   nc -z -w1 127.0.0.1 "$HTTP_PORT" 2>/dev/null && HTTPD_LISTEN=1 || HTTPD_LISTEN=0
+  nc -z -w1 127.0.0.1 8920 2>/dev/null && FCGI_LISTEN=1 || FCGI_LISTEN=0
+  if ps -ef | grep -E '[f]cgi-cgi([[:space:]]|$)' >/dev/null 2>&1; then
+    FCGI_CHILD=1
+  else
+    FCGI_CHILD=0
+  fi
   (( HTTPD_LISTEN == 1 && FCGI_LISTEN == 1 )) && break
-  (( HTTPD_ALIVE == 0 || FCGI_ALIVE == 0 )) && break
+  (( HTTPD_ALIVE == 0 )) && break
   sleep 1
 done
 
 {
   echo "=== startup status ==="
-  echo "FCGI_PID=$FCGI_PID alive=$FCGI_ALIVE listen_8920=$FCGI_LISTEN"
-  echo "HTTPD_PID=$HTTPD_PID alive=$HTTPD_ALIVE listen_$HTTP_PORT=$HTTPD_LISTEN"
+  echo "spawn_fcgi_launcher_pid=$FCGI_PID (launcher exit is allowed)"
+  echo "fcgi_child=$FCGI_CHILD listen_8920=$FCGI_LISTEN"
+  echo "sysapi_pid=$HTTPD_PID alive=$HTTPD_ALIVE listen_$HTTP_PORT=$HTTPD_LISTEN"
   echo "=== listeners ==="
   ss -lntp 2>/dev/null | grep -E ":(${HTTP_PORT}|${HTTPS_PORT}|8920)\\b" || true
   echo "=== processes ==="
@@ -326,15 +331,15 @@ elif [[ "$best_root" =~ ^[123][0-9][0-9]$ || "$best_init" =~ ^[123][0-9][0-9]$ ]
 elif (( HTTPD_ALIVE == 0 )); then
   classification="STOCK_SYSAPI_PROCESS_EXITED"
   decision="sysapihttpd accepted the exact config but exited at runtime. Its printed log is the first authoritative blocker."
-elif (( FCGI_ALIVE == 0 )); then
-  classification="STOCK_FCGI_PROCESS_EXITED"
-  decision="stock FCGI exited at runtime. Its printed log is the first authoritative blocker."
 elif (( HTTPD_LISTEN == 0 )); then
   classification="STOCK_SYSAPI_ALIVE_NO_HTTP_LISTENER"
   decision="sysapihttpd stayed alive but did not expose the rehost HTTP listener. Diagnose only listener/runtime binding."
 elif (( FCGI_LISTEN == 0 )); then
-  classification="STOCK_FCGI_ALIVE_NO_LISTENER"
-  decision="stock FCGI stayed alive but did not expose 127.0.0.1:8920. Diagnose only its listener/runtime dependency."
+  classification="STOCK_FCGI_NO_LISTENER"
+  decision="The spawn-fcgi launcher lifecycle is ignored. No stock FCGI listener appeared on 127.0.0.1:8920; use fcgi.log and fcgi-cgi process evidence as authority."
+elif (( FCGI_CHILD == 0 )); then
+  classification="STOCK_FCGI_LISTENER_WITHOUT_TRACKED_CHILD"
+  decision="Port 8920 is reachable but the expected fcgi-cgi process was not visible in the host process view. Treat the listener as stronger evidence and continue with HTTP request diagnostics."
 else
   classification="STOCK_SYSAPI_CONFIG_VALID_RUNTIME_BLOCKED"
   decision="Both stock listeners survived startup but HTTP did not complete. Diagnose request handling only; full-system emulation stays retired."
