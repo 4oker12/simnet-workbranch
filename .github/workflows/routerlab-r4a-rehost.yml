@@ -696,6 +696,20 @@ jobs:
           ! grep -q 'RouterAgentFactoryWifi88' "$OUT/first-run.json"
           ! grep -q 'RouterAgentFactoryAdmin88' "$OUT/first-run.json"
 
+          # Re-run the same first-run command against the already initialized state.
+          # This models recovery after a previous caller lost the set_router_normal
+          # response even though stock firmware committed the requested state.
+          set +x
+          python3 "$CLIENT" --base-url http://127.0.0.1:18090 first-run             --router-name RouterAgentFactory             --ssid RouterAgentFactory             --wifi-password RouterAgentFactoryWifi88             --admin-password RouterAgentFactoryAdmin88             > "$OUT/first-run-rerun.json"
+          set -x
+
+          grep -q '"inited": 1' "$OUT/first-run-rerun.json"
+          grep -q '"status": "not_attempted"' "$OUT/first-run-rerun.json"
+          grep -q '"state_verification": "confirmed"' "$OUT/first-run-rerun.json"
+          grep -q '"outcome": "already_completed_verified"' "$OUT/first-run-rerun.json"
+          ! grep -q 'RouterAgentFactoryWifi88' "$OUT/first-run-rerun.json"
+          ! grep -q 'RouterAgentFactoryAdmin88' "$OUT/first-run-rerun.json"
+
           bash "$VR" restart --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
 
           set +x
