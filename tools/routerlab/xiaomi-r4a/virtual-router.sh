@@ -122,6 +122,7 @@ validate_source() {
   [[ -f "$UI_GUARD" ]] || { echo "[virtual-router] UI guard missing: $UI_GUARD" >&2; exit 1; }
   [[ -f "$SHIM_DIR/ubus.lua" ]] || { echo "[virtual-router] ubus runtime shim missing: $SHIM_DIR/ubus.lua" >&2; exit 1; }
   [[ -f "$SHIM_DIR/getmac" ]] || { echo "[virtual-router] factory MAC runtime shim missing: $SHIM_DIR/getmac" >&2; exit 1; }
+  [[ -f "$SHIM_DIR/luci-sys.lua" ]] || { echo "[virtual-router] luci.sys runtime shim missing: $SHIM_DIR/luci-sys.lua" >&2; exit 1; }
 }
 
 seed_factory_state() {
@@ -245,19 +246,16 @@ prepare_runtime() {
   # netifd through ubus. qemu-user has no guest kernel/netifd/ubusd, so shadow
   # only the ubus Lua module with a narrow adapter backed by stock UCI state.
   #
-  # Stock WAN templates also resolve the browser's LAN IP through /proc/net/arp
-  # and read factory MACs through /sbin/getmac -> Factory MTD. Neither the guest
-  # neighbor table nor router flash exists under qemu-user. Model those two
-  # hardware/runtime facts at their native boundaries rather than changing stock
-  # LuCI templates or Xiaomi business logic. The immutable source rootfs is never
-  # modified.
+  # Stock WAN templates also resolve the browser's LAN IP through luci.sys.net.ip4mac
+  # and read factory MACs through /sbin/getmac -> Factory MTD. Under qemu-user/PRoot
+  # /proc/net/arp is the host kernel table (a file bind does not replace it), while
+  # router Factory MTD does not exist. Model those two missing runtime facts at their
+  # native command/module boundaries rather than changing stock templates or Xiaomi
+  # business logic. The immutable source rootfs is never modified.
   cp "$SHIM_DIR/ubus.lua" "$LAB/usr/lib/lua/ubus.lua"
   install -m 0755 "$SHIM_DIR/getmac" "$LAB/sbin/getmac"
-
-  cat > "$RUNTIME/proc-net-arp" <<'EOF'
-IP address       HW type     Flags       HW address            Mask     Device
-192.168.31.100   0x1         0x2         02:11:22:33:44:64     *        br-lan
-EOF
+  cp "$LAB/usr/lib/lua/luci/sys.lua" "$LAB/usr/lib/lua/luci/sys.stock.lua"
+  cp "$SHIM_DIR/luci-sys.lua" "$LAB/usr/lib/lua/luci/sys.lua"
 }
 
 read_pid() {
@@ -376,8 +374,7 @@ start_runtime() {
   : > "$LOGDIR/fcgi.log"
   : > "$LOGDIR/frontdoor.log"
 
-  nohup "$proot" -0 -q "$qemu" -R "$LAB" \
-    -b "$RUNTIME/proc-net-arp:/proc/net/arp" -w / \
+  nohup "$proot" -0 -q "$qemu" -R "$LAB" -w / \
     /usr/bin/spawn-fcgi -a 127.0.0.1 -p "$FCGI_PORT" -u root -U nobody -F 1 -- \
     /usr/bin/fcgi-cgi -c 4 >>"$LOGDIR/fcgi.log" 2>&1 &
   local launcher=$!
