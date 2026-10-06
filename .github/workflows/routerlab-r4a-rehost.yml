@@ -581,6 +581,16 @@ jobs:
           }
 
           token="$(login before)"
+
+          guard_code="$(curl -sS --max-time 8 -H 'Host: router.miwifi.com' -o "$OUT/ui-guard.js" -w '%{http_code}' 'http://127.0.0.1:18090/__routerlab/ui-guard.js')"
+          test "$guard_code" = "200"
+          grep -q 'routerlabDisabled' "$OUT/ui-guard.js"
+
+          qos_code="$(curl -sS --max-time 8 -H 'Host: router.miwifi.com' -b "$OUT/cookies.before.txt" -o "$OUT/qos-disabled.html" -w '%{http_code}' "http://127.0.0.1:18090/cgi-bin/luci/;stok=$token/web/setting/qos")"
+          test "$qos_code" = "200"
+          grep -q 'Недоступно в RouterLab' "$OUT/qos-disabled.html"
+          ! grep -q 'qos_info' "$OUT/qos-disabled.html"
+
           api_post set-wan "$token" 'wanType=dhcp&client=web' '/api/xqnetwork/set_wan'
           api_post set-wifi24 "$token" 'wifiIndex=1&on=1&ssid=ColdBoot24&pwd=ColdBootPass24&encryption=psk2&channel=0&bandwidth=0&hidden=0&txpwr=max' '/api/xqnetwork/set_wifi'
           api_post set-wifi5 "$token" 'wifiIndex=2&on=1&ssid=ColdBoot5G&pwd=ColdBootPass5G&encryption=psk2&channel=0&bandwidth=0&hidden=0&txpwr=max' '/api/xqnetwork/set_wifi'
