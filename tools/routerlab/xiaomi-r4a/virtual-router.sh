@@ -25,6 +25,7 @@ PROFILE="factory"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRONTDOOR="$SCRIPT_DIR/compat-frontdoor.py"
+UI_GUARD="$SCRIPT_DIR/ui-guard.js"
 SHIM_DIR="$SCRIPT_DIR/runtime-shims"
 
 usage() {
@@ -118,6 +119,7 @@ validate_source() {
     [[ -e "$ROOTFS/$f" ]] || { echo "[virtual-router] exact stock authority missing: /$f" >&2; exit 1; }
   done
   [[ -f "$FRONTDOOR" ]] || { echo "[virtual-router] compat front door missing: $FRONTDOOR" >&2; exit 1; }
+  [[ -f "$UI_GUARD" ]] || { echo "[virtual-router] UI guard missing: $UI_GUARD" >&2; exit 1; }
   [[ -f "$SHIM_DIR/ubus.lua" ]] || { echo "[virtual-router] ubus runtime shim missing: $SHIM_DIR/ubus.lua" >&2; exit 1; }
 }
 
@@ -384,6 +386,7 @@ start_runtime() {
     --rootfs "$LAB" \
     --port "$HTTP_PORT" \
     --fcgi-port "$FCGI_PORT" \
+    --ui-guard "$UI_GUARD" \
     --stock-init-gate \
     >>"$LOGDIR/frontdoor.log" 2>&1 &
   local front=$!
