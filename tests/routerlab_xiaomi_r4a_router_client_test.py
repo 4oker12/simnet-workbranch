@@ -3,6 +3,7 @@ import json
 import pathlib
 import sys
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CLIENT_PATH = ROOT / "tools" / "routerlab" / "xiaomi-r4a" / "router-client.py"
@@ -88,6 +89,29 @@ class RouterClientTests(unittest.TestCase):
         )
         with self.assertRaises(module.RouterClientError):
             module.command_first_run(args)
+
+
+    def test_set_router_normal_temporarily_extends_timeout_and_restores_it(self):
+        seen = []
+
+        class Probe(module.XiaomiR4AClient):
+            def stock_post(self, token, route, data):
+                seen.append(self.timeout)
+                return {"code": 0}
+
+        client = Probe("http://127.0.0.1:18090", timeout=15.0)
+        with mock.patch.object(module, "_encrypt_new_password", return_value="encrypted"):
+            result = client.set_router_normal(
+                "0123456789abcdef0123456789abcdef",
+                router_name="RouterLab",
+                ssid="RouterLab",
+                wifi_password="RouterLabWifi88",
+                admin_password="RouterLabAdmin88",
+            )
+
+        self.assertEqual(result["code"], 0)
+        self.assertEqual(seen, [module.HEAVY_FIRST_RUN_TIMEOUT_SECONDS])
+        self.assertEqual(client.timeout, 15.0)
 
     def test_pppoe_payload_matches_stock_contract_without_logging_secret(self):
         calls = []
