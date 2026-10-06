@@ -42,3 +42,11 @@ test('Windows wrapper exposes the same lifecycle without embedding router logic'
   assert.match(wrapper, /virtual-router\.sh/);
   assert.doesNotMatch(wrapper, /set_wan|set_wifi|wifi_detail_all/);
 });
+
+test('virtual router safely reclaims only stale RouterLab listeners', () => {
+  assert.match(script, /reclaim_stale_routerlab_port\(\)/);
+  assert.match(script, /qemu-mipsel-static\*fcgi-cgi/);
+  assert.match(script, /compat-frontdoor\.py/);
+  assert.match(script, /non-RouterLab pid=/);
+  assert.doesNotMatch(script, /for p in \$port_pids; do\s*kill -TERM "\$p"/);
+});
