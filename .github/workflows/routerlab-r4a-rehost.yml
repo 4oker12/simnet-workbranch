@@ -540,8 +540,7 @@ jobs:
 
           # No PPPoE peer/server exists in RouterLab yet, so only configured state
           # is asserted here. Authentication/session success remains unknown.
-          printf '%s
-' 'PPPOE_SESSION=unknown_not_emulated' > "$OUT/session-state.txt"
+          echo 'PPPOE_SESSION=unknown_not_emulated' > "$OUT/session-state.txt"
 
           bash "$VR" stop --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
 
