@@ -141,3 +141,70 @@ Global / International firmware 3.0.24
 ```
 
 Do not create a separate emulator per retail SKU by default. First compare the management-plane contract: login, `stok`, initial setup, WAN APIs and Wi-Fi APIs. Reuse one adapter/profile when those contracts are materially the same; split only when firmware behavior actually diverges.
+
+## Target interaction modes
+
+RouterLab intentionally models two operator-relevant Xiaomi states.
+
+### 1. Factory / first run
+
+This is the state of a new router or a router after factory reset:
+
+```text
+INITTED=0
+→ browser root
+→ stock /init.html
+→ stock first-run wizard
+→ choose normal router mode / WAN type
+→ DHCP or PPPoE credentials
+→ Wi-Fi name/password
+→ admin password
+→ stock set_router_normal
+→ INITTED=1
+→ configured router
+```
+
+For this R4A 3.0.24 target, the quick setup experience belongs to the uninitialized state; it is not treated as a permanent "Quick Setup" page in the normal configured UI.
+
+PPPoE first-run configuration uses the exact stock `set_wan` request shape:
+
+```text
+wanType=pppoe
+pppoeName=<username>
+pppoePwd=<password>
+```
+
+RouterLab currently proves that this configuration is written by the stock backend. It does **not** claim a successful PPPoE Internet session because there is no emulated ISP PPPoE peer yet.
+
+### 2. Configured / service
+
+This is the normal support case after initial setup:
+
+```text
+INITTED=1
+→ stock login
+→ inspect current configuration
+→ DHCP or PPPoE correction
+→ inspect/change Wi-Fi 2.4/5 GHz
+→ stock read-back
+→ persistence across cold restart
+```
+
+The research client supports both DHCP and PPPoE writes in this mode. PPPoE credentials are accepted as inputs but are deliberately not returned in its JSON evidence output.
+
+## HAR as adapter evidence
+
+A future production router adapter should use HAR traces as one source of behavioral evidence, not as the only source of truth:
+
+```text
+browser HAR
+  → real request order, endpoints, payloads, cookies/stok
+stock Xiaomi JS
+  → how the vendor UI constructs requests
+stock Lua/controllers
+  → required fields and backend semantics
+RouterLab replay
+  → prove the adapter reproduces the real contract
+```
+
+This avoids copying incidental browser traffic or turning a single HAR recording into business logic.
