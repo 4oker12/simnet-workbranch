@@ -1,0 +1,89 @@
+name: RouterLab · Xiaomi R4A rehost
+
+on:
+  pull_request:
+    paths:
+      - "tools/routerlab/xiaomi-r4a/**"
+      - "tests/routerlab_xiaomi_r4a_rehost_test.mjs"
+      - ".github/workflows/routerlab-r4a-rehost.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  r4a-stock-management-plane:
+    if: github.head_ref == 'research/routerlab-xiaomi-r4a-management-plane' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate RouterLab scripts
+        shell: bash
+        run: |
+          set -euxo pipefail
+          bash -n tools/routerlab/xiaomi-r4a/management-plane-rehost.sh
+          node --test tests/routerlab_xiaomi_r4a_rehost_test.mjs
+
+      - name: Install userspace emulation tools
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y             qemu-user-static proot squashfs-tools curl netcat-openbsd iproute2
+
+      - name: Download and verify exact stock firmware 3.0.24
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$HOME/routerlab-xiaomi-r4a"
+          cd "$HOME/routerlab-xiaomi-r4a"
+          curl -fL --retry 3 --retry-delay 2             https://github.com/acecilia/OpenWRTInvasion/raw/master/firmwares/stock/miwifi_r4a_all_03233_3.0.24_INT.bin             -o miwifi_r4a_all_03233_3.0.24_INT.bin
+          echo "609b5b59b7b00365451fa358b5a79e0e4078b8a9a7aeb6a994a641287a093548  miwifi_r4a_all_03233_3.0.24_INT.bin" | sha256sum -c -
+
+      - name: Extract exact stock rootfs
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$HOME/routerlab-xiaomi-r4a"
+          dd             if=miwifi_r4a_all_03233_3.0.24_INT.bin             of=rootfs.sqfs             bs=4M             iflag=skip_bytes,count_bytes             skip=1704608             count=12763178
+          mkdir -p audit
+          unsquashfs -f -d audit/squashfs-root rootfs.sqfs
+          test -x audit/squashfs-root/usr/sbin/sysapihttpd
+          test -x audit/squashfs-root/usr/bin/fcgi-cgi
+          test -e audit/squashfs-root/www/cgi-bin/luci
+
+      - name: Run exact stock management-plane rehost
+        id: rehost
+        shell: bash
+        run: |
+          set -o pipefail
+          bash tools/routerlab/xiaomi-r4a/management-plane-rehost.sh             --rootfs "$HOME/routerlab-xiaomi-r4a/audit/squashfs-root"             --fresh             --probe-seconds 30             2>&1 | tee "$HOME/routerlab-xiaomi-r4a/rehost-ci-output.txt"
+
+      - name: Collect concise runtime evidence
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          latest="$(find "$HOME/routerlab-xiaomi-r4a/rehost-work/runs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)"
+          echo "LATEST=$latest"
+          if [ -n "$latest" ]; then
+            for f in REPORT.md startup-evidence.txt runtime-evidence.txt sysapi-config-test.log sysapihttpd.log fcgi.log probes.tsv; do
+              echo
+              echo "===== $f ====="
+              sed -n '1,320p' "$latest/$f" 2>/dev/null || true
+            done
+          fi
+
+      - name: Upload RouterLab evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: routerlab-r4a-rehost-evidence
+          path: |
+            ~/routerlab-xiaomi-r4a/rehost-ci-output.txt
+            ~/routerlab-xiaomi-r4a/rehost-work/runs/
+          if-no-files-found: warn
+          retention-days: 7
