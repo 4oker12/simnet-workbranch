@@ -151,6 +151,29 @@ class XiaomiR4AClient:
             raise RouterClientError(f"set_wan DHCP failed: {data}")
         return data
 
+    def set_wan_pppoe(
+        self,
+        token: str,
+        *,
+        username: str,
+        password: str,
+    ) -> dict[str, Any]:
+        if not username or not password:
+            raise RouterClientError("PPPoE username and password are required")
+        data = self.stock_post(
+            token,
+            "/api/xqnetwork/set_wan",
+            {
+                "wanType": "pppoe",
+                "pppoeName": username,
+                "pppoePwd": password,
+                "client": "web",
+            },
+        )
+        if int(data.get("code", -1)) != 0:
+            raise RouterClientError(f"set_wan PPPoE failed: code={data.get('code')}")
+        return data
+
     def set_wifi(
         self,
         token: str,
@@ -267,7 +290,21 @@ def command_configure(args: argparse.Namespace) -> dict[str, Any]:
     token = client.login(args.admin_password)
     before = client.wifi_detail_all(token)
 
-    wan_ack = client.set_wan_dhcp(token)
+    if args.wan_type == "dhcp":
+        wan_ack = client.set_wan_dhcp(token)
+        wan_action = "wan_dhcp"
+    else:
+        if not args.pppoe_username or not args.pppoe_password:
+            raise RouterClientError(
+                "configure --wan-type pppoe requires --pppoe-username and --pppoe-password"
+            )
+        wan_ack = client.set_wan_pppoe(
+            token,
+            username=args.pppoe_username,
+            password=args.pppoe_password,
+        )
+        wan_action = "wan_pppoe"
+
     wifi24_ack = client.set_wifi(
         token,
         index=1,
@@ -304,8 +341,10 @@ def command_configure(args: argparse.Namespace) -> dict[str, Any]:
         "login": {"status": "confirmed", "stok_length": len(token)},
         "before_wifi": _wifi_summary(before),
         "actions": {
-            "wan_dhcp": {
+            wan_action: {
                 "acknowledged": int(wan_ack.get("code", -1)) == 0,
+                "configured_type": args.wan_type,
+                "credentials_supplied": args.wan_type == "pppoe",
                 "live_link_state": "unknown_not_emulated",
             },
             "wifi_24": {"acknowledged": int(wifi24_ack.get("code", -1)) == 0},
@@ -345,6 +384,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="configure the local virtual router through exact stock API",
     )
     configure_p.add_argument("--admin-password", required=True)
+    configure_p.add_argument(
+        "--wan-type",
+        choices=("dhcp", "pppoe"),
+        default="dhcp",
+        help="stock WAN mode to configure",
+    )
+    configure_p.add_argument("--pppoe-username")
+    configure_p.add_argument("--pppoe-password")
     configure_p.add_argument("--ssid-24", required=True)
     configure_p.add_argument("--ssid-5", required=True)
     configure_p.add_argument("--wifi-password", required=True)
