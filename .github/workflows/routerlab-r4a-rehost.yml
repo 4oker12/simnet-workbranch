@@ -211,7 +211,7 @@ jobs:
           sed -n '1,120p' "$OUT/init_info_after.body" || true
           echo "===== initialized UCI fixture ====="
           cat "$OUT/xiaoqiang.initialized" || true
-          echo "===== READ matrix =====
+          echo "===== READ matrix ====="
           cat "$OUT/read-matrix.tsv"
           for tag in system_info wan_info check_wan_type wifi_detail_all pppoe_status misystem_status; do
             echo "===== $tag body ====="
