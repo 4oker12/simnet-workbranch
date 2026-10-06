@@ -147,15 +147,7 @@ jobs:
             --data 'username=admin&password=admin&logtype=2' \
             'http://127.0.0.1:18090/cgi-bin/luci/api/xqsystem/login' || true)"
           echo "login => $login_code" | tee -a "$OUT/result.txt"
-          token="$(python3 - "$OUT/login.body" <<'PY'
-import json, pathlib, sys
-try:
-    payload = json.loads(pathlib.Path(sys.argv[1]).read_text())
-    print(payload.get("token", ""))
-except Exception:
-    print("")
-PY
-          )"
+          token="$(python3 -c 'import json, pathlib, sys; p=json.loads(pathlib.Path(sys.argv[1]).read_text()); print(p.get("token", ""))' "$OUT/login.body" 2>/dev/null || true)"
           if [ -n "$token" ]; then
             echo "stock login token acquired (length=${#token})" | tee -a "$OUT/result.txt"
           else
