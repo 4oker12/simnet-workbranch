@@ -531,7 +531,37 @@ jobs:
           bash "$VR" reset --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
           bash "$VR" start --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
 
-          curl -sS --max-time 20             -H 'Host: router.miwifi.com'             -H 'Content-Type: application/x-www-form-urlencoded'             -o "$OUT/set-wan-pppoe.json"             --data-urlencode 'wanType=pppoe'             --data-urlencode 'pppoeName=RouterLabPPPoEUser'             --data-urlencode 'pppoePwd=RouterLabPPPoEPass88'             'http://127.0.0.1:18090/cgi-bin/luci/api/xqnetwork/set_wan'
+          # Stock first-run UI logs in with init=1 before entering /web/init/guide.
+          account_hash="$(awk '/option .admin./ {gsub(/\047/,"",$3); print $3; exit}' "$BASE/runtime/rootfs/etc/config/account")"
+          device='routerlab-pppoe'
+          now="$(date +%s)"
+          nonce="0_${device}_${now}_2001"
+          oldpwd="$(python3 -c 'import hashlib,sys; print(hashlib.sha1((sys.argv[1]+sys.argv[2]).encode()).hexdigest())' "$nonce" "$account_hash")"
+
+          curl -sS --max-time 15 \
+            -H 'Host: router.miwifi.com' \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            -c "$OUT/factory.cookies" \
+            -o "$OUT/factory-login.json" \
+            --data-urlencode 'username=admin' \
+            --data-urlencode 'logtype=2' \
+            --data-urlencode "password=$oldpwd" \
+            --data-urlencode "nonce=$nonce" \
+            --data-urlencode 'init=1' \
+            'http://127.0.0.1:18090/cgi-bin/luci/api/xqsystem/login'
+          grep -q '"code":0' "$OUT/factory-login.json"
+          token="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$OUT/factory-login.json")"
+          test "${#token}" = "32"
+
+          curl -sS --max-time 20 \
+            -H 'Host: router.miwifi.com' \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            -b "$OUT/factory.cookies" \
+            -o "$OUT/set-wan-pppoe.json" \
+            --data-urlencode 'wanType=pppoe' \
+            --data-urlencode 'pppoeName=RouterLabPPPoEUser' \
+            --data-urlencode 'pppoePwd=RouterLabPPPoEPass88' \
+            "http://127.0.0.1:18090/cgi-bin/luci/;stok=$token/api/xqnetwork/set_wan"
 
           grep -q '"code":0' "$OUT/set-wan-pppoe.json"
           grep -q "option proto 'pppoe'" "$BASE/runtime/rootfs/etc/config/network"
