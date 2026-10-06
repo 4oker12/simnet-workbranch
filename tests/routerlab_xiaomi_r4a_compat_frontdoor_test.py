@@ -99,9 +99,19 @@ class CompatFrontdoorContractTest(unittest.TestCase):
         self.assertNotIn("password", summary)
         self.assertNotIn("secret", summary)
 
+    def test_wizard_trace_parses_json_even_when_stock_content_type_is_not_json(self):
+        summary = mod._response_summary(
+            b'{"code":0,"language":"en","token":"secret"}',
+            "text/plain",
+        )
+        self.assertIn('"code":0', summary)
+        self.assertIn('"language":"en"', summary)
+        self.assertNotIn("token", summary)
+        self.assertNotIn("secret", summary)
+
     def test_wizard_trace_covers_country_language_login_and_wan(self):
         for path in (
-            "/cgi-bin/luci/api/xqsystem/set_location",
+            "/cgi-bin/luci/api/misystem/set_location",
             "/cgi-bin/luci/api/xqsystem/set_language",
             "/cgi-bin/luci/api/xqsystem/login",
             "/cgi-bin/luci/;stok=x/web/init/guide",
