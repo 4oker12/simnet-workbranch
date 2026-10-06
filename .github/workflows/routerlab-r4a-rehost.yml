@@ -118,10 +118,11 @@ jobs:
           done
           nc -z -w2 127.0.0.1 18090
 
+          # First prove the exact stock UI + one canonical stock API route.
           for spec in \
             "root|/" \
             "init|/init.html" \
-            "api|/cgi-bin/luci/api/xqsystem/init_info"; do
+            "init_info|/cgi-bin/luci/api/xqsystem/init_info"; do
             tag="${spec%%|*}"
             path="${spec#*|}"
             code="$(curl -sS --max-time 10 \
@@ -133,14 +134,40 @@ jobs:
             echo "$tag $path => $code" | tee -a "$OUT/result.txt"
           done
 
+          # Evidence-first READ matrix. No login, no setters, no state mutation.
+          : > "$OUT/read-matrix.tsv"
+          printf 'name\tpath\thttp_code\tbody_bytes\n' >> "$OUT/read-matrix.tsv"
+          for spec in \
+            "system_info|/cgi-bin/luci/api/xqsystem/system_info" \
+            "wan_info|/cgi-bin/luci/api/xqnetwork/wan_info" \
+            "check_wan_type|/cgi-bin/luci/api/xqnetwork/check_wan_type" \
+            "wifi_detail_all|/cgi-bin/luci/api/xqnetwork/wifi_detail_all" \
+            "pppoe_status|/cgi-bin/luci/api/xqnetwork/pppoe_status" \
+            "misystem_status|/cgi-bin/luci/api/misystem/status"; do
+            tag="${spec%%|*}"
+            path="${spec#*|}"
+            code="$(curl -sS --max-time 12 \
+              -H 'Host: router.miwifi.com' \
+              -D "$OUT/$tag.headers" \
+              -o "$OUT/$tag.body" \
+              -w '%{http_code}' \
+              "http://127.0.0.1:18090$path" || true)"
+            bytes="$(wc -c < "$OUT/$tag.body" 2>/dev/null || echo 0)"
+            printf '%s\t%s\t%s\t%s\n' "$tag" "$path" "$code" "$bytes" >> "$OUT/read-matrix.tsv"
+          done
+
           echo "===== compat result ====="
           cat "$OUT/result.txt"
-          echo "===== api headers ====="
-          cat "$OUT/api.headers" || true
-          echo "===== api body ====="
-          sed -n '1,120p' "$OUT/api.body" || true
+          echo "===== init_info body ====="
+          sed -n '1,120p' "$OUT/init_info.body" || true
+          echo "===== READ matrix ====="
+          cat "$OUT/read-matrix.tsv"
+          for tag in system_info wan_info check_wan_type wifi_detail_all pppoe_status misystem_status; do
+            echo "===== $tag body ====="
+            sed -n '1,160p' "$OUT/$tag.body" 2>/dev/null || true
+          done
           echo "===== frontdoor log ====="
-          sed -n '1,220p' "$OUT/frontdoor.log" || true
+          sed -n '1,320p' "$OUT/frontdoor.log" || true
           echo "===== fcgi log ====="
           sed -n '1,220p' "$OUT/fcgi.log" || true
 
