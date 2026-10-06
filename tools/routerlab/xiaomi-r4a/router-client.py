@@ -436,9 +436,56 @@ def command_first_run(args: argparse.Namespace) -> dict[str, Any]:
         raise RouterClientError(
             f"unsupported hardware for this adapter: {before.hardware or 'unknown'}"
         )
+    if before.inited == 1:
+        try:
+            after, wifi = _verify_first_run_state(
+                client,
+                args,
+                attempts=1,
+                delay_seconds=0,
+            )
+        except RouterClientError as exc:
+            raise RouterClientError(
+                "first-run found an initialized router, but its verified state does "
+                "not match the requested RouterLab setup; reset the virtual router "
+                "before attempting first-run again"
+            ) from exc
+
+        return {
+            "operation": "first-run",
+            "before": {
+                "hardware": before.hardware,
+                "romversion": before.romversion,
+                "inited": before.inited,
+            },
+            "factory_login": {
+                "status": "not_attempted",
+                "reason": "already_initialized_matching_requested_state",
+            },
+            "actions": {
+                "wan_dhcp": {
+                    "status": "not_attempted",
+                    "reason": "already_initialized_matching_requested_state",
+                    "live_link_state": "unknown_not_emulated",
+                },
+                "set_router_normal": {
+                    "transport_ack": "not_attempted",
+                    "state_verification": "confirmed",
+                    "outcome": "already_completed_verified",
+                },
+            },
+            "after": {
+                "inited": after.inited,
+                "routername": after.routername,
+                "admin_login": "confirmed",
+                "wifi_readback": "confirmed",
+                "wifi": _wifi_summary(wifi),
+            },
+        }
+
     if before.inited != 0:
         raise RouterClientError(
-            "first-run expects factory state (inited=0); reset the virtual router first"
+            f"first-run cannot handle unexpected initialized state: {before.inited}"
         )
 
     token, guide_url, _account_hash = client.factory_login()
