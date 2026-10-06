@@ -27,6 +27,23 @@ class CompatFrontdoorContractTest(unittest.TestCase):
         self.assertEqual(body, b"raw-no-cgi-headers")
 
 
+
+    def test_heavy_first_run_route_gets_bounded_extended_fcgi_timeout(self):
+        self.assertEqual(
+            mod._fcgi_timeout_for_path(
+                "/cgi-bin/luci/;stok=abc/api/misystem/set_router_normal",
+                8.0,
+            ),
+            30.0,
+        )
+        self.assertEqual(
+            mod._fcgi_timeout_for_path(
+                "/cgi-bin/luci/;stok=abc/api/xqnetwork/wifi_detail_all",
+                8.0,
+            ),
+            8.0,
+        )
+
     def test_ui_guard_marks_only_confirmed_unsupported_qos_routes(self):
         self.assertTrue(
             mod._is_unsupported_ui_path(
