@@ -25,8 +25,8 @@ jobs:
         run: |
           set -euxo pipefail
           bash -n tools/routerlab/xiaomi-r4a/management-plane-rehost.sh
-          python3 -m py_compile tools/routerlab/xiaomi-r4a/compat-frontdoor.py
-          python3 -m unittest tests/routerlab_xiaomi_r4a_compat_frontdoor_test.py
+          python3 -m py_compile tools/routerlab/xiaomi-r4a/compat-frontdoor.py tools/routerlab/xiaomi-r4a/router-client.py
+          python3 -m unittest tests/routerlab_xiaomi_r4a_compat_frontdoor_test.py tests/routerlab_xiaomi_r4a_router_client_test.py
           node --test tests/routerlab_xiaomi_r4a_rehost_test.mjs tests/routerlab_xiaomi_r4a_virtual_router_test.mjs
 
       - name: Install userspace emulation tools
@@ -589,6 +589,43 @@ jobs:
           cp "$BASE/state-v1/etc-config/wireless" "$OUT/wireless.persisted"
           bash "$VR" stop --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile configured
 
+      - name: Router client acceptance
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOTFS="$HOME/routerlab-xiaomi-r4a/audit/squashfs-root"
+          BASE="$HOME/routerlab-xiaomi-r4a/router-client-ci"
+          VR="tools/routerlab/xiaomi-r4a/virtual-router.sh"
+          CLIENT="tools/routerlab/xiaomi-r4a/router-client.py"
+          OUT="$HOME/routerlab-xiaomi-r4a/router-client-acceptance"
+          mkdir -p "$OUT"
+
+          bash "$VR" reset --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile configured
+          bash "$VR" start --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile configured
+
+          python3 "$CLIENT" --base-url http://127.0.0.1:18090 inspect             > "$OUT/inspect-before.json"
+          grep -q '"hardware": "R4A"' "$OUT/inspect-before.json"
+          grep -q '"romversion": "3.0.24"' "$OUT/inspect-before.json"
+          grep -q '"inited": 1' "$OUT/inspect-before.json"
+
+          python3 "$CLIENT" --base-url http://127.0.0.1:18090 configure             --admin-password admin             --ssid-24 RouterAgent24             --ssid-5 RouterAgent5G             --wifi-password RouterAgentPass88             > "$OUT/configure.json"
+
+          grep -q '"wifi_readback": "confirmed"' "$OUT/configure.json"
+          grep -q '"ssid": "RouterAgent24"' "$OUT/configure.json"
+          grep -q '"ssid": "RouterAgent5G"' "$OUT/configure.json"
+          grep -q '"wan_live_readback": "not_claimed"' "$OUT/configure.json"
+          ! grep -q 'RouterAgentPass88' "$OUT/configure.json"
+
+          bash "$VR" restart --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile configured
+
+          python3 "$CLIENT" --base-url http://127.0.0.1:18090 inspect             --admin-password admin             > "$OUT/inspect-after-cold-boot.json"
+          grep -q '"status": "confirmed"' "$OUT/inspect-after-cold-boot.json"
+          grep -q '"ssid": "RouterAgent24"' "$OUT/inspect-after-cold-boot.json"
+          grep -q '"ssid": "RouterAgent5G"' "$OUT/inspect-after-cold-boot.json"
+          ! grep -q 'RouterAgentPass88' "$OUT/inspect-after-cold-boot.json"
+
+          bash "$VR" stop --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile configured
+
       - name: Collect concise runtime evidence
         if: always()
         shell: bash
@@ -616,5 +653,6 @@ jobs:
             ~/routerlab-xiaomi-r4a/config-acceptance/
             ~/routerlab-xiaomi-r4a/virtual-router-acceptance/
             ~/routerlab-xiaomi-r4a/factory-setup-acceptance/
+            ~/routerlab-xiaomi-r4a/router-client-acceptance/
           if-no-files-found: warn
           retention-days: 7
