@@ -124,7 +124,7 @@ jobs:
           git clone --depth 1 https://github.com/0pepsi/Jinzear.git "$JINZ"
 
           {
-            for rel in               usr/lib/lua/luci/controller/api/xqsystem.lua               usr/lib/lua/luci/controller/api/misystem.lua; do
+            for rel in               usr/lib/lua/luci/controller/api/xqsystem.lua               usr/lib/lua/luci/controller/api/misystem.lua               usr/lib/lua/xiaoqiang/util/XQSysUtil.lua               usr/lib/lua/xiaoqiang/XQCountryCode.lua; do
               f="$ROOTFS/$rel"
               echo "===== $rel ====="
               if [ ! -f "$f" ]; then
@@ -907,6 +907,7 @@ jobs:
           path: |
             ~/routerlab-xiaomi-r4a/rehost-ci-output.txt
             ~/routerlab-xiaomi-r4a/browser-wizard-contract.txt
+            ~/routerlab-xiaomi-r4a/browser-wizard-backend-contract.txt
             ~/routerlab-xiaomi-r4a/rehost-work/runs/
             ~/routerlab-xiaomi-r4a/compat-ci/
             ~/routerlab-xiaomi-r4a/config-acceptance/
