@@ -486,9 +486,37 @@ jobs:
           curl -sS --max-time 12 -H 'Host: router.miwifi.com' -o "$OUT/init-info-after-setup.json" 'http://127.0.0.1:18090/cgi-bin/luci/api/xqsystem/init_info'
           cat "$OUT/init-info-after-setup.json" | tee -a "$OUT/setup-result.txt"
 
+          test "$set_normal_code" = "200"
+          grep -q '"code":0' "$OUT/set-router-normal.json"
+          grep -q '"inited":1' "$OUT/init-info-after-setup.json"
+          grep -q '"routername":"RouterLabFirstRun"' "$OUT/init-info-after-setup.json"
+          grep -q "option 'INITTED' 'YES'" "$BASE/runtime/rootfs/etc/config/xiaoqiang"
+          grep -q "$new_hash" "$BASE/runtime/rootfs/etc/config/account"
+
           bash "$VR" status --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory | tee "$OUT/status.txt"
           grep -q 'HTTP_FRONTDOOR=up' "$OUT/status.txt"
           grep -q 'STOCK_FCGI=up' "$OUT/status.txt"
+
+          # Cold boot the same virtual router state after the stock wizard completed.
+          bash "$VR" restart --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
+
+          root_after_code="$(curl -sS --max-time 12 -H 'Host: router.miwifi.com' -o "$OUT/root-after.body" -D "$OUT/root-after.headers" -w '%{http_code}' 'http://127.0.0.1:18090/')"
+          test "$root_after_code" = "200"
+
+          login_after_code="$(curl -sS --max-time 15 -H 'Host: router.miwifi.com' -H 'Content-Type: application/x-www-form-urlencoded' -c "$OUT/after.cookies" -o "$OUT/login-after.json" -w '%{http_code}' --data-urlencode 'username=admin' --data-urlencode "password=$new_admin" --data-urlencode 'logtype=2' 'http://127.0.0.1:18090/cgi-bin/luci/api/xqsystem/login')"
+          test "$login_after_code" = "200"
+          grep -q '"code":0' "$OUT/login-after.json"
+          token_after="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$OUT/login-after.json")"
+          test "${#token_after}" = "32"
+
+          curl -sS --max-time 15 -H 'Host: router.miwifi.com' -b "$OUT/after.cookies" -o "$OUT/wifi-after-factory-cold-boot.json" "http://127.0.0.1:18090/cgi-bin/luci/;stok=$token_after/api/xqnetwork/wifi_detail_all"
+          grep -q '"ssid":"RouterLabFirstRun"' "$OUT/wifi-after-factory-cold-boot.json"
+          grep -q '"ssid":"RouterLabFirstRun_5G"' "$OUT/wifi-after-factory-cold-boot.json"
+          grep -q '"password":"RouterLabWifi88"' "$OUT/wifi-after-factory-cold-boot.json"
+
+          curl -sS --max-time 12 -H 'Host: router.miwifi.com' -o "$OUT/init-info-after-cold-boot.json" 'http://127.0.0.1:18090/cgi-bin/luci/api/xqsystem/init_info'
+          grep -q '"inited":1' "$OUT/init-info-after-cold-boot.json"
+          grep -q '"routername":"RouterLabFirstRun"' "$OUT/init-info-after-cold-boot.json"
 
           bash "$VR" stop --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
 
