@@ -72,7 +72,7 @@ jobs:
           bash tools/routerlab/xiaomi-r4a/management-plane-rehost.sh \
             --rootfs "$HOME/routerlab-xiaomi-r4a/audit/squashfs-root" \
             --fresh \
-            --probe-seconds 12 \
+            --probe-seconds 15 \
             2>&1 | tee "$HOME/routerlab-xiaomi-r4a/rehost-ci-output.txt"
 
       - name: Run stock LuCI through compatibility front door
