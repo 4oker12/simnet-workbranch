@@ -19,6 +19,7 @@ import argparse
 import json
 import mimetypes
 import os
+import re
 import socket
 import struct
 import sys
@@ -56,6 +57,67 @@ UNSUPPORTED_UI_SUFFIXES = (
 )
 
 UI_GUARD_ROUTE = "/__routerlab/ui-guard.js"
+
+WIZARD_TRACE_FRAGMENTS = (
+    "/api/xqsystem/set_location",
+    "/api/xqsystem/set_language",
+    "/api/xqsystem/set_languages",
+    "/api/xqsystem/get_languages",
+    "/api/xqsystem/login",
+    "/api/xqsystem/init_info",
+    "/web/init/",
+    "/web/setting/wan",
+)
+
+
+def _is_wizard_trace_path(path: str) -> bool:
+    return any(fragment in path for fragment in WIZARD_TRACE_FRAGMENTS)
+
+
+def _redact_route(value: str) -> str:
+    return re.sub(r";stok=[^/?]+", ";stok=<redacted>", value)
+
+
+def _request_field_names(body: bytes, content_type: str, query: str) -> list[str]:
+    names: set[str] = set()
+    if query:
+        names.update(urllib.parse.parse_qs(query, keep_blank_values=True).keys())
+    if body and "application/x-www-form-urlencoded" in content_type.lower():
+        try:
+            names.update(
+                urllib.parse.parse_qs(
+                    body.decode("utf-8", "replace"),
+                    keep_blank_values=True,
+                ).keys()
+            )
+        except Exception:
+            pass
+    return sorted(names)
+
+
+def _response_summary(payload: bytes, content_type: str) -> str:
+    if "json" not in content_type.lower():
+        return f"bytes={len(payload)}"
+    try:
+        data = json.loads(payload.decode("utf-8", "replace"))
+    except Exception:
+        return f"bytes={len(payload)} json=invalid"
+
+    if not isinstance(data, dict):
+        return f"json_type={type(data).__name__}"
+
+    safe_keys = (
+        "code",
+        "msg",
+        "message",
+        "inited",
+        "language",
+        "countrycode",
+        "hardware",
+        "romversion",
+    )
+    safe = {key: data[key] for key in safe_keys if key in data}
+    return json.dumps(safe, ensure_ascii=False, separators=(",", ":"))
 
 
 def _is_unsupported_ui_path(path: str) -> bool:
@@ -428,6 +490,25 @@ h1{{font-size:24px;margin:0 0 14px}}p{{line-height:1.55}}code{{word-break:break-
             if name.lower() == "content-type":
                 content_type = value.lower()
                 break
+
+        if _is_wizard_trace_path(path):
+            fields = _request_field_names(
+                body,
+                env.get("CONTENT_TYPE", ""),
+                parsed.query,
+            )
+            host = self.headers.get("Host", "")
+            origin = _redact_route(self.headers.get("Origin", ""))
+            referer = _redact_route(self.headers.get("Referer", ""))
+            sys.stderr.write(
+                "[routerlab-wizard] "
+                f"{self.command} {_redact_route(path)} -> {status} "
+                f"host={host!r} remote={env.get('REMOTE_ADDR', '')!r} "
+                f"origin={origin!r} referer={referer!r} "
+                f"cookie_len={len(self.headers.get('Cookie', ''))} "
+                f"fields={fields!r} "
+                f"response={_response_summary(payload, content_type)!r}\n"
+            )
 
         if (
             self.cfg.ui_guard
