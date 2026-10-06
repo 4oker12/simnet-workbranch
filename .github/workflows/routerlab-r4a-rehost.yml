@@ -222,6 +222,212 @@ jobs:
           echo "===== fcgi log ====="
           sed -n '1,220p' "$OUT/fcgi.log" || true
 
+      - name: Minimum stock configuration acceptance
+        shell: bash
+        run: |
+          set -u
+          LAB="$HOME/routerlab-xiaomi-r4a/rehost-work/current/rootfs"
+          OUT="$HOME/routerlab-xiaomi-r4a/config-acceptance"
+          mkdir -p "$OUT"
+
+          # Minimal canonical pre-state for an initialized R4A. The wireless shape and
+          # device mapping come from the exact stock ralink detect code:
+          # 2.4G = mt7603e/wl1, 5G = mt7612/wl0. These files are absent from the
+          # immutable squashfs because a real router generates them in its writable overlay.
+          cat > "$LAB/etc/config/network" <<'EOF'
+          config interface 'loopback'
+              option ifname 'lo'
+              option proto 'static'
+              option ipaddr '127.0.0.1'
+              option netmask '255.0.0.0'
+
+          config interface 'lan'
+              option ifname 'eth0.1'
+              option proto 'static'
+              option ipaddr '192.168.31.1'
+              option netmask '255.255.255.0'
+
+          config interface 'wan'
+              option ifname 'eth0.2'
+              option proto 'dhcp'
+          EOF
+
+          cat > "$LAB/etc/config/wireless" <<'EOF'
+          config wifi-device 'mt7603e'
+              option type 'mt7603e'
+              option vendor 'ralink'
+              option channel '0'
+              option bw '0'
+              option autoch '2'
+              option radio '1'
+              option txpwr 'max'
+              option hwband '2_4G'
+              option hwmode '11ng'
+              option disabled '0'
+              option country 'EU'
+              option region '1'
+              option aregion '6'
+              option ed_chk '1'
+
+          config wifi-iface
+              option device 'mt7603e'
+              option ifname 'wl1'
+              option network 'lan'
+              option mode 'ap'
+              option ssid 'RouterLab-Factory-24'
+              option encryption 'psk2'
+              option key 'FactoryPass24'
+              option hidden '0'
+
+          config wifi-device 'mt7612'
+              option type 'mt7612'
+              option vendor 'ralink'
+              option channel '0'
+              option bw '0'
+              option autoch '2'
+              option radio '1'
+              option txpwr 'max'
+              option hwband '5G'
+              option hwmode '11ac'
+              option disabled '0'
+              option country 'EU'
+              option region '1'
+              option aregion '6'
+              option ed_chk '1'
+
+          config wifi-iface
+              option device 'mt7612'
+              option ifname 'wl0'
+              option network 'lan'
+              option mode 'ap'
+              option ssid 'RouterLab-Factory-5G'
+              option encryption 'psk2'
+              option key 'FactoryPass5G'
+              option hidden '0'
+          EOF
+
+          # Preserve the initialized fixture from the READ pass; normalize it if needed.
+          if ! grep -q "option 'INITTED'" "$LAB/etc/config/xiaoqiang"; then
+            printf "\n    option 'INITTED' 'YES'\n" >> "$LAB/etc/config/xiaoqiang"
+          fi
+
+          cp "$LAB/etc/config/network" "$OUT/network.before"
+          cp "$LAB/etc/config/wireless" "$OUT/wireless.before"
+
+          start_stack() {
+            pkill -TERM -f '[q]emu-mipsel-static.*fcgi-cgi' 2>/dev/null || true
+            pkill -TERM -f '[c]ompat-frontdoor.py' 2>/dev/null || true
+            sleep 1
+
+            proot -0 -q "$(command -v qemu-mipsel-static)" -R "$LAB" -w / \
+              /usr/bin/spawn-fcgi -a 127.0.0.1 -p 8920 -u root -U nobody -F 1 -- \
+              /usr/bin/fcgi-cgi -c 4 >>"$OUT/fcgi.log" 2>&1 &
+            STACK_SPAWN_PID=$!
+
+            for _ in {1..20}; do
+              nc -z -w1 127.0.0.1 8920 && break
+              sleep 0.5
+            done
+
+            python3 tools/routerlab/xiaomi-r4a/compat-frontdoor.py \
+              --rootfs "$LAB" --port 18090 >>"$OUT/frontdoor.log" 2>&1 &
+            STACK_FRONT_PID=$!
+
+            for _ in {1..20}; do
+              nc -z -w1 127.0.0.1 18090 && break
+              sleep 0.25
+            done
+          }
+
+          stop_stack() {
+            kill -TERM "${STACK_FRONT_PID:-0}" "${STACK_SPAWN_PID:-0}" 2>/dev/null || true
+            pkill -TERM -f '[q]emu-mipsel-static.*fcgi-cgi' 2>/dev/null || true
+            pkill -TERM -f '[c]ompat-frontdoor.py' 2>/dev/null || true
+            sleep 1
+          }
+          trap stop_stack EXIT
+
+          stock_login() {
+            local suffix="$1"
+            curl -sS --max-time 12 \
+              -H 'Host: router.miwifi.com' \
+              -H 'Content-Type: application/x-www-form-urlencoded' \
+              -c "$OUT/cookies.$suffix.txt" \
+              -o "$OUT/login.$suffix.body" \
+              --data 'username=admin&password=admin&logtype=2' \
+              'http://127.0.0.1:18090/cgi-bin/luci/api/xqsystem/login' >/dev/null
+            python3 -c 'import json,pathlib,sys; print(json.loads(pathlib.Path(sys.argv[1]).read_text()).get("token",""))' "$OUT/login.$suffix.body"
+          }
+
+          api_post() {
+            local tag="$1" token="$2" data="$3" path="$4"
+            curl -sS --max-time 15 \
+              -H 'Host: router.miwifi.com' \
+              -b "$OUT/cookies.before.txt" \
+              -H 'Content-Type: application/x-www-form-urlencoded' \
+              -D "$OUT/$tag.headers" \
+              -o "$OUT/$tag.body" \
+              -w '%{http_code}' \
+              --data "$data" \
+              "http://127.0.0.1:18090/cgi-bin/luci/;stok=$token$path" || true
+          }
+
+          api_get() {
+            local tag="$1" token="$2" cookie="$3" path="$4"
+            curl -sS --max-time 15 \
+              -H 'Host: router.miwifi.com' \
+              -b "$cookie" \
+              -D "$OUT/$tag.headers" \
+              -o "$OUT/$tag.body" \
+              -w '%{http_code}' \
+              "http://127.0.0.1:18090/cgi-bin/luci/;stok=$token$path" || true
+          }
+
+          start_stack
+          token="$(stock_login before)"
+          echo "token_before_length=${#token}" | tee "$OUT/result.txt"
+
+          wan_code="$(api_post set_wan_dhcp "$token" 'wanType=dhcp&client=web' '/api/xqnetwork/set_wan')"
+          wifi24_code="$(api_post set_wifi_24 "$token" 'wifiIndex=1&on=1&ssid=RouterLab24&pwd=RouterLabPass24&encryption=psk2&channel=0&bandwidth=0&hidden=0&txpwr=max' '/api/xqnetwork/set_wifi')"
+          wifi5_code="$(api_post set_wifi_5 "$token" 'wifiIndex=2&on=1&ssid=RouterLab5G&pwd=RouterLabPass5G&encryption=psk2&channel=0&bandwidth=0&hidden=0&txpwr=max' '/api/xqnetwork/set_wifi')"
+
+          printf 'set_wan_dhcp_http=%s\nset_wifi_24_http=%s\nset_wifi_5_http=%s\n' \
+            "$wan_code" "$wifi24_code" "$wifi5_code" | tee -a "$OUT/result.txt"
+
+          cp "$LAB/etc/config/network" "$OUT/network.after-write" 2>/dev/null || true
+          cp "$LAB/etc/config/wireless" "$OUT/wireless.after-write" 2>/dev/null || true
+
+          rb_wan_code="$(api_get readback_wan "$token" "$OUT/cookies.before.txt" '/api/xqnetwork/wan_info')"
+          rb_wifi_code="$(api_get readback_wifi "$token" "$OUT/cookies.before.txt" '/api/xqnetwork/wifi_detail_all')"
+          printf 'readback_wan_http=%s\nreadback_wifi_http=%s\n' "$rb_wan_code" "$rb_wifi_code" | tee -a "$OUT/result.txt"
+
+          # Persistence boundary: restart the entire rehost management plane, authenticate
+          # again, then read through the stock API rather than inspecting files only.
+          stop_stack
+          start_stack
+          token2="$(stock_login after)"
+          persist_wan_code="$(api_get persistence_wan "$token2" "$OUT/cookies.after.txt" '/api/xqnetwork/wan_info')"
+          persist_wifi_code="$(api_get persistence_wifi "$token2" "$OUT/cookies.after.txt" '/api/xqnetwork/wifi_detail_all')"
+          printf 'token_after_length=%s\npersistence_wan_http=%s\npersistence_wifi_http=%s\n' \
+            "${#token2}" "$persist_wan_code" "$persist_wifi_code" | tee -a "$OUT/result.txt"
+
+          cp "$LAB/etc/config/network" "$OUT/network.after-restart" 2>/dev/null || true
+          cp "$LAB/etc/config/wireless" "$OUT/wireless.after-restart" 2>/dev/null || true
+
+          echo "===== minimum configuration result ====="
+          cat "$OUT/result.txt"
+          for tag in set_wan_dhcp set_wifi_24 set_wifi_5 readback_wan readback_wifi persistence_wan persistence_wifi; do
+            echo "===== $tag body ====="
+            sed -n '1,160p' "$OUT/$tag.body" 2>/dev/null || true
+          done
+          echo "===== network diff ====="
+          diff -u "$OUT/network.before" "$OUT/network.after-write" || true
+          echo "===== wireless diff ====="
+          diff -u "$OUT/wireless.before" "$OUT/wireless.after-write" || true
+          echo "===== persistence file compare ====="
+          cmp -s "$OUT/network.after-write" "$OUT/network.after-restart" && echo "network_file_persisted=yes" || echo "network_file_persisted=no"
+          cmp -s "$OUT/wireless.after-write" "$OUT/wireless.after-restart" && echo "wireless_file_persisted=yes" || echo "wireless_file_persisted=no"
+
       - name: Collect concise runtime evidence
         if: always()
         shell: bash
@@ -246,5 +452,6 @@ jobs:
             ~/routerlab-xiaomi-r4a/rehost-ci-output.txt
             ~/routerlab-xiaomi-r4a/rehost-work/runs/
             ~/routerlab-xiaomi-r4a/compat-ci/
+            ~/routerlab-xiaomi-r4a/config-acceptance/
           if-no-files-found: warn
           retention-days: 7
