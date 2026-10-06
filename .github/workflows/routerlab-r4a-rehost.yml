@@ -538,9 +538,9 @@ jobs:
           nonce="0_${device}_${now}_2001"
           oldpwd="$(python3 -c 'import hashlib,sys; print(hashlib.sha1((sys.argv[1]+sys.argv[2]).encode()).hexdigest())' "$nonce" "$account_hash")"
 
-          curl -sS --max-time 15 \
+          # hello.htm uses $.getJSON(), so reproduce the stock GET login exactly.
+          curl -sS --max-time 15 -G \
             -H 'Host: router.miwifi.com' \
-            -H 'Content-Type: application/x-www-form-urlencoded' \
             -c "$OUT/factory.cookies" \
             -o "$OUT/factory-login.json" \
             --data-urlencode 'username=admin' \
@@ -551,7 +551,18 @@ jobs:
             'http://127.0.0.1:18090/cgi-bin/luci/api/xqsystem/login'
           grep -q '"code":0' "$OUT/factory-login.json"
           token="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$OUT/factory-login.json")"
+          guide_url="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["url"])' "$OUT/factory-login.json")"
           test "${#token}" = "32"
+
+          # The real browser follows rsp.url into /web/init/guide before WAN setup.
+          guide_code="$(curl -sS --max-time 20 \
+            -H 'Host: router.miwifi.com' \
+            -b "$OUT/factory.cookies" \
+            -o "$OUT/guide.html" \
+            -w '%{http_code}' \
+            "http://127.0.0.1:18090$guide_url")"
+          test "$guide_code" = "200"
+          grep -q 'pppoeName' "$OUT/guide.html"
 
           curl -sS --max-time 20 \
             -H 'Host: router.miwifi.com' \
