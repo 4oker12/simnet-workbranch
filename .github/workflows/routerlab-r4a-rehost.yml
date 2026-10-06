@@ -26,6 +26,7 @@ jobs:
           set -euxo pipefail
           bash -n tools/routerlab/xiaomi-r4a/management-plane-rehost.sh
           python3 -m py_compile tools/routerlab/xiaomi-r4a/compat-frontdoor.py
+          python3 -m unittest tests/routerlab_xiaomi_r4a_compat_frontdoor_test.py
           node --test tests/routerlab_xiaomi_r4a_rehost_test.mjs
 
       - name: Install userspace emulation tools
