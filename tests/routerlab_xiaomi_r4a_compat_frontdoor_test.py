@@ -73,6 +73,42 @@ class CompatFrontdoorContractTest(unittest.TestCase):
         self.assertIn(b"/__routerlab/ui-guard.js", guarded)
         self.assertEqual(guarded, mod._inject_ui_guard(guarded))
 
+
+    def test_wizard_trace_redacts_stok_and_never_logs_request_values(self):
+        self.assertEqual(
+            mod._redact_route(
+                "/cgi-bin/luci/;stok=secret123/api/xqsystem/set_language"
+            ),
+            "/cgi-bin/luci/;stok=<redacted>/api/xqsystem/set_language",
+        )
+        fields = mod._request_field_names(
+            b"language=english&password=supersecret",
+            "application/x-www-form-urlencoded",
+            "location=EU",
+        )
+        self.assertEqual(fields, ["language", "location", "password"])
+
+    def test_wizard_trace_json_summary_keeps_status_fields_but_drops_tokens(self):
+        summary = mod._response_summary(
+            b'{"code":1511,"msg":"This language isn\'t supported yet.","token":"secret","password":"secret"}',
+            "application/json",
+        )
+        self.assertIn('"code":1511', summary)
+        self.assertIn("supported yet", summary)
+        self.assertNotIn("token", summary)
+        self.assertNotIn("password", summary)
+        self.assertNotIn("secret", summary)
+
+    def test_wizard_trace_covers_country_language_login_and_wan(self):
+        for path in (
+            "/cgi-bin/luci/api/xqsystem/set_location",
+            "/cgi-bin/luci/api/xqsystem/set_language",
+            "/cgi-bin/luci/api/xqsystem/login",
+            "/cgi-bin/luci/;stok=x/web/init/guide",
+            "/cgi-bin/luci/;stok=x/web/setting/wan",
+        ):
+            self.assertTrue(mod._is_wizard_trace_path(path))
+
     def test_source_is_transport_only_and_local_by_default(self):
         source = MODULE_PATH.read_text(encoding="utf-8")
         self.assertIn('parser.add_argument("--bind", default="127.0.0.1")', source)
