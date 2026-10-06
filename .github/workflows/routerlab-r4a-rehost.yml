@@ -66,6 +66,53 @@ jobs:
           test -x audit/squashfs-root/usr/bin/fcgi-cgi
           test -e audit/squashfs-root/www/cgi-bin/luci
 
+      - name: Inspect exact stock browser wizard contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOTFS="$HOME/routerlab-xiaomi-r4a/audit/squashfs-root"
+          OUT="$HOME/routerlab-xiaomi-r4a/browser-wizard-contract.txt"
+          python3 - "$ROOTFS" > "$OUT" <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          root = pathlib.Path(sys.argv[1])
+          candidates = [root / "www" / "init.html"]
+          candidates += sorted((root / "www" / "static" / "js").glob("init*.js"))
+
+          needles = (
+              "set_location",
+              "set_language",
+              "set_languages",
+              "get_languages",
+              "location",
+              "language",
+          )
+
+          for path in candidates:
+              if not path.is_file():
+                  continue
+              text = path.read_text(encoding="utf-8", errors="replace")
+              print(f"===== {path.relative_to(root)} =====")
+              found = False
+              for needle in needles:
+                  start = 0
+                  while True:
+                      pos = text.find(needle, start)
+                      if pos < 0:
+                          break
+                      found = True
+                      lo = max(0, pos - 320)
+                      hi = min(len(text), pos + len(needle) + 520)
+                      snippet = re.sub(r"\s+", " ", text[lo:hi])
+                      print(f"[{needle}] {snippet}")
+                      start = pos + len(needle)
+              if not found:
+                  print("(no wizard keyword matches)")
+          PY
+          sed -n '1,320p' "$OUT"
+
       - name: Run exact stock sysapi evidence pass
         shell: bash
         run: |
@@ -828,6 +875,7 @@ jobs:
           name: routerlab-r4a-rehost-evidence
           path: |
             ~/routerlab-xiaomi-r4a/rehost-ci-output.txt
+            ~/routerlab-xiaomi-r4a/browser-wizard-contract.txt
             ~/routerlab-xiaomi-r4a/rehost-work/runs/
             ~/routerlab-xiaomi-r4a/compat-ci/
             ~/routerlab-xiaomi-r4a/config-acceptance/
