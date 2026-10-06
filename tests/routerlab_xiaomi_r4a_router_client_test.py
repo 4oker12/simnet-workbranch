@@ -92,6 +92,119 @@ class RouterClientTests(unittest.TestCase):
 
 
 
+    def test_first_run_rerun_recovers_verified_completed_state_without_writes(self):
+        class FakeClient:
+            parsed = type("Parsed", (), {"hostname": "127.0.0.1"})()
+
+            def identity(self):
+                return module.RouterIdentity(
+                    "R4A", "3.0.24", 1, "RouterLab", "en"
+                )
+
+            def login(self, password):
+                self.login_password = password
+                return "fedcba9876543210fedcba9876543210"
+
+            def wifi_detail_all(self, token):
+                return {
+                    "code": 0,
+                    "info": [
+                        {
+                            "ifname": "wl1",
+                            "ssid": "RouterLab",
+                            "password": "RouterLabWifi88",
+                        },
+                        {
+                            "ifname": "wl0",
+                            "ssid": "RouterLab_5G",
+                            "password": "RouterLabWifi88",
+                        },
+                    ],
+                }
+
+            def factory_login(self):
+                raise AssertionError("rerun recovery must not perform factory login")
+
+            def set_wan_dhcp(self, token):
+                raise AssertionError("rerun recovery must not write WAN state")
+
+            def set_router_normal(self, token, **kwargs):
+                raise AssertionError("rerun recovery must not write router state")
+
+        parser = module.build_parser()
+        args = parser.parse_args(
+            [
+                "--base-url",
+                "http://127.0.0.1:18090",
+                "first-run",
+                "--router-name",
+                "RouterLab",
+                "--ssid",
+                "RouterLab",
+                "--wifi-password",
+                "RouterLabWifi88",
+                "--admin-password",
+                "RouterLabAdmin88",
+            ]
+        )
+        fake = FakeClient()
+        with mock.patch.object(module, "XiaomiR4AClient", return_value=fake):
+            result = module.command_first_run(args)
+
+        self.assertEqual(result["before"]["inited"], 1)
+        self.assertEqual(result["factory_login"]["status"], "not_attempted")
+        self.assertEqual(
+            result["actions"]["set_router_normal"]["outcome"],
+            "already_completed_verified",
+        )
+        self.assertEqual(
+            result["actions"]["set_router_normal"]["state_verification"],
+            "confirmed",
+        )
+        self.assertEqual(result["after"]["inited"], 1)
+        self.assertEqual(fake.login_password, "RouterLabAdmin88")
+
+    def test_first_run_rerun_refuses_initialized_mismatching_state_without_writes(self):
+        class FakeClient:
+            parsed = type("Parsed", (), {"hostname": "127.0.0.1"})()
+
+            def identity(self):
+                return module.RouterIdentity(
+                    "R4A", "3.0.24", 1, "DifferentRouter", "en"
+                )
+
+            def factory_login(self):
+                raise AssertionError("mismatch recovery must remain read-only")
+
+            def set_wan_dhcp(self, token):
+                raise AssertionError("mismatch recovery must remain read-only")
+
+            def set_router_normal(self, token, **kwargs):
+                raise AssertionError("mismatch recovery must remain read-only")
+
+        parser = module.build_parser()
+        args = parser.parse_args(
+            [
+                "--base-url",
+                "http://127.0.0.1:18090",
+                "first-run",
+                "--router-name",
+                "RouterLab",
+                "--ssid",
+                "RouterLab",
+                "--wifi-password",
+                "RouterLabWifi88",
+                "--admin-password",
+                "RouterLabAdmin88",
+            ]
+        )
+        with mock.patch.object(module, "XiaomiR4AClient", return_value=FakeClient()):
+            with self.assertRaisesRegex(
+                module.RouterClientError,
+                "does not match the requested RouterLab setup",
+            ):
+                module.command_first_run(args)
+
     def test_first_run_recovers_from_ambiguous_transport_error_by_readback(self):
         class FakeClient:
             parsed = type("Parsed", (), {"hostname": "127.0.0.1"})()
