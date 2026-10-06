@@ -307,6 +307,9 @@ while true; do
   [[ "$c2" != 000 ]] && best_init="$c2"
   [[ "$c3" != 000 ]] && best_api="$c3"
   [[ "$best_api" =~ ^2[0-9][0-9]$ ]] && break
+  if grep -qF 'cannot est session for 0.0.0.1:65535' "$ART/sysapihttpd.log" 2>/dev/null; then
+    break
+  fi
   if ! kill -0 "$HTTPD_PID" 2>/dev/null; then
     break
   fi
@@ -340,6 +343,9 @@ elif (( FCGI_LISTEN == 0 )); then
 elif (( FCGI_CHILD == 0 )); then
   classification="STOCK_FCGI_LISTENER_WITHOUT_TRACKED_CHILD"
   decision="Port 8920 is reachable but the expected fcgi-cgi process was not visible in the host process view. Treat the listener as stronger evidence and continue with HTTP request diagnostics."
+elif grep -qF 'cannot est session for 0.0.0.1:65535' "$ART/sysapihttpd.log" 2>/dev/null; then
+  classification="STOCK_SYSAPI_TRANSPORT_INCOMPATIBLE_QEMU_USER"
+  decision="Stock sysapihttpd reaches its Xiaomi original-destination/session layer, receives sentinel 0.0.0.1:65535 under qemu-user and aborts the worker. Retire stock HTTP transport only; preserve stock /www + FCGI/LuCI/API behind the compatibility front door."
 else
   classification="STOCK_SYSAPI_CONFIG_VALID_RUNTIME_BLOCKED"
   decision="Both stock listeners survived startup but HTTP did not complete. Diagnose request handling only; full-system emulation stays retired."
