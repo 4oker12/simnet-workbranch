@@ -126,10 +126,28 @@ fi
 guest '
 set -e
 rm -rf /tmp/sysapihttpdconf /tmp/sysapihttpd /tmp/uploadfiles
-mkdir -p /tmp/sysapihttpdconf /tmp/sysapihttpd /tmp/uploadfiles /tmp/rr /var/run
-mkdir -p /userdisk/sysapihttpd/temp /userdisk/sysapihttpd/cache /userdisk/sysapihttpd/log
-mkdir -p /userdisk/sysapihttpd/body /userdisk/sysapihttpd/proxy /userdisk/sysapihttpd/fastcgi
-mkdir -p /userdisk/sysapihttpd/run /userdisk/sysapihttpd/lock
+mkdir -p /tmp/sysapihttpdconf /tmp/uploadfiles /tmp/rr /var/run
+
+# Exact ngxld runtime directory shape. Stock /var is a symlink to /tmp, and the
+# sysapihttpd binary was compiled with /var/sysapihttpd/{lock,body,proxy,fastcgi}.
+mkdir -p /tmp/sysapihttpd/temp /tmp/sysapihttpd/cache /tmp/sysapihttpd/log
+mkdir -p /tmp/sysapihttpd/body /tmp/sysapihttpd/proxy /tmp/sysapihttpd/fastcgi
+mkdir -p /tmp/sysapihttpd/run /tmp/sysapihttpd/lock
+
+# ngxld bind-mounts /tmp/sysapihttpd over /userdisk/sysapihttpd when no standalone
+# userdisk filesystem exists. PRoot cannot perform that kernel mount, so the disposable
+# clone uses an equivalent symlink. The source rootfs is untouched.
+rm -rf /userdisk/sysapihttpd
+ln -s /tmp/sysapihttpd /userdisk/sysapihttpd
+
+for oneroot in preload inforoot luaroot; do
+  mkdir -p "/tmp/sysapihttpd/$oneroot"
+  : > "/tmp/sysapihttpd/$oneroot/favicon.ico"
+  printf "<h1>sysapihttpd %s server</h1>\n" "$oneroot" > "/tmp/sysapihttpd/$oneroot/index.html"
+  printf "<h1>sysapihttpd %s server, file no found or internal error</h1>\n" "$oneroot" > "/tmp/sysapihttpd/$oneroot/50x.html"
+done
+chmod -R 777 /tmp/sysapihttpd
+
 cp -a /etc/sysapihttpd/. /tmp/sysapihttpdconf/
 rrd="$(matool --method rr_data 2>/dev/null || true)"
 did="$(matool --method deviceID 2>/dev/null || true)"
@@ -192,9 +210,14 @@ write_report_and_exit() {
 }
 
 if (( CONFIG_RC != 0 )); then
+  echo
+  echo "=== STOCK SYSAPI CONFIG TEST ERROR ==="
+  cat "$ART/sysapi-config-test.log" || true
+  echo "=== END CONFIG TEST ERROR ==="
+  echo
   write_report_and_exit \
     "STOCK_SYSAPI_CONFIG_BLOCKED_IN_USERMODE" \
-    "The exact stock server reached config validation and failed there. Diagnose the first concrete userspace dependency from sysapi-config-test.log; do not return to FirmAE."
+    "The exact stock server reached config validation and failed there. The precise error is printed above and saved in sysapi-config-test.log. Shim only that evidenced userspace dependency; do not return to FirmAE."
   exit 0
 fi
 
