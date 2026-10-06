@@ -11,6 +11,10 @@ const wrapperPath = path.join(root, 'tools', 'routerlab', 'xiaomi-r4a', 'Run-Vir
 
 const script = fs.readFileSync(scriptPath, 'utf8');
 const wrapper = fs.readFileSync(wrapperPath, 'utf8');
+const shim = fs.readFileSync(
+  path.join(root, 'tools', 'routerlab', 'xiaomi-r4a', 'runtime-shims', 'ubus.lua'),
+  'utf8',
+);
 
 test('virtual router keeps exact stock LuCI and replaces transport only', () => {
   assert.match(script, /usr\/bin\/fcgi-cgi/);
@@ -55,4 +59,15 @@ test('virtual router safely reclaims only stale RouterLab listeners', () => {
   assert.match(script, /compat-frontdoor\.py/);
   assert.match(script, /non-RouterLab pid=/);
   assert.doesNotMatch(script, /for p in \$port_pids; do\s*kill -TERM "\$p"/);
+});
+
+test('ubus shim is narrow and derives WAN protocol from stock UCI', () => {
+  assert.match(script, /runtime-shims/);
+  assert.match(script, /cp "\$SHIM_DIR\/ubus\.lua" "\$LAB\/usr\/lib\/lua\/ubus\.lua"/);
+  assert.match(shim, /network\.interface\.wan/);
+  assert.match(shim, /cursor:get\("network", "wan", "proto"\)/);
+  assert.match(shim, /up = false/);
+  assert.match(shim, /error\(/);
+  assert.match(shim, /unsupported call/);
+  assert.doesNotMatch(shim, /pppoe_username|set_wifi|set_wan/);
 });
