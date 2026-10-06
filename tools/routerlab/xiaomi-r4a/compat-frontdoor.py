@@ -59,7 +59,7 @@ UNSUPPORTED_UI_SUFFIXES = (
 UI_GUARD_ROUTE = "/__routerlab/ui-guard.js"
 
 WIZARD_TRACE_FRAGMENTS = (
-    "/api/xqsystem/set_location",
+    "/api/misystem/set_location",
     "/api/xqsystem/set_language",
     "/api/xqsystem/set_languages",
     "/api/xqsystem/get_languages",
@@ -96,7 +96,13 @@ def _request_field_names(body: bytes, content_type: str, query: str) -> list[str
 
 
 def _response_summary(payload: bytes, content_type: str) -> str:
-    if "json" not in content_type.lower():
+    stripped = payload.lstrip()
+    looks_json = (
+        "json" in content_type.lower()
+        or stripped.startswith(b"{")
+        or stripped.startswith(b"[")
+    )
+    if not looks_json:
         return f"bytes={len(payload)}"
     try:
         data = json.loads(payload.decode("utf-8", "replace"))
