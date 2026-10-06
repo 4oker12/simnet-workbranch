@@ -25,6 +25,7 @@ PROFILE="factory"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRONTDOOR="$SCRIPT_DIR/compat-frontdoor.py"
+SHIM_DIR="$SCRIPT_DIR/runtime-shims"
 
 usage() {
   cat <<'EOF'
@@ -117,6 +118,7 @@ validate_source() {
     [[ -e "$ROOTFS/$f" ]] || { echo "[virtual-router] exact stock authority missing: /$f" >&2; exit 1; }
   done
   [[ -f "$FRONTDOOR" ]] || { echo "[virtual-router] compat front door missing: $FRONTDOOR" >&2; exit 1; }
+  [[ -f "$SHIM_DIR/ubus.lua" ]] || { echo "[virtual-router] ubus runtime shim missing: $SHIM_DIR/ubus.lua" >&2; exit 1; }
 }
 
 seed_factory_state() {
@@ -235,6 +237,12 @@ prepare_runtime() {
   mkdir -p "$LAB" "$PIDDIR" "$LOGDIR"
   cp -a --reflink=auto "$ROOTFS/." "$LAB/"
   cp -a "$STATE_CONFIG/." "$LAB/etc/config/"
+
+  # Runtime-only compatibility: stock first-run DHCP conflict detection asks
+  # netifd through ubus. qemu-user has no guest kernel/netifd/ubusd, so shadow
+  # only the ubus Lua module with a narrow adapter backed by stock UCI state.
+  # The immutable source rootfs is never modified.
+  cp "$SHIM_DIR/ubus.lua" "$LAB/usr/lib/lua/ubus.lua"
 }
 
 read_pid() {
