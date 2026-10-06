@@ -370,6 +370,60 @@ def _expected_wifi_map(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return result
 
 
+def _is_ambiguous_transport_error(exc: RouterClientError) -> bool:
+    text = str(exc).lower()
+    return (
+        "http 502" in text
+        or "timed out" in text
+        or "transport error" in text
+        or "request failed" in text
+    )
+
+
+def _verify_first_run_state(
+    client: XiaomiR4AClient,
+    args: argparse.Namespace,
+    *,
+    attempts: int = 5,
+    delay_seconds: float = 1.5,
+) -> tuple[RouterIdentity, dict[str, Any]]:
+    last_error: RouterClientError | None = None
+    for attempt in range(attempts):
+        try:
+            identity = client.identity()
+            if identity.inited != 1:
+                raise RouterClientError(
+                    f"first-run state not ready yet: inited={identity.inited}"
+                )
+            if identity.routername != args.router_name:
+                raise RouterClientError(
+                    "stock first-run router name read-back does not match"
+                )
+
+            token = client.login(args.admin_password)
+            wifi = client.wifi_detail_all(token)
+            radios = _expected_wifi_map(wifi)
+            wl1 = radios.get("wl1", {})
+            wl0 = radios.get("wl0", {})
+            if not (
+                wl1.get("ssid") == args.ssid
+                and wl0.get("ssid") == args.ssid + "_5G"
+                and wl1.get("password") == args.wifi_password
+                and wl0.get("password") == args.wifi_password
+            ):
+                raise RouterClientError(
+                    "stock first-run Wi-Fi read-back does not match requested state"
+                )
+            return identity, wifi
+        except RouterClientError as exc:
+            last_error = exc
+            if attempt + 1 < attempts:
+                time.sleep(delay_seconds)
+
+    assert last_error is not None
+    raise last_error
+
+
 def command_first_run(args: argparse.Namespace) -> dict[str, Any]:
     client = XiaomiR4AClient(args.base_url, args.timeout)
     if not _is_loopback_host(client.parsed.hostname):
@@ -390,34 +444,28 @@ def command_first_run(args: argparse.Namespace) -> dict[str, Any]:
     token, guide_url, _account_hash = client.factory_login()
 
     wan_ack = client.set_wan_dhcp(token)
-    setup_ack = client.set_router_normal(
-        token,
-        router_name=args.router_name,
-        ssid=args.ssid,
-        wifi_password=args.wifi_password,
-        admin_password=args.admin_password,
-    )
 
-    after = client.identity()
-    if after.inited != 1:
-        raise RouterClientError("stock first-run did not transition router to inited=1")
-    if after.routername != args.router_name:
-        raise RouterClientError("stock first-run router name read-back does not match")
-
-    token_after = client.login(args.admin_password)
-    wifi = client.wifi_detail_all(token_after)
-    radios = _expected_wifi_map(wifi)
-    wl1 = radios.get("wl1", {})
-    wl0 = radios.get("wl0", {})
-    if not (
-        wl1.get("ssid") == args.ssid
-        and wl0.get("ssid") == args.ssid + "_5G"
-        and wl1.get("password") == args.wifi_password
-        and wl0.get("password") == args.wifi_password
-    ):
-        raise RouterClientError(
-            "stock first-run Wi-Fi read-back does not match requested state"
+    setup_ack: dict[str, Any] | None = None
+    setup_transport_error: RouterClientError | None = None
+    try:
+        setup_ack = client.set_router_normal(
+            token,
+            router_name=args.router_name,
+            ssid=args.ssid,
+            wifi_password=args.wifi_password,
+            admin_password=args.admin_password,
         )
+    except RouterClientError as exc:
+        if not _is_ambiguous_transport_error(exc):
+            raise
+        setup_transport_error = exc
+
+    try:
+        after, wifi = _verify_first_run_state(client, args)
+    except RouterClientError:
+        if setup_transport_error is not None:
+            raise setup_transport_error
+        raise
 
     return {
         "operation": "first-run",
@@ -437,7 +485,17 @@ def command_first_run(args: argparse.Namespace) -> dict[str, Any]:
                 "live_link_state": "unknown_not_emulated",
             },
             "set_router_normal": {
-                "acknowledged": int(setup_ack.get("code", -1)) == 0,
+                "transport_ack": (
+                    "confirmed"
+                    if setup_ack is not None and int(setup_ack.get("code", -1)) == 0
+                    else "unknown_transport_error"
+                ),
+                "state_verification": "confirmed",
+                "outcome": (
+                    "confirmed_by_ack_and_readback"
+                    if setup_transport_error is None
+                    else "confirmed_by_readback_after_transport_error"
+                ),
             },
         },
         "after": {
