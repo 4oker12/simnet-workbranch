@@ -25,6 +25,7 @@ jobs:
         run: |
           set -euxo pipefail
           bash -n tools/routerlab/xiaomi-r4a/management-plane-rehost.sh
+          python3 -m py_compile tools/routerlab/xiaomi-r4a/compat-frontdoor.py
           node --test tests/routerlab_xiaomi_r4a_rehost_test.mjs
 
       - name: Install userspace emulation tools
@@ -32,7 +33,8 @@ jobs:
         run: |
           set -euxo pipefail
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y             qemu-user-static proot squashfs-tools curl netcat-openbsd iproute2
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            qemu-user-static proot squashfs-tools curl netcat-openbsd iproute2
 
       - name: Download and verify exact stock firmware 3.0.24
         shell: bash
@@ -40,7 +42,9 @@ jobs:
           set -euxo pipefail
           mkdir -p "$HOME/routerlab-xiaomi-r4a"
           cd "$HOME/routerlab-xiaomi-r4a"
-          curl -fL --retry 3 --retry-delay 2             https://github.com/acecilia/OpenWRTInvasion/raw/master/firmwares/stock/miwifi_r4a_all_03233_3.0.24_INT.bin             -o miwifi_r4a_all_03233_3.0.24_INT.bin
+          curl -fL --retry 3 --retry-delay 2 \
+            https://github.com/acecilia/OpenWRTInvasion/raw/master/firmwares/stock/miwifi_r4a_all_03233_3.0.24_INT.bin \
+            -o miwifi_r4a_all_03233_3.0.24_INT.bin
           echo "609b5b59b7b00365451fa358b5a79e0e4078b8a9a7aeb6a994a641287a093548  miwifi_r4a_all_03233_3.0.24_INT.bin" | sha256sum -c -
 
       - name: Extract exact stock rootfs
@@ -48,19 +52,97 @@ jobs:
         run: |
           set -euxo pipefail
           cd "$HOME/routerlab-xiaomi-r4a"
-          dd             if=miwifi_r4a_all_03233_3.0.24_INT.bin             of=rootfs.sqfs             bs=4M             iflag=skip_bytes,count_bytes             skip=1704608             count=12763178
+          dd \
+            if=miwifi_r4a_all_03233_3.0.24_INT.bin \
+            of=rootfs.sqfs \
+            bs=4M \
+            iflag=skip_bytes,count_bytes \
+            skip=1704608 \
+            count=12763178
           mkdir -p audit
           unsquashfs -f -d audit/squashfs-root rootfs.sqfs
           test -x audit/squashfs-root/usr/sbin/sysapihttpd
           test -x audit/squashfs-root/usr/bin/fcgi-cgi
           test -e audit/squashfs-root/www/cgi-bin/luci
 
-      - name: Run exact stock management-plane rehost
-        id: rehost
+      - name: Run exact stock sysapi evidence pass
         shell: bash
         run: |
           set -o pipefail
-          bash tools/routerlab/xiaomi-r4a/management-plane-rehost.sh             --rootfs "$HOME/routerlab-xiaomi-r4a/audit/squashfs-root"             --fresh             --probe-seconds 30             2>&1 | tee "$HOME/routerlab-xiaomi-r4a/rehost-ci-output.txt"
+          bash tools/routerlab/xiaomi-r4a/management-plane-rehost.sh \
+            --rootfs "$HOME/routerlab-xiaomi-r4a/audit/squashfs-root" \
+            --fresh \
+            --probe-seconds 12 \
+            2>&1 | tee "$HOME/routerlab-xiaomi-r4a/rehost-ci-output.txt"
+
+      - name: Run stock LuCI through compatibility front door
+        shell: bash
+        run: |
+          set -euxo pipefail
+          LAB="$HOME/routerlab-xiaomi-r4a/rehost-work/current/rootfs"
+          OUT="$HOME/routerlab-xiaomi-r4a/compat-ci"
+          mkdir -p "$OUT"
+
+          # The previous evidence pass can leave target children orphaned after the
+          # PRoot launcher exits. Start this compatibility probe from a clean backend.
+          pkill -TERM -f '[q]emu-mipsel-static.*fcgi-cgi' 2>/dev/null || true
+          sleep 1
+          pkill -KILL -f '[q]emu-mipsel-static.*fcgi-cgi' 2>/dev/null || true
+
+          proot -0 -q "$(command -v qemu-mipsel-static)" -R "$LAB" -w / \
+            /usr/bin/spawn-fcgi -a 127.0.0.1 -p 8920 -u root -U nobody -F 1 -- \
+            /usr/bin/fcgi-cgi -c 4 >"$OUT/fcgi.log" 2>&1 &
+          SPAWN_PID=$!
+
+          cleanup() {
+            kill -TERM "${FRONT_PID:-0}" "${SPAWN_PID:-0}" 2>/dev/null || true
+            pkill -TERM -f '[q]emu-mipsel-static.*fcgi-cgi' 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          for _ in {1..20}; do
+            nc -z -w1 127.0.0.1 8920 && break
+            sleep 0.5
+          done
+          nc -z -w2 127.0.0.1 8920
+
+          python3 tools/routerlab/xiaomi-r4a/compat-frontdoor.py \
+            --rootfs "$LAB" \
+            --port 18090 \
+            >"$OUT/frontdoor.log" 2>&1 &
+          FRONT_PID=$!
+
+          for _ in {1..20}; do
+            nc -z -w1 127.0.0.1 18090 && break
+            sleep 0.25
+          done
+          nc -z -w2 127.0.0.1 18090
+
+          for spec in \
+            "root|/" \
+            "init|/init.html" \
+            "api|/cgi-bin/luci/api/xqsystem/init_info"; do
+            tag="${spec%%|*}"
+            path="${spec#*|}"
+            code="$(curl -sS --max-time 10 \
+              -H 'Host: router.miwifi.com' \
+              -D "$OUT/$tag.headers" \
+              -o "$OUT/$tag.body" \
+              -w '%{http_code}' \
+              "http://127.0.0.1:18090$path" || true)"
+            echo "$tag $path => $code" | tee -a "$OUT/result.txt"
+          done
+
+          echo "===== compat result ====="
+          cat "$OUT/result.txt"
+          echo "===== api headers ====="
+          cat "$OUT/api.headers" || true
+          echo "===== api body ====="
+          sed -n '1,120p' "$OUT/api.body" || true
+          echo "===== frontdoor log ====="
+          sed -n '1,220p' "$OUT/frontdoor.log" || true
+          echo "===== fcgi log ====="
+          sed -n '1,220p' "$OUT/fcgi.log" || true
 
       - name: Collect concise runtime evidence
         if: always()
@@ -85,5 +167,6 @@ jobs:
           path: |
             ~/routerlab-xiaomi-r4a/rehost-ci-output.txt
             ~/routerlab-xiaomi-r4a/rehost-work/runs/
+            ~/routerlab-xiaomi-r4a/compat-ci/
           if-no-files-found: warn
           retention-days: 7
