@@ -21,6 +21,7 @@ BASE="${HOME}/routerlab-xiaomi-r4a/virtual-router"
 HTTP_PORT=18090
 FCGI_PORT=8920
 INSTALL_DEPS=0
+PROFILE="factory"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRONTDOOR="$SCRIPT_DIR/compat-frontdoor.py"
@@ -40,6 +41,7 @@ Options:
   --rootfs PATH  Exact extracted Xiaomi R4A Global 3.0.24 rootfs
   --base PATH    Emulator work/state directory
   --port PORT    Local HTTP port (default 18090)
+  --profile MODE Seed profile: factory|configured (default factory)
   --install-deps Install host qemu-user/proot utilities if missing
   -h, --help
 
@@ -56,6 +58,7 @@ while (($#)); do
     --rootfs) ROOTFS="$2"; shift 2 ;;
     --base) BASE="$2"; shift 2 ;;
     --port) HTTP_PORT="$2"; shift 2 ;;
+    --profile) PROFILE="$2"; shift 2 ;;
     --install-deps) INSTALL_DEPS=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -70,6 +73,7 @@ esac
 
 [[ "$HTTP_PORT" =~ ^[0-9]+$ ]] || { echo "port must be numeric" >&2; exit 2; }
 (( HTTP_PORT >= 1024 && HTTP_PORT <= 64000 )) || { echo "port must be 1024..64000" >&2; exit 2; }
+[[ "$PROFILE" == "factory" || "$PROFILE" == "configured" ]] || { echo "profile must be factory or configured" >&2; exit 2; }
 
 STATE="$BASE/state-v1"
 RUNTIME="$BASE/runtime"
@@ -116,15 +120,19 @@ validate_source() {
 }
 
 seed_factory_state() {
-  echo "[virtual-router] creating initialized R4A lab state"
+  echo "[virtual-router] creating R4A lab state profile=$PROFILE"
   rm -rf "$STATE"
   mkdir -p "$STATE_CONFIG"
   cp -a "$ROOTFS/etc/config/." "$STATE_CONFIG/"
 
-  if grep -q "option 'INITTED'" "$STATE_CONFIG/xiaoqiang"; then
-    sed -i "s/option 'INITTED'.*/option 'INITTED' 'YES'/" "$STATE_CONFIG/xiaoqiang"
+  if [[ "$PROFILE" == "configured" ]]; then
+    if grep -q "option 'INITTED'" "$STATE_CONFIG/xiaoqiang"; then
+      sed -i "s/option 'INITTED'.*/option 'INITTED' 'YES'/" "$STATE_CONFIG/xiaoqiang"
+    else
+      printf "\n\toption 'INITTED' 'YES'\n" >> "$STATE_CONFIG/xiaoqiang"
+    fi
   else
-    printf "\n\toption 'INITTED' 'YES'\n" >> "$STATE_CONFIG/xiaoqiang"
+    sed -i "/option 'INITTED'/d" "$STATE_CONFIG/xiaoqiang"
   fi
 
   cat > "$STATE_CONFIG/network" <<'EOF'
@@ -200,6 +208,7 @@ config wifi-iface
 EOF
 
   printf '%s\n' 'routerlab-xiaomi-r4a-state-v1' > "$STATE/FORMAT"
+  printf '%s\n' "$PROFILE" > "$STATE/PROFILE"
   sha256sum "$ROOTFS/www/cgi-bin/luci" "$ROOTFS/etc/config/misc" > "$STATE/stock-authority.sha256"
 }
 
@@ -367,6 +376,7 @@ start_runtime() {
     --rootfs "$LAB" \
     --port "$HTTP_PORT" \
     --fcgi-port "$FCGI_PORT" \
+    --stock-init-gate \
     >>"$LOGDIR/frontdoor.log" 2>&1 &
   local front=$!
   echo "$front" > "$PIDDIR/frontdoor"
@@ -447,6 +457,7 @@ case "$COMMAND" in
   reset)
     stop_runtime 0
     rm -rf "$STATE" "$RUNTIME"
-    echo "[virtual-router] persistent state reset; next start uses factory lab state"
+    seed_factory_state
+    echo "[virtual-router] persistent state reset to profile=$PROFILE"
     ;;
 esac
