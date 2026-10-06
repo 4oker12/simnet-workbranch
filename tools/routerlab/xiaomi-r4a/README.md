@@ -1,81 +1,101 @@
-# Xiaomi R4A stock management-plane RouterLab
+# Xiaomi R4A stock virtual router
 
-Research tooling for **Xiaomi Mi Router 4A Gigabit Edition (R4A) v1**, stock Global firmware `3.0.24` (`miwifi_r4a_all_03233_3.0.24_INT.bin`).
+Target: **Xiaomi Mi Router 4A Gigabit Edition (R4A) v1**, factory Global firmware **3.0.24** (`miwifi_r4a_all_03233_3.0.24_INT.bin`).
 
-This is intentionally separate from SIMNET Workbench production runtime. Its job is to answer one narrow question:
+This RouterLab target is a management-plane emulator for the **factory Xiaomi firmware**. It does not require a subscriber to install OpenWrt. Xiaomi's own stock firmware is OpenWrt-derived internally, so its original LuCI/UCI components are part of the vendor firmware.
 
-> Can we run enough of the original Xiaomi management plane to exercise the stock Web UI/API and persistent configuration without emulating radio/PHY/ASIC hardware?
+## What is authentic
 
-## Evidence already established
+The emulator runs from the exact stock 3.0.24 rootfs:
 
-From the exact 3.0.24 rootfs and FirmAE runs:
+- original Xiaomi `/www` frontend;
+- original MIPSel `fcgi-cgi`;
+- original LuCI dispatcher/controllers;
+- original Xiaomi authentication and real `stok`;
+- original WAN/Wi-Fi setter and read APIs;
+- original UCI configuration semantics.
 
-- MIPSel userspace boots under FirmAE/QEMU.
-- Firmware creates `br-lan` with `192.168.31.1` during inference.
-- Stock `uhttpd` is disabled by `misc.httpd.uhttpd=0`; Xiaomi replaces it with `sysapihttpd`.
-- `sysapihttpd` uses FCGI/LuCI and the stock `/cgi-bin/luci/...` API path.
-- The stock frontend contains real routes for login, WAN, PPPoE, Wi-Fi, setup, status and diagnostics.
-- `sysapihttpd` was observed binding multiple internal ports, while manual access to `192.168.31.1:80` and FirmAE debug `:31337` through WSL/TAP did not become usable.
+`compat-frontdoor.py` replaces **only** the Xiaomi `sysapihttpd` transport/session layer. The stock server reaches its vendor original-destination/session code under qemu-user, receives the sentinel `0.0.0.1:65535`, and aborts the worker. Replacing that transport does not replace router configuration logic.
 
-That last fact does **not** prove the stock web server is dead. It leaves two hypotheses:
+Not emulated: RF, PHY, switch ASIC, Wi-Fi radio behavior, LEDs/GPIO or a live WAN link.
 
-1. stock management stack is alive but WSL/TAP transport is the blocker;
-2. a small Xiaomi runtime dependency prevents the front-door listener from staying up.
+## Proven stock path
 
-`management-plane-agent.sh` separates those hypotheses without another open-ended FirmAE session.
-
-## What the agent does
-
-1. Leaves `scratch/<IID>/image.raw` untouched.
-2. Makes a sparse lab clone.
-3. Runs bounded `e2fsck` only on that disposable clone (the previous FirmAE run showed ext2 inode errors).
-4. Injects a diagnostic hook into `/firmadyne/debug.sh` in the clone.
-5. Boots the clone with QEMU **SLIRP/user-mode networking**, bypassing WSL TAP.
-6. Gives all four emulated NICs distinct localhost forwards for the important stock ports (`80`, `443`, `8190`, `8899`, `8999`, FCGI `8920`, debug `31337`).
-7. Captures stock runtime processes, listeners, `sysapihttpd` config-test output, runtime config, error log and statically discovered API paths.
-8. Stops after a hard time limit; there is no unbounded polling/retry.
-9. Writes a classification and decision into `REPORT.md`.
-
-## One-command Windows entry point
-
-From a local checkout of this branch:
-
-```powershell
-.\tools\routerlab\xiaomi-r4a\Run-ManagementPlaneAgent.ps1
-```
-
-To throw away the previous disposable lab clone and start clean:
-
-```powershell
-.\tools\routerlab\xiaomi-r4a\Run-ManagementPlaneAgent.ps1 -Fresh
-```
-
-The wrapper calls WSL. A single `sudo` password prompt may appear.
-
-Default FirmAE path is inferred as:
+The automated acceptance currently proves:
 
 ```text
-~/routerlab-xiaomi-r4a/FirmAE
+exact stock 3.0.24
+  -> stock login / real stok
+  -> POST set_wan wanType=dhcp
+  -> POST set_wifi 2.4 GHz
+  -> POST set_wifi 5 GHz
+  -> stock Wi-Fi read-back
+  -> persist UCI state
+  -> destroy runtime clone
+  -> recreate runtime from immutable stock rootfs
+  -> restore persisted state
+  -> login again
+  -> stock Wi-Fi read-back after cold boot
 ```
 
-## Stop criteria
+The WAN configured state persists as `network.wan.proto=dhcp`. Live `wan_info` can still fail in the lab because it asks for runtime interface/IP/link/ubus data. That is a live-network-state limitation, not a failure of the stock WAN setter.
 
-This research must not turn into full SoC emulation work.
+PPPoE is not on the current critical path.
 
-- `STOCK_FRONTDOOR_REACHABLE` → continue with login/read-only API, then WAN/Wi-Fi persistence acceptance.
-- `STOCK_MANAGEMENT_BACKEND_ALIVE_FRONTDOOR_MISSING` → stop chasing TAP/hardware; preserve stock frontend/Lua/sysapi and shim only missing runtime dependencies.
-- `GUEST_ALIVE_MANAGEMENT_STACK_UNRESOLVED` → one minimal dependency/shim pass, based on captured evidence.
-- `FIRMAE_NOT_ECONOMICAL_FOR_WEB` → pivot to management-plane rehost from the exact stock rootfs/API map.
+## Run the virtual router on Windows
 
-The acceptance target remains:
+From the repository root:
+
+```powershell
+.\tools\routerlab\xiaomi-r4a\Run-VirtualRouter.ps1 -Action Start
+```
+
+Then open:
 
 ```text
-stock UI action
-  → stock API/controller path
-  → configuration state changes
-  → read-back
-  → reboot
-  → state persists
+http://127.0.0.1:18090/
 ```
 
-RF behaviour, Wi-Fi physics, Ethernet PHY, switch ASIC, LEDs and GPIO are out of scope.
+Lab credentials for the exact factory account fixture:
+
+```text
+admin / admin
+```
+
+Lifecycle:
+
+```powershell
+.\tools\routerlab\xiaomi-r4a\Run-VirtualRouter.ps1 -Action Status
+.\tools\routerlab\xiaomi-r4a\Run-VirtualRouter.ps1 -Action Restart
+.\tools\routerlab\xiaomi-r4a\Run-VirtualRouter.ps1 -Action Stop
+.\tools\routerlab\xiaomi-r4a\Run-VirtualRouter.ps1 -Action Reset
+```
+
+`Restart` is a cold management-plane boot: the current UCI state is saved, the runtime rootfs clone is destroyed, a new clone is made from the immutable stock rootfs, persisted state is restored, and stock LuCI/API is started again.
+
+`Reset` deletes the lab's persistent state. The next `Start` creates the initialized factory test fixture again.
+
+## State boundary
+
+Persistent state v1 is deliberately narrow:
+
+```text
+exact immutable stock rootfs
+        +
+persistent /etc/config state
+        |
+        v
+fresh runtime clone
+        |
+        +-- original fcgi-cgi
+        +-- original LuCI/Xiaomi API
+        +-- compatibility HTTP front door
+```
+
+This is enough for the current DHCP + Wi-Fi configuration acceptance. File-backed NVRAM or selected runtime-state shims should be added only when a concrete stock API requires them.
+
+## Research history
+
+`management-plane-agent.sh` and `management-plane-rehost.sh` remain evidence/research tools. Full-system FirmAE was retired for this target after a bounded run showed that it was not economical for reaching the stock Web UI.
+
+The primary development target is now `virtual-router.sh`, not full SoC emulation.
