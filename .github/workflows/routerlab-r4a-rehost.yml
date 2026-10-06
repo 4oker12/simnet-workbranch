@@ -154,7 +154,27 @@ jobs:
             echo "stock login token missing" | tee -a "$OUT/result.txt"
           fi
 
-          # Evidence-first READ matrix. No setters and no state mutation.
+          # Switch only the disposable clone into an "already initialized" fixture.
+          # This is the exact canonical flag used by stock XQSysUtil.setInited():
+          # XQPreference.set(PREF_IS_INITED, "YES") where PREF_IS_INITED == "INITTED".
+          # No API setter is called here; this is explicit test pre-state.
+          cp "$LAB/etc/config/xiaoqiang" "$OUT/xiaoqiang.before"
+          if ! grep -q "option 'INITTED'" "$LAB/etc/config/xiaoqiang"; then
+            printf "    option 'INITTED' 'YES'\n" >> "$LAB/etc/config/xiaoqiang"
+          else
+            sed -i "s/option 'INITTED'.*/option 'INITTED' 'YES'/" "$LAB/etc/config/xiaoqiang"
+          fi
+          cp "$LAB/etc/config/xiaoqiang" "$OUT/xiaoqiang.initialized"
+
+          init_after_code="$(curl -sS --max-time 12 \
+            -H 'Host: router.miwifi.com' \
+            -D "$OUT/init_info_after.headers" \
+            -o "$OUT/init_info_after.body" \
+            -w '%{http_code}' \
+            'http://127.0.0.1:18090/cgi-bin/luci/api/xqsystem/init_info' || true)"
+          echo "init_info after fixture => $init_after_code" | tee -a "$OUT/result.txt"
+
+          # Evidence-first READ matrix. No API setters and no state mutation after fixture setup.
           : > "$OUT/read-matrix.tsv"
           printf 'name\tpath\thttp_code\tbody_bytes\n' >> "$OUT/read-matrix.tsv"
           for spec in \
@@ -185,9 +205,13 @@ jobs:
           cat "$OUT/result.txt"
           echo "===== login body ====="
           sed -n '1,120p' "$OUT/login.body" || true
-          echo "===== init_info body ====="
+          echo "===== init_info body (factory fixture) ====="
           sed -n '1,120p' "$OUT/init_info.body" || true
-          echo "===== READ matrix ====="
+          echo "===== init_info body (initialized fixture) ====="
+          sed -n '1,120p' "$OUT/init_info_after.body" || true
+          echo "===== initialized UCI fixture ====="
+          cat "$OUT/xiaoqiang.initialized" || true
+          echo "===== READ matrix =====
           cat "$OUT/read-matrix.tsv"
           for tag in system_info wan_info check_wan_type wifi_detail_all pppoe_status misystem_status; do
             echo "===== $tag body ====="
