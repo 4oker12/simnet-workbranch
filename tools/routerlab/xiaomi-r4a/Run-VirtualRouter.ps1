@@ -5,6 +5,9 @@ param(
 
     [int]$HttpPort = 18090,
 
+    [ValidateSet('Factory','Configured')]
+    [string]$Profile = 'Factory',
+
     [switch]$InstallDeps = $true
 )
 
@@ -21,13 +24,15 @@ if (-not $scriptWsl) {
 }
 
 $actionLower = $Action.ToLowerInvariant()
-$argsText = "$actionLower --port $HttpPort"
+$profileLower = $Profile.ToLowerInvariant()
+$argsText = "$actionLower --port $HttpPort --profile $profileLower"
 if ($InstallDeps) {
     $argsText += ' --install-deps'
 }
 
 Write-Host "RouterLab Xiaomi R4A virtual router: $Action"
 Write-Host "Mode: exact stock LuCI/API + persistent UCI state; no RF/PHY/ASIC emulation."
+Write-Host "Profile: $Profile"
 
 & wsl -e bash -lc "bash '$scriptWsl' $argsText"
 if ($LASTEXITCODE -ne 0) {
