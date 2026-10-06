@@ -135,7 +135,34 @@ jobs:
             echo "$tag $path => $code" | tee -a "$OUT/result.txt"
           done
 
-          # Evidence-first READ matrix. No login, no setters, no state mutation.
+          # Exact stock account config contains admin = SHA1("admin" + stock PWDKEY).
+          # Exercise the real stock jsonauth path and keep the real psp cookie/stok.
+          login_code="$(curl -sS --max-time 12 \
+            -H 'Host: router.miwifi.com' \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            -c "$OUT/cookies.txt" \
+            -D "$OUT/login.headers" \
+            -o "$OUT/login.body" \
+            -w '%{http_code}' \
+            --data 'username=admin&password=admin&logtype=2' \
+            'http://127.0.0.1:18090/cgi-bin/luci/api/xqsystem/login' || true)"
+          echo "login => $login_code" | tee -a "$OUT/result.txt"
+          token="$(python3 - "$OUT/login.body" <<'PY'
+import json, pathlib, sys
+try:
+    payload = json.loads(pathlib.Path(sys.argv[1]).read_text())
+    print(payload.get("token", ""))
+except Exception:
+    print("")
+PY
+          )"
+          if [ -n "$token" ]; then
+            echo "stock login token acquired (length=${#token})" | tee -a "$OUT/result.txt"
+          else
+            echo "stock login token missing" | tee -a "$OUT/result.txt"
+          fi
+
+          # Evidence-first READ matrix. No setters and no state mutation.
           : > "$OUT/read-matrix.tsv"
           printf 'name\tpath\thttp_code\tbody_bytes\n' >> "$OUT/read-matrix.tsv"
           for spec in \
@@ -147,18 +174,25 @@ jobs:
             "misystem_status|/cgi-bin/luci/api/misystem/status"; do
             tag="${spec%%|*}"
             path="${spec#*|}"
+            auth_path="$path"
+            if [ -n "$token" ]; then
+              auth_path="${path/\/cgi-bin\/luci/\/cgi-bin\/luci\/;stok=$token}"
+            fi
             code="$(curl -sS --max-time 12 \
               -H 'Host: router.miwifi.com' \
+              -b "$OUT/cookies.txt" \
               -D "$OUT/$tag.headers" \
               -o "$OUT/$tag.body" \
               -w '%{http_code}' \
-              "http://127.0.0.1:18090$path" || true)"
+              "http://127.0.0.1:18090$auth_path" || true)"
             bytes="$(wc -c < "$OUT/$tag.body" 2>/dev/null || echo 0)"
             printf '%s\t%s\t%s\t%s\n' "$tag" "$path" "$code" "$bytes" >> "$OUT/read-matrix.tsv"
           done
 
           echo "===== compat result ====="
           cat "$OUT/result.txt"
+          echo "===== login body ====="
+          sed -n '1,120p' "$OUT/login.body" || true
           echo "===== init_info body ====="
           sed -n '1,120p' "$OUT/init_info.body" || true
           echo "===== READ matrix ====="
