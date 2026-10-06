@@ -113,6 +113,37 @@ jobs:
           PY
           sed -n '1,320p' "$OUT"
 
+      - name: Inspect stock wizard backend contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOTFS="$HOME/routerlab-xiaomi-r4a/audit/squashfs-root"
+          OUT="$HOME/routerlab-xiaomi-r4a/browser-wizard-backend-contract.txt"
+          JINZ="$HOME/Jinzear"
+          rm -rf "$JINZ"
+          git clone --depth 1 https://github.com/0pepsi/Jinzear.git "$JINZ"
+
+          {
+            for rel in               usr/lib/lua/luci/controller/api/xqsystem.lua               usr/lib/lua/luci/controller/api/misystem.lua; do
+              f="$ROOTFS/$rel"
+              echo "===== $rel ====="
+              if [ ! -f "$f" ]; then
+                echo "(missing)"
+                continue
+              fi
+
+              echo "--- strings ---"
+              python3 "$JINZ/jinzear.py" -s "$f" 2>/dev/null |                 grep -iE -A30 -B30 'set_language|set_location|language|location|locale|country|support' |                 head -500 || true
+
+              echo "--- decompile ---"
+              dec="$HOME/$(basename "$rel").dec.lua"
+              python3 "$JINZ/jinzear.py" "$f" -o "$dec" 2>/dev/null || true
+              grep -niE -A80 -B25 'set_language|set_location|language|location|locale|country|support' "$dec" |                 head -800 || true
+            done
+          } > "$OUT"
+
+          sed -n '1,900p' "$OUT"
+
       - name: Run exact stock sysapi evidence pass
         shell: bash
         run: |
