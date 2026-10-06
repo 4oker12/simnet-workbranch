@@ -26,11 +26,43 @@ class CompatFrontdoorContractTest(unittest.TestCase):
         self.assertEqual(status, 502)
         self.assertEqual(body, b"raw-no-cgi-headers")
 
+
+    def test_ui_guard_marks_only_confirmed_unsupported_qos_routes(self):
+        self.assertTrue(
+            mod._is_unsupported_ui_path(
+                "/cgi-bin/luci/;stok=abc/web/setting/qos"
+            )
+        )
+        self.assertTrue(
+            mod._is_unsupported_ui_path(
+                "/cgi-bin/luci/;stok=abc/web/prosetting/qos"
+            )
+        )
+        self.assertFalse(
+            mod._is_unsupported_ui_path(
+                "/cgi-bin/luci/;stok=abc/web/setting/wifi"
+            )
+        )
+        self.assertFalse(
+            mod._is_unsupported_ui_path(
+                "/cgi-bin/luci/;stok=abc/web/setting/wan"
+            )
+        )
+
+    def test_ui_guard_injection_is_idempotent_and_keeps_stock_html(self):
+        stock = b"<html><head><title>Xiaomi</title></head><body>stock</body></html>"
+        guarded = mod._inject_ui_guard(stock)
+        self.assertIn(b"stock", guarded)
+        self.assertIn(b"/__routerlab/ui-guard.js", guarded)
+        self.assertEqual(guarded, mod._inject_ui_guard(guarded))
+
     def test_source_is_transport_only_and_local_by_default(self):
         source = MODULE_PATH.read_text(encoding="utf-8")
         self.assertIn('parser.add_argument("--bind", default="127.0.0.1")', source)
         self.assertIn('"/cgi-bin/luci"', source)
         self.assertIn('"--stock-init-gate"', source)
+        self.assertIn('"--ui-guard"', source)
+        self.assertIn("UNSUPPORTED_UI_SUFFIXES", source)
         self.assertIn('/api/xqsystem/init_info', source)
         self.assertIn('self.send_header("Location", "/init.html")', source)
         self.assertNotIn("set_wan_new", source)
