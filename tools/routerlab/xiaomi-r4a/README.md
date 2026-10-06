@@ -275,6 +275,18 @@ inited=0
 -> stock Wi-Fi read-back
 ```
 
+A first-run write can legitimately finish inside stock firmware while the HTTP/FastCGI
+response is lost or times out. RouterLab therefore treats the write acknowledgement
+and the resulting router state as separate evidence. After an ambiguous transport
+error it verifies `inited=1`, router name, the new admin login and both Wi-Fi
+networks before reporting success.
+
+The same verification also makes `FirstRun` safe to retry across processes. If the
+router is already `inited=1` and exactly matches the requested first-run state, the
+retry performs read-only verification and returns
+`already_completed_verified`. If the initialized state does not match, RouterLab
+refuses to write and requires an explicit virtual-router reset.
+
 ### Configured / service
 
 With an initialized virtual router running:
