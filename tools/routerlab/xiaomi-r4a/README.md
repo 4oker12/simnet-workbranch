@@ -208,3 +208,35 @@ RouterLab replay
 ```
 
 This avoids copying incidental browser traffic or turning a single HAR recording into business logic.
+
+
+## Emulator-first validation
+
+Physical Xiaomi hardware is **not required** for the current development stage.
+
+The active target is:
+
+```text
+Router Agent
+  -> http://127.0.0.1:18090
+  -> RouterLab virtual Xiaomi R4A
+  -> exact stock UI / LuCI / Xiaomi API
+```
+
+A physical R4A can be used later only as an additional compatibility check. Until then, request contracts are derived from stock Xiaomi JS, stock Lua/controllers and RouterLab replay.
+
+## Unsupported UI guard
+
+RouterLab does not try to fake hardware-dependent sections merely to make every menu item appear functional.
+
+Confirmed unsupported sections are disabled only in the lab UI. The exact stock files remain unchanged.
+
+Current guarded route:
+
+```text
+QoS -> unavailable in emulator
+```
+
+The menu link is visually disabled by a RouterLab-only injected guard. Direct navigation to the guarded route returns a short lab explanation instead of letting the stock page hang on unavailable runtime calls.
+
+Unknown or untested sections are not disabled preemptively.
