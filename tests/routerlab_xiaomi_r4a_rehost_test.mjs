@@ -24,6 +24,10 @@ test('rehost uses stock management components without FirmAE system emulation', 
 test('rehost keeps source rootfs untouched and probes read-only endpoint', () => {
   assert.match(script, /cp -a --reflink=auto "\$ROOTFS\/\." "\$LAB\/"/);
   assert.match(script, /source rootfs modified: \*\*no\*\*/);
+  assert.match(script, /\/tmp\/sysapihttpd\/lock/);
+  assert.match(script, /\/tmp\/sysapihttpd\/body/);
+  assert.match(script, /ln -s \/tmp\/sysapihttpd \/userdisk\/sysapihttpd/);
+  assert.match(script, /STOCK SYSAPI CONFIG TEST ERROR/);
   assert.match(script, /guest 'cat \/tmp\/sysapihttpdconf\/sysapihttpd\.conf'/);
   assert.doesNotMatch(script, /\$LAB\/tmp\/sysapihttpdconf/);
   assert.match(script, /\/api\/xqsystem\/init_info/);
