@@ -158,7 +158,9 @@ guest "sed -i \
   -e 's/listen 443;/listen ${HTTPS_PORT};/' \
   /tmp/sysapihttpdconf/sysapihttpd.conf"
 
-cp "$LAB/tmp/sysapihttpdconf/sysapihttpd.conf" "$ART/runtime-sysapihttpd.conf"
+# PRoot -R may expose guest /tmp via its runtime namespace instead of $LAB/tmp.
+# Export the generated config through the guest view; do not assume its host backing path.
+guest 'cat /tmp/sysapihttpdconf/sysapihttpd.conf' > "$ART/runtime-sysapihttpd.conf"
 
 set +e
 guest '/usr/sbin/sysapihttpd -c /tmp/sysapihttpdconf/sysapihttpd.conf -t' \
