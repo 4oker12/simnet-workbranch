@@ -428,6 +428,39 @@ jobs:
           cmp -s "$OUT/network.after-write" "$OUT/network.after-restart" && echo "network_file_persisted=yes" || echo "network_file_persisted=no"
           cmp -s "$OUT/wireless.after-write" "$OUT/wireless.after-restart" && echo "wireless_file_persisted=yes" || echo "wireless_file_persisted=no"
 
+      - name: Factory-reset initial setup acceptance
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOTFS="$HOME/routerlab-xiaomi-r4a/audit/squashfs-root"
+          BASE="$HOME/routerlab-xiaomi-r4a/virtual-router-factory-ci"
+          VR="tools/routerlab/xiaomi-r4a/virtual-router.sh"
+          OUT="$HOME/routerlab-xiaomi-r4a/factory-setup-acceptance"
+          mkdir -p "$OUT"
+
+          bash "$VR" reset --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
+          bash "$VR" start --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
+
+          curl -sS --max-time 12             -H 'Host: router.miwifi.com'             -o "$OUT/init-info.json"             'http://127.0.0.1:18090/cgi-bin/luci/api/xqsystem/init_info'
+          grep -q '"inited":0' "$OUT/init-info.json"
+
+          root_code="$(curl -sS --max-time 12             -H 'Host: router.miwifi.com'             -D "$OUT/root.headers"             -o "$OUT/root.body"             -w '%{http_code}'             'http://127.0.0.1:18090/')"
+          test "$root_code" = "302"
+          grep -qi '^Location: /init.html' "$OUT/root.headers"
+
+          init_code="$(curl -sS --max-time 12             -H 'Host: router.miwifi.com'             -o "$OUT/init.html"             -w '%{http_code}'             'http://127.0.0.1:18090/init.html')"
+          test "$init_code" = "200"
+          grep -q '/static/js/init.' "$OUT/init.html"
+
+          legacy_code="$(curl -sS --max-time 12             -H 'Host: router.miwifi.com'             -o "$OUT/legacy-hello.html"             -w '%{http_code}'             'http://127.0.0.1:18090/cgi-bin/luci/web/init/hello')"
+          test "$legacy_code" = "200"
+
+          bash "$VR" status --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory | tee "$OUT/status.txt"
+          grep -q 'HTTP_FRONTDOOR=up' "$OUT/status.txt"
+          grep -q 'STOCK_FCGI=up' "$OUT/status.txt"
+
+          bash "$VR" stop --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
+
       - name: Persistent virtual router cold boot acceptance
         shell: bash
         run: |
@@ -438,8 +471,8 @@ jobs:
           OUT="$HOME/routerlab-xiaomi-r4a/virtual-router-acceptance"
           mkdir -p "$OUT"
 
-          bash "$VR" reset --rootfs "$ROOTFS" --base "$BASE" --port 18090
-          bash "$VR" start --rootfs "$ROOTFS" --base "$BASE" --port 18090
+          bash "$VR" reset --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile configured
+          bash "$VR" start --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile configured
 
           login() {
             local suffix="$1"
@@ -475,7 +508,7 @@ jobs:
 
           # This is the real emulator persistence boundary: save UCI state, destroy
           # runtime clone, recreate from immutable stock rootfs, restore state, start.
-          bash "$VR" restart --rootfs "$ROOTFS" --base "$BASE" --port 18090
+          bash "$VR" restart --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile configured
 
           token2="$(login after)"
           curl -sS --max-time 15 \
@@ -490,14 +523,14 @@ jobs:
           grep -q '"password":"ColdBootPass5G"' "$OUT/wifi-after-cold-boot.json"
           grep -q "option proto 'dhcp'" "$BASE/runtime/rootfs/etc/config/network"
 
-          bash "$VR" status --rootfs "$ROOTFS" --base "$BASE" --port 18090 | tee "$OUT/status.txt"
+          bash "$VR" status --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile configured | tee "$OUT/status.txt"
           grep -q 'HTTP_FRONTDOOR=up' "$OUT/status.txt"
           grep -q 'STOCK_FCGI=up' "$OUT/status.txt"
           grep -q 'STOCK_INIT_INFO_HTTP=200' "$OUT/status.txt"
 
           cp "$BASE/state-v1/etc-config/network" "$OUT/network.persisted"
           cp "$BASE/state-v1/etc-config/wireless" "$OUT/wireless.persisted"
-          bash "$VR" stop --rootfs "$ROOTFS" --base "$BASE" --port 18090
+          bash "$VR" stop --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile configured
 
       - name: Collect concise runtime evidence
         if: always()
@@ -525,5 +558,6 @@ jobs:
             ~/routerlab-xiaomi-r4a/compat-ci/
             ~/routerlab-xiaomi-r4a/config-acceptance/
             ~/routerlab-xiaomi-r4a/virtual-router-acceptance/
+            ~/routerlab-xiaomi-r4a/factory-setup-acceptance/
           if-no-files-found: warn
           retention-days: 7
