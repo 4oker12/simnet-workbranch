@@ -667,6 +667,48 @@ jobs:
           cp "$BASE/state-v1/etc-config/wireless" "$OUT/wireless.persisted"
           bash "$VR" stop --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile configured
 
+      - name: Router client first-run acceptance
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOTFS="$HOME/routerlab-xiaomi-r4a/audit/squashfs-root"
+          BASE="$HOME/routerlab-xiaomi-r4a/router-client-first-run-ci"
+          VR="tools/routerlab/xiaomi-r4a/virtual-router.sh"
+          CLIENT="tools/routerlab/xiaomi-r4a/router-client.py"
+          OUT="$HOME/routerlab-xiaomi-r4a/router-client-first-run-acceptance"
+          mkdir -p "$OUT"
+
+          bash "$VR" reset --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
+          bash "$VR" start --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
+
+          set +x
+          python3 "$CLIENT" --base-url http://127.0.0.1:18090 first-run             --router-name RouterAgentFactory             --ssid RouterAgentFactory             --wifi-password RouterAgentFactoryWifi88             --admin-password RouterAgentFactoryAdmin88             > "$OUT/first-run.json"
+          set -x
+
+          grep -q '"operation": "first-run"' "$OUT/first-run.json"
+          grep -q '"inited": 0' "$OUT/first-run.json"
+          grep -q '"inited": 1' "$OUT/first-run.json"
+          grep -q '"routername": "RouterAgentFactory"' "$OUT/first-run.json"
+          grep -q '"admin_login": "confirmed"' "$OUT/first-run.json"
+          grep -q '"wifi_readback": "confirmed"' "$OUT/first-run.json"
+          grep -q '"ssid": "RouterAgentFactory"' "$OUT/first-run.json"
+          grep -q '"ssid": "RouterAgentFactory_5G"' "$OUT/first-run.json"
+          ! grep -q 'RouterAgentFactoryWifi88' "$OUT/first-run.json"
+          ! grep -q 'RouterAgentFactoryAdmin88' "$OUT/first-run.json"
+
+          bash "$VR" restart --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
+
+          set +x
+          python3 "$CLIENT" --base-url http://127.0.0.1:18090 inspect             --admin-password RouterAgentFactoryAdmin88             > "$OUT/after-cold-boot.json"
+          set -x
+
+          grep -q '"inited": 1' "$OUT/after-cold-boot.json"
+          grep -q '"status": "confirmed"' "$OUT/after-cold-boot.json"
+          grep -q '"ssid": "RouterAgentFactory"' "$OUT/after-cold-boot.json"
+          grep -q '"ssid": "RouterAgentFactory_5G"' "$OUT/after-cold-boot.json"
+
+          bash "$VR" stop --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
+
       - name: Router client acceptance
         shell: bash
         run: |
@@ -686,11 +728,12 @@ jobs:
           grep -q '"romversion": "3.0.24"' "$OUT/inspect-before.json"
           grep -q '"inited": 1' "$OUT/inspect-before.json"
 
-          python3 "$CLIENT" --base-url http://127.0.0.1:18090 configure             --admin-password admin             --wan-type dhcp             --ssid-24 RouterAgent24             --ssid-5 RouterAgent5G             --wifi-password RouterAgentPass88             > "$OUT/configure-dhcp.json"
+          python3 "$CLIENT" --base-url http://127.0.0.1:18090 service             --admin-password admin             --wan-type dhcp             --ssid-24 RouterAgent24             --ssid-5 RouterAgent5G             --wifi-password RouterAgentPass88             > "$OUT/configure-dhcp.json"
 
           grep -q '"wifi_readback": "confirmed"' "$OUT/configure-dhcp.json"
           grep -q '"ssid": "RouterAgent24"' "$OUT/configure-dhcp.json"
           grep -q '"ssid": "RouterAgent5G"' "$OUT/configure-dhcp.json"
+          grep -q '"operation": "service"' "$OUT/configure-dhcp.json"
           grep -q '"configured_type": "dhcp"' "$OUT/configure-dhcp.json"
           grep -q '"wan_live_readback": "not_claimed"' "$OUT/configure-dhcp.json"
           ! grep -q 'RouterAgentPass88' "$OUT/configure-dhcp.json"
@@ -762,6 +805,7 @@ jobs:
             ~/routerlab-xiaomi-r4a/virtual-router-acceptance/
             ~/routerlab-xiaomi-r4a/factory-setup-acceptance/
             ~/routerlab-xiaomi-r4a/factory-pppoe-acceptance/
+            ~/routerlab-xiaomi-r4a/router-client-first-run-acceptance/
             ~/routerlab-xiaomi-r4a/router-client-acceptance/
             ~/routerlab-xiaomi-r4a/router-client-pppoe-probe/
           if-no-files-found: warn
