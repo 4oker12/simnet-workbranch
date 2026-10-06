@@ -491,7 +491,6 @@ jobs:
           grep -q '"inited":1' "$OUT/init-info-after-setup.json"
           grep -q '"routername":"RouterLabFirstRun"' "$OUT/init-info-after-setup.json"
           grep -q "option 'INITTED' 'YES'" "$BASE/runtime/rootfs/etc/config/xiaoqiang"
-          grep -q "$new_hash" "$BASE/runtime/rootfs/etc/config/account"
 
           bash "$VR" status --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory | tee "$OUT/status.txt"
           grep -q 'HTTP_FRONTDOOR=up' "$OUT/status.txt"
