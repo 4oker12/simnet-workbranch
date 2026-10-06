@@ -518,6 +518,33 @@ jobs:
 
           bash "$VR" stop --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
 
+      - name: Factory first-run PPPoE configuration acceptance
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOTFS="$HOME/routerlab-xiaomi-r4a/audit/squashfs-root"
+          BASE="$HOME/routerlab-xiaomi-r4a/factory-pppoe-ci"
+          VR="tools/routerlab/xiaomi-r4a/virtual-router.sh"
+          OUT="$HOME/routerlab-xiaomi-r4a/factory-pppoe-acceptance"
+          mkdir -p "$OUT"
+
+          bash "$VR" reset --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
+          bash "$VR" start --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
+
+          curl -sS --max-time 20             -H 'Host: router.miwifi.com'             -H 'Content-Type: application/x-www-form-urlencoded'             -o "$OUT/set-wan-pppoe.json"             --data-urlencode 'wanType=pppoe'             --data-urlencode 'pppoeName=RouterLabPPPoEUser'             --data-urlencode 'pppoePwd=RouterLabPPPoEPass88'             'http://127.0.0.1:18090/cgi-bin/luci/api/xqnetwork/set_wan'
+
+          grep -q '"code":0' "$OUT/set-wan-pppoe.json"
+          grep -q "option proto 'pppoe'" "$BASE/runtime/rootfs/etc/config/network"
+          grep -q "option username 'RouterLabPPPoEUser'" "$BASE/runtime/rootfs/etc/config/network"
+          grep -q "option password 'RouterLabPPPoEPass88'" "$BASE/runtime/rootfs/etc/config/network"
+
+          # No PPPoE peer/server exists in RouterLab yet, so only configured state
+          # is asserted here. Authentication/session success remains unknown.
+          printf '%s
+' 'PPPOE_SESSION=unknown_not_emulated' > "$OUT/session-state.txt"
+
+          bash "$VR" stop --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
+
       - name: Persistent virtual router cold boot acceptance
         shell: bash
         run: |
@@ -608,13 +635,25 @@ jobs:
           grep -q '"romversion": "3.0.24"' "$OUT/inspect-before.json"
           grep -q '"inited": 1' "$OUT/inspect-before.json"
 
-          python3 "$CLIENT" --base-url http://127.0.0.1:18090 configure             --admin-password admin             --ssid-24 RouterAgent24             --ssid-5 RouterAgent5G             --wifi-password RouterAgentPass88             > "$OUT/configure.json"
+          python3 "$CLIENT" --base-url http://127.0.0.1:18090 configure             --admin-password admin             --wan-type dhcp             --ssid-24 RouterAgent24             --ssid-5 RouterAgent5G             --wifi-password RouterAgentPass88             > "$OUT/configure-dhcp.json"
 
-          grep -q '"wifi_readback": "confirmed"' "$OUT/configure.json"
-          grep -q '"ssid": "RouterAgent24"' "$OUT/configure.json"
-          grep -q '"ssid": "RouterAgent5G"' "$OUT/configure.json"
-          grep -q '"wan_live_readback": "not_claimed"' "$OUT/configure.json"
-          ! grep -q 'RouterAgentPass88' "$OUT/configure.json"
+          grep -q '"wifi_readback": "confirmed"' "$OUT/configure-dhcp.json"
+          grep -q '"ssid": "RouterAgent24"' "$OUT/configure-dhcp.json"
+          grep -q '"ssid": "RouterAgent5G"' "$OUT/configure-dhcp.json"
+          grep -q '"configured_type": "dhcp"' "$OUT/configure-dhcp.json"
+          grep -q '"wan_live_readback": "not_claimed"' "$OUT/configure-dhcp.json"
+          ! grep -q 'RouterAgentPass88' "$OUT/configure-dhcp.json"
+
+          set +x
+          python3 "$CLIENT" --base-url http://127.0.0.1:18090 configure             --admin-password admin             --wan-type pppoe             --pppoe-username RouterAgentPPPoEUser             --pppoe-password RouterAgentPPPoEPass88             --ssid-24 RouterAgent24             --ssid-5 RouterAgent5G             --wifi-password RouterAgentPass88             > "$OUT/configure-pppoe.json"
+          set -x
+
+          grep -q '"configured_type": "pppoe"' "$OUT/configure-pppoe.json"
+          grep -q '"credentials_supplied": true' "$OUT/configure-pppoe.json"
+          ! grep -q 'RouterAgentPPPoEUser' "$OUT/configure-pppoe.json"
+          ! grep -q 'RouterAgentPPPoEPass88' "$OUT/configure-pppoe.json"
+          grep -q "option proto 'pppoe'" "$BASE/runtime/rootfs/etc/config/network"
+          grep -q "option username 'RouterAgentPPPoEUser'" "$BASE/runtime/rootfs/etc/config/network"
 
           bash "$VR" restart --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile configured
 
@@ -653,6 +692,7 @@ jobs:
             ~/routerlab-xiaomi-r4a/config-acceptance/
             ~/routerlab-xiaomi-r4a/virtual-router-acceptance/
             ~/routerlab-xiaomi-r4a/factory-setup-acceptance/
+            ~/routerlab-xiaomi-r4a/factory-pppoe-acceptance/
             ~/routerlab-xiaomi-r4a/router-client-acceptance/
           if-no-files-found: warn
           retention-days: 7
