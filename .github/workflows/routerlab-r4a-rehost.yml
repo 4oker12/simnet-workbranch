@@ -470,6 +470,21 @@ jobs:
           token="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$OUT/factory-login.json")"
           test "${#token}" = "32"
 
+          # Prove that the real stock WAN settings template renders in factory mode.
+          # It requires two hardware facts absent under qemu-user: the browser client's
+          # LAN ARP MAC and the router's Factory-MTD default WAN MAC.
+          wan_page_code="$(curl -sS --max-time 15 \
+            -H 'Host: router.miwifi.com' \
+            -b "$OUT/factory.cookies" \
+            -o "$OUT/factory-wan.html" \
+            -w '%{http_code}' \
+            "http://127.0.0.1:18090/cgi-bin/luci/;stok=$token/web/setting/wan")"
+          test "$wan_page_code" = "200"
+          grep -q 'name="pppoeName"' "$OUT/factory-wan.html"
+          grep -q 'name="wantypeselect"' "$OUT/factory-wan.html"
+          grep -q '02:11:22:33:44:64' "$OUT/factory-wan.html"
+          grep -q '02:11:22:33:44:51' "$OUT/factory-wan.html"
+
           new_admin='RouterLabAdmin88'
           new_wifi='RouterLabFirstRun'
           new_wifi_pwd='RouterLabWifi88'
