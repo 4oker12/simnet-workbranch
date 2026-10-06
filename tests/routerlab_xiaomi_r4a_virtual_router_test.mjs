@@ -30,15 +30,21 @@ test('virtual router has explicit persistent-state cold boot lifecycle', () => {
   assert.match(script, /cp -a "\$STATE_CONFIG\/\." "\$LAB\/etc\/config\/"/);
 });
 
-test('factory state matches exact R4A stock radio mapping and DHCP baseline', () => {
+test('factory and configured profiles preserve exact R4A state semantics', () => {
+  assert.match(script, /PROFILE="factory"/);
+  assert.match(script, /profile must be factory or configured/);
   assert.match(script, /config interface 'wan'[\s\S]*option proto 'dhcp'/);
   assert.match(script, /config wifi-device 'mt7603e'[\s\S]*option ifname 'wl1'/);
   assert.match(script, /config wifi-device 'mt7612'[\s\S]*option ifname 'wl0'/);
+  assert.match(script, /if \[\[ "\$PROFILE" == "configured" \]\]/);
   assert.match(script, /option 'INITTED' 'YES'/);
+  assert.match(script, /sed -i "\/option 'INITTED'\/d"/);
+  assert.match(script, /--stock-init-gate/);
 });
 
 test('Windows wrapper exposes the same lifecycle without embedding router logic', () => {
   assert.match(wrapper, /ValidateSet\('Start','Stop','Restart','Status','Reset'\)/);
+  assert.match(wrapper, /ValidateSet\('Factory','Configured'\)/);
   assert.match(wrapper, /virtual-router\.sh/);
   assert.doesNotMatch(wrapper, /set_wan|set_wifi|wifi_detail_all/);
 });
