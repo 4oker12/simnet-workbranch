@@ -91,6 +91,101 @@ class RouterClientTests(unittest.TestCase):
             module.command_first_run(args)
 
 
+
+    def test_first_run_recovers_from_ambiguous_transport_error_by_readback(self):
+        class FakeClient:
+            parsed = type("Parsed", (), {"hostname": "127.0.0.1"})()
+
+            def __init__(self):
+                self.identity_calls = 0
+
+            def identity(self):
+                self.identity_calls += 1
+                if self.identity_calls == 1:
+                    return module.RouterIdentity("R4A", "3.0.24", 0, "", "en")
+                return module.RouterIdentity(
+                    "R4A", "3.0.24", 1, "RouterLab", "en"
+                )
+
+            def factory_login(self):
+                return (
+                    "0123456789abcdef0123456789abcdef",
+                    "/cgi-bin/luci/;stok=x/web/init/guide",
+                    module._stock_password_hash("admin"),
+                )
+
+            def set_wan_dhcp(self, token):
+                return {"code": 0}
+
+            def set_router_normal(self, token, **kwargs):
+                raise module.RouterClientError(
+                    "HTTP 502 for set_router_normal: FastCGI transport error: timed out"
+                )
+
+            def login(self, password):
+                self.login_password = password
+                return "fedcba9876543210fedcba9876543210"
+
+            def wifi_detail_all(self, token):
+                return {
+                    "code": 0,
+                    "info": [
+                        {
+                            "ifname": "wl1",
+                            "ssid": "RouterLab",
+                            "password": "RouterLabWifi88",
+                        },
+                        {
+                            "ifname": "wl0",
+                            "ssid": "RouterLab_5G",
+                            "password": "RouterLabWifi88",
+                        },
+                    ],
+                }
+
+        parser = module.build_parser()
+        args = parser.parse_args(
+            [
+                "--base-url",
+                "http://127.0.0.1:18090",
+                "first-run",
+                "--router-name",
+                "RouterLab",
+                "--ssid",
+                "RouterLab",
+                "--wifi-password",
+                "RouterLabWifi88",
+                "--admin-password",
+                "RouterLabAdmin88",
+            ]
+        )
+        fake = FakeClient()
+        with mock.patch.object(module, "XiaomiR4AClient", return_value=fake):
+            with mock.patch.object(module.time, "sleep"):
+                result = module.command_first_run(args)
+
+        action = result["actions"]["set_router_normal"]
+        self.assertEqual(action["transport_ack"], "unknown_transport_error")
+        self.assertEqual(action["state_verification"], "confirmed")
+        self.assertEqual(
+            action["outcome"],
+            "confirmed_by_readback_after_transport_error",
+        )
+        self.assertEqual(result["after"]["inited"], 1)
+        self.assertEqual(fake.login_password, "RouterLabAdmin88")
+
+    def test_clear_first_run_error_is_not_masked_by_readback(self):
+        self.assertTrue(
+            module._is_ambiguous_transport_error(
+                module.RouterClientError("HTTP 502: FastCGI transport error: timed out")
+            )
+        )
+        self.assertFalse(
+            module._is_ambiguous_transport_error(
+                module.RouterClientError("set_router_normal failed: code=1529")
+            )
+        )
+
     def test_set_router_normal_temporarily_extends_timeout_and_restores_it(self):
         seen = []
 
