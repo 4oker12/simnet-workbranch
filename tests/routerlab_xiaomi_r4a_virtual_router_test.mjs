@@ -19,6 +19,10 @@ const getmacShim = fs.readFileSync(
   path.join(root, 'tools', 'routerlab', 'xiaomi-r4a', 'runtime-shims', 'getmac'),
   'utf8',
 );
+const luciSysShim = fs.readFileSync(
+  path.join(root, 'tools', 'routerlab', 'xiaomi-r4a', 'runtime-shims', 'luci-sys.lua'),
+  'utf8',
+);
 
 test('virtual router keeps exact stock LuCI and replaces transport only', () => {
   assert.match(script, /usr\/bin\/fcgi-cgi/);
@@ -77,10 +81,14 @@ test('ubus shim is narrow and derives WAN protocol from stock UCI', () => {
 });
 
 test('factory WAN page runtime models missing ARP and Factory-MTD MAC facts', () => {
-  assert.match(script, /proc-net-arp/);
-  assert.match(script, /192\.168\.31\.100/);
-  assert.match(script, /02:11:22:33:44:64/);
-  assert.match(script, /-b "\$RUNTIME\/proc-net-arp:\/proc\/net\/arp"/);
+  assert.match(script, /cp "\$LAB\/usr\/lib\/lua\/luci\/sys\.lua" "\$LAB\/usr\/lib\/lua\/luci\/sys\.stock\.lua"/);
+  assert.match(script, /cp "\$SHIM_DIR\/luci-sys\.lua" "\$LAB\/usr\/lib\/lua\/luci\/sys\.lua"/);
+  assert.doesNotMatch(script, /proc-net-arp:\/proc\/net\/arp/);
+  assert.match(luciSysShim, /dofile/);
+  assert.match(luciSysShim, /sys\.stock\.lua/);
+  assert.match(luciSysShim, /192\.168\.31\.100/);
+  assert.match(luciSysShim, /02:11:22:33:44:64/);
+  assert.match(luciSysShim, /stock_ip4mac/);
   assert.match(script, /install -m 0755 "\$SHIM_DIR\/getmac" "\$LAB\/sbin\/getmac"/);
   assert.match(getmacShim, /WAN_MAC="02:11:22:33:44:51"/);
   assert.match(getmacShim, /echo "\$WAN_MAC,\$WL1_MAC,\$WL0_MAC"/);
