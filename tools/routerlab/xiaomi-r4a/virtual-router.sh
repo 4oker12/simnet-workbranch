@@ -233,6 +233,57 @@ read_pid() {
   [[ -f "$PIDDIR/$name" ]] && cat "$PIDDIR/$name" || true
 }
 
+port_owner_pids() {
+  local port="$1"
+  ss -lntp 2>/dev/null |
+    awk -v p=":$port" '$4 ~ p"$" {print}' |
+    grep -oE 'pid=[0-9]+' |
+    cut -d= -f2 |
+    sort -u || true
+}
+
+reclaim_stale_routerlab_port() {
+  local port="$1" kind="$2"
+  local p cmd matched=0 unknown=0
+
+  for p in $(port_owner_pids "$port"); do
+    [[ "$p" =~ ^[0-9]+$ ]] || continue
+    cmd="$(ps -p "$p" -o args= 2>/dev/null || true)"
+
+    case "$kind" in
+      fcgi)
+        if [[ "$cmd" == *qemu-mipsel-static*fcgi-cgi* ]] || [[ "$cmd" == *proot*spawn-fcgi* ]]; then
+          echo "[virtual-router] reclaiming stale RouterLab FCGI pid=$p on port $port"
+          kill -TERM "$p" 2>/dev/null || true
+          matched=1
+        else
+          echo "[virtual-router] port $port is owned by non-RouterLab pid=$p: $cmd" >&2
+          unknown=1
+        fi
+        ;;
+      http)
+        if [[ "$cmd" == *compat-frontdoor.py* ]]; then
+          echo "[virtual-router] reclaiming stale RouterLab front door pid=$p on port $port"
+          kill -TERM "$p" 2>/dev/null || true
+          matched=1
+        else
+          echo "[virtual-router] port $port is owned by non-RouterLab pid=$p: $cmd" >&2
+          unknown=1
+        fi
+        ;;
+    esac
+  done
+
+  if (( matched == 1 )); then
+    for _ in {1..12}; do
+      nc -z -w1 127.0.0.1 "$port" 2>/dev/null || return 0
+      sleep 0.25
+    done
+  fi
+
+  (( unknown == 0 ))
+}
+
 stop_runtime() {
   local save="${1:-1}"
   local front launcher p
@@ -277,11 +328,18 @@ start_runtime() {
   proot="$(command -v proot)"
 
   if nc -z -w1 127.0.0.1 "$FCGI_PORT" 2>/dev/null; then
-    echo "[virtual-router] FCGI port $FCGI_PORT is already in use" >&2
+    reclaim_stale_routerlab_port "$FCGI_PORT" fcgi || true
+  fi
+  if nc -z -w1 127.0.0.1 "$HTTP_PORT" 2>/dev/null; then
+    reclaim_stale_routerlab_port "$HTTP_PORT" http || true
+  fi
+
+  if nc -z -w1 127.0.0.1 "$FCGI_PORT" 2>/dev/null; then
+    echo "[virtual-router] FCGI port $FCGI_PORT is still in use after safe stale-process cleanup" >&2
     exit 5
   fi
   if nc -z -w1 127.0.0.1 "$HTTP_PORT" 2>/dev/null; then
-    echo "[virtual-router] HTTP port $HTTP_PORT is already in use" >&2
+    echo "[virtual-router] HTTP port $HTTP_PORT is still in use after safe stale-process cleanup" >&2
     exit 5
   fi
 
