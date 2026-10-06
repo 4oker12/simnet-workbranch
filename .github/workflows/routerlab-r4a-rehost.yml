@@ -160,7 +160,7 @@ jobs:
           # No API setter is called here; this is explicit test pre-state.
           cp "$LAB/etc/config/xiaoqiang" "$OUT/xiaoqiang.before"
           if ! grep -q "option 'INITTED'" "$LAB/etc/config/xiaoqiang"; then
-            printf "    option 'INITTED' 'YES'\n" >> "$LAB/etc/config/xiaoqiang"
+            printf "\n    option 'INITTED' 'YES'\n" >> "$LAB/etc/config/xiaoqiang"
           else
             sed -i "s/option 'INITTED'.*/option 'INITTED' 'YES'/" "$LAB/etc/config/xiaoqiang"
           fi
