@@ -58,6 +58,37 @@ class RouterClientTests(unittest.TestCase):
         self.assertNotIn("password", encoded)
 
 
+
+    def test_stock_factory_password_hash_matches_firmware_account(self):
+        self.assertEqual(
+            module._stock_password_hash("admin"),
+            "b3a4190199d9ee7fe73ef9a4942a69fece39a771",
+        )
+
+    def test_nonce_password_matches_stock_formula(self):
+        nonce = "0_routerlab_1234567890_1001"
+        account_hash = module._stock_password_hash("admin")
+        expected = module._sha1_text(nonce + account_hash)
+        self.assertEqual(module._nonce_password(nonce, account_hash), expected)
+
+    def test_first_run_is_loopback_only(self):
+        parser = module.build_parser()
+        args = parser.parse_args(
+            [
+                "--base-url",
+                "http://192.168.31.1",
+                "first-run",
+                "--ssid",
+                "Lab",
+                "--wifi-password",
+                "Password88",
+                "--admin-password",
+                "AdminPassword88",
+            ]
+        )
+        with self.assertRaises(module.RouterClientError):
+            module.command_first_run(args)
+
     def test_pppoe_payload_matches_stock_contract_without_logging_secret(self):
         calls = []
 
