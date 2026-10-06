@@ -57,6 +57,39 @@ class RouterClientTests(unittest.TestCase):
         self.assertNotIn("secret", encoded)
         self.assertNotIn("password", encoded)
 
+
+    def test_pppoe_payload_matches_stock_contract_without_logging_secret(self):
+        calls = []
+
+        class Probe(module.XiaomiR4AClient):
+            def _request_json(self, path, *, data=None):
+                calls.append((path, dict(data or {})))
+                return {"code": 0}
+
+        client = Probe("http://127.0.0.1:18090")
+        result = client.set_wan_pppoe(
+            "0123456789abcdef0123456789abcdef",
+            username="lab-user",
+            password="lab-secret",
+        )
+        self.assertEqual(result["code"], 0)
+        self.assertEqual(len(calls), 1)
+        path, payload = calls[0]
+        self.assertIn("/api/xqnetwork/set_wan", path)
+        self.assertEqual(payload["wanType"], "pppoe")
+        self.assertEqual(payload["pppoeName"], "lab-user")
+        self.assertEqual(payload["pppoePwd"], "lab-secret")
+        self.assertEqual(payload["client"], "web")
+
+    def test_pppoe_requires_both_credentials(self):
+        client = module.XiaomiR4AClient("http://127.0.0.1:18090")
+        with self.assertRaises(module.RouterClientError):
+            client.set_wan_pppoe(
+                "0123456789abcdef0123456789abcdef",
+                username="",
+                password="x",
+            )
+
     def test_stok_route_is_constrained_to_stock_api(self):
         path = module.XiaomiR4AClient._stok_path(
             "0123456789abcdef0123456789abcdef",
