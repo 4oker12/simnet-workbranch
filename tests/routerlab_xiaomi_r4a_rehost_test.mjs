@@ -29,6 +29,7 @@ test('rehost keeps source rootfs untouched and probes read-only endpoint', () =>
   assert.match(script, /ln -s \/tmp\/sysapihttpd \/userdisk\/sysapihttpd/);
   assert.match(script, /STOCK SYSAPI CONFIG TEST ERROR/);
   assert.match(script, /STOCK RUNTIME DIAGNOSTIC/);
+  assert.match(script, /cannot est session for 0\.0\.0\.1:65535/);
   assert.match(script, /guest 'cat \/tmp\/sysapihttpdconf\/sysapihttpd\.conf'/);
   assert.doesNotMatch(script, /\$LAB\/tmp\/sysapihttpdconf/);
   assert.match(script, /\/api\/xqsystem\/init_info/);
@@ -43,6 +44,7 @@ test('rehost is bounded and has explicit classifications', () => {
     'STOCK_LUCI_API_ALIVE',
     'STOCK_WEB_FRONTEND_ALIVE_LUCI_BLOCKED',
     'STOCK_SYSAPI_CONFIG_VALID_RUNTIME_BLOCKED',
+    'STOCK_SYSAPI_TRANSPORT_INCOMPATIBLE_QEMU_USER',
     'STOCK_SYSAPI_PROCESS_EXITED',
     'STOCK_SYSAPI_ALIVE_NO_HTTP_LISTENER',
     'STOCK_FCGI_NO_LISTENER',
