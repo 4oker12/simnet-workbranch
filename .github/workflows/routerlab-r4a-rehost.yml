@@ -506,6 +506,57 @@ jobs:
           cmp -s "$OUT/network.after-write" "$OUT/network.after-restart" && echo "network_file_persisted=yes" || echo "network_file_persisted=no"
           cmp -s "$OUT/wireless.after-write" "$OUT/wireless.after-restart" && echo "wireless_file_persisted=yes" || echo "wireless_file_persisted=no"
 
+      - name: Browser wizard country/language probe
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOTFS="$HOME/routerlab-xiaomi-r4a/audit/squashfs-root"
+          BASE="$HOME/routerlab-xiaomi-r4a/browser-wizard-ci"
+          VR="tools/routerlab/xiaomi-r4a/virtual-router.sh"
+          OUT="$HOME/routerlab-xiaomi-r4a/browser-wizard-acceptance"
+          mkdir -p "$OUT"
+
+          bash "$VR" reset --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
+          bash "$VR" start --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
+
+          req() {
+            local method="$1" tag="$2" path="$3" data="${4:-}"
+            if [ "$method" = "GET" ]; then
+              curl -sS --max-time 20                 -H 'Host: router.miwifi.com'                 -D "$OUT/$tag.headers"                 -o "$OUT/$tag.json"                 -w '%{http_code}'                 "http://127.0.0.1:18090$path"
+            else
+              curl -sS --max-time 20                 -H 'Host: router.miwifi.com'                 -H 'Content-Type: application/x-www-form-urlencoded'                 -D "$OUT/$tag.headers"                 -o "$OUT/$tag.json"                 -w '%{http_code}'                 --data "$data"                 "http://127.0.0.1:18090$path"
+            fi
+          }
+
+          echo "init_info_http=$(req GET init-before /cgi-bin/luci/api/xqsystem/init_info)" | tee "$OUT/result.txt"
+          cat "$OUT/init-before.json" | tee -a "$OUT/result.txt"
+
+          echo "languages_http=$(req GET languages-before /cgi-bin/luci/api/xqsystem/get_languages)" | tee -a "$OUT/result.txt"
+          cat "$OUT/languages-before.json" | tee -a "$OUT/result.txt"
+
+          echo "set_location_ua_http=$(req POST set-location-ua /cgi-bin/luci/api/misystem/set_location 'location=UA')" | tee -a "$OUT/result.txt"
+          cat "$OUT/set-location-ua.json" | tee -a "$OUT/result.txt"
+
+          echo "init_after_location_http=$(req GET init-after-location /cgi-bin/luci/api/xqsystem/init_info)" | tee -a "$OUT/result.txt"
+          cat "$OUT/init-after-location.json" | tee -a "$OUT/result.txt"
+
+          echo "set_language_uk_http=$(req POST set-language-uk /cgi-bin/luci/api/xqsystem/set_language 'language=uk_ua')" | tee -a "$OUT/result.txt"
+          cat "$OUT/set-language-uk.json" | tee -a "$OUT/result.txt"
+
+          echo "set_language_en_http=$(req POST set-language-en /cgi-bin/luci/api/xqsystem/set_language 'language=en')" | tee -a "$OUT/result.txt"
+          cat "$OUT/set-language-en.json" | tee -a "$OUT/result.txt"
+
+          echo "languages_after_http=$(req GET languages-after /cgi-bin/luci/api/xqsystem/get_languages)" | tee -a "$OUT/result.txt"
+          cat "$OUT/languages-after.json" | tee -a "$OUT/result.txt"
+
+          cp "$BASE/logs/frontdoor.log" "$OUT/frontdoor.log" || true
+          cp "$BASE/logs/fcgi.log" "$OUT/fcgi.log" || true
+          cp "$BASE/runtime/rootfs/etc/config/luci" "$OUT/luci-config" || true
+          cp "$BASE/runtime/rootfs/etc/config/country_mapping" "$OUT/country-mapping" || true
+
+          bash "$VR" stop --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory
+
       - name: Factory-reset initial setup acceptance
         shell: bash
         run: |
@@ -912,6 +963,7 @@ jobs:
             ~/routerlab-xiaomi-r4a/compat-ci/
             ~/routerlab-xiaomi-r4a/config-acceptance/
             ~/routerlab-xiaomi-r4a/virtual-router-acceptance/
+            ~/routerlab-xiaomi-r4a/browser-wizard-acceptance/
             ~/routerlab-xiaomi-r4a/factory-setup-acceptance/
             ~/routerlab-xiaomi-r4a/factory-pppoe-acceptance/
             ~/routerlab-xiaomi-r4a/router-client-first-run-acceptance/
