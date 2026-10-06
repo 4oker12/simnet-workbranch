@@ -36,6 +36,32 @@ FCGI_STDOUT = 6
 FCGI_STDERR = 7
 FCGI_RESPONDER = 1
 
+UNSUPPORTED_UI_SUFFIXES = (
+    "/web/setting/qos",
+    "/web/prosetting/qos",
+)
+
+UI_GUARD_ROUTE = "/__routerlab/ui-guard.js"
+
+
+def _is_unsupported_ui_path(path: str) -> bool:
+    normalized = path.rstrip("/")
+    return any(normalized.endswith(suffix) for suffix in UNSUPPORTED_UI_SUFFIXES)
+
+
+def _inject_ui_guard(payload: bytes) -> bytes:
+    tag = b'<script src="' + UI_GUARD_ROUTE.encode("ascii") + b'"></script>'
+    if tag in payload:
+        return payload
+
+    lower = payload.lower()
+    for closing in (b"</body>", b"</head>"):
+        pos = lower.rfind(closing)
+        if pos >= 0:
+            return payload[:pos] + tag + payload[pos:]
+    return payload
+
+
 HOP_BY_HOP = {
     "connection",
     "keep-alive",
@@ -182,6 +208,18 @@ class RouterLabHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlsplit(self.path)
         path = parsed.path
 
+        if self.cfg.ui_guard and path == UI_GUARD_ROUTE:
+            self._serve_ui_guard(head_only)
+            return
+
+        if (
+            self.cfg.ui_guard
+            and self.command in {"GET", "HEAD"}
+            and _is_unsupported_ui_path(path)
+        ):
+            self._unsupported_ui(path, head_only)
+            return
+
         # Stock sysapihttpd redirects browser access to /init.html while the
         # router is uninitialized. The custom Xiaomi transport cannot run under
         # qemu-user, so reproduce only that transport decision and ask the exact
@@ -258,6 +296,52 @@ class RouterLabHandler(BaseHTTPRequestHandler):
             sys.stderr.write(f"[compat-frontdoor] init gate unavailable: {exc}\n")
         return None
 
+    def _serve_ui_guard(self, head_only: bool) -> None:
+        data = self.cfg.ui_guard.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/javascript; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        if not head_only:
+            self.wfile.write(data)
+
+    def _unsupported_ui(self, path: str, head_only: bool) -> None:
+        safe_path = (
+            path.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+        )
+        payload = f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>RouterLab</title>
+<style>
+body{{font-family:Arial,sans-serif;background:#f5f5f5;color:#333;margin:0}}
+main{{max-width:680px;margin:80px auto;background:#fff;padding:32px;border-radius:8px}}
+h1{{font-size:24px;margin:0 0 14px}}p{{line-height:1.55}}code{{word-break:break-all}}
+</style>
+</head>
+<body>
+<main>
+<h1>Недоступно в RouterLab</h1>
+<p>Этот раздел зависит от аппаратного/runtime-состояния, которое эмулятор сейчас не моделирует.</p>
+<p>Stock-файлы Xiaomi не изменены. Раздел отключён только в лабораторном UI, чтобы не зависать на неподдерживаемых вызовах.</p>
+<p><code>{safe_path}</code></p>
+<p><a href="javascript:history.back()">Назад</a></p>
+</main>
+</body>
+</html>""".encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        if not head_only:
+            self.wfile.write(payload)
+
     def _body(self) -> bytes:
         raw_len = self.headers.get("Content-Length", "0")
         try:
@@ -324,14 +408,25 @@ class RouterLabHandler(BaseHTTPRequestHandler):
             sys.stderr.write("[compat-frontdoor] fcgi stderr: " + fcgi_stderr.decode("utf-8", "replace") + "\n")
 
         status, headers, payload = parse_cgi_response(raw)
-        self.send_response(status)
-        have_length = False
+
+        content_type = ""
         for name, value in headers:
-            if name.lower() == "content-length":
-                have_length = True
-            self.send_header(name, value)
-        if not have_length:
-            self.send_header("Content-Length", str(len(payload)))
+            if name.lower() == "content-type":
+                content_type = value.lower()
+                break
+
+        if (
+            self.cfg.ui_guard
+            and status == 200
+            and "text/html" in content_type
+        ):
+            payload = _inject_ui_guard(payload)
+
+        self.send_response(status)
+        for name, value in headers:
+            if name.lower() != "content-length":
+                self.send_header(name, value)
+        self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         if not head_only:
             self.wfile.write(payload)
@@ -378,6 +473,12 @@ def main() -> int:
     parser.add_argument("--client-ip", default="192.168.31.100")
     parser.add_argument("--max-body", type=int, default=64 * 1024 * 1024)
     parser.add_argument(
+        "--ui-guard",
+        type=Path,
+        default=None,
+        help="optional RouterLab-only UI guard script; does not modify stock rootfs",
+    )
+    parser.add_argument(
         "--stock-init-gate",
         action="store_true",
         help="reproduce stock sysapihttpd's uninitialized-browser redirect using stock init_info",
@@ -386,6 +487,10 @@ def main() -> int:
 
     args.rootfs = args.rootfs.resolve()
     args.www_root = args.rootfs / "www"
+    if args.ui_guard is not None:
+        args.ui_guard = args.ui_guard.resolve()
+        if not args.ui_guard.is_file():
+            parser.error(f"UI guard script not found: {args.ui_guard}")
     if not (args.www_root / "cgi-bin" / "luci").exists():
         parser.error(f"stock LuCI not found under {args.www_root}")
 
