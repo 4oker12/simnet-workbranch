@@ -240,3 +240,52 @@ QoS -> unavailable in emulator
 The menu link is visually disabled by a RouterLab-only injected guard. Direct navigation to the guarded route returns a short lab explanation instead of letting the stock page hang on unavailable runtime calls.
 
 Unknown or untested sections are not disabled preemptively.
+
+
+## Automated operator flows
+
+RouterLab now exposes the two SIMNET-relevant management flows through the existing stock API client.
+
+### Factory / first run
+
+Start a clean virtual router:
+
+```powershell
+.\tools\routerlab\xiaomi-r4a\Run-VirtualRouter.ps1 -Action Reset -Profile Factory
+.\tools\routerlab\xiaomi-r4a\Run-VirtualRouter.ps1 -Action Start -Profile Factory
+```
+
+Then run the automated stock first-run sequence:
+
+```powershell
+.\tools\routerlab\xiaomi-r4a\Run-RouterScenario.ps1 -Action FirstRun
+```
+
+The client performs:
+
+```text
+inited=0
+-> exact Xiaomi factory login/stok
+-> WAN DHCP
+-> exact set_router_normal
+-> Wi-Fi 2.4 + 5 GHz
+-> admin password
+-> inited=1
+-> login again
+-> stock Wi-Fi read-back
+```
+
+### Configured / service
+
+With an initialized virtual router running:
+
+```powershell
+.\tools\routerlab\xiaomi-r4a\Run-RouterScenario.ps1 -Action Inspect
+.\tools\routerlab\xiaomi-r4a\Run-RouterScenario.ps1 -Action Service
+```
+
+The service flow is DHCP-first for SIMNET and verifies Wi-Fi through the stock read API after writes.
+
+### Lab-only write safety
+
+`first-run` and `service/configure` remain restricted to loopback targets in this research stage. A future physical-router validation will require an explicit safety change rather than silently allowing writes to arbitrary LAN addresses.
