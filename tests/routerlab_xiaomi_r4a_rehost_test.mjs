@@ -45,9 +45,9 @@ test('rehost is bounded and has explicit classifications', () => {
     'STOCK_WEB_FRONTEND_ALIVE_LUCI_BLOCKED',
     'STOCK_SYSAPI_CONFIG_VALID_RUNTIME_BLOCKED',
     'STOCK_SYSAPI_PROCESS_EXITED',
-    'STOCK_FCGI_PROCESS_EXITED',
-    'STOCK_SYSAPI_ALIVE_NO_HTTP_LISTENER',
-    'STOCK_FCGI_ALIVE_NO_LISTENER',
+        'STOCK_SYSAPI_ALIVE_NO_HTTP_LISTENER',
+    'STOCK_FCGI_NO_LISTENER',
+    'STOCK_FCGI_LISTENER_WITHOUT_TRACKED_CHILD',
     'QEMU_USER_REHOST_BLOCKED',
   ]) {
     assert.match(script, new RegExp(state));
@@ -61,4 +61,6 @@ test('rehost script structure is not duplicated or truncated', () => {
   assert.equal((script.match(/# Reproduce ngxld's runtime-config preparation/g) || []).length, 1);
   assert.equal((script.match(/# Start exact stock FCGI\/LuCI/g) || []).length, 1);
   assert.match(script, /STOCK RUNTIME DIAGNOSTIC/);
+  assert.match(script, /spawn-fcgi is only a launcher/);
+  assert.doesNotMatch(script, /FCGI_ALIVE/);
 });
