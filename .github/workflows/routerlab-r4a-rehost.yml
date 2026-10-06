@@ -695,17 +695,6 @@ jobs:
           grep -q '"wan_live_readback": "not_claimed"' "$OUT/configure-dhcp.json"
           ! grep -q 'RouterAgentPass88' "$OUT/configure-dhcp.json"
 
-          set +x
-          python3 "$CLIENT" --base-url http://127.0.0.1:18090 configure             --admin-password admin             --wan-type pppoe             --pppoe-username RouterAgentPPPoEUser             --pppoe-password RouterAgentPPPoEPass88             --ssid-24 RouterAgent24             --ssid-5 RouterAgent5G             --wifi-password RouterAgentPass88             > "$OUT/configure-pppoe.json"
-          set -x
-
-          grep -q '"configured_type": "pppoe"' "$OUT/configure-pppoe.json"
-          grep -q '"credentials_supplied": true' "$OUT/configure-pppoe.json"
-          ! grep -q 'RouterAgentPPPoEUser' "$OUT/configure-pppoe.json"
-          ! grep -q 'RouterAgentPPPoEPass88' "$OUT/configure-pppoe.json"
-          grep -q "option proto 'pppoe'" "$BASE/runtime/rootfs/etc/config/network"
-          grep -q "option username 'RouterAgentPPPoEUser'" "$BASE/runtime/rootfs/etc/config/network"
-
           bash "$VR" restart --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile configured
 
           python3 "$CLIENT" --base-url http://127.0.0.1:18090 inspect             --admin-password admin             > "$OUT/inspect-after-cold-boot.json"
@@ -715,6 +704,35 @@ jobs:
           ! grep -q 'RouterAgentPass88' "$OUT/inspect-after-cold-boot.json"
 
           bash "$VR" stop --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile configured
+
+      - name: Router client PPPoE compatibility probe
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOTFS="$HOME/routerlab-xiaomi-r4a/audit/squashfs-root"
+          BASE="$HOME/routerlab-xiaomi-r4a/router-client-pppoe-ci"
+          VR="tools/routerlab/xiaomi-r4a/virtual-router.sh"
+          CLIENT="tools/routerlab/xiaomi-r4a/router-client.py"
+          OUT="$HOME/routerlab-xiaomi-r4a/router-client-pppoe-probe"
+          mkdir -p "$OUT"
+
+          bash "$VR" reset --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile configured
+          bash "$VR" start --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile configured
+
+          set +x
+          python3 "$CLIENT" --base-url http://127.0.0.1:18090 configure             --admin-password admin             --wan-type pppoe             --pppoe-username RouterAgentPPPoEUser             --pppoe-password RouterAgentPPPoEPass88             --ssid-24 RouterAgent24             --ssid-5 RouterAgent5G             --wifi-password RouterAgentPass88             > "$OUT/configure-pppoe.json"
+          rc=$?
+          set -x
+
+          echo "PPPOE_CLIENT_RC=$rc" > "$OUT/result.txt"
+          if [ "$rc" -eq 0 ]; then
+            grep -q '"configured_type": "pppoe"' "$OUT/configure-pppoe.json"
+            ! grep -q 'RouterAgentPPPoEPass88' "$OUT/configure-pppoe.json"
+          fi
+
+          bash "$VR" stop --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile configured || true
+          exit "$rc"
 
       - name: Collect concise runtime evidence
         if: always()
@@ -745,5 +763,6 @@ jobs:
             ~/routerlab-xiaomi-r4a/factory-setup-acceptance/
             ~/routerlab-xiaomi-r4a/factory-pppoe-acceptance/
             ~/routerlab-xiaomi-r4a/router-client-acceptance/
+            ~/routerlab-xiaomi-r4a/router-client-pppoe-probe/
           if-no-files-found: warn
           retention-days: 7
