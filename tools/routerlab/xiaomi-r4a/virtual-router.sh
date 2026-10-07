@@ -84,6 +84,128 @@ PIDDIR="$RUNTIME/pids"
 LOGDIR="$BASE/logs"
 STATE_CONFIG="$STATE/etc-config"
 
+language_capability_file() {
+  printf '%s\n' "$STATE/LANGUAGE_CAPABILITY"
+}
+
+materialize_language_registry() {
+  local cfg="$STATE_CONFIG/luci"
+  local cap
+  cap="$(language_capability_file)"
+
+  mkdir -p "$STATE"
+  if [[ ! -f "$cfg" ]]; then
+    printf 'status=missing\nsource=missing-luci-config\nlanguages=\n' > "$cap"
+    echo "[virtual-router] language capability missing: $cfg not found" >&2
+    return 0
+  fi
+
+  python3 - "$ROOTFS" "$cfg" "$cap" <<'PY'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+cfg = pathlib.Path(sys.argv[2])
+cap = pathlib.Path(sys.argv[3])
+
+text = cfg.read_text(encoding="utf-8", errors="replace")
+lines = text.splitlines(keepends=True)
+
+section_start = None
+section_end = len(lines)
+for i, line in enumerate(lines):
+    if re.match(r"^\s*config\s+internal\s+['\"]?languages['\"]?\s*$", line):
+        section_start = i
+        for j in range(i + 1, len(lines)):
+            if re.match(r"^\s*config\s+", lines[j]):
+                section_end = j
+                break
+        break
+
+if section_start is None:
+    cap.write_text("status=missing\nsource=missing-languages-section\nlanguages=\n")
+    print("[virtual-router] language capability missing: luci languages section absent", file=sys.stderr)
+    raise SystemExit(0)
+
+existing = {}
+for line in lines[section_start + 1:section_end]:
+    m = re.match(r"^\s*option\s+['\"]?([A-Za-z0-9_-]+)['\"]?\s+['\"]([^'\"]+)['\"]\s*$", line)
+    if m:
+        existing[m.group(1)] = m.group(2)
+
+if existing:
+    codes = ",".join(sorted(existing))
+    cap.write_text(f"status=ready\nsource=stock-uci\nlanguages={codes}\n")
+    print(f"[virtual-router] language capability ready from existing UCI: {codes}")
+    raise SystemExit(0)
+
+languages = {}
+defaults_dir = root / "etc" / "uci-defaults"
+if defaults_dir.is_dir():
+    for path in sorted(defaults_dir.iterdir()):
+        if not path.is_file():
+            continue
+        data = path.read_text(encoding="utf-8", errors="replace")
+        for m in re.finditer(
+            r"uci\s+set\s+luci\.languages\.([A-Za-z0-9_-]+)\s*=\s*(['\"])(.*?)\2",
+            data,
+        ):
+            languages[m.group(1)] = m.group(3)
+
+source = "stock-uci-defaults"
+if not languages:
+    # LuCI translation packages materialize luci.languages from installed
+    # translation packs. Raw squashfs may contain the .lmo payloads while the
+    # first-boot UCI-defaults side effect has not happened yet. Reconstruct only
+    # that registry from the exact stock pack inventory; do not alter Xiaomi API
+    # handlers or synthesize their responses.
+    label = {
+        "en": "English",
+        "uk": "Ukrainian",
+        "ru": "Russian",
+        "de": "Deutsch",
+        "es": "Español",
+        "fr": "Français",
+        "it": "Italiano",
+        "pt": "Português",
+        "tr": "Türkçe",
+        "zh_cn": "简体中文",
+        "zh_tw": "繁體中文",
+    }
+    i18n_dir = root / "usr" / "lib" / "lua" / "luci" / "i18n"
+    if i18n_dir.is_dir():
+        for path in sorted(i18n_dir.glob("base.*.lmo")):
+            code = path.name[len("base."):-len(".lmo")]
+            if re.fullmatch(r"[A-Za-z0-9_-]+", code):
+                languages[code] = label.get(code, code)
+    source = "stock-lmo-inventory"
+
+if not languages:
+    cap.write_text("status=missing\nsource=no-stock-language-packs\nlanguages=\n")
+    print("[virtual-router] language capability missing: no stock language packs materialized", file=sys.stderr)
+    raise SystemExit(0)
+
+insert = [
+    f"\toption {code} '{value.replace(chr(39), '')}'\n"
+    for code, value in sorted(languages.items())
+]
+lines[section_start + 1:section_start + 1] = insert
+cfg.write_text("".join(lines), encoding="utf-8")
+
+codes = ",".join(sorted(languages))
+cap.write_text(f"status=ready\nsource={source}\nlanguages={codes}\n")
+print(f"[virtual-router] language capability materialized from {source}: {codes}")
+PY
+}
+
+language_capability_value() {
+  local key="$1" cap
+  cap="$(language_capability_file)"
+  [[ -f "$cap" ]] || return 0
+  awk -F= -v k="$key" '$1 == k {sub(/^[^=]*=/, ""); print; exit}' "$cap"
+}
+
 ensure_deps() {
   local missing=()
   local c
@@ -130,6 +252,11 @@ seed_factory_state() {
   rm -rf "$STATE"
   mkdir -p "$STATE_CONFIG"
   cp -a "$ROOTFS/etc/config/." "$STATE_CONFIG/"
+
+  # A raw squashfs contains LuCI translation payloads but may not contain the
+  # writable first-boot UCI registry produced by language-package materialization.
+  # Restore that missing boot side effect in persistent state, not in stock APIs.
+  materialize_language_registry
 
   if [[ "$PROFILE" == "configured" ]]; then
     if grep -q "option 'INITTED'" "$STATE_CONFIG/xiaoqiang"; then
@@ -236,6 +363,9 @@ save_state() {
 
 prepare_runtime() {
   [[ -f "$STATE/FORMAT" ]] || seed_factory_state
+  # Migrate pre-materializer state-v1 directories without overwriting an existing
+  # language registry. This is idempotent and touches only persistent UCI state.
+  materialize_language_registry
   echo "[virtual-router] cold boot: exact stock rootfs + state-v1"
   rm -rf "$RUNTIME"
   mkdir -p "$LAB" "$PIDDIR" "$LOGDIR"
@@ -434,7 +564,14 @@ start_runtime() {
   echo "[virtual-router] READY"
   echo "[virtual-router] URL: http://127.0.0.1:$HTTP_PORT/"
   echo "[virtual-router] STOCK_INITED=$inited"
-  if [[ "$inited" == "0" ]]; then
+  local lang_status lang_source lang_codes
+  lang_status="$(language_capability_value status)"
+  lang_source="$(language_capability_value source)"
+  lang_codes="$(language_capability_value languages)"
+  echo "[virtual-router] LANGUAGE_CAPABILITY=${lang_status:-unknown} source=${lang_source:-unknown} languages=${lang_codes:-}"
+  if [[ "$inited" == "0" && "$lang_status" != "ready" ]]; then
+    echo "[virtual-router] mode: factory setup blocked at country/language; stock language packs are not materialized"
+  elif [[ "$inited" == "0" ]]; then
     echo "[virtual-router] mode: factory setup; open the URL and follow the stock Xiaomi wizard"
   else
     echo "[virtual-router] mode: configured; stock admin login is active"
@@ -458,6 +595,9 @@ show_status() {
   echo "STOCK_FCGI=$fcgi port=$FCGI_PORT"
   echo "STOCK_INIT_INFO_HTTP=$code"
   echo "STOCK_INITED=$inited"
+  echo "LANGUAGE_CAPABILITY=$(language_capability_value status || true)"
+  echo "LANGUAGE_SOURCE=$(language_capability_value source || true)"
+  echo "LANGUAGES=$(language_capability_value languages || true)"
   [[ -f "$STATE/PROFILE" ]] && echo "STATE_PROFILE=$(cat "$STATE/PROFILE")"
   if [[ -f "$STATE/LAST_SAVED" ]]; then
     echo "STATE_LAST_SAVED=$(cat "$STATE/LAST_SAVED")"
