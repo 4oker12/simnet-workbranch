@@ -83,6 +83,11 @@ jobs:
           test -n "$INIT_JS"
           cp "$INIT_JS" "$OUT/$(basename "$INIT_JS")"
 
+          # The wizard lazy-loads chunks after init.js. Capture endpoint ownership
+          # across every shipped JS bundle, not only the bootstrap bundle.
+          grep -RIl --include='*.js' '/api/misystem/set_language' "$ROOTFS/www/static/js"             | sed "s#^$ROOTFS/##" | sort > "$OUT/misystem-set-language-bundles.txt" || true
+          grep -RIn --include='*.js' -E             '/api/(misystem|xqsystem)/set_language|/api/misystem/set_location|getLogin(Info|Desp)'             "$ROOTFS/www/static/js" 2>/dev/null             | head -1200 > "$OUT/all-js-wizard-endpoints.txt" || true
+
           python3 - "$INIT_JS" > "$OUT/init-callsite-context.txt" <<'PY'
           import pathlib
           import re
@@ -126,6 +131,10 @@ jobs:
           grep -n -Ei 'UA|Ukraine|uk_ua|language|CountryCode' "$OUT/country-mapping" || true
           echo "===== init callsite context ====="
           sed -n '1,520p' "$OUT/init-callsite-context.txt"
+          echo "===== bundles owning misystem/set_language ====="
+          cat "$OUT/misystem-set-language-bundles.txt" || true
+          echo "===== all JS wizard endpoints ====="
+          sed -n '1,1200p' "$OUT/all-js-wizard-endpoints.txt" || true
 
       - name: Find exact stock language bootstrap contract
         shell: bash
@@ -670,7 +679,7 @@ jobs:
           now="$(date +%s)"
           nonce="0_${device}_${now}_3001"
           oldpwd="$(python3 -c 'import hashlib,sys; print(hashlib.sha1((sys.argv[1]+sys.argv[2]).encode()).hexdigest())' "$nonce" "$account_hash")"
-          login_http="$(curl -sS --max-time 20 -G             -H 'Host: router.miwifi.com'             -c "$OUT/factory.cookies"             -o "$OUT/factory-login.json"             -w '%{http_code}'             --data-urlencode 'username=admin'             --data-urlencode 'logtype=2'             --data-urlencode "password=$oldpwd"             --data-urlencode "nonce=$nonce"             --data-urlencode 'init=1'             'http://127.0.0.1:18090/cgi-bin/luci/api/xqsystem/login')"
+          login_http="$(curl -sS --max-time 20 -G             -H 'Host: router.miwifi.com'             -c "$OUT/factory.cookies"             -o "$OUT/factory-login.json"             -w '%{http_code}'             --data-urlencode 'username=admin'             --data-urlencode 'logtype=2'             --data-urlencode "password=$oldpwd"             --data-urlencode "nonce=$nonce"             --data-urlencode 'init=1'             --data-urlencode 'privacy=0'             'http://127.0.0.1:18090/cgi-bin/luci/api/xqsystem/login')"
           echo "factory_login_http=$login_http" | tee -a "$OUT/result.txt"
           cat "$OUT/factory-login.json" | tee -a "$OUT/result.txt"
           token="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("token",""))' "$OUT/factory-login.json")"
@@ -688,6 +697,15 @@ jobs:
 
           echo "auth_languages_http=$(auth_req GET auth-languages /api/xqsystem/get_languages)" | tee -a "$OUT/result.txt"
           cat "$OUT/auth-languages.json" | tee -a "$OUT/result.txt"
+
+          # Exact browser endpoint observed in a real Chrome factory-wizard run.
+          # Keep it separate from xqsystem/set_language: the two routes are not
+          # assumed equivalent until stock runtime evidence proves it.
+          echo "auth_misystem_set_language_en_http=$(auth_req POST auth-misystem-set-language-en /api/misystem/set_language 'language=en')" | tee -a "$OUT/result.txt"
+          cat "$OUT/auth-misystem-set-language-en.json" | tee -a "$OUT/result.txt"
+
+          echo "auth_misystem_set_language_uk_http=$(auth_req POST auth-misystem-set-language-uk /api/misystem/set_language 'language=uk_ua')" | tee -a "$OUT/result.txt"
+          cat "$OUT/auth-misystem-set-language-uk.json" | tee -a "$OUT/result.txt"
 
           echo "auth_set_location_ua_http=$(auth_req POST auth-set-location-ua /api/misystem/set_location 'location=UA')" | tee -a "$OUT/result.txt"
           cat "$OUT/auth-set-location-ua.json" | tee -a "$OUT/result.txt"
