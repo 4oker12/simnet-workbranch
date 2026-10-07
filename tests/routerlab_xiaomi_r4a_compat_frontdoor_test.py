@@ -175,6 +175,21 @@ class CompatFrontdoorContractTest(unittest.TestCase):
             mod._sha1_text(nonce + mod._sha1_text("admin" + mod.FACTORY_PWDKEY)),
         )
 
+    def test_stock_init_gate_is_symmetric_around_initialized_state(self):
+        for path in (
+            "/",
+            "/cgi-bin/luci",
+            "/cgi-bin/luci/",
+            "/cgi-bin/luci/web",
+            "/cgi-bin/luci/web/",
+        ):
+            self.assertEqual(mod._stock_init_redirect(path, False), "/init.html")
+
+        self.assertEqual(mod._stock_init_redirect("/init.html", True), "/")
+        self.assertIsNone(mod._stock_init_redirect("/init.html", False))
+        self.assertIsNone(mod._stock_init_redirect("/", True))
+        self.assertIsNone(mod._stock_init_redirect("/init.html", None))
+
     def test_source_is_transport_only_and_local_by_default(self):
         source = MODULE_PATH.read_text(encoding="utf-8")
         self.assertIn('parser.add_argument("--bind", default="127.0.0.1")', source)
@@ -183,7 +198,8 @@ class CompatFrontdoorContractTest(unittest.TestCase):
         self.assertIn('"--ui-guard"', source)
         self.assertIn("UNSUPPORTED_UI_SUFFIXES", source)
         self.assertIn('/api/xqsystem/init_info', source)
-        self.assertIn('self.send_header("Location", "/init.html")', source)
+        self.assertIn("STOCK_ROOT_ENTRY_PATHS", source)
+        self.assertIn("_stock_init_redirect", source)
         self.assertNotIn("set_wan_new", source)
         self.assertNotIn("set_wifi", source)
         self.assertNotIn("pppoe_username", source)
