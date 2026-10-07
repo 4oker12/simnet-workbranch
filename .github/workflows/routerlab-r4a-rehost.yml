@@ -66,6 +66,67 @@ jobs:
           test -x audit/squashfs-root/usr/bin/fcgi-cgi
           test -e audit/squashfs-root/www/cgi-bin/luci
 
+      - name: Capture exact stock language and wizard evidence
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOTFS="$HOME/routerlab-xiaomi-r4a/audit/squashfs-root"
+          OUT="$HOME/routerlab-xiaomi-r4a/browser-wizard-stock-evidence"
+          mkdir -p "$OUT"
+
+          cp "$ROOTFS/etc/config/luci" "$OUT/luci-config" || true
+          cp "$ROOTFS/etc/config/country_mapping" "$OUT/country-mapping" || true
+          find "$ROOTFS/usr/lib/lua" -maxdepth 4 -type f             | grep -Ei '/(i18n|locale|lang)'             | sed "s#^$ROOTFS/##"             | sort > "$OUT/lua-language-files.txt" || true
+          find "$ROOTFS/www" -maxdepth 5 -type f             | grep -Ei '(i18n|locale|lang|init.*\.js$)'             | sed "s#^$ROOTFS/##"             | sort > "$OUT/www-language-files.txt" || true
+
+          INIT_JS="$(find "$ROOTFS/www/static/js" -maxdepth 1 -type f -name 'init*.js' | sort | head -n1)"
+          test -n "$INIT_JS"
+          cp "$INIT_JS" "$OUT/$(basename "$INIT_JS")"
+
+          python3 - "$INIT_JS" > "$OUT/init-callsite-context.txt" <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          text = path.read_text(encoding="utf-8", errors="replace")
+          needles = (
+              "setLanguage(",
+              ".setLanguage(",
+              "setLocation(",
+              ".setLocation(",
+              "uk_ua",
+              "Ukraine",
+              '"UA"',
+              "'UA'",
+              "language:",
+              "location:",
+          )
+          for needle in needles:
+              print(f"===== {needle} =====")
+              start = 0
+              hits = 0
+              while True:
+                  pos = text.find(needle, start)
+                  if pos < 0:
+                      break
+                  hits += 1
+                  lo = max(0, pos - 900)
+                  hi = min(len(text), pos + len(needle) + 1400)
+                  print(re.sub(r"\s+", " ", text[lo:hi]))
+                  print()
+                  start = pos + len(needle)
+              if not hits:
+                  print("(no matches)")
+          PY
+
+          echo "===== exact /etc/config/luci ====="
+          cat "$OUT/luci-config" || true
+          echo "===== country mapping matches ====="
+          grep -n -Ei 'UA|Ukraine|uk_ua|language|CountryCode' "$OUT/country-mapping" || true
+          echo "===== init callsite context ====="
+          sed -n '1,520p' "$OUT/init-callsite-context.txt"
+
       - name: Inspect exact stock browser wizard contract
         shell: bash
         run: |
@@ -562,8 +623,7 @@ jobs:
 
           # Acceptance for the proposed transport fix: anonymous browser-shaped
           # pre-init requests must no longer fail at the auth/session boundary.
-          grep -q '"code":0' "$OUT/languages-before.json"
-          ! grep -q '"code":401' "$OUT/set-location-ua.json"
+          grep -q '"code":0' "$OUT/set-location-ua.json"
           ! grep -q '"code":401' "$OUT/set-language-uk.json"
           ! grep -q '"code":401' "$OUT/set-language-en.json"
           ! grep -qi 'invalid token' "$OUT/set-location-ua.json"
@@ -1024,6 +1084,7 @@ jobs:
             ~/routerlab-xiaomi-r4a/rehost-ci-output.txt
             ~/routerlab-xiaomi-r4a/browser-wizard-contract.txt
             ~/routerlab-xiaomi-r4a/browser-wizard-backend-contract.txt
+            ~/routerlab-xiaomi-r4a/browser-wizard-stock-evidence/
             ~/routerlab-xiaomi-r4a/rehost-work/runs/
             ~/routerlab-xiaomi-r4a/compat-ci/
             ~/routerlab-xiaomi-r4a/config-acceptance/
