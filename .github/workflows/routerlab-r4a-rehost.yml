@@ -127,6 +127,37 @@ jobs:
           echo "===== init callsite context ====="
           sed -n '1,520p' "$OUT/init-callsite-context.txt"
 
+      - name: Find exact stock language bootstrap contract
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOTFS="$HOME/routerlab-xiaomi-r4a/audit/squashfs-root"
+          OUT="$HOME/routerlab-xiaomi-r4a/browser-wizard-stock-evidence"
+          mkdir -p "$OUT"
+
+          {
+            echo "===== luci config module ====="
+            for f in               "$ROOTFS/usr/lib/lua/luci/config.lua"               "$ROOTFS/usr/lib/lua/luci/i18n.lua"; do
+              echo "--- ${f#$ROOTFS/} ---"
+              if [ -f "$f" ]; then
+                sed -n '1,320p' "$f"
+              else
+                echo "(missing)"
+              fi
+            done
+
+            echo "===== language-related boot/config references ====="
+            grep -RInaE               'config[[:space:]]+internal[[:space:]]+languages|luci\.config\.languages|base\.(en|uk|ru|de|es|fr|it|pt|tr)\.lmo|setLang|getLangList|option[[:space:]].*(lang|language)'               "$ROOTFS/etc" "$ROOTFS/lib" "$ROOTFS/usr/bin" "$ROOTFS/usr/sbin" "$ROOTFS/usr/lib/lua"               2>/dev/null | head -1800 || true
+
+            echo "===== package ownership/status hints ====="
+            grep -nEi -A8 -B3               'Package:.*(luci|language|i18n)|luci-i18n|base\.uk\.lmo|base\.en\.lmo'               "$ROOTFS/usr/lib/opkg/status" 2>/dev/null | head -1000 || true
+
+            echo "===== init scripts ====="
+            find "$ROOTFS/etc/init.d" -maxdepth 1 -type f -print | sort
+          } > "$OUT/language-bootstrap-contract.txt"
+
+          sed -n '1,1400p' "$OUT/language-bootstrap-contract.txt"
+
       - name: Inspect exact stock browser wizard contract
         shell: bash
         run: |
