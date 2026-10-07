@@ -94,3 +94,14 @@ test('factory WAN page runtime models missing ARP and Factory-MTD MAC facts', ()
   assert.match(getmacShim, /echo "\$WAN_MAC,\$WL1_MAC,\$WL0_MAC"/);
   assert.doesNotMatch(getmacShim, /\/proc\/mtd|hexdump|nvram/);
 });
+test('factory language capability is materialized from stock packs, not API overrides', () => {
+  assert.match(script, /materialize_language_registry\(\)/);
+  assert.match(script, /etc\" \/ \"uci-defaults\"/);
+  assert.match(script, /luci\\\.languages\\\./);
+  assert.match(script, /glob\(\"base\.\*\.lmo\"\)/);
+  assert.match(script, /stock-lmo-inventory/);
+  assert.match(script, /LANGUAGE_CAPABILITY/);
+  assert.match(script, /factory setup blocked at country\/language/);
+  assert.doesNotMatch(script, /set_language.*code.?0/i);
+});
+
