@@ -77,7 +77,7 @@ Validated behavior:
 - `set_location` -> `{"code":0}`
 - `set_language` -> `{"code":1511,"msg":"This language isn't supported yet."}` when the language registry is empty
 
-The UI only advances after both operations return `code:0`, so this `1511` is the current factory-wizard blocker.
+The UI only advances after both operations return `code:0`. This `1511` was the factory-wizard blocker and is now fixed by RouterLab language-pack materialization.
 
 ## Root cause of 1511 — causally proven manually
 
@@ -115,18 +115,54 @@ This is important evidence:
 
 So the active problem is best described as **missing language-pack materialization / missing boot-time runtime state**, not a session bug and not simply "copy `/etc/config/luci` from the image".
 
-## Architectural interpretation
+## Language materialization — implemented and validated
 
-On real hardware, some boot/init/package-materialization path is expected to populate the language registry from installed language packs or another firmware-owned source.
+RouterLab now restores the missing language-package side effect in `virtual-router.sh` without changing Xiaomi API/controller logic.
 
-RouterLab currently starts the stock FastCGI/LuCI management plane without reproducing that materialization step.
+Materialization order:
 
-The correct next step is one of:
+1. preserve an already populated `luci.config.languages` registry;
+2. if present, read stock `/etc/uci-defaults` entries that set `luci.languages.*`;
+3. otherwise derive the registry from the exact stock `/usr/lib/lua/luci/i18n/base.*.lmo` inventory;
+4. normalize language-pack names from `-` to `_` for UCI keys, matching LuCI translation-package materialization semantics;
+5. persist the resulting registry in `state-v1/etc-config/luci`.
 
-1. identify and execute the exact stock boot/init path that materializes `luci.config.languages`; or
-2. if that path depends on missing hardware/services and cannot be run faithfully, represent it explicitly as a RouterLab capability/bootstrap step with provenance from the exact firmware resources.
+For this exact R4A 3.0.24 image, CI observed no usable stock UCI-default materializer and used:
 
-If language packs cannot be materialized, RouterLab should mark the capability explicitly (for example `languages: missing`) rather than silently expecting the stock wizard to pass the language stage.
+`source=stock-lmo-inventory`
+
+Materialized languages currently observed:
+
+`de,en,es,fr,it,pt,ru,tr,uk,zh_hk,zh_tw`
+
+RouterLab writes a persistent capability record:
+
+`state-v1/LANGUAGE_CAPABILITY`
+
+and exposes it through `virtual-router.sh status`:
+
+- `LANGUAGE_CAPABILITY=ready|missing`
+- `LANGUAGE_SOURCE=...`
+- `LANGUAGES=...`
+
+If no stock language packs can be materialized, factory mode is explicitly reported as blocked at country/language rather than pretending the wizard should pass.
+
+The immutable squashfs remains unchanged. Stock `misystem/set_language` now returns `{"code":0}` after materialization.
+
+GitHub Actions RouterLab run **#104** passed the full specialized suite, including:
+
+- factory language materialization acceptance
+- browser country/language probe
+- factory-reset first-run acceptance
+- PPPoE compatibility probe
+- persistent cold boot
+- router-client first-run/service acceptance
+
+One implementation bug was caught by CI: raw pack names such as `zh-hk` / `zh-tw` cannot be written directly as UCI option keys. They are normalized to `zh_hk` / `zh_tw`, consistent with LuCI package behavior.
+
+### Remaining route discrepancy
+
+The exact browser-relevant endpoint `/api/misystem/set_language` is green after materialization. A diagnostic `/api/xqsystem/set_language` path can still return `1511` in some probes. Do not make that a blocker unless a real browser/runtime scenario depends on it; the current project rule is to follow the actual stock Chrome flow and continue to the next real blocker.
 
 Do **not** solve this by:
 
@@ -173,12 +209,11 @@ Do not regress those while fixing language materialization.
 
 Prioritize breadth, not endless focus on one secondary discrepancy.
 
-1. Identify stock language materialization source/path.
-2. Implement the narrowest faithful bootstrap or explicit capability model.
-3. Re-run the real browser wizard end-to-end and record the **next actual blocker**.
-4. Build/maintain a capability matrix for WAN, PPPoE, Wi-Fi, login/logout, reboot, persistence, factory reset, settings pages, and browser setup flows.
-5. Keep RouterLab-only shims separated from code paths intended for real hardware.
-6. Convert successful manual browser behavior into regression acceptance without replacing stock decisions.
+1. Re-run the real browser wizard end-to-end from a fresh factory reset and record the **next actual blocker after language**.
+2. Build/maintain a capability matrix for WAN, PPPoE, Wi-Fi, login/logout, reboot, persistence, factory reset, settings pages, and browser setup flows.
+3. Keep RouterLab-only shims separated from code paths intended for real hardware.
+4. Convert successful manual browser behavior into regression acceptance without replacing stock decisions.
+5. Investigate the residual xqsystem/misystem set_language route discrepancy only if it becomes user-visible or blocks a real flow.
 
 ## Local operator commands
 
