@@ -613,7 +613,7 @@ jobs:
           cmp -s "$OUT/network.after-write" "$OUT/network.after-restart" && echo "network_file_persisted=yes" || echo "network_file_persisted=no"
           cmp -s "$OUT/wireless.after-write" "$OUT/wireless.after-restart" && echo "wireless_file_persisted=yes" || echo "wireless_file_persisted=no"
 
-      - name: Prove stock language-table causality
+      - name: Factory language materialization acceptance
         shell: bash
         run: |
           set -euxo pipefail
@@ -623,45 +623,40 @@ jobs:
           OUT="$HOME/routerlab-xiaomi-r4a/language-causality"
           mkdir -p "$OUT"
 
-          bash "$VR" reset --rootfs "$ROOTFS" --base "$BASE" --port 18091 --profile factory
+          # Raw immutable squashfs is expected to have an empty UCI language
+          # registry; RouterLab must restore the missing first-boot/package
+          # materialization into persistent state without patching stock APIs.
+          ! grep -qE '^[[:space:]]*option[[:space:]]+en[[:space:]]' "$ROOTFS/etc/config/luci"
 
-          cp "$BASE/runtime/rootfs/etc/config/luci" "$OUT/luci.before"
-          python3 - "$BASE/runtime/rootfs/etc/config/luci" <<'PY'
-          import pathlib, sys
-          p = pathlib.Path(sys.argv[1])
-          s = p.read_text()
-          needle = "config internal languages\n"
-          if needle not in s:
-              raise SystemExit("languages section missing")
-          if "option en " not in s:
-              s = s.replace(
-                  needle,
-                  needle + "\toption en 'English'\n\toption uk 'Ukrainian'\n",
-                  1,
-              )
-          p.write_text(s)
-          PY
-          cp "$BASE/runtime/rootfs/etc/config/luci" "$OUT/luci.after"
+          bash "$VR" reset --rootfs "$ROOTFS" --base "$BASE" --port 18091 --profile factory
+          cp "$BASE/state-v1/etc-config/luci" "$OUT/luci.materialized"
+
+          grep -qE '^[[:space:]]*option[[:space:]]+en[[:space:]]' "$OUT/luci.materialized"
+          test -f "$BASE/state-v1/LANGUAGE_CAPABILITY"
+          grep -q '^status=ready$' "$BASE/state-v1/LANGUAGE_CAPABILITY"
+          cp "$BASE/state-v1/LANGUAGE_CAPABILITY" "$OUT/capability.txt"
 
           bash "$VR" start --rootfs "$ROOTFS" --base "$BASE" --port 18091 --profile factory
+          bash "$VR" status --rootfs "$ROOTFS" --base "$BASE" --port 18091 --profile factory | tee "$OUT/status.txt"
+          grep -q '^LANGUAGE_CAPABILITY=ready$' "$OUT/status.txt"
 
           account_hash="$(awk '/option .admin./ {gsub(/\047/,"",$3); print $3; exit}' "$BASE/runtime/rootfs/etc/config/account")"
           now="$(date +%s)"
           nonce="0_routerlablang_${now}_4401"
           oldpwd="$(python3 -c 'import hashlib,sys; print(hashlib.sha1((sys.argv[1]+sys.argv[2]).encode()).hexdigest())' "$nonce" "$account_hash")"
           curl -sS --max-time 20 -G             -H 'Host: router.miwifi.com'             -c "$OUT/cookies.txt"             -o "$OUT/login.json"             --data-urlencode 'username=admin'             --data-urlencode 'logtype=2'             --data-urlencode "password=$oldpwd"             --data-urlencode "nonce=$nonce"             --data-urlencode 'init=1'             --data-urlencode 'privacy=0'             'http://127.0.0.1:18091/cgi-bin/luci/api/xqsystem/login'
+
+          grep -q '"code":0' "$OUT/login.json"
           token="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("token",""))' "$OUT/login.json")"
           test "${#token}" = 32
 
-          for lang in en uk; do
-            curl -sS --max-time 20               -H 'Host: router.miwifi.com'               -H 'Content-Type: application/x-www-form-urlencoded'               -b "$OUT/cookies.txt"               -o "$OUT/set-language-$lang.json"               --data "language=$lang"               "http://127.0.0.1:18091/cgi-bin/luci/;stok=$token/api/misystem/set_language"
-            cat "$OUT/set-language-$lang.json"
-            grep -q '"code":0' "$OUT/set-language-$lang.json"
-          done
+          curl -sS --max-time 20             -H 'Host: router.miwifi.com'             -H 'Content-Type: application/x-www-form-urlencoded'             -b "$OUT/cookies.txt"             -o "$OUT/set-language-en.json"             --data 'language=en'             "http://127.0.0.1:18091/cgi-bin/luci/;stok=$token/api/misystem/set_language"
+          cat "$OUT/set-language-en.json"
+          grep -q '"code":0' "$OUT/set-language-en.json"
 
-          curl -sS --max-time 20             -H 'Host: router.miwifi.com'             -o "$OUT/init-after.json"             'http://127.0.0.1:18091/cgi-bin/luci/api/xqsystem/init_info'
-          cat "$OUT/init-after.json"
-
+          # The registry is persistent state, so a cold restart must preserve it.
+          bash "$VR" restart --rootfs "$ROOTFS" --base "$BASE" --port 18091 --profile factory
+          grep -qE '^[[:space:]]*option[[:space:]]+en[[:space:]]' "$BASE/runtime/rootfs/etc/config/luci"
           bash "$VR" stop --rootfs "$ROOTFS" --base "$BASE" --port 18091 --profile factory
 
       - name: Browser wizard country/language probe
