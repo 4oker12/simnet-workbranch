@@ -531,8 +531,11 @@ class RouterLabHandler(BaseHTTPRequestHandler):
                     return None
                 token = str(data.get("token", ""))
                 cookie = _cookie_header_from_headers(headers)
-                if len(token) != 32 or not cookie:
+                if len(token) != 32:
                     return None
+                # Stock LuCI authenticates these routes from ;stok=. A session
+                # cookie may be absent on this firmware, so do not make cookie
+                # presence a prerequisite for the transport compatibility path.
                 self.server.preinit_session = (token, cookie)  # type: ignore[attr-defined]
                 sys.stderr.write(
                     "[compat-frontdoor] acquired stock pre-init factory session "
