@@ -16,6 +16,7 @@ No router business logic is implemented here.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import mimetypes
 import os
@@ -23,6 +24,8 @@ import re
 import socket
 import struct
 import sys
+import threading
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -57,6 +60,84 @@ UNSUPPORTED_UI_SUFFIXES = (
 )
 
 UI_GUARD_ROUTE = "/__routerlab/ui-guard.js"
+
+FACTORY_PWDKEY = "a2ffa5c9be07488bbb04a3a47d3c5f6a"
+PREINIT_STOK_ROUTES = frozenset(
+    {
+        "/api/xqsystem/get_languages",
+        "/api/xqsystem/get_main_language",
+        "/api/xqsystem/set_language",
+        "/api/xqsystem/set_languages",
+        "/api/misystem/set_location",
+        "/api/xqsystem/set_country_code",
+    }
+)
+
+
+def _sha1_text(value: str) -> str:
+    return hashlib.sha1(value.encode("utf-8")).hexdigest()
+
+
+def _factory_account_hash() -> str:
+    return _sha1_text("admin" + FACTORY_PWDKEY)
+
+
+def _preinit_api_route(path: str) -> str | None:
+    prefix = "/cgi-bin/luci"
+    if not path.startswith(prefix):
+        return None
+    path_info = path[len(prefix) :]
+    if ";stok=" in path_info:
+        return None
+    if path_info in PREINIT_STOK_ROUTES:
+        return path_info
+    return None
+
+
+def _inject_stok_path(path: str, token: str) -> str:
+    prefix = "/cgi-bin/luci"
+    if not path.startswith(prefix):
+        raise ValueError("stock LuCI path required")
+    path_info = path[len(prefix) :]
+    if not path_info.startswith("/api/"):
+        raise ValueError("stock API path required")
+    quoted = urllib.parse.quote(token, safe="")
+    return f"{prefix}/;stok={quoted}{path_info}"
+
+
+def _cookie_header_from_headers(headers: list[tuple[str, str]]) -> str:
+    cookies: list[str] = []
+    for name, value in headers:
+        if name.lower() != "set-cookie":
+            continue
+        first = value.split(";", 1)[0].strip()
+        if first and "=" in first:
+            cookies.append(first)
+    return "; ".join(cookies)
+
+
+def _merge_cookie_headers(browser_cookie: str, internal_cookie: str) -> str:
+    if not browser_cookie:
+        return internal_cookie
+    if not internal_cookie:
+        return browser_cookie
+
+    internal_names = {
+        part.split("=", 1)[0].strip()
+        for part in internal_cookie.split(";")
+        if "=" in part
+    }
+    browser_parts = [
+        part.strip()
+        for part in browser_cookie.split(";")
+        if part.strip()
+        and (
+            "=" not in part
+            or part.split("=", 1)[0].strip() not in internal_names
+        )
+    ]
+    return "; ".join(browser_parts + [internal_cookie])
+
 
 WIZARD_TRACE_FRAGMENTS = (
     "/api/misystem/set_location",
@@ -378,6 +459,92 @@ class RouterLabHandler(BaseHTTPRequestHandler):
             sys.stderr.write(f"[compat-frontdoor] init gate unavailable: {exc}\n")
         return None
 
+    def _preinit_factory_session(self) -> tuple[str, str] | None:
+        # The stock browser calls a narrow country/language API set before it has
+        # its own stok. Stock sysapihttpd normally carries Xiaomi's pre-init
+        # session semantics. Under qemu-user that transport is replaced, so cache
+        # one stock factory session and use it only for the exact pre-init routes.
+        inited = self._stock_inited()
+        if inited is not False:
+            with self.server.preinit_session_lock:  # type: ignore[attr-defined]
+                self.server.preinit_session = None  # type: ignore[attr-defined]
+            return None
+
+        with self.server.preinit_session_lock:  # type: ignore[attr-defined]
+            cached = self.server.preinit_session  # type: ignore[attr-defined]
+            if cached is not None:
+                return cached
+
+            nonce = f"0_routerlab_frontdoor_{int(time.time())}_9001"
+            query = urllib.parse.urlencode(
+                {
+                    "username": "admin",
+                    "logtype": "2",
+                    "password": _sha1_text(nonce + _factory_account_hash()),
+                    "nonce": nonce,
+                    "init": "1",
+                }
+            )
+            path = "/cgi-bin/luci/api/xqsystem/login"
+            request_uri = f"{path}?{query}"
+            env = {
+                "GATEWAY_INTERFACE": "CGI/1.1",
+                "SERVER_SOFTWARE": "nginx/1.2.2",
+                "SERVER_PROTOCOL": self.request_version,
+                "REQUEST_METHOD": "GET",
+                "REQUEST_URI": request_uri,
+                "DOCUMENT_URI": path,
+                "DOCUMENT_ROOT": "/www",
+                "SCRIPT_FILENAME": "/www/cgi-bin/luci",
+                "SCRIPT_NAME": "/cgi-bin/luci",
+                "PATH_INFO": "/api/xqsystem/login",
+                "QUERY_STRING": query,
+                "REMOTE_ADDR": self.cfg.client_ip,
+                "REMOTE_PORT": str(self.client_address[1]),
+                "SERVER_ADDR": self.cfg.router_ip,
+                "SERVER_PORT": "80",
+                "SERVER_NAME": self.cfg.router_host,
+                "HTTP_HOST": self.headers.get("Host", self.cfg.router_host),
+                "CONTENT_TYPE": "",
+                "CONTENT_LENGTH": "0",
+                "HTTPS": "",
+            }
+            try:
+                raw, fcgi_stderr = fastcgi_request(
+                    self.cfg.fcgi_host,
+                    self.cfg.fcgi_port,
+                    env,
+                    b"",
+                    self.cfg.fcgi_timeout,
+                )
+                if fcgi_stderr:
+                    sys.stderr.write(
+                        "[compat-frontdoor] pre-init login fcgi stderr: "
+                        + fcgi_stderr.decode("utf-8", "replace")
+                        + "\n"
+                    )
+                status, headers, payload = parse_cgi_response(raw)
+                if status != 200:
+                    return None
+                data = json.loads(payload.decode("utf-8", "replace"))
+                if int(data.get("code", -1)) != 0:
+                    return None
+                token = str(data.get("token", ""))
+                cookie = _cookie_header_from_headers(headers)
+                if len(token) != 32 or not cookie:
+                    return None
+                self.server.preinit_session = (token, cookie)  # type: ignore[attr-defined]
+                sys.stderr.write(
+                    "[compat-frontdoor] acquired stock pre-init factory session "
+                    f"stok_len={len(token)} cookie_len={len(cookie)}\n"
+                )
+                return token, cookie
+            except Exception as exc:
+                sys.stderr.write(
+                    f"[compat-frontdoor] pre-init factory session unavailable: {exc}\n"
+                )
+                return None
+
     def _serve_ui_guard(self, head_only: bool) -> None:
         data = self.cfg.ui_guard.read_bytes()
         self.send_response(200)
@@ -435,6 +602,19 @@ h1{{font-size:24px;margin:0 0 14px}}p{{line-height:1.55}}code{{word-break:break-
     def _cgi(self, parsed: urllib.parse.SplitResult, head_only: bool) -> None:
         body = self._body()
         path = parsed.path
+        internal_cookie = ""
+        preinit_route = _preinit_api_route(path)
+        if preinit_route is not None:
+            session = self._preinit_factory_session()
+            if session is not None:
+                token, internal_cookie = session
+                path = _inject_stok_path(path, token)
+                parsed = parsed._replace(path=path)
+                sys.stderr.write(
+                    "[compat-frontdoor] pre-init stok inject "
+                    f"{preinit_route} -> {_redact_route(path)}\n"
+                )
+
         prefix = "/cgi-bin/luci"
         path_info = path[len(prefix) :] if path.startswith(prefix) else path[len("/api-third-party") :]
         if path_info and not path_info.startswith("/"):
@@ -445,7 +625,7 @@ h1{{font-size:24px;margin:0 0 14px}}p{{line-height:1.55}}code{{word-break:break-
             "SERVER_SOFTWARE": "nginx/1.2.2",
             "SERVER_PROTOCOL": self.request_version,
             "REQUEST_METHOD": self.command,
-            "REQUEST_URI": self.path,
+            "REQUEST_URI": urllib.parse.urlunsplit(("", "", path, parsed.query, "")),
             "DOCUMENT_URI": path,
             "DOCUMENT_ROOT": "/www",
             "SCRIPT_FILENAME": "/www/cgi-bin/luci",
@@ -467,6 +647,12 @@ h1{{font-size:24px;margin:0 0 14px}}p{{line-height:1.55}}code{{word-break:break-
             key = "HTTP_" + name.upper().replace("-", "_")
             if key not in {"HTTP_CONTENT_TYPE", "HTTP_CONTENT_LENGTH", "HTTP_HOST"}:
                 env[key] = value
+
+        if internal_cookie:
+            env["HTTP_COOKIE"] = _merge_cookie_headers(
+                self.headers.get("Cookie", ""),
+                internal_cookie,
+            )
 
         try:
             raw, fcgi_stderr = fastcgi_request(
@@ -597,6 +783,8 @@ def main() -> int:
 
     server = ThreadingHTTPServer((args.bind, args.port), RouterLabHandler)
     server.cfg = args  # type: ignore[attr-defined]
+    server.preinit_session = None  # type: ignore[attr-defined]
+    server.preinit_session_lock = threading.Lock()  # type: ignore[attr-defined]
     print(
         f"[compat-frontdoor] http://{args.bind}:{args.port} -> "
         f"stock /www + FastCGI {args.fcgi_host}:{args.fcgi_port}",
