@@ -226,6 +226,31 @@ def _is_unsupported_ui_path(path: str) -> bool:
     return any(normalized.endswith(suffix) for suffix in UNSUPPORTED_UI_SUFFIXES)
 
 
+STOCK_ROOT_ENTRY_PATHS = frozenset(
+    {
+        "/",
+        "/cgi-bin/luci",
+        "/cgi-bin/luci/",
+        "/cgi-bin/luci/web",
+        "/cgi-bin/luci/web/",
+    }
+)
+
+
+def _stock_init_redirect(path: str, inited: bool | None) -> str | None:
+    """Model only sysapihttpd's browser entry-state routing.
+
+    Factory state enters the stock one-time wizard. Once stock reports inited=1,
+    a stale/direct /init.html must not re-enter that wizard; return to the normal
+    stock root entry so the firmware's own login UI/auth flow takes over.
+    """
+    if inited is False and path in STOCK_ROOT_ENTRY_PATHS:
+        return "/init.html"
+    if inited is True and path == "/init.html":
+        return "/"
+    return None
+
+
 def _inject_ui_guard(payload: bytes) -> bytes:
     tag = b'<script src="' + UI_GUARD_ROUTE.encode("ascii") + b'"></script>'
     if tag in payload:
@@ -397,19 +422,19 @@ class RouterLabHandler(BaseHTTPRequestHandler):
             self._unsupported_ui(path, head_only)
             return
 
-        # Stock sysapihttpd redirects browser access to /init.html while the
-        # router is uninitialized. The custom Xiaomi transport cannot run under
-        # qemu-user, so reproduce only that transport decision and ask the exact
-        # stock LuCI init_info endpoint for the authoritative state.
+        # Stock sysapihttpd selects the one-time factory wizard only while
+        # inited=0. Once stock reports inited=1, a stale/direct /init.html must
+        # return to the normal stock entry/login flow instead of attempting the
+        # factory init=1 login again.
         if (
             self.cfg.stock_init_gate
             and self.command in {"GET", "HEAD"}
-            and path in {"/", "/cgi-bin/luci", "/cgi-bin/luci/", "/cgi-bin/luci/web", "/cgi-bin/luci/web/"}
+            and (path in STOCK_ROOT_ENTRY_PATHS or path == "/init.html")
         ):
-            inited = self._stock_inited()
-            if inited is False:
+            redirect = _stock_init_redirect(path, self._stock_inited())
+            if redirect is not None:
                 self.send_response(302)
-                self.send_header("Location", "/init.html")
+                self.send_header("Location", redirect)
                 self.send_header("Cache-Control", "no-cache")
                 self.send_header("Content-Length", "0")
                 self.end_headers()
