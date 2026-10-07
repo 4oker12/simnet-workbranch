@@ -555,6 +555,11 @@ jobs:
           echo "languages_after_http=$(req GET languages-after /cgi-bin/luci/api/xqsystem/get_languages)" | tee -a "$OUT/result.txt"
           cat "$OUT/languages-after.json" | tee -a "$OUT/result.txt"
 
+          # Preserve the frontdoor decision log even when acceptance fails below.
+          cp "$BASE/logs/frontdoor.log" "$OUT/frontdoor-preinit.log" || true
+          cp "$BASE/logs/fcgi.log" "$OUT/fcgi-preinit.log" || true
+          sed -n '1,260p' "$OUT/frontdoor-preinit.log" || true
+
           # Acceptance for the proposed transport fix: anonymous browser-shaped
           # pre-init requests must no longer fail at the auth/session boundary.
           grep -q '"code":0' "$OUT/languages-before.json"
