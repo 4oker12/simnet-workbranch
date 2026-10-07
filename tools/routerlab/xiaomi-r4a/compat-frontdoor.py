@@ -78,7 +78,20 @@ def _sha1_text(value: str) -> str:
     return hashlib.sha1(value.encode("utf-8")).hexdigest()
 
 
-def _factory_account_hash() -> str:
+def _factory_account_hash(rootfs: Path | None = None) -> str:
+    if rootfs is not None:
+        try:
+            text = (rootfs / "etc" / "config" / "account").read_text(
+                encoding="utf-8", errors="replace"
+            )
+            match = re.search(
+                r"option\s+['\"]?admin['\"]?\s+['\"]([0-9a-fA-F]{40})['\"]",
+                text,
+            )
+            if match:
+                return match.group(1).lower()
+        except OSError:
+            pass
     return _sha1_text("admin" + FACTORY_PWDKEY)
 
 
@@ -480,7 +493,7 @@ class RouterLabHandler(BaseHTTPRequestHandler):
                 {
                     "username": "admin",
                     "logtype": "2",
-                    "password": _sha1_text(nonce + _factory_account_hash()),
+                    "password": _sha1_text(nonce + _factory_account_hash(self.cfg.rootfs)),
                     "nonce": nonce,
                     "init": "1",
                 }
@@ -525,9 +538,17 @@ class RouterLabHandler(BaseHTTPRequestHandler):
                     )
                 status, headers, payload = parse_cgi_response(raw)
                 if status != 200:
+                    sys.stderr.write(
+                        "[compat-frontdoor] pre-init factory login rejected "
+                        f"http={status} bytes={len(payload)}\n"
+                    )
                     return None
                 data = json.loads(payload.decode("utf-8", "replace"))
                 if int(data.get("code", -1)) != 0:
+                    sys.stderr.write(
+                        "[compat-frontdoor] pre-init factory login rejected "
+                        f"code={data.get('code')} msg={data.get('msg', '')!r}\n"
+                    )
                     return None
                 token = str(data.get("token", ""))
                 cookie = _cookie_header_from_headers(headers)
