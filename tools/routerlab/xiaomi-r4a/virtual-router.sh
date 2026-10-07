@@ -176,8 +176,11 @@ if not languages:
     i18n_dir = root / "usr" / "lib" / "lua" / "luci" / "i18n"
     if i18n_dir.is_dir():
         for path in sorted(i18n_dir.glob("base.*.lmo")):
-            code = path.name[len("base."):-len(".lmo")]
-            if re.fullmatch(r"[A-Za-z0-9_-]+", code):
+            pack_code = path.name[len("base."):-len(".lmo")]
+            if re.fullmatch(r"[A-Za-z0-9_-]+", pack_code):
+                # LuCI's translation package materializer writes UCI option
+                # names with '-' converted to '_' (subst -,_ in luci.mk).
+                code = pack_code.replace("-", "_")
                 languages[code] = label.get(code, code)
     source = "stock-lmo-inventory"
 
