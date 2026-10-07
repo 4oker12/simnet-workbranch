@@ -154,6 +154,7 @@ def _merge_cookie_headers(browser_cookie: str, internal_cookie: str) -> str:
 
 WIZARD_TRACE_FRAGMENTS = (
     "/api/misystem/set_location",
+    "/api/misystem/set_language",
     "/api/xqsystem/set_language",
     "/api/xqsystem/set_languages",
     "/api/xqsystem/get_languages",
