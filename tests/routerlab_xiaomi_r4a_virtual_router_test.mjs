@@ -99,6 +99,7 @@ test('factory language capability is materialized from stock packs, not API over
   assert.match(script, /etc\" \/ \"uci-defaults\"/);
   assert.match(script, /luci\\\.languages\\\./);
   assert.match(script, /glob\(\"base\.\*\.lmo\"\)/);
+  assert.match(script, /pack_code\.replace\(\"-\", \"_\"\)/);
   assert.match(script, /stock-lmo-inventory/);
   assert.match(script, /LANGUAGE_CAPABILITY/);
   assert.match(script, /factory setup blocked at country\/language/);
