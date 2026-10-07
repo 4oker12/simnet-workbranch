@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   r4a-stock-management-plane:
-    if: github.head_ref == 'research/routerlab-xiaomi-r4a-management-plane' || github.event_name == 'workflow_dispatch'
+    if: github.head_ref == 'research/routerlab-xiaomi-r4a-management-plane' || github.head_ref == 'research/routerlab-xiaomi-r4a-browser-session-fix' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     timeout-minutes: 12
 
@@ -513,7 +513,6 @@ jobs:
           cmp -s "$OUT/wireless.after-write" "$OUT/wireless.after-restart" && echo "wireless_file_persisted=yes" || echo "wireless_file_persisted=no"
 
       - name: Browser wizard country/language probe
-        continue-on-error: true
         shell: bash
         run: |
           set -euxo pipefail
@@ -555,6 +554,16 @@ jobs:
 
           echo "languages_after_http=$(req GET languages-after /cgi-bin/luci/api/xqsystem/get_languages)" | tee -a "$OUT/result.txt"
           cat "$OUT/languages-after.json" | tee -a "$OUT/result.txt"
+
+          # Acceptance for the proposed transport fix: anonymous browser-shaped
+          # pre-init requests must no longer fail at the auth/session boundary.
+          grep -q '"code":0' "$OUT/languages-before.json"
+          ! grep -q '"code":401' "$OUT/set-location-ua.json"
+          ! grep -q '"code":401' "$OUT/set-language-uk.json"
+          ! grep -q '"code":401' "$OUT/set-language-en.json"
+          ! grep -qi 'invalid token' "$OUT/set-location-ua.json"
+          ! grep -qi 'invalid token' "$OUT/set-language-uk.json"
+          ! grep -qi 'invalid token' "$OUT/set-language-en.json"
 
           # Compare the same calls after the exact factory init login. If the
           # unauthenticated browser path is rejected but the stok path succeeds,
@@ -680,6 +689,11 @@ jobs:
           grep -q '"code":0' "$OUT/set-router-normal.json"
           grep -q '"inited":1' "$OUT/init-info-after-setup.json"
           grep -q '"routername":"RouterLabFirstRun"' "$OUT/init-info-after-setup.json"
+
+          # The compatibility injection is factory-only. Once stock reports
+          # inited=1, the same anonymous write must be rejected again.
+          curl -sS --max-time 12             -H 'Host: router.miwifi.com'             -H 'Content-Type: application/x-www-form-urlencoded'             -o "$OUT/post-init-anon-set-location.json"             --data 'location=UA'             'http://127.0.0.1:18090/cgi-bin/luci/api/misystem/set_location'
+          grep -q '"code":401' "$OUT/post-init-anon-set-location.json"
 
           bash "$VR" status --rootfs "$ROOTFS" --base "$BASE" --port 18090 --profile factory | tee "$OUT/status.txt"
           grep -q 'HTTP_FRONTDOOR=up' "$OUT/status.txt"
