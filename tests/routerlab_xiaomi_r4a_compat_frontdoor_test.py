@@ -119,6 +119,62 @@ class CompatFrontdoorContractTest(unittest.TestCase):
         ):
             self.assertTrue(mod._is_wizard_trace_path(path))
 
+    def test_preinit_stok_allowlist_is_narrow_and_rejects_existing_stok(self):
+        allowed = (
+            "/cgi-bin/luci/api/xqsystem/get_languages",
+            "/cgi-bin/luci/api/xqsystem/get_main_language",
+            "/cgi-bin/luci/api/xqsystem/set_language",
+            "/cgi-bin/luci/api/xqsystem/set_languages",
+            "/cgi-bin/luci/api/misystem/set_location",
+            "/cgi-bin/luci/api/xqsystem/set_country_code",
+        )
+        for path in allowed:
+            self.assertIsNotNone(mod._preinit_api_route(path))
+
+        self.assertIsNone(
+            mod._preinit_api_route(
+                "/cgi-bin/luci/api/xqnetwork/set_wan"
+            )
+        )
+        self.assertIsNone(
+            mod._preinit_api_route(
+                "/cgi-bin/luci/;stok=abc/api/xqsystem/set_language"
+            )
+        )
+
+    def test_preinit_stok_path_rewrite_keeps_exact_api_route(self):
+        self.assertEqual(
+            mod._inject_stok_path(
+                "/cgi-bin/luci/api/xqsystem/set_language",
+                "0123456789abcdef0123456789abcdef",
+            ),
+            "/cgi-bin/luci/;stok=0123456789abcdef0123456789abcdef/api/xqsystem/set_language",
+        )
+
+    def test_preinit_cookie_helpers_keep_only_cookie_pairs_and_internal_wins(self):
+        cookie = mod._cookie_header_from_headers(
+            [
+                ("Content-Type", "application/json"),
+                ("Set-Cookie", "sysauth=abc; Path=/; HttpOnly"),
+                ("Set-Cookie", "psp=def; Path=/"),
+            ]
+        )
+        self.assertEqual(cookie, "sysauth=abc; psp=def")
+        merged = mod._merge_cookie_headers(
+            "foo=1; sysauth=browser",
+            "sysauth=internal; psp=def",
+        )
+        self.assertEqual(merged, "foo=1; sysauth=internal; psp=def")
+
+    def test_factory_nonce_password_matches_router_client_contract(self):
+        nonce = "0_routerlab_frontdoor_1700000000_9001"
+        account_hash = mod._factory_account_hash()
+        self.assertEqual(len(account_hash), 40)
+        self.assertEqual(
+            mod._sha1_text(nonce + account_hash),
+            mod._sha1_text(nonce + mod._sha1_text("admin" + mod.FACTORY_PWDKEY)),
+        )
+
     def test_source_is_transport_only_and_local_by_default(self):
         source = MODULE_PATH.read_text(encoding="utf-8")
         self.assertIn('parser.add_argument("--bind", default="127.0.0.1")', source)
