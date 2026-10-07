@@ -488,7 +488,9 @@ class RouterLabHandler(BaseHTTPRequestHandler):
             if cached is not None:
                 return cached
 
-            nonce = f"0_routerlab_frontdoor_{int(time.time())}_9001"
+            # Match the exact Xiaomi nonce shape already proven by router-client:
+            # 0_<device>_<unix-seconds>_<random>.
+            nonce = f"0_routerlab_{int(time.time())}_1001"
             query = urllib.parse.urlencode(
                 {
                     "username": "admin",
