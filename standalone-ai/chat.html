@@ -48,7 +48,16 @@
         <p class="feedback" id="feedback" role="status"></p>
       </section>
 
-      <aside class="inspector" aria-label="Диагностика и источники">
+      <aside class="inspector" aria-label="Карта диалога и источники">
+        <section class="topic-section" aria-label="Живая карта тем">
+          <div class="inspector-heading">
+            <div><h2>Карта диалога</h2><p class="topic-subtitle">Темы и цепочки решений из сохранённых ходов</p></div>
+            <span class="eyebrow" id="mapMode">LIVE</span>
+          </div>
+          <div id="topicCards" class="topic-grid" role="group" aria-label="Темы обращения"></div>
+          <div id="topicTree" class="topic-tree" aria-live="polite"></div>
+          <p class="hint">После каждого завершённого сообщения карта обновляется автоматически. Узлы показывают сохранённые факты и вызовы, а не скрытые рассуждения модели.</p>
+        </section>
         <div class="inspector-heading">
           <h2>Источники данных</h2>
           <button type="button" class="secondary tiny" id="refreshSources">Обновить</button>
