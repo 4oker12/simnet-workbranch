@@ -5,7 +5,7 @@ on:
     paths:
       - 'standalone-ai/**'
       - 'scripts/build-standalone-ai.mjs'
-      - 'tests/standalone-ai-smoke.test.mjs'
+      - 'tests/standalone-ai-*.test.mjs'
       - '.github/workflows/standalone-ai.yml'
   push:
     paths:
@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: '20'
       - name: Build and test standalone package
-        run: node --test tests/standalone-ai-smoke.test.mjs
+        run: node --test tests/standalone-ai-*.test.mjs
       - name: Assemble Chrome extension
         run: node scripts/build-standalone-ai.mjs
       - name: Upload installable standalone extension
