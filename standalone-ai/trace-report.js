@@ -10,13 +10,15 @@ export const TRACE_SCHEMA = 'simnet.ai-operator.observed-trace/v1';
 const SECRET_KEYS = /^(?:api[_-]?key|groqApiKey|deepseekApiKey|authorization|cookie|set-cookie|token|secret|password|passwd|csrf|pp|uu|sessionId|jsessionid)$/i;
 const PRIVATE_KEYS = /^(?:login|contract|contractNumber|billingId|customerId|fullName|email|phone|extraPhone|mac|serial|address|ip)$/i;
 
-function redactString(value) {
-  return String(value)
+function redactString(value, includeSensitive = false) {
+  let text = String(value);
+  if (!includeSensitive) text = text
     .replace(/\b(abon)\d{3,12}\b/gi, '$1[скрыто]')
     .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[IP скрыт]')
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email скрыт]')
     .replace(/(?:\+?380|0)\d{9}\b/g, '[телефон скрыт]')
     .replace(/\b(?:[0-9A-F]{2}:){5}[0-9A-F]{2}\b/gi, '[MAC скрыт]')
+  return text
     .replace(/\b(?:Bearer\s+)[a-z0-9._~-]+/gi, 'Bearer [скрыто]')
     .replace(/((?:[?&]|\b)(?:pp|uu|token|key|session)=)[^\s&#]+/gi, '$1[скрыто]');
 }
@@ -26,7 +28,7 @@ export function protectExport(value, { includeSensitive = false } = {}) {
   function walk(item, key = '', depth = 0) {
     if (SECRET_KEYS.test(key)) return '[секрет скрыт]';
     if (!includeSensitive && PRIVATE_KEYS.test(key)) return '[персональные данные скрыты]';
-    if (typeof item === 'string') return includeSensitive ? redactString(item).replace(/\b(abon)\[скрыто\]/g, (_, login) => login) : redactString(item);
+    if (typeof item === 'string') return redactString(item, includeSensitive);
     if (item == null || typeof item !== 'object') return item;
     if (depth >= 20) return '[глубина ограничена]';
     if (seen.has(item)) return '[циклическая ссылка]';
