@@ -44,6 +44,7 @@ function relevantReads(turn, topic) {
 
 function turnSteps(turn, topic) {
   const reads = relevantReads(turn, topic);
+  const topicReads = reads.filter(read => topic.tools.includes(String(read.tool || '')));
   const requirement = stringList(turn.evidencePlan?.requiredFacts)
     .concat(stringList(turn.evidencePlan?.subscriberDataNeeded));
   const decision = turn.result || {};
@@ -75,10 +76,11 @@ function turnSteps(turn, topic) {
   steps.push({
     kind: 'evidence', label: 'Проверка доказательств',
     summary: reads.some(hasFailure) ? 'Есть неуспешные READ: данные требуют проверки'
-      : reads.some(isPositiveRead) ? 'Есть успешные READ; см. факты и ограничения'
-        : 'Подтверждённых READ для этой темы нет',
+      : topicReads.some(isPositiveRead) ? 'Есть успешный тематический READ; см. факты и ограничения'
+        : reads.some(isPositiveRead) ? 'Идентификатор проверен; факты этой темы пока не подтверждены'
+          : 'Подтверждённых READ для этой темы нет',
     detail: { evidence: turn.evidence, answerControl: turn.answerControl },
-    status: reads.some(hasFailure) ? 'failure' : reads.some(isPositiveRead) ? 'success' : 'unknown'
+    status: reads.some(hasFailure) ? 'failure' : topicReads.some(isPositiveRead) ? 'success' : 'unknown'
   });
   steps.push({
     kind: 'decision', label: 'Ответ',
@@ -118,7 +120,9 @@ export function buildTopicMap(lab = {}) {
       });
       group.reads += related.length;
       group.failedReads += related.filter(hasFailure).length;
-      group.successfulReads += related.filter(isPositiveRead).length;
+      // A successful customer.lookup proves an identifier match, not a promotion
+      // or financial fact. Do not call a topic checked solely from its shared precondition.
+      group.successfulReads += related.filter(read => isPositiveRead(read) && topic.tools.includes(String(read.tool || ''))).length;
       groups.set(topic.id, group);
     }
   }
