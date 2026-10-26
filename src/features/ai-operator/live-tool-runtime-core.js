@@ -156,14 +156,17 @@ async function liveLookup(toolArgs = {}) {
       'UNKNOWN ≠ NOT_FOUND: поиск в Billing не выполнялся.',
       ...(Array.isArray(fallback?.warnings) ? fallback.warnings : [])
     ]);
-    return {
-      ...fallback,
-      data: { ...fallback.data, liveCode, cacheOnly: true, source: String(fallback?.data?.source || 'local-cache') },
-      warnings: [
-        ...(Array.isArray(fallback?.warnings) ? fallback.warnings : []),
-        `Live Billing недоступен (${liveCode}); локальный снимок исторический, его нужно перепроверить.`
-      ]
-    };
+    // A matching historical cache is useful for diagnostics, not sufficient
+    // to bind the person or answer current balance/connection-state questions.
+    return result('customer.lookup', false, liveCode, {
+      message: 'Доступен только исторический локальный снимок; live Billing недоступен.',
+      source: 'billing-live-read-only',
+      liveCode,
+      cacheOnly: true,
+      localSource: String(fallback?.data?.source || 'local-cache'),
+      historicalMatchAvailable: true,
+      searchMode: String(live?.request?.mode || '')
+    }, ['Историческое совпадение НЕ подтверждает актуальные данные Billing или владение договором.']);
   }
   if (!live?.ok) {
     const code = String(live?.code || 'BILLING_SEARCH_FAILED');
