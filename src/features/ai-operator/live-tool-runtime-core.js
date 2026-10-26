@@ -139,11 +139,29 @@ async function liveLookup(toolArgs = {}) {
   const live = await searchBillingLive(toolArgs);
   if (!live?.ok && LOCAL_FALLBACK_CODES.has(String(live?.code || ''))) {
     const fallback = await executeLocalOperatorTool({ tool: 'customer.lookup', toolArgs, labState: {} });
+    const liveCode = String(live?.code || 'BILLING_RUNTIME_UNAVAILABLE');
+    // A miss in an empty local snapshot is NOT evidence that the customer does
+    // not exist in Billing. Preserve live-source failure as the primary code.
+    if (!fallback?.ok) return result('customer.lookup', false, liveCode, {
+      message: 'Не удалось обратиться к живому Billing; существование договора не проверено.',
+      source: 'billing-live-read-only',
+      liveCode,
+      fallbackCode: String(fallback?.code || 'UNKNOWN'),
+      localSource: String(fallback?.data?.source || 'none'),
+      searchedCases: Number(fallback?.data?.searchedCases || 0),
+      capturedBillingSnapshots: Number(fallback?.data?.capturedBillingSnapshots || 0),
+      searchMode: String(live?.request?.mode || ''),
+      tabId: Number.isInteger(live?.tabId) ? live.tabId : null
+    }, [
+      'UNKNOWN ≠ NOT_FOUND: поиск в Billing не выполнялся.',
+      ...(Array.isArray(fallback?.warnings) ? fallback.warnings : [])
+    ]);
     return {
       ...fallback,
+      data: { ...fallback.data, liveCode, cacheOnly: true, source: String(fallback?.data?.source || 'local-cache') },
       warnings: [
         ...(Array.isArray(fallback?.warnings) ? fallback.warnings : []),
-        `Live Billing search недоступен (${String(live?.code || 'unknown')}); использован локальный fallback.`
+        `Live Billing недоступен (${liveCode}); локальный снимок исторический, его нужно перепроверить.`
       ]
     };
   }
