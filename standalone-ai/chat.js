@@ -1,5 +1,7 @@
 'use strict';
 
+import { buildTurnTrace, buildDecisionExport, decisionExportText } from './trace-report.js';
+
 // This page has its own extension ID/storage. The AI logic lives in the
 // shared LAB service worker and is intentionally not copied into the UI.
 const $ = id => document.getElementById(id);
@@ -8,7 +10,10 @@ const els = {
   feedback: $('feedback'), newChat: $('newChat'), apiState: $('apiState'),
   toggle: $('settingsToggle'), settings: $('settings'), apiKey: $('apiKey'),
   model: $('model'), save: $('saveConfig'), test: $('testConfig'),
-  keyHint: $('keyHint'), sources: $('sources'), turn: $('turn'), details: $('details')
+  keyHint: $('keyHint'), sources: $('sources'), turn: $('turn'), details: $('details'),
+  refreshSources: $('refreshSources'), openBilling: $('openBilling'), openUserside: $('openUserside'),
+  exportTurnJson: $('exportTurnJson'), exportTurnTxt: $('exportTurnTxt'),
+  exportSessionJson: $('exportSessionJson'), includeSensitive: $('includeSensitive')
 };
 const LAB_KEY = 'simnet_ai_operator_lab_v1';
 const CASE_KEYS = [
@@ -74,36 +79,73 @@ function safeTraces(state) {
   return Array.isArray(active.toolTrace) ? active.toolTrace : [];
 }
 
+function addDecisionStep(title, body, metadata = '') {
+  const card = node('div', 'step');
+  const heading = node('div', 'step-title', title);
+  card.append(heading, node('div', 'step-body', body || 'Нет подтверждённых данных.'));
+  if (metadata) card.append(node('div', 'step-meta', metadata));
+  els.turn.append(card);
+}
+
 function renderTurn(state) {
   els.turn.replaceChildren();
-  const decision = state?.lastDecision || {};
-  const experiment = state?.lastExperiment || {};
-  if (!state?.messages?.length || !state?.lastExperiment) {
-    els.turn.append(node('p', '', 'После первого ответа появится цепочка инструментов и источников.'));
+  if (!state?.lastExperiment) {
+    els.turn.append(node('p', '', 'После первого ответа появятся смысл запроса, выбранные факты, READ, проверки и результат.'));
     els.details.textContent = '—';
     return;
   }
-  const add = value => els.turn.append(node('div', '', value));
-  add('Маршрут: семантика → факты → READ → проверенный ответ');
-  add('Модель: ' + String(experiment.model || decision.model || 'нет данных'));
-  add('Длительность: ' + String(experiment.elapsedMs ?? '—') + ' мс');
-  add('Инструменты: ' + String(experiment.toolCalls ?? 0));
-  const traces = safeTraces(state);
-  if (!traces.length) add('В этом ходе live-инструменты не вызывались.');
-  for (const item of traces) {
-    const trace = node('div', 'trace');
-    trace.append(node('strong', '', (item.ok ? '✓ ' : '× ') + (item.tool || 'READ tool') + ' · ' + (item.code || (item.ok ? 'OK' : 'UNKNOWN'))));
-    trace.append(node('small', '', 'Источник: ' + (item.source || item.data?.source || 'не указан')));
-    els.turn.append(trace);
+
+  const trace = buildTurnTrace(state);
+  const probe = trace.understanding.probe || {};
+  const required = trace.evidencePlan.requiredFacts || [];
+  const requested = trace.evidencePlan.subscriberDataNeeded || [];
+  const confidence = trace.understanding.confidence;
+  addDecisionStep('1 · Понимание запроса', trace.understanding.intent || 'Не определено',
+    'Уверенность разбора: ' + (Number.isFinite(Number(confidence)) ? Math.round(Number(confidence) * 100) + '%' : 'неизвестно'));
+  const facts = required.length ? required : requested;
+  addDecisionStep('2 · Какие данные нужны',
+    facts.length ? facts.map(value => typeof value === 'string' ? value : JSON.stringify(value)).join('\n') : 'Дополнительные факты явно не запрошены.',
+    'Выбор фактов — план, а не подтверждение их наличия.');
+  const knowledge = trace.knowledge || {};
+  const articles = Array.isArray(knowledge.usedArticles) ? knowledge.usedArticles : [];
+  addDecisionStep('3 · База знаний',
+    articles.length ? articles.map(article => typeof article === 'string' ? article : String(article?.title || article?.id || 'статья')).join('\n') : (knowledge.skipped ? 'Не применялась.' : 'Нет использованных статей.'),
+    'Справочная информация ≠ актуальное состояние абонента.');
+
+  const reads = trace.reads || [];
+  const readCard = node('div', 'step');
+  readCard.append(node('div', 'step-title', '4 · Проверки READ · ' + reads.length));
+  if (!reads.length) readCard.append(node('div', 'step-body', 'READ не выполнялся: данные могли не требоваться или инструмент не был вызван.'));
+  for (const item of reads) {
+    const el = node('div', 'trace' + (item.ok ? '' : ' failed'));
+    el.append(node('strong', '', (item.ok ? 'УСПЕХ · ' : 'ОШИБКА · ') + item.tool + ' · ' + item.code));
+    el.append(node('small', '', 'Источник: ' + item.source + ' · ' + (item.observedAt || 'время не указано')));
+    if (item.requestedBy?.why) el.append(node('small', '', 'Зачем: ' + item.requestedBy.why));
+    if (item.args && Object.keys(item.args).length) el.append(node('small', '', 'Параметры: ' + JSON.stringify(item.args)));
+    if (item.warnings?.length) el.append(node('small', '', 'Примечания: ' + item.warnings.join('; ')));
+    readCard.append(el);
   }
-  const failure = String(decision?.diagnostic?.error || '').slice(0, 350);
+  els.turn.append(readCard);
+
+  const failures = reads.filter(item => !item.ok);
+  const successes = reads.filter(item => item.ok);
+  const gate = trace.answerControl.evidenceGate;
+  addDecisionStep('5 · Проверка доказательств',
+    gate?.applied
+      ? 'Сработало правило: ' + String(gate.reason || 'ограничение доказательств')
+      : (failures.length ? failures.length + ' инструмент(ов) завершились ошибкой. Нельзя считать отсутствующие данные отрицательным фактом.' : 'Успешных READ: ' + successes.length),
+    'Канонические факты и проверки релевантности доступны в экспорте.');
+  addDecisionStep('6 · Финальный ответ',
+    trace.result.reply || 'Ответ не сформирован.',
+    'Модель: ' + trace.result.model + ' · ' + (trace.result.elapsedMs ?? '—') + ' мс · ' + reads.length + ' READ');
+
   els.details.textContent = JSON.stringify({
-    action: decision.action || '',
-    intent: decision.intent || '',
-    confidence: decision.confidence ?? null,
-    evidenceChecks: traces.map(item => ({ tool: item.tool, ok: item.ok, code: item.code, source: item.source || item.data?.source || '' })),
-    degraded: Boolean(decision?.diagnostic?.degraded),
-    ...(failure ? { error: failure } : {})
+    understanding: trace.understanding,
+    evidencePlan: trace.evidencePlan,
+    reads: trace.reads,
+    evidence: trace.evidence,
+    answerControl: trace.answerControl,
+    result: trace.result
   }, null, 2);
 }
 
@@ -114,21 +156,27 @@ function render(state) {
 }
 
 async function refreshSources() {
+  const hosts = [
+    { name: 'Billing', url: 'https://admin.simnet.kiev.ua/*', alternate: 'https://admin.looknet.kiev.ua/*' },
+    { name: 'UserSide', url: 'https://userside.simnet.kiev.ua/*' }
+  ];
   try {
-    const tabs = await chrome.tabs.query({});
-    const urls = tabs.map(tab => String(tab.url || ''));
-    const list = [
-      ['Billing', urls.some(url => /^https:\/\/admin\.(?:simnet|looknet)\.kiev\.ua\//.test(url))],
-      ['UserSide', urls.some(url => url.startsWith('https://userside.simnet.kiev.ua/'))]
-    ];
+    const billingTabs = await chrome.tabs.query({ url: [hosts[0].url, hosts[0].alternate] });
+    const usersideTabs = await chrome.tabs.query({ url: hosts[1].url });
+    const list = [billingTabs, usersideTabs];
     els.sources.replaceChildren();
-    for (const [label, present] of list) {
-      const source = node('div', 'source');
-      source.append(node('strong', '', label), node('span', '', present ? 'Вкладка открыта · авторизацию проверит READ' : 'Вкладка не открыта · live-READ недоступен'));
-      els.sources.append(source);
-    }
-  } catch {
-    els.sources.textContent = 'Статус вкладок получить не удалось.';
+    hosts.forEach((source, i) => {
+      const found = list[i] || [];
+      const ready = found.length > 0;
+      const card = node('div', 'source ' + (ready ? 'ready' : 'unavailable'));
+      card.append(node('strong', '', source.name + ' · ' + (ready ? 'вкладка найдена' : 'нет доступной вкладки')));
+      card.append(node('span', '', ready
+        ? 'Обнаружено вкладок: ' + found.length + '. Вход и доступ к данным подтвердит только READ.'
+        : 'Live READ не запустится. Открой ' + source.name + ' и авторизуйся в том же профиле Chrome.'));
+      els.sources.append(card);
+    });
+  } catch (error) {
+    els.sources.replaceChildren(node('div', 'source unavailable', 'Не удалось прочитать вкладки: ' + String(error?.message || error)));
   }
 }
 
@@ -221,6 +269,49 @@ async function testConfig() {
     locked(false);
   }
 }
+
+function downloadLocalFile(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportTrace(mode, format) {
+  if (!latest?.lastExperiment) {
+    feedback('Для экспорта сначала выполни хотя бы один ход.', true);
+    return;
+  }
+  const raw = buildDecisionExport(latest, {
+    mode,
+    includeSensitive: Boolean(els.includeSensitive.checked)
+  });
+  const text = format === 'txt' ? decisionExportText(raw) : JSON.stringify(raw, null, 2) + '\n';
+  const file = 'simnet-ai-' + (mode === 'session' ? 'session' : 'turn') + '-trace-' +
+    new Date().toISOString().replace(/[:.]/g, '-') + '.' + (format === 'txt' ? 'txt' : 'json');
+  downloadLocalFile(text, file, format === 'txt' ? 'text/plain;charset=utf-8' : 'application/json;charset=utf-8');
+  feedback('Экспорт создан локально. Перед отправкой проверь персональные данные.');
+}
+
+async function openSource(url) {
+  try {
+    await chrome.tabs.create({ url });
+    await refreshSources();
+    feedback('Открыта вкладка источника. Выполни обычную авторизацию и обнови статус.');
+  } catch (error) { feedback(String(error?.message || error), true); }
+}
+
+els.exportTurnJson.addEventListener('click', () => exportTrace('last', 'json'));
+els.exportTurnTxt.addEventListener('click', () => exportTrace('last', 'txt'));
+els.exportSessionJson.addEventListener('click', () => exportTrace('session', 'json'));
+els.refreshSources.addEventListener('click', () => void refreshSources());
+els.openBilling.addEventListener('click', () => void openSource('https://admin.simnet.kiev.ua/cgi-bin/adm/adm.pl'));
+els.openUserside.addEventListener('click', () => void openSource('https://userside.simnet.kiev.ua/'));
 
 els.send.addEventListener('click', () => void send());
 els.input.addEventListener('keydown', event => {
