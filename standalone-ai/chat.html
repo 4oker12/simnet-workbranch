@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>SIMNET Autonomous AI Operator</title>
   <link rel="stylesheet" href="chat.css">
-  <script src="chat.js" defer></script>
+  <script type="module" src="chat.js"></script>
 </head>
 <body>
   <main class="shell">
@@ -49,12 +49,30 @@
       </section>
 
       <aside class="inspector" aria-label="Диагностика и источники">
-        <h2>Проверяемые источники</h2>
+        <div class="inspector-heading">
+          <h2>Источники данных</h2>
+          <button type="button" class="secondary tiny" id="refreshSources">Обновить</button>
+        </div>
         <div id="sources" class="source-list"><p>Проверка доступности вкладок…</p></div>
+        <div class="source-actions">
+          <button type="button" class="secondary tiny" id="openBilling">Открыть Billing</button>
+          <button type="button" class="secondary tiny" id="openUserside">Открыть UserSide</button>
+        </div>
         <p class="hint">Открытая вкладка не доказывает наличие авторизованной сессии. Это подтверждается только результатом READ-запроса.</p>
-        <h2>Последний ход</h2>
+        <div class="inspector-heading"><h2>Как агент принял решение</h2><span class="eyebrow">Observable trace</span></div>
         <div id="turn" class="turn-info">После первого ответа появится цепочка инструментов и источников.</div>
-        <details class="inspector-details"><summary>Техническая информация</summary><pre id="details">—</pre></details>
+        <details class="inspector-details"><summary>Сырые поля последнего хода</summary><pre id="details">—</pre></details>
+        <section class="export-panel" aria-label="Экспорт диагностики">
+          <h2>Экспорт диагностики</h2>
+          <p class="hint">JSON сохраняет смысл, план фактов, tool args, статусы, источники, evidence, проверки ответа и историю ходов. Это не скрытые мысли модели.</p>
+          <label class="export-option"><input type="checkbox" id="includeSensitive"> Включить персональные данные в локальный экспорт</label>
+          <div class="export-actions">
+            <button type="button" id="exportTurnJson" class="secondary tiny">Ход · JSON</button>
+            <button type="button" id="exportTurnTxt" class="secondary tiny">Ход · TXT</button>
+            <button type="button" id="exportSessionJson" class="secondary tiny">Весь диалог · JSON</button>
+          </div>
+          <p class="hint">API-ключи и токены не экспортируются. Даже обезличенный экспорт проверь перед передачей другим.</p>
+        </section>
         <p class="privacy">Режим READ-only. Никаких отправок в HelpCrunch, изменений Billing/UserSide или действий на оборудовании.</p>
       </aside>
     </div>
