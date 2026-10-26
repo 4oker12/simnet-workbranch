@@ -46,6 +46,8 @@ test('standalone chat has a separate credential field and full fresh-chat reset'
   assert.match(script, /AI_RUNTIME_SAVE/);
   assert.match(script, /provider: 'deepseek'/);
   assert.match(script, /AI_OPERATOR_LAB_RESET/);
-  assert.match(script, /chrome\.storage\.local\.remove\(LAB_KEY\)/);
+  assert.match(script, /chrome\.storage\.local\.remove\(CASE_KEYS\)/);
+  assert.match(script, /simnet_ai_operator_billing_snapshots_v1/);
+  assert.match(script, /simnet_ai_operator_userside_snapshots_v1/);
   assert.doesNotMatch(script, /innerHTML|eval\(|HelpCrunch/);
 });
