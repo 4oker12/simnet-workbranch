@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "SIMNET Autonomous AI Operator",
+  "version": "0.1.0",
+  "description": "Independent read-only subscriber dialogue laboratory, powered by the existing SIMNET AI core.",
+  "permissions": ["storage", "unlimitedStorage", "tabs", "scripting"],
+  "host_permissions": [
+    "https://admin.simnet.kiev.ua/*",
+    "https://admin.looknet.kiev.ua/*",
+    "https://userside.simnet.kiev.ua/*",
+    "https://api.deepseek.com/*",
+    "https://api.groq.com/*"
+  ],
+  "background": { "service_worker": "standalone-ai/background.js", "type": "module" },
+  "action": { "default_title": "SIMNET AI Operator — открыть чат" },
+  "options_ui": { "page": "standalone-ai/chat.html", "open_in_tab": true },
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'self'" }
+}
