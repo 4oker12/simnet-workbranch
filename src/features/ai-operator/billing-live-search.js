@@ -55,10 +55,15 @@ function looksLikeStandaloneAlphanumericContract(value) {
 
 export function classifyBillingLookup(toolArgs = {}) {
   const explicitLogin = clean(toolArgs.login, 80).replace(/\s+/g, '').toLowerCase();
-  const explicitContract = normalizeContractIdentifier(toolArgs.contract);
+  const suppliedContract = clean(toolArgs.contract, 80).replace(/\s+/g, '');
+  // Conversational users sometimes call their abonNNN login a "contract".
+  // The Billing index must still use login search, not numeric-contract search.
+  const abonInContract = suppliedContract.match(/^abon\d{3,12}$/i)?.[0]?.toLowerCase() || '';
+  const explicitContract = abonInContract ? '' : normalizeContractIdentifier(toolArgs.contract);
   const explicitIp = normalizeIp(toolArgs.ip);
   const address = clean(toolArgs.address, 320);
   const query = clean(toolArgs.query, 320);
+  if (abonInContract) return { mode: 'login', value: abonInContract };
   if (/^abon\d{3,12}$/i.test(explicitLogin)) return { mode: 'login', value: explicitLogin };
   if (explicitContract) return { mode: 'contract', value: explicitContract };
   if (explicitIp) return { mode: 'ip', value: explicitIp };
