@@ -55,3 +55,53 @@ button.tiny{padding:8px 11px;border-radius:8px;font-size:11px}
  .inspector-heading:not(:first-child){margin-top:22px}
  .export-panel{margin-top:20px}
 }
+
+/* Conversation Intelligence Map: topic hue != node role != READ result. */
+@media(min-width:901px){
+ .workspace{grid-template-columns:minmax(0,1fr) minmax(380px,450px)}
+ .inspector{padding:22px 19px}
+}
+.topic-section{padding:0 0 19px;border-bottom:1px solid var(--line);margin:0 0 20px}
+.topic-subtitle{font-size:11px;color:#6c8579;line-height:1.35;margin:2px 0 0}
+.topic-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:12px 0 14px}
+.topic-card{--hue:#718096;--tint:#f1f3f6;--stroke:#d1dce6;display:flex;gap:8px;align-items:center;text-align:left;width:100%;min-width:0;padding:11px 9px;background:var(--tint);border:1px solid var(--stroke);color:#26423b;border-radius:11px;box-shadow:none;transition:border-color .12s,box-shadow .12s}
+.topic-card:hover{background:var(--tint);border-color:var(--hue)}
+.topic-card.active{border:2px solid var(--hue);padding:10px 8px;box-shadow:0 3px 9px rgba(44,67,51,.06)}
+.topic-balance{--hue:#167d50;--tint:#e5f5ea;--stroke:#9bd7b1}
+.topic-tariff{--hue:#2866ba;--tint:#e8f0fc;--stroke:#b0c8ee}
+.topic-promotions{--hue:#7952b8;--tint:#f1ebfa;--stroke:#cbb9e9}
+.topic-connection{--hue:#078e9d;--tint:#e4f6f7;--stroke:#a1d7db}
+.topic-identity{--hue:#526b8a;--tint:#edf1f6;--stroke:#c4d1df}
+.topic-other{--hue:#777b82;--tint:#f2f3f4;--stroke:#d6dade}
+.topic-card-icon{display:grid;place-items:center;width:29px;height:29px;flex-shrink:0;background:#ffffffb8;color:var(--hue);font-weight:800;border-radius:9px;font-size:18px}
+.topic-card-text{display:flex;flex-direction:column;gap:4px;min-width:0}
+.topic-card-text strong{font-size:12px;line-height:1.15;color:var(--hue)}
+.topic-card-text small{font-size:10px;line-height:1.3;color:#536c62}
+.topic-tree{display:flex;flex-direction:column;gap:9px}
+.topic-tree-heading{display:flex;gap:8px;align-items:center;justify-content:space-between;margin:8px 0 4px;font-size:12px;color:#2b4d3b}
+.map-source-count{font-size:10px;color:#728879;white-space:nowrap}
+.map-empty{border:1px dashed #b5cdbd;background:white;border-radius:10px;padding:17px 14px;color:#788a7b;font-size:12px;line-height:1.55}
+.topic-episode{background:white;border:1px solid var(--line);border-radius:10px;padding:9px 10px}
+.topic-episode-button{display:flex;align-items:center;text-align:left;gap:7px;min-width:0;width:100%;background:transparent;color:#304e41;padding:3px 1px;border-radius:5px}
+.topic-episode-button:hover{background:#eff6f1}
+.topic-episode-button strong{white-space:nowrap;font-size:11px}
+.topic-episode-button span:not(.topic-expander){overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:400;min-width:0;font-size:11px;color:#708377}
+.topic-expander{margin-left:auto;color:#5a7d6a;font-size:16px}
+.topic-steps{padding:3px 0 0 21px;margin:10px 0 0;list-style:none}
+.topic-step{--step-color:#708090;position:relative;padding:0 0 12px 16px;border-left:2px solid #d8e3dd}
+.topic-step:last-child{padding-bottom:0;border-left-color:transparent}
+.topic-step:before{content:"";position:absolute;left:-6px;top:9px;width:10px;height:10px;border-radius:50%;background:var(--step-color);border:2px solid white;box-shadow:0 0 0 1px var(--step-color)}
+.topic-step.step-semantic{--step-color:#7451b7}
+.topic-step.step-identity{--step-color:#6b7d8a}
+.topic-step.step-read{--step-color:#3172ba}
+.topic-step.step-evidence{--step-color:#16835b}
+.topic-step.step-decision{--step-color:#b87d21}
+.topic-step.state-failure{--step-color:#c35248}
+.topic-step.state-unknown{--step-color:#83929b}
+.topic-node{background:#f9fbf9;border:1px solid #e2e9e4;border-radius:9px;overflow:hidden}
+.topic-node-heading{cursor:pointer;padding:9px 10px;display:flex;flex-direction:column;gap:5px;font-size:11px;line-height:1.35}
+.topic-node-heading::marker{color:var(--step-color)}
+.topic-node-name{font-weight:750;color:var(--step-color)}
+.topic-node-summary{color:#546a60;overflow-wrap:anywhere}
+.topic-node-details{padding:11px 10px;border-top:1px solid #e0e8e0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:10px;max-height:230px;overflow:auto;margin:0;background:white;color:#354b42;line-height:1.55}
+@media(max-width:490px){.topic-grid{grid-template-columns:1fr 1fr}.topic-card{padding:9px 7px}.topic-card.active{padding:8px 6px}}
