@@ -1,6 +1,7 @@
 'use strict';
 
 import { buildTurnTrace, buildDecisionExport, decisionExportText } from './trace-report.js';
+import { buildTopicMap } from './topic-map.js';
 
 // This page has its own extension ID/storage. The AI logic lives in the
 // shared LAB service worker and is intentionally not copied into the UI.
@@ -13,7 +14,8 @@ const els = {
   keyHint: $('keyHint'), sources: $('sources'), turn: $('turn'), details: $('details'),
   refreshSources: $('refreshSources'), openBilling: $('openBilling'), openUserside: $('openUserside'),
   exportTurnJson: $('exportTurnJson'), exportTurnTxt: $('exportTurnTxt'),
-  exportSessionJson: $('exportSessionJson'), includeSensitive: $('includeSensitive')
+  exportSessionJson: $('exportSessionJson'), includeSensitive: $('includeSensitive'),
+  topicCards: $('topicCards'), topicTree: $('topicTree'), mapMode: $('mapMode')
 };
 const LAB_KEY = 'simnet_ai_operator_lab_v1';
 const CASE_KEYS = [
@@ -25,6 +27,9 @@ const CASE_KEYS = [
 let busy = false;
 let configured = false;
 let latest = null;
+let activeTopic = '';
+let activeEpisode = '';
+let topicMapPending = false;
 
 async function request(type, payload) {
   const response = await chrome.runtime.sendMessage(payload === undefined ? { type } : { type, payload });
@@ -149,9 +154,89 @@ function renderTurn(state) {
   }, null, 2);
 }
 
+const TOPIC_COLORS = Object.freeze({
+  balance: 'balance', tariff: 'tariff', promotions: 'promotions',
+  connection: 'connection', identity: 'identity', other: 'other'
+});
+
+function topicStatus(topic) {
+  if (topic.status === 'error') return 'Есть ошибки READ';
+  if (topic.status === 'read-ok') return 'READ выполнен';
+  return 'Нет подтверждённых READ';
+}
+
+function renderTopicMap() {
+  const topics = buildTopicMap(latest || {});
+  els.topicCards.replaceChildren();
+  els.topicTree.replaceChildren();
+  els.mapMode.textContent = topicMapPending ? 'ВЫПОЛНЯЕТСЯ' : 'ПО ХОДАМ';
+
+  if (!topics.length) {
+    els.topicTree.append(node('div', 'map-empty', 'После первой реплики здесь появятся распознанные темы и наблюдаемые цепочки.'));
+    return;
+  }
+  if (!topics.some(topic => topic.id === activeTopic)) activeTopic = topics[0].id;
+  for (const topic of topics) {
+    const button = node('button', 'topic-card topic-' + (TOPIC_COLORS[topic.id] || 'other') + (topic.id === activeTopic ? ' active' : ''));
+    button.type = 'button';
+    button.setAttribute('aria-pressed', String(topic.id === activeTopic));
+    button.setAttribute('title', topic.area);
+    button.append(node('span', 'topic-card-icon', topic.icon));
+    const heading = node('span', 'topic-card-text');
+    heading.append(node('strong', '', topic.label), node('small', '', topic.episodes.length + ' ход(ов) · ' + topicStatus(topic)));
+    button.append(heading);
+    button.addEventListener('click', () => {
+      activeTopic = topic.id;
+      activeEpisode = '';
+      renderTopicMap();
+    });
+    els.topicCards.append(button);
+  }
+  const topic = topics.find(value => value.id === activeTopic);
+  if (!topic) return;
+  const heading = node('div', 'topic-tree-heading');
+  heading.append(node('strong', '', topic.label + ' · цепочка по диалогу'),
+    node('span', 'map-source-count', topic.reads + ' вызов(ов) READ'));
+  els.topicTree.append(heading);
+
+  // Every episode is an actual Lab turn; no invented intermediate events.
+  for (const episode of topic.episodes) {
+    const episodeBox = node('section', 'topic-episode');
+    const episodeTitle = node('button', 'topic-episode-button');
+    const opened = activeEpisode === episode.id || (!activeEpisode && topic.episodes.at(-1)?.id === episode.id);
+    episodeTitle.type = 'button';
+    episodeTitle.setAttribute('aria-expanded', String(opened));
+    episodeTitle.append(node('strong', '', 'Ход ' + episode.number),
+      node('span', '', episode.input?.slice(0, 90) || 'Текст реплики отсутствует'),
+      node('span', 'topic-expander', opened ? '▾' : '▸'));
+    episodeTitle.addEventListener('click', () => {
+      activeEpisode = opened ? '__closed__' : episode.id;
+      renderTopicMap();
+    });
+    episodeBox.append(episodeTitle);
+    if (opened) {
+      const track = node('ol', 'topic-steps');
+      for (const step of episode.steps) {
+        const item = node('li', 'topic-step step-' + step.kind + ' state-' + step.status);
+        const detail = node('details', 'topic-node');
+        const summary = node('summary', 'topic-node-heading');
+        summary.append(node('span', 'topic-node-name', step.label),
+          node('span', 'topic-node-summary', step.summary || '—'));
+        const info = node('pre', 'topic-node-details', JSON.stringify(step.detail || {}, null, 2));
+        detail.append(summary, info);
+        item.append(detail);
+        track.append(item);
+      }
+      episodeBox.append(track);
+    }
+    els.topicTree.append(episodeBox);
+  }
+}
+
 function render(state) {
   latest = state || {};
   renderChat(latest);
+  renderTopicMap();
   renderTurn(latest);
 }
 
@@ -204,6 +289,8 @@ async function send() {
     return;
   }
   locked(true);
+  topicMapPending = true;
+  renderTopicMap();
   feedback('AI анализирует обращение и выполняет необходимые READ-проверки…');
   els.input.value = '';
   // Optimistic customer bubble is not an evidence source and never persists.
@@ -217,6 +304,8 @@ async function send() {
     await request('AI_OPERATOR_LAB_GET').then(render).catch(() => {});
     feedback(error.message || String(error), true);
   } finally {
+    topicMapPending = false;
+    renderTopicMap();
     locked(false);
     els.input.focus();
   }
@@ -231,6 +320,8 @@ async function newChat() {
     // and old subscriber evidence from previous cases.
     await request('AI_OPERATOR_LAB_RESET');
     await chrome.storage.local.remove(CASE_KEYS);
+    activeTopic = '';
+    activeEpisode = '';
     render(await request('AI_OPERATOR_LAB_GET'));
     feedback('Создан новый чистый диалог. Настройки API сохранены.');
   } catch (error) {
