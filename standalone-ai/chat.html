@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SIMNET Autonomous AI Operator</title>
+  <link rel="stylesheet" href="chat.css">
+  <script src="chat.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="mark">S</span><div><strong>SIMNET AI Operator</strong><small>Standalone · абонентский диалог</small></div></div>
+      <div class="header-actions">
+        <span class="status-chip" id="apiState">Проверка DeepSeek…</span>
+        <button class="secondary" id="settingsToggle" type="button" aria-expanded="false" aria-controls="settings">Настройки</button>
+      </div>
+    </header>
+
+    <section class="settings" id="settings" hidden aria-label="Настройки AI">
+      <div class="section-heading"><h2>Подключение DeepSeek</h2><p>Отдельное расширение хранит собственный API-ключ и историю. Ключ не передаётся в Billing/UserSide и не включается в экспорт.</p></div>
+      <div class="settings-grid">
+        <label>API-ключ DeepSeek<input id="apiKey" type="password" placeholder="Введите API-ключ" autocomplete="off" spellcheck="false"></label>
+        <label>Модель<select id="model"><option value="deepseek-flash">DeepSeek Flash</option><option value="deepseek-v4-pro">DeepSeek V4 Pro</option></select></label>
+        <button id="saveConfig" type="button">Сохранить</button>
+        <button class="secondary" id="testConfig" type="button">Проверить API</button>
+      </div>
+      <p class="helper" id="keyHint">Ключ ещё не настроен.</p>
+    </section>
+
+    <div class="workspace">
+      <section class="conversation" aria-label="Чат">
+        <div class="conversation-head">
+          <div><h1>Диалог с абонентом</h1><p>Пиши от лица клиента. AI сам решает, какие READ-проверки нужны.</p></div>
+          <button class="secondary" id="newChat" type="button">Новый диалог</button>
+        </div>
+        <div id="transcript" class="transcript" role="log" aria-live="polite" aria-relevant="additions text">
+          <div class="empty"><strong>Диалог ещё не начат</strong><span>Например: «Здравствуйте, у меня не работает интернет».</span></div>
+        </div>
+        <div class="composer">
+          <label class="sr-only" for="customerInput">Сообщение абонента</label>
+          <textarea id="customerInput" rows="3" placeholder="Напиши сообщение от имени абонента…" maxlength="4000"></textarea>
+          <div class="composer-footer">
+            <small>Enter — отправить · Shift+Enter — перенос строки</small>
+            <button id="send" type="button">Отправить</button>
+          </div>
+        </div>
+        <p class="feedback" id="feedback" role="status"></p>
+      </section>
+
+      <aside class="inspector" aria-label="Диагностика и источники">
+        <h2>Проверяемые источники</h2>
+        <div id="sources" class="source-list"><p>Проверка доступности вкладок…</p></div>
+        <p class="hint">Открытая вкладка не доказывает наличие авторизованной сессии. Это подтверждается только результатом READ-запроса.</p>
+        <h2>Последний ход</h2>
+        <div id="turn" class="turn-info">После первого ответа появится цепочка инструментов и источников.</div>
+        <details class="inspector-details"><summary>Техническая информация</summary><pre id="details">—</pre></details>
+        <p class="privacy">Режим READ-only. Никаких отправок в HelpCrunch, изменений Billing/UserSide или действий на оборудовании.</p>
+      </aside>
+    </div>
+  </main>
+</body>
+</html>
