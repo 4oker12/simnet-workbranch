@@ -24,3 +24,11 @@ jobs:
           node-version: '20'
       - name: Build and test standalone package
         run: node --test tests/standalone-ai-smoke.test.mjs
+      - name: Assemble Chrome extension
+        run: node scripts/build-standalone-ai.mjs
+      - name: Upload installable standalone extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: simnet-ai-operator-standalone
+          path: dist/ai-operator-standalone/
+          if-no-files-found: error
