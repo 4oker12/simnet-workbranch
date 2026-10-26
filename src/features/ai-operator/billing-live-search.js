@@ -454,10 +454,10 @@ function normalizeSearchSnapshots(snapshots = {}) {
 
 export async function searchBillingLive(toolArgs = {}) {
   const request = classifyBillingLookup(toolArgs);
-  if (!request) return { ok: false, code: 'IDENTITY_QUERY_REQUIRED', candidates: [], snapshots: {} };
-  if (!globalThis.chrome?.scripting?.executeScript || !globalThis.chrome?.tabs?.query) return { ok: false, code: 'BILLING_RUNTIME_UNAVAILABLE', candidates: [], snapshots: {} };
+  if (!request) return { ok: false, code: 'IDENTITY_QUERY_REQUIRED', candidates: [], snapshots: {}, request: null };
+  if (!globalThis.chrome?.scripting?.executeScript || !globalThis.chrome?.tabs?.query) return { ok: false, code: 'BILLING_RUNTIME_UNAVAILABLE', candidates: [], snapshots: {}, request };
   const tabs = await billingTabs();
-  if (!tabs.length) return { ok: false, code: 'BILLING_TAB_REQUIRED', candidates: [], snapshots: {} };
+  if (!tabs.length) return { ok: false, code: 'BILLING_TAB_REQUIRED', candidates: [], snapshots: {}, request };
   let last = null;
   for (const tab of tabs) {
     if (!Number.isInteger(tab?.id)) continue;
