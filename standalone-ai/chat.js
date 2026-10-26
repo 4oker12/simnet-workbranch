@@ -11,6 +11,12 @@ const els = {
   keyHint: $('keyHint'), sources: $('sources'), turn: $('turn'), details: $('details')
 };
 const LAB_KEY = 'simnet_ai_operator_lab_v1';
+const CASE_KEYS = [
+  LAB_KEY,
+  'simnet_ai_operator_billing_snapshots_v1',
+  'simnet_ai_operator_userside_snapshots_v1',
+  'simnet_crm_building_snapshot_v1'
+];
 let busy = false;
 let configured = false;
 let latest = null;
@@ -173,9 +179,10 @@ async function newChat() {
   locked(true);
   try {
     // LAB_RESET checks that no AI turn is in flight. Removing its stored
-    // state afterwards also discards snapshots and identity from previous cases.
+    // state and cached source snapshots afterwards also discards identity
+    // and old subscriber evidence from previous cases.
     await request('AI_OPERATOR_LAB_RESET');
-    await chrome.storage.local.remove(LAB_KEY);
+    await chrome.storage.local.remove(CASE_KEYS);
     render(await request('AI_OPERATOR_LAB_GET'));
     feedback('Создан новый чистый диалог. Настройки API сохранены.');
   } catch (error) {
