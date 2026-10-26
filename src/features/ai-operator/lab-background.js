@@ -14,6 +14,7 @@ const LAB_KEY = 'simnet_ai_operator_lab_v1';
 const MAX_MESSAGES = 60;
 const MAX_EVENTS = 140;
 const MAX_SNAPSHOTS = 40;
+const MAX_TURN_RECORDS = 24;
 const KNOWLEDGE_MODES = new Set(['off', 'auto', 'on', 'ab', 'clean']);
 const DISPLAY_MODES = new Set(['answer', 'answer_analysis', 'analysis']);
 const CAPABILITIES = AI_OPERATOR_SOFT_TOOL_CAPABILITIES;
@@ -99,6 +100,7 @@ function emptyLab() {
     capabilityDetails: { ...CAPABILITY_DETAILS },
     toolState: normalizeToolState(),
     snapshots: [],
+    turnRecords: [],
     lastTurnBase: null,
     lastExperiment: null,
     lastMeterTurnId: null,
@@ -122,6 +124,7 @@ function normalizeLab(raw = {}) {
     capabilityDetails: { ...CAPABILITY_DETAILS },
     toolState: normalizeToolState(raw.toolState),
     snapshots: (Array.isArray(raw.snapshots) ? raw.snapshots : []).slice(-MAX_SNAPSHOTS),
+    turnRecords: (Array.isArray(raw.turnRecords) ? raw.turnRecords : []).slice(-MAX_TURN_RECORDS),
     lastTurnBase: raw.lastTurnBase && typeof raw.lastTurnBase === 'object' ? raw.lastTurnBase : null,
     lastExperiment: raw.lastExperiment && typeof raw.lastExperiment === 'object' ? raw.lastExperiment : null,
     lastMeterTurnId: raw.lastMeterTurnId || null,
@@ -694,6 +697,21 @@ async function recoverTurn(lab, baseMessages, customer, error) {
   appendMessage(lab, 'agent', reply, { variant: 'degraded' });
 }
 
+function recordCompletedTurn(lab, customer) {
+  const experiment = lab.lastExperiment;
+  if (!experiment || !customer?.id) return;
+  const decision = lab.lastDecision || {};
+  const record = {
+    customerMessageId: customer.id,
+    at: nowIso(),
+    input: String(customer.text || ''),
+    experiment: clone(experiment),
+    decision: clone(decision),
+    events: clone(lab.events.filter(event => event.customerMessageId === customer.id || event.messageId === customer.id))
+  };
+  lab.turnRecords = [...(Array.isArray(lab.turnRecords) ? lab.turnRecords : []), record].slice(-MAX_TURN_RECORDS);
+}
+
 async function runTurn(customerText) {
   const lab = await readLab();
   const incoming = compact(customerText, 4000);
@@ -706,6 +724,7 @@ async function runTurn(customerText) {
   await writeLab(lab);
   try { await executeExperiment(lab, baseMessages, customer); }
   catch (error) { await recoverTurn(lab, baseMessages, customer, error); }
+  recordCompletedTurn(lab, customer);
   return writeLab(lab);
 }
 
@@ -721,6 +740,7 @@ async function repeatLastTurn() {
   await writeLab(lab);
   try { await executeExperiment(lab, clone(base.messagesBefore), customer); }
   catch (error) { await recoverTurn(lab, clone(base.messagesBefore), customer, error); }
+  recordCompletedTurn(lab, customer);
   return writeLab(lab);
 }
 
