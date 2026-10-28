@@ -467,7 +467,6 @@ function userSideSnapshotResult(tool, snapshot, labState = {}) {
       observedAt: snapshot?.observedAt || '',
       httpTrace,
       source,
-      httpTrace,
       evidence: { source, pageUrl: snapshot?.pageUrl || '', storage: USERSIDE_SNAPSHOT_KEY }
     }, [], statePatch);
   }
