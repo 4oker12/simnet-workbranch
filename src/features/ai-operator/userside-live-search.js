@@ -84,10 +84,21 @@ async function executeSearch(tabId, request) {
       const normalizeSerial = value => String(value || '').replace(/[^0-9a-z]/gi, '').toUpperCase();
       const parseUrl = raw => { try { return new URL(raw, location.origin); } catch { return null; } };
       const authPage = doc => Boolean(doc.querySelector('input[type="password"], form[action*="login" i]'));
+      const operations = [];
+      const safeEndpoint = url => url.pathname.replace(/\/customer\/\d+/g, '/customer/[id]') +
+        (url.searchParams.has('search') ? '?search=[redacted]' : '');
       const fetchDoc = async url => {
-        const response = await fetch(url.href, { method: 'GET', credentials: 'include', cache: 'no-store' });
-        const html = await response.text();
-        return { ok: response.ok, status: response.status, url: new URL(response.url || url.href), doc: new DOMParser().parseFromString(html, 'text/html') };
+        const started = Date.now();
+        const endpoint = safeEndpoint(url);
+        try {
+          const response = await fetch(url.href, { method: 'GET', credentials: 'include', cache: 'no-store' });
+          const html = await response.text();
+          operations.push({ kind: 'HTTP', method: 'GET', endpoint, status: response.status, ok: response.ok, durationMs: Date.now() - started, observedAt: new Date().toISOString() });
+          return { ok: response.ok, status: response.status, url: new URL(response.url || url.href), doc: new DOMParser().parseFromString(html, 'text/html') };
+        } catch(error) {
+          operations.push({ kind: 'HTTP', method: 'GET', endpoint, code: 'NETWORK_ERROR', ok: false, durationMs: Date.now() - started });
+          throw error;
+        }
       };
       const labeledValue = (doc, patterns) => {
         for (const row of doc.querySelectorAll('tr,.item,.erp-object-props__row,.erp_object_props__row')) {
@@ -260,7 +271,8 @@ async function executeSearch(tabId, request) {
         const searchPage = await fetchDoc(searchUrl);
         if (!searchPage.ok || authPage(searchPage.doc)) return { ok: false, code: authPage(searchPage.doc) ? 'USERSIDE_AUTH_REQUIRED' : 'USERSIDE_SEARCH_FAILED', status: searchPage.status };
         candidates = customerLinks(searchPage.doc).map(item => ({ ...item, score: scoreCandidate(item) })).filter(item => item.score > 0).sort((a, b) => b.score - a.score);
-        if (!candidates.length) return { ok: false, code: 'NOT_FOUND', candidates: [] };
+        operations.push({ kind: 'DOM', selector: 'a[href*="/customer/"]', candidatesFound: candidates.length });
+        if (!candidates.length) return { ok: false, code: 'NOT_FOUND', candidates: [], httpTrace: operations };
         const bestScore = candidates[0].score;
         const best = candidates.filter(item => item.score === bestScore);
         if (best.length !== 1) return { ok: false, code: 'USERSIDE_AMBIGUOUS_IDENTITY', candidates: best.slice(0, 8).map(item => ({ customerId: item.customerId, text: item.text })) };
@@ -271,8 +283,10 @@ async function executeSearch(tabId, request) {
       const customerPage = await fetchDoc(customerUrl);
       if (!customerPage.ok || authPage(customerPage.doc)) return { ok: false, code: authPage(customerPage.doc) ? 'USERSIDE_AUTH_REQUIRED' : 'USERSIDE_CUSTOMER_FETCH_FAILED', status: customerPage.status };
       const snapshot = parseCustomer(customerPage.doc, customerId, customerPage.url.href);
+      operations.push({ kind: 'DOM', selector: 'tr,.item,.erp-object-props__row,#ref_inventory', parsedGroups: ['identity','address','network','pon'].filter(key => snapshot[key] && Object.keys(snapshot[key]).length) });
+      snapshot.readTrace = operations;
       if (!snapshot.identity.login && !snapshot.identity.contract && !snapshot.network.ip && !snapshot.address.full) return { ok: false, code: 'USERSIDE_CUSTOMER_PARSE_FAILED', customerId };
-      return { ok: true, code: 'OK', snapshot, candidates: candidates.slice(0, 8).map(item => ({ customerId: item.customerId, text: item.text })) };
+      return { ok: true, code: 'OK', snapshot, httpTrace: operations, candidates: candidates.slice(0, 8).map(item => ({ customerId: item.customerId, text: item.text })) };
     }
   });
   return execution?.result || { ok: false, code: 'USERSIDE_SEARCH_EXECUTION_FAILED' };
