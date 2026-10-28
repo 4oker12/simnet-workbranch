@@ -271,7 +271,15 @@ export async function readBillingSummaryLive({ billingId: rawBillingId, refresh 
   const cached = CACHE.get(id);
   const age = cached ? Date.now() - Number(cached.cachedAt || 0) : Infinity;
   if (!refresh && cached?.result?.ok && age < Math.max(1000, Number(maxAgeMs) || 120000)) {
-    return { ...cached.result, cache: 'hit' };
+    // Do not represent HTTP operations from a previous turn as newly executed.
+    return {
+      ...cached.result,
+      cache: 'hit',
+      data: {
+        ...cached.result.data,
+        evidence: { ...(cached.result.data?.evidence || {}), httpTrace: [], cacheSource: 'previous-observation' }
+      }
+    };
   }
   if (!globalThis.chrome?.scripting?.executeScript || !globalThis.chrome?.tabs?.query) {
     return { ok: false, code: 'BILLING_RUNTIME_UNAVAILABLE' };
