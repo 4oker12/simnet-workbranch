@@ -174,3 +174,11 @@ body.inspector-expanded .journal-header,body.inspector-expanded .journal-tabs{ma
 @media(max-width:980px){.workspace{grid-template-columns:minmax(0,1fr) 370px}.inspector{padding:14px}.topic-card{padding:9px 7px}.topic-card.active{padding:8px 6px}}
 @media(max-width:760px){.workspace{grid-template-columns:1fr}.conversation{min-height:68vh;max-width:100%;border-right:0}.inspector{border-top:1px solid var(--journal-line);padding:18px}.journal-tabs{grid-template-columns:repeat(4,1fr)}body.inspector-expanded .workspace{grid-template-columns:1fr}body.inspector-expanded .inspector{padding:16px}body.inspector-expanded .topic-tree{grid-template-columns:1fr}}
 @media(max-width:440px){.inspector-view .export-actions{grid-template-columns:1fr}.journal-name p{max-width:150px}}
+
+/* Nested, actually observed HTTP and DOM operations within a tool. */
+.http-observations{border-left:2px solid #aacdbb;padding:6px 0 0 11px;margin:10px 0 6px;display:flex;flex-direction:column;gap:7px}
+.http-heading{font-size:10px;color:#4d7863;font-weight:700}
+.http-observation{background:#eef6f0;border:1px solid #cfe6d6;border-radius:7px;padding:8px 9px;display:flex;flex-direction:column;gap:3px;overflow-wrap:anywhere}
+.http-observation.failed{background:#fff1ee;border-color:#edb9b1}
+.http-observation strong{font-size:10px;font-weight:700;color:#2a5b40}
+.http-observation span{font-size:10px;color:#607b6e}
