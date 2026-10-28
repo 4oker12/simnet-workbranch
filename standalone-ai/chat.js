@@ -1,6 +1,6 @@
 'use strict';
 
-import { buildTurnTrace, buildDecisionExport, decisionExportText } from './trace-report.js';
+import { buildTurnTrace, buildDecisionExport, decisionExportText, protectExport } from './trace-report.js';
 import { buildTopicMap } from './topic-map.js';
 
 // This page has its own extension ID/storage. The AI logic lives in the
@@ -15,7 +15,12 @@ const els = {
   refreshSources: $('refreshSources'), openBilling: $('openBilling'), openUserside: $('openUserside'),
   exportTurnJson: $('exportTurnJson'), exportTurnTxt: $('exportTurnTxt'),
   exportSessionJson: $('exportSessionJson'), includeSensitive: $('includeSensitive'),
-  topicCards: $('topicCards'), topicTree: $('topicTree'), mapMode: $('mapMode')
+  topicCards: $('topicCards'), topicTree: $('topicTree'), mapMode: $('mapMode'),
+  progress: $('journalProgress'), inspector: $('inspector'), expand: $('expandInspector'),
+  expandLabel: $('expandLabel'), buildId: $('buildId'), history: $('turnHistory'),
+  historyCount: $('historyCount'), readTimeline: $('readTimeline'), readTurnTitle: $('readTurnTitle'),
+  exportSessionTxt: $('exportSessionTxt'), exportCount: $('exportCount'),
+  viewMap: $('viewMap'), viewHistory: $('viewHistory'), viewRead: $('viewRead'), viewExport: $('viewExport')
 };
 const LAB_KEY = 'simnet_ai_operator_lab_v1';
 const CASE_KEYS = [
@@ -30,6 +35,8 @@ let latest = null;
 let activeTopic = '';
 let activeEpisode = '';
 let topicMapPending = false;
+let selectedTurnId = '';
+let journalTab = 'map';
 
 async function request(type, payload) {
   const response = await chrome.runtime.sendMessage(payload === undefined ? { type } : { type, payload });
@@ -92,6 +99,24 @@ function addDecisionStep(title, body, metadata = '') {
   els.turn.append(card);
 }
 
+function recordsForUi(state = {}) {
+  const records = Array.isArray(state.turnRecords) ? [...state.turnRecords] : [];
+  if (state.lastExperiment && !records.some(r => r.customerMessageId === state.lastExperiment.customerMessageId)) {
+    records.push({ customerMessageId: state.lastExperiment.customerMessageId, experiment: state.lastExperiment, decision: state.lastDecision, at: state.lastExperiment.at, input: state.messages?.find(m=>m.id===state.lastExperiment.customerMessageId)?.text || '' });
+  }
+  return records;
+}
+
+function selectedRecord(state = {}) {
+  const records = recordsForUi(state);
+  return records.find(r => r.customerMessageId === selectedTurnId) || records.at(-1) || null;
+}
+
+function selectedTrace(state = {}) {
+  const record = selectedRecord(state);
+  return record ? buildTurnTrace(state, record) : (state.lastExperiment ? buildTurnTrace(state) : null);
+}
+
 function renderTurn(state) {
   els.turn.replaceChildren();
   if (!state?.lastExperiment) {
@@ -100,7 +125,8 @@ function renderTurn(state) {
     return;
   }
 
-  const trace = buildTurnTrace(state);
+  const trace = selectedTrace(state);
+  if (!trace) return;
   const probe = trace.understanding.probe || {};
   const required = trace.evidencePlan.requiredFacts || [];
   const requested = trace.evidencePlan.subscriberDataNeeded || [];
@@ -144,14 +170,14 @@ function renderTurn(state) {
     trace.result.reply || 'Ответ не сформирован.',
     'Модель: ' + trace.result.model + ' · ' + (trace.result.elapsedMs ?? '—') + ' мс · ' + reads.length + ' READ');
 
-  els.details.textContent = JSON.stringify({
+  els.details.textContent = JSON.stringify(protectExport({
     understanding: trace.understanding,
     evidencePlan: trace.evidencePlan,
     reads: trace.reads,
     evidence: trace.evidence,
     answerControl: trace.answerControl,
     result: trace.result
-  }, null, 2);
+  }, { includeSensitive: true }), null, 2);
 }
 
 const TOPIC_COLORS = Object.freeze({
@@ -233,11 +259,85 @@ function renderTopicMap() {
   }
 }
 
+function showJournalTab(tabId) {
+  journalTab = ['map','history','read','export'].includes(tabId) ? tabId : 'map';
+  for (const tab of ['map','history','read','export']) {
+    const button = document.getElementById('tab' + tab[0].toUpperCase() + tab.slice(1));
+    const view = document.getElementById('view' + tab[0].toUpperCase() + tab.slice(1));
+    if (button) button.setAttribute('aria-selected', String(tab === journalTab));
+    if (view) view.hidden = tab !== journalTab;
+  }
+}
+
+function renderHistory(state = {}) {
+  els.history.replaceChildren();
+  const records = recordsForUi(state);
+  els.historyCount.textContent = records.length + ' ход(ов)';
+  els.exportCount.textContent = 'В этом диалоге сохранено ' + records.length + ' завершённых ходов. История не обрезается до 24.';
+  if (!records.length) {
+    els.history.append(node('div', 'map-empty', 'Журнал пуст. После сообщения появится отдельная запись хода.'));
+    return;
+  }
+  const selected = selectedRecord(state);
+  const all = records.map((record, index) => ({ record, index })).reverse();
+  for (const {record,index} of all) {
+    const trace = buildTurnTrace(state, record);
+    const failed = trace.reads.some(r => !r.ok);
+    const cls = failed ? 'error' : trace.reads.length ? 'ok' : 'no-read';
+    const button = node('button','turn-entry ' + cls + (selected?.customerMessageId === record.customerMessageId ? ' selected' : ''));
+    button.type = 'button';
+    button.setAttribute('aria-pressed', String(selected?.customerMessageId === record.customerMessageId));
+    button.append(node('strong', '', 'Ход #' + (index + 1) + ' · ' + (trace.at ? new Date(trace.at).toLocaleString('ru-RU') : 'время неизвестно')));
+    button.append(node('span','turn-summary', trace.input || trace.understanding.intent || 'Сообщение отсутствует'));
+    button.append(node('span','turn-metrics',trace.reads.length + ' инструмент(ов) · ' + (trace.result.elapsedMs ?? '—') + ' мс · ' + (failed ? 'есть ошибки' : trace.reads.length ? 'есть READ' : 'без READ')));
+    button.addEventListener('click', () => {
+      selectedTurnId = record.customerMessageId;
+      renderHistory(latest);
+      renderTurn(latest);
+      renderRead(latest);
+    });
+    els.history.append(button);
+  }
+}
+
+function renderRead(state = {}) {
+  els.readTimeline.replaceChildren();
+  const trace = selectedTrace(state);
+  if (!trace) {
+    els.readTimeline.append(node('div','map-empty','Пока не сохранено ни одного хода.'));
+    return;
+  }
+  const records = recordsForUi(state);
+  const nr = records.findIndex(r => r.customerMessageId === trace.turnId);
+  els.readTurnTitle.textContent = 'Ход #' + (nr >= 0 ? nr+1 : '?');
+  if (!trace.reads.length) {
+    els.readTimeline.append(node('div','read-empty','В выбранном ходе зарегистрировано 0 вызовов инструментов. Это НЕ подтверждает дату списания, баланс или другие текущие факты. Смотри evidence предыдущих ходов.'));
+    return;
+  }
+  for (const read of trace.reads) {
+    const card = node('div','read-card ' + (read.ok ? 'ok' : 'error'));
+    const heading = node('div','read-title');
+    heading.append(node('span','',read.tool || 'Tool'),node('span','',read.ok ? 'OK' : (read.code || 'ERROR')));
+    card.append(heading);
+    card.append(node('div','read-subtitle','Источник: ' + (read.source || 'неизвестен') + ' · ' + (read.observedAt || 'время не указано')));
+    const details = node('details');
+    details.append(node('summary','','Аргументы, данные и evidence'));
+    const information = protectExport({requestedBy:read.requestedBy,arguments:read.args,resultCode:read.code,result:read.data,warnings:read.warnings}, {includeSensitive:Boolean(els.includeSensitive?.checked)});
+    details.append(node('pre','',JSON.stringify(information,null,2)));
+    card.append(details);
+    els.readTimeline.append(card);
+  }
+  els.readTimeline.append(node('div','hint','Число инструментов не равно числу HTTP GET. В этом журнале показываются реальные зарегистрированные tool calls; внутренние HTTP/DOM-запросы без телеметрии не выдумываются.'));
+}
+
 function render(state) {
   latest = state || {};
   renderChat(latest);
   renderTopicMap();
+  renderHistory(latest);
   renderTurn(latest);
+  renderRead(latest);
+  showJournalTab(journalTab);
 }
 
 async function refreshSources() {
@@ -290,12 +390,14 @@ async function send() {
   }
   locked(true);
   topicMapPending = true;
+  els.progress.hidden = false;
   renderTopicMap();
   feedback('AI анализирует обращение и выполняет необходимые READ-проверки…');
   els.input.value = '';
   // Optimistic customer bubble is not an evidence source and never persists.
   try {
     const state = await request('AI_OPERATOR_LAB_SEND', { text: message });
+    selectedTurnId = '';
     render(state);
     feedback('Ход завершён. Результаты READ и используемые источники показаны справа.');
     await refreshSources();
@@ -305,6 +407,7 @@ async function send() {
     feedback(error.message || String(error), true);
   } finally {
     topicMapPending = false;
+    els.progress.hidden = true;
     renderTopicMap();
     locked(false);
     els.input.focus();
@@ -322,6 +425,7 @@ async function newChat() {
     await chrome.storage.local.remove(CASE_KEYS);
     activeTopic = '';
     activeEpisode = '';
+    selectedTurnId = '';
     render(await request('AI_OPERATOR_LAB_GET'));
     feedback('Создан новый чистый диалог. Настройки API сохранены.');
   } catch (error) {
@@ -380,8 +484,13 @@ function exportTrace(mode, format) {
   }
   const raw = buildDecisionExport(latest, {
     mode,
+    turnId: mode === 'last' ? selectedRecord(latest)?.customerMessageId : undefined,
     includeSensitive: Boolean(els.includeSensitive.checked)
   });
+  raw.topics = protectExport(buildTopicMap(latest).map(topic => ({
+    id: topic.id, label: topic.label, status: topic.status,
+    turnIds: topic.episodes.map(episode => episode.id)
+  })), {includeSensitive: Boolean(els.includeSensitive.checked)});
   const text = format === 'txt' ? decisionExportText(raw) : JSON.stringify(raw, null, 2) + '\n';
   const file = 'simnet-ai-' + (mode === 'session' ? 'session' : 'turn') + '-trace-' +
     new Date().toISOString().replace(/[:.]/g, '-') + '.' + (format === 'txt' ? 'txt' : 'json');
@@ -397,6 +506,15 @@ async function openSource(url) {
   } catch (error) { feedback(String(error?.message || error), true); }
 }
 
+document.querySelectorAll('[data-journal-tab]').forEach(button => button.addEventListener('click', () => showJournalTab(button.dataset.journalTab)));
+els.expand.addEventListener('click', () => {
+  const expanded = document.body.classList.toggle('inspector-expanded');
+  els.expand.setAttribute('aria-pressed', String(expanded));
+  els.expandLabel.textContent = expanded ? 'Обычный вид' : 'Развернуть';
+  els.expand.title = expanded ? 'Вернуться к диалогу' : 'Развернуть журнал';
+});
+els.buildId.textContent = 'v' + chrome.runtime.getManifest().version;
+els.exportSessionTxt.addEventListener('click', () => exportTrace('session', 'txt'));
 els.exportTurnJson.addEventListener('click', () => exportTrace('last', 'json'));
 els.exportTurnTxt.addEventListener('click', () => exportTrace('last', 'txt'));
 els.exportSessionJson.addEventListener('click', () => exportTrace('session', 'json'));
