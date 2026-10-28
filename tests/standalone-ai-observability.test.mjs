@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { protectExport } from '../standalone-ai/trace-report.js';
 const source = path => readFileSync(new URL('../'+path,import.meta.url),'utf8');
 
 test('Billing lookup records HTTP and DOM but never the session pp/uu or subscriber query in route',()=>{
@@ -43,4 +44,11 @@ test('READ tab renders source operations as nested, expandable node children',()
   assert.match(js,/read\.data\?\.httpTrace/);
   assert.match(js,/read\.data\?\.evidence\?\.httpTrace/);
   assert.match(js,/HTTP GET/); // fallback string in UI note
+});
+
+test('default decision export redacts embedded customer URL IDs and search terms',()=>{
+  const sample = {pageUrl:'https://userside.simnet.kiev.ua/customer/12345?search=abon999999',endpoint:'/cgi-bin/adm/adm.pl?a=user&id=12345&name=abon999999'};
+  const clean = protectExport(sample);
+  assert.doesNotMatch(JSON.stringify(clean),/12345|999999/);
+  assert.match(clean.pageUrl,/\[ID скрыт\]/);
 });
