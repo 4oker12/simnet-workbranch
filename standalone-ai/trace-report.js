@@ -18,6 +18,8 @@ function redactString(value, includeSensitive = false) {
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email скрыт]')
     .replace(/(?:\+?380|0)\d{9}\b/g, '[телефон скрыт]')
     .replace(/\b(?:[0-9A-F]{2}:){5}[0-9A-F]{2}\b/gi, '[MAC скрыт]')
+    .replace(/\/customer\/\d{1,12}\b/gi, '/customer/[ID скрыт]')
+    .replace(/([?&](?:id|search|name)=)[^&#\s]+/gi, '$1[значение скрыто]')
   return text
     .replace(/\b(?:Bearer\s+)[a-z0-9._~-]+/gi, 'Bearer [скрыто]')
     .replace(/((?:[?&]|\b)(?:pp|uu|token|key|session)=)[^\s&#]+/gi, '$1[скрыто]');
