@@ -320,6 +320,24 @@ function renderRead(state = {}) {
     heading.append(node('span','',read.tool || 'Tool'),node('span','',read.ok ? 'OK' : (read.code || 'ERROR')));
     card.append(heading);
     card.append(node('div','read-subtitle','Источник: ' + (read.source || 'неизвестен') + ' · ' + (read.observedAt || 'время не указано')));
+    const observations = Array.isArray(read.data?.httpTrace) ? read.data.httpTrace
+      : (Array.isArray(read.data?.evidence?.httpTrace) ? read.data.evidence.httpTrace : []);
+    if (observations.length) {
+      const sequence = node('div','http-observations');
+      sequence.append(node('div','http-heading','Внутренние операции · ' + observations.length));
+      for (const operation of observations) {
+        const item = node('div','http-observation' + (operation.ok === false ? ' failed' : ''));
+        item.append(node('strong','', (operation.kind || 'READ') + ' · ' + (operation.endpoint || operation.selector || 'наблюдение')));
+        item.append(node('span','',[
+          operation.status == null ? '' : 'HTTP ' + operation.status,
+          operation.durationMs == null ? '' : operation.durationMs + ' мс',
+          operation.candidatesFound == null ? '' : 'кандидатов: ' + operation.candidatesFound,
+          operation.found === true ? 'селектор найден' : ''
+        ].filter(Boolean).join(' · ') || 'Получено из фактического READ'));
+        sequence.append(item);
+      }
+      card.append(sequence);
+    }
     const details = node('details');
     details.append(node('summary','','Аргументы, данные и evidence'));
     const information = protectExport({requestedBy:read.requestedBy,arguments:read.args,resultCode:read.code,result:read.data,warnings:read.warnings}, {includeSensitive:Boolean(els.includeSensitive?.checked)});
