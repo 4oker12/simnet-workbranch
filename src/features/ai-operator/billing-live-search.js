@@ -325,8 +325,10 @@ async function executeSearch(tabId, request) {
       const operations = [];
       const safeEndpoint = url => {
         const safe = new URL(url.href);
-        safe.searchParams.delete('pp');
-        safe.searchParams.delete('uu');
+        for (const key of [...safe.searchParams.keys()]) {
+          if (key === 'pp' || key === 'uu') safe.searchParams.delete(key);
+          else if (key === 'name' || key === 'id' || key.startsWith('dopfield_')) safe.searchParams.set(key, '[redacted]');
+        }
         return safe.pathname + safe.search;
       };
       const fetchDoc = async url => {
