@@ -14,7 +14,7 @@ const LAB_KEY = 'simnet_ai_operator_lab_v1';
 const MAX_MESSAGES = 60;
 const MAX_EVENTS = 140;
 const MAX_SNAPSHOTS = 40;
-const MAX_TURN_RECORDS = 24;
+// Full per-turn audit is retained until explicit reset. No silent truncation.
 const KNOWLEDGE_MODES = new Set(['off', 'auto', 'on', 'ab', 'clean']);
 const DISPLAY_MODES = new Set(['answer', 'answer_analysis', 'analysis']);
 const CAPABILITIES = AI_OPERATOR_SOFT_TOOL_CAPABILITIES;
@@ -124,7 +124,7 @@ function normalizeLab(raw = {}) {
     capabilityDetails: { ...CAPABILITY_DETAILS },
     toolState: normalizeToolState(raw.toolState),
     snapshots: (Array.isArray(raw.snapshots) ? raw.snapshots : []).slice(-MAX_SNAPSHOTS),
-    turnRecords: (Array.isArray(raw.turnRecords) ? raw.turnRecords : []).slice(-MAX_TURN_RECORDS),
+    turnRecords: Array.isArray(raw.turnRecords) ? raw.turnRecords : [],
     lastTurnBase: raw.lastTurnBase && typeof raw.lastTurnBase === 'object' ? raw.lastTurnBase : null,
     lastExperiment: raw.lastExperiment && typeof raw.lastExperiment === 'object' ? raw.lastExperiment : null,
     lastMeterTurnId: raw.lastMeterTurnId || null,
@@ -709,7 +709,7 @@ function recordCompletedTurn(lab, customer) {
     decision: clone(decision),
     events: clone(lab.events.filter(event => event.customerMessageId === customer.id || event.messageId === customer.id))
   };
-  lab.turnRecords = [...(Array.isArray(lab.turnRecords) ? lab.turnRecords : []), record].slice(-MAX_TURN_RECORDS);
+  lab.turnRecords = [...(Array.isArray(lab.turnRecords) ? lab.turnRecords : []), record];
 }
 
 async function runTurn(customerText) {
