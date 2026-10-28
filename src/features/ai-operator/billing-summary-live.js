@@ -209,7 +209,8 @@ async function executeRead(tabId, id) {
                 source: 'billing-main-summary-live-read-only',
                 endpoint: 'current-document',
                 selector: summarySelector,
-                transport: 'dom'
+                transport: 'dom',
+                httpTrace: [{ kind: 'DOM', selector: summarySelector, found: true, source: 'current-document', observedAt: new Date().toISOString() }]
               }
             }
           };
@@ -233,6 +234,7 @@ async function executeRead(tabId, id) {
       url.searchParams.set('a', 'user');
       url.searchParams.set('id', String(targetBillingId));
 
+      const startedAt = Date.now();
       const response = await fetch(url.href, { method: 'GET', credentials: 'include', cache: 'no-store' });
       const html = await decodeResponseHtml(response);
       const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -250,7 +252,11 @@ async function executeRead(tabId, id) {
             source: 'billing-main-summary-live-read-only',
             endpoint: '/cgi-bin/adm/adm.pl?a=user&id=<billingId>',
             selector: summarySelector,
-            transport: 'fetch'
+            transport: 'fetch',
+            httpTrace: [
+              { kind: 'HTTP', method: 'GET', endpoint: '/cgi-bin/adm/adm.pl?a=user&id=[redacted]', status: response.status, ok: response.ok, durationMs: Date.now() - startedAt, observedAt: new Date().toISOString() },
+              { kind: 'DOM', selector: summarySelector, found: true, observedFields: [...Object.keys(data.finance || {}), ...Object.keys(data.service || {})].slice(0, 30) }
+            ]
           }
         }
       };
