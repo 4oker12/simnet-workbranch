@@ -520,14 +520,17 @@ function userSideSnapshotResult(tool, snapshot, labState = {}) {
 async function executeUserSideTool(name, toolArgs = {}, labState = {}) {
   if (!String(labState.confirmedCaseId || '').trim()) return result(name, false, 'IDENTITY_REQUIRED');
   let snapshot = await readUserSideSnapshotForLab(labState);
+  let readMode = 'cache';
   const observed = Date.parse(snapshot?.observedAt || '');
   const maxAge = Number(toolArgs.maxAgeMs) || 120000;
   const invalidatedAt = Number(labState.invalidatedAt || 0);
   const outdated = !Number.isFinite(observed) || Date.now() - observed >= maxAge || observed < invalidatedAt;
   if (!snapshot || toolArgs.refresh || outdated) {
     const fresh = await refreshUserSideSnapshotForLab(labState);
-    if (fresh.ok) snapshot = fresh.snapshot;
-    else if (!snapshot || toolArgs.refresh) {
+    if (fresh.ok) {
+      snapshot = fresh.snapshot;
+      readMode = 'live';
+    } else if (!snapshot || toolArgs.refresh) {
       return result(name, false, fresh.code, {
         message: fresh.code === 'USERSIDE_TAB_REQUIRED'
           ? 'Для live-проверки UserSide нужна открытая авторизованная вкладка UserSide.'
@@ -535,9 +538,21 @@ async function executeUserSideTool(name, toolArgs = {}, labState = {}) {
         source: 'userside-live-read-only',
         httpTrace: Array.isArray(fresh.live?.httpTrace) ? fresh.live.httpTrace : []
       });
-    }
+    } else readMode = 'stale';
   }
-  return userSideSnapshotResult(name, snapshot, labState) || result(name, false, 'UNKNOWN_TOOL');
+  // Historical READ operations belong to the original observation, not to this
+  // tool invocation. The cache branch must not invent a new HTTP/DOM request.
+  const observedSnapshot = readMode === 'live' ? snapshot : { ...snapshot, readTrace: [] };
+  const output = userSideSnapshotResult(name, observedSnapshot, labState);
+  if (!output) return result(name, false, 'UNKNOWN_TOOL');
+  return {
+    ...output,
+    data: { ...output.data, cache: readMode, snapshotObservedAt: snapshot?.observedAt || '' },
+    warnings: [
+      ...(output.warnings || []),
+      ...(readMode === 'stale' ? ['Fresh UserSide READ недоступен; показан старый снимок, не текущее состояние.'] : [])
+    ]
+  };
 }
 
 async function executeLocalAgainstConfirmedSubscriber(name, toolArgs = {}, labState = {}) {
