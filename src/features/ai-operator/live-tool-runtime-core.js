@@ -186,7 +186,6 @@ async function liveLookup(toolArgs = {}) {
       message: 'Абонент не найден штатным поиском Billing.',
       source: 'billing-live-read-only',
       searchMode: live?.request?.mode || '',
-      httpTrace: Array.isArray(live?.httpTrace) ? live.httpTrace : [],
       httpTrace: Array.isArray(live?.httpTrace) ? live.httpTrace : []
     });
   }
@@ -196,7 +195,6 @@ async function liveLookup(toolArgs = {}) {
       candidates,
       source: 'billing-live-read-only',
       searchMode: live?.request?.mode || '',
-      httpTrace: Array.isArray(live?.httpTrace) ? live.httpTrace : [],
       httpTrace: Array.isArray(live?.httpTrace) ? live.httpTrace : []
     }, ['Нужно уточнить идентификатор или адрес, чтобы выбрать конкретного абонента.']);
   }
@@ -211,7 +209,6 @@ async function liveLookup(toolArgs = {}) {
       requiresConfirmation: false,
       source: 'billing-live-read-only',
       searchMode: live?.request?.mode || '',
-      httpTrace: Array.isArray(live?.httpTrace) ? live.httpTrace : [],
       httpTrace: Array.isArray(live?.httpTrace) ? live.httpTrace : []
     }, [], { pendingCandidate: null, confirmedCaseId: candidate.caseId, confirmedSubscriber: candidate });
   }
