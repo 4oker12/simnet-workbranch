@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SIMNET Autonomous AI Operator</title>
+  <link rel="stylesheet" href="chat.css">
+  <script type="module" src="chat.js"></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="mark">S</span><div><strong>SIMNET AI Operator</strong><small>Standalone · абонентский диалог <span id="buildId" class="build-id">v0.2.0</span></small></div></div>
+      <div class="header-actions">
+        <span class="status-chip" id="apiState">Проверка DeepSeek…</span>
+        <button class="secondary" id="settingsToggle" type="button" aria-expanded="false" aria-controls="settings">Настройки</button>
+      </div>
+    </header>
+
+    <section class="settings" id="settings" hidden aria-label="Настройки AI">
+      <div class="section-heading"><h2>Подключение DeepSeek</h2><p>Отдельное расширение хранит собственный API-ключ и историю. Ключ не передаётся в Billing/UserSide и не включается в экспорт.</p></div>
+      <div class="settings-grid">
+        <label>API-ключ DeepSeek<input id="apiKey" type="password" placeholder="Введите API-ключ" autocomplete="off" spellcheck="false"></label>
+        <label>Модель<select id="model"><option value="deepseek-flash">DeepSeek Flash</option><option value="deepseek-v4-pro">DeepSeek V4 Pro</option></select></label>
+        <button id="saveConfig" type="button">Сохранить</button>
+        <button class="secondary" id="testConfig" type="button">Проверить API</button>
+      </div>
+      <p class="helper" id="keyHint">Ключ ещё не настроен.</p>
+    </section>
+
+    <div class="workspace">
+      <section class="conversation" aria-label="Чат">
+        <div class="conversation-head">
+          <div><h1>Диалог с абонентом</h1><p>Пиши от лица клиента. AI сам решает, какие READ-проверки нужны.</p></div>
+          <button class="secondary" id="newChat" type="button">Новый диалог</button>
+        </div>
+        <div id="transcript" class="transcript" role="log" aria-live="polite" aria-relevant="additions text">
+          <div class="empty"><strong>Диалог ещё не начат</strong><span>Например: «Здравствуйте, у меня не работает интернет».</span></div>
+        </div>
+        <div class="composer">
+          <label class="sr-only" for="customerInput">Сообщение абонента</label>
+          <textarea id="customerInput" rows="3" placeholder="Напиши сообщение от имени абонента…" maxlength="4000"></textarea>
+          <div class="composer-footer">
+            <small>Enter — отправить · Shift+Enter — перенос строки</small>
+            <button id="send" type="button">Отправить</button>
+          </div>
+        </div>
+        <p class="feedback" id="feedback" role="status"></p>
+      </section>
+
+      <aside class="inspector" id="inspector" aria-label="Журнал решений AI Operator">
+        <div class="journal-header">
+          <div class="journal-name"><div class="journal-icon">⌁</div><div><h2>Журнал AI Operator</h2><p>Темы · ход решения · проверяемые факты</p></div></div>
+          <button id="expandInspector" class="secondary tiny" type="button" title="Развернуть журнал" aria-pressed="false">⤢ <span id="expandLabel">Развернуть</span></button>
+        </div>
+        <div id="journalProgress" class="journal-progress" role="status" hidden>Выполняется ход: анализ запроса и READ…</div>
+        <nav class="journal-tabs" role="tablist" aria-label="Разделы журнала">
+          <button id="tabMap" data-journal-tab="map" type="button" role="tab" aria-selected="true">Карта</button>
+          <button id="tabHistory" data-journal-tab="history" type="button" role="tab" aria-selected="false">Ходы</button>
+          <button id="tabRead" data-journal-tab="read" type="button" role="tab" aria-selected="false">READ</button>
+          <button id="tabExport" data-journal-tab="export" type="button" role="tab" aria-selected="false">Экспорт</button>
+        </nav>
+
+        <section id="viewMap" class="inspector-view" role="tabpanel" aria-label="Тематическая карта">
+          <div class="section-kicker"><h3>Карта диалога</h3><span class="eyebrow" id="mapMode">ПО ХОДАМ</span></div>
+          <p class="hint">Темы связаны общим абонентским контекстом. Нажми тему, потом ход и узел дерева.</p>
+          <div id="topicCards" class="topic-grid" role="group" aria-label="Темы обращения"></div>
+          <div id="topicTree" class="topic-tree" aria-live="polite"></div>
+          <p class="hint">Зелёный/синий/фиолетовый обозначают тему, не подтверждение факта. Статус READ всегда показан отдельно.</p>
+        </section>
+
+        <section id="viewHistory" class="inspector-view" role="tabpanel" aria-label="История ходов" hidden>
+          <div class="section-kicker"><h3>История решений</h3><span class="eyebrow" id="historyCount">0 ходов</span></div>
+          <div id="turnHistory" class="turn-history"></div>
+          <div class="section-kicker"><h3>Выбранный ход</h3><span class="eyebrow">OBSERVED</span></div>
+          <div id="turn" class="turn-info">Выбери ход для разбора его цепочки.</div>
+          <details class="inspector-details"><summary>Полный trace выбранного хода</summary><pre id="details">—</pre></details>
+        </section>
+
+        <section id="viewRead" class="inspector-view" role="tabpanel" aria-label="Источники и READ" hidden>
+          <div class="section-kicker"><h3>Системы-источники</h3><button type="button" class="secondary tiny" id="refreshSources">Обновить</button></div>
+          <div id="sources" class="source-list"><p>Проверка доступности вкладок…</p></div>
+          <div class="source-actions"><button type="button" class="secondary tiny" id="openBilling">Открыть Billing</button><button type="button" class="secondary tiny" id="openUserside">Открыть UserSide</button></div>
+          <p class="hint">Открытая вкладка не подтверждает авторизованную сессию. Только успешный READ является проверкой источника.</p>
+          <div class="section-kicker"><h3>Вызовы инструментов</h3><span class="eyebrow" id="readTurnTitle">Выбранный ход</span></div>
+          <div id="readTimeline" class="read-timeline"></div>
+        </section>
+
+        <section id="viewExport" class="inspector-view" role="tabpanel" aria-label="Экспорт журнала" hidden>
+          <div class="section-kicker"><h3>Экспорт диагностики</h3><span class="eyebrow">JSON / TXT</span></div>
+          <p class="hint">Экспорт включает наблюдаемые семантические поля, tool args, результаты, evidence, ограничения ответа и историю ходов. Это не скрытые мысли модели.</p>
+          <label class="export-option"><input type="checkbox" id="includeSensitive"> Включить персональные данные в локальный экспорт</label>
+          <div class="export-actions">
+            <button type="button" id="exportTurnJson" class="secondary">Выбранный ход · JSON</button>
+            <button type="button" id="exportTurnTxt" class="secondary">Выбранный ход · TXT</button>
+            <button type="button" id="exportSessionJson" class="secondary">Весь диалог · JSON</button>
+            <button type="button" id="exportSessionTxt" class="secondary">Весь диалог · TXT</button>
+          </div>
+          <p id="exportCount" class="hint"></p>
+          <p class="hint">Ключи API и токены не выгружаются. Локальный файл с персональными данными перед передачей проверь вручную.</p>
+        </section>
+        <p class="privacy">Режим READ-only · никаких изменений Billing, UserSide или оборудования.</p>
+      </aside>
+    </div>
+  </main>
+</body>
+</html>

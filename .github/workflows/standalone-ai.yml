@@ -1,0 +1,34 @@
+name: Standalone AI Operator
+
+on:
+  pull_request:
+    paths:
+      - 'standalone-ai/**'
+      - 'scripts/build-standalone-ai.mjs'
+      - 'tests/standalone-ai-*.test.mjs'
+      - '.github/workflows/standalone-ai.yml'
+  push:
+    paths:
+      - 'standalone-ai/**'
+      - 'scripts/build-standalone-ai.mjs'
+      - 'tests/standalone-ai-smoke.test.mjs'
+      - '.github/workflows/standalone-ai.yml'
+
+jobs:
+  standalone-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Build and test standalone package
+        run: node --test tests/standalone-ai-*.test.mjs
+      - name: Assemble Chrome extension
+        run: node scripts/build-standalone-ai.mjs
+      - name: Upload installable standalone extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: simnet-ai-operator-standalone
+          path: dist/ai-operator-standalone/
+          if-no-files-found: error
