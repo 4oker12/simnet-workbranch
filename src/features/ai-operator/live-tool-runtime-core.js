@@ -455,6 +455,7 @@ function userSideSnapshotResult(tool, snapshot, labState = {}) {
   const network = snapshot?.network || {};
   const pon = snapshot?.pon || {};
   const source = 'userside-live-read-only';
+  const httpTrace = Array.isArray(snapshot?.readTrace) ? snapshot.readTrace : [];
   const statePatch = userSideStatePatch(snapshot, labState);
 
   if (tool === 'userside.snapshot') {
@@ -464,7 +465,9 @@ function userSideSnapshotResult(tool, snapshot, labState = {}) {
       network,
       pon,
       observedAt: snapshot?.observedAt || '',
+      httpTrace,
       source,
+      httpTrace,
       evidence: { source, pageUrl: snapshot?.pageUrl || '', storage: USERSIDE_SNAPSHOT_KEY }
     }, [], statePatch);
   }
@@ -491,6 +494,7 @@ function userSideSnapshotResult(tool, snapshot, labState = {}) {
       port: pon.port || pon.interface || '',
       foundOnOlt: pon.foundOnOlt === true,
       source,
+      httpTrace,
       observedAt: snapshot?.observedAt || ''
     }, [], statePatch);
   }
@@ -507,6 +511,7 @@ function userSideSnapshotResult(tool, snapshot, labState = {}) {
       foundOnOlt: pon.foundOnOlt === true,
       onuLanLinkState: pon.onuLanLinkState || '',
       observedAt: snapshot?.observedAt || '',
+      httpTrace,
       source
     }, [], statePatch);
   }
@@ -528,7 +533,8 @@ async function executeUserSideTool(name, toolArgs = {}, labState = {}) {
         message: fresh.code === 'USERSIDE_TAB_REQUIRED'
           ? 'Для live-проверки UserSide нужна открытая авторизованная вкладка UserSide.'
           : 'Не удалось получить свежие данные UserSide по подтверждённому абоненту.',
-        source: 'userside-live-read-only'
+        source: 'userside-live-read-only',
+        httpTrace: Array.isArray(fresh.live?.httpTrace) ? fresh.live.httpTrace : []
       });
     }
   }
