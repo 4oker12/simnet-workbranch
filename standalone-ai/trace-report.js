@@ -128,19 +128,23 @@ export function buildTurnTrace(lab = {}, record = null) {
   };
 }
 
-export function buildDecisionExport(lab = {}, { mode = 'last', includeSensitive = false } = {}) {
+export function buildDecisionExport(lab = {}, { mode = 'last', turnId = '', includeSensitive = false } = {}) {
   const records = Array.isArray(lab.turnRecords) ? lab.turnRecords : [];
-  const turns = mode === 'session' && records.length
-    ? records.map(record => buildTurnTrace(lab, record))
-    : [buildTurnTrace(lab)];
+  const stored = records.map(record => buildTurnTrace(lab, record));
+  if (lab.lastExperiment && !stored.some(turn => turn.turnId === lab.lastExperiment.customerMessageId)) {
+    stored.push(buildTurnTrace(lab));
+  }
+  const selected = turnId ? stored.find(turn => turn.turnId === turnId) : null;
+  const turns = mode === 'session' ? stored : (selected ? [selected] : stored.slice(-1));
   const report = {
     schema: TRACE_SCHEMA,
     generatedAt: new Date().toISOString(),
     mode: mode === 'session' ? 'session' : 'last-turn',
     disclosure: 'Наблюдаемые решения, evidence и операции. Скрытые внутренние рассуждения LLM не доступны.',
     privacy: includeSensitive ? 'Возможны персональные данные. Секреты и авторизационные токены всегда скрываются.' : 'Поля идентификаторов и типовые совпадения обезличены. Свободный текст требует ручной проверки.',
-    session: { id: lab.id || '', createdAt: lab.createdAt || '', updatedAt: lab.updatedAt || '', knowledgeMode: lab.knowledgeMode || '', displayMode: lab.displayMode || '', turnsRecorded: records.length },
+    session: { id: lab.id || '', createdAt: lab.createdAt || '', updatedAt: lab.updatedAt || '', knowledgeMode: lab.knowledgeMode || '', displayMode: lab.displayMode || '', turnsRecorded: stored.length },
     transcript: mode === 'session' ? (lab.messages || []).map(item => ({ role: item.role, at: item.at, text: item.text })) : undefined,
+    transcriptNote: mode === 'session' ? 'Текущий chat transcript может содержать только последние 60 сообщений; полные завершённые ходы сохранены в turns[] с вводом и ответом.' : undefined,
     turns,
     sourceStatus: 'Состояние вкладок на момент экспорта не доказывает выполнение live-запросов; см. reads[].code/source.',
     usage: lab.apiCost || {}
