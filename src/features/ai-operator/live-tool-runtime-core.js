@@ -151,7 +151,8 @@ async function liveLookup(toolArgs = {}) {
       searchedCases: Number(fallback?.data?.searchedCases || 0),
       capturedBillingSnapshots: Number(fallback?.data?.capturedBillingSnapshots || 0),
       searchMode: String(live?.request?.mode || ''),
-      tabId: Number.isInteger(live?.tabId) ? live.tabId : null
+      tabId: Number.isInteger(live?.tabId) ? live.tabId : null,
+      httpTrace: Array.isArray(live?.httpTrace) ? live.httpTrace : []
     }, [
       'UNKNOWN ≠ NOT_FOUND: поиск в Billing не выполнялся.',
       ...(Array.isArray(fallback?.warnings) ? fallback.warnings : [])
@@ -174,7 +175,8 @@ async function liveLookup(toolArgs = {}) {
       message: 'Не удалось выполнить поиск абонента в Billing.',
       streets: live?.streets || [],
       street: live?.street || '',
-      source: 'billing-live-read-only'
+      source: 'billing-live-read-only',
+      httpTrace: Array.isArray(live?.httpTrace) ? live.httpTrace : []
     });
   }
   await persistBillingSnapshots(live.snapshots || {});
@@ -183,7 +185,9 @@ async function liveLookup(toolArgs = {}) {
     return result('customer.lookup', false, 'NOT_FOUND', {
       message: 'Абонент не найден штатным поиском Billing.',
       source: 'billing-live-read-only',
-      searchMode: live?.request?.mode || ''
+      searchMode: live?.request?.mode || '',
+      httpTrace: Array.isArray(live?.httpTrace) ? live.httpTrace : [],
+      httpTrace: Array.isArray(live?.httpTrace) ? live.httpTrace : []
     });
   }
   if (candidates.length !== 1) {
@@ -191,7 +195,9 @@ async function liveLookup(toolArgs = {}) {
       count: candidates.length,
       candidates,
       source: 'billing-live-read-only',
-      searchMode: live?.request?.mode || ''
+      searchMode: live?.request?.mode || '',
+      httpTrace: Array.isArray(live?.httpTrace) ? live.httpTrace : [],
+      httpTrace: Array.isArray(live?.httpTrace) ? live.httpTrace : []
     }, ['Нужно уточнить идентификатор или адрес, чтобы выбрать конкретного абонента.']);
   }
   const candidate = candidates[0];
@@ -204,7 +210,9 @@ async function liveLookup(toolArgs = {}) {
       candidate,
       requiresConfirmation: false,
       source: 'billing-live-read-only',
-      searchMode: live?.request?.mode || ''
+      searchMode: live?.request?.mode || '',
+      httpTrace: Array.isArray(live?.httpTrace) ? live.httpTrace : [],
+      httpTrace: Array.isArray(live?.httpTrace) ? live.httpTrace : []
     }, [], { pendingCandidate: null, confirmedCaseId: candidate.caseId, confirmedSubscriber: candidate });
   }
   return result('customer.lookup', true, 'OK', {
