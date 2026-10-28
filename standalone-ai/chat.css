@@ -105,3 +105,72 @@ button.tiny{padding:8px 11px;border-radius:8px;font-size:11px}
 .topic-node-summary{color:#546a60;overflow-wrap:anywhere}
 .topic-node-details{padding:11px 10px;border-top:1px solid #e0e8e0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:10px;max-height:230px;overflow:auto;margin:0;background:white;color:#354b42;line-height:1.55}
 @media(max-width:490px){.topic-grid{grid-template-columns:1fr 1fr}.topic-card{padding:9px 7px}.topic-card.active{padding:8px 6px}}
+
+
+/* Operator Journal v0.2 — topic hue / stage hue / execution status are independent. */
+:root{--journal-text:#233e32;--journal-muted:#61786d;--journal-line:#dae8df;--journal-accent:#168466}
+.brand .build-id{font-size:10px;color:#168466;font-weight:700;padding-left:6px}
+.workspace{grid-template-columns:minmax(0,1fr) minmax(400px,445px)}
+.conversation{min-width:0}
+.inspector{min-width:0;padding:18px 18px 25px;background:#f5f9f6}
+.journal-header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-bottom:12px}
+.journal-name{display:flex;gap:9px;align-items:center;min-width:0}
+.journal-name h2{font-size:14px!important;margin:0!important;color:#1d5038}
+.journal-name p{font-size:10px;color:var(--journal-muted);margin:2px 0 0}
+.journal-icon{width:32px;height:32px;flex-shrink:0;display:grid;place-items:center;background:#ddf3e5;color:#13744f;font-size:23px;border-radius:9px}
+.journal-progress{background:#e7f1fa;border:1px solid #bdd5ed;color:#285b83;font-size:11px;padding:9px 10px;margin:0 0 10px;border-radius:9px}
+.journal-progress[hidden]{display:none!important}
+.journal-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin-bottom:17px;border-bottom:1px solid var(--journal-line);padding-bottom:9px}
+.journal-tabs button{background:white;border:1px solid #d8e6dd;color:#567267;font-size:11px;padding:9px 2px;font-weight:650;border-radius:8px}
+.journal-tabs button:hover{background:#eaf6ee}
+.journal-tabs button[aria-selected="true"]{background:#def1e6;border-color:#73bc96;color:#0f6a46;box-shadow:inset 0 -2px #169066}
+.inspector-view{display:flex;flex-direction:column;gap:10px;min-width:0}
+.inspector-view[hidden]{display:none}
+.section-kicker{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:4px}
+.section-kicker h3{color:var(--journal-text);font-size:12px;font-weight:700;margin:0}
+.inspector-view .hint{margin:0 0 7px;font-size:10.5px;color:var(--journal-muted)}
+.topic-grid{margin:1px 0 4px}
+.topic-card-text small{white-space:normal}
+.topic-tree-heading{margin-top:6px}
+.topic-episode-button{padding:5px 2px}
+.topic-episode-button span:not(.topic-expander){white-space:normal;max-height:3em;line-height:1.3}
+.topic-node-details{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+.turn-history{display:flex;flex-direction:column;gap:9px}
+.turn-entry{--entry-color:#87998d;display:block;width:100%;text-align:left;border:1px solid #dae5dd;border-left:4px solid var(--entry-color);border-radius:9px;background:white;padding:11px 12px;color:var(--journal-text);box-shadow:none}
+.turn-entry:hover{background:#f5faf6}
+.turn-entry.selected{border-color:var(--entry-color);background:#eef7f0}
+.turn-entry strong{display:block;font-size:12px;line-height:1.3}
+.turn-entry .turn-summary{display:block;color:#64766b;font-size:11px;line-height:1.4;margin-top:5px;overflow-wrap:anywhere}
+.turn-entry .turn-metrics{display:block;color:#6a8978;font-size:10px;margin-top:5px}
+.turn-entry.error{--entry-color:#c45b48}
+.turn-entry.ok{--entry-color:#288968}
+.turn-entry.no-read{--entry-color:#b27b2a}
+.turn-info{gap:10px}
+.step{border-color:#dce8df}
+.step .step-title{font-size:12px}
+.source{background:white}
+.read-timeline{display:flex;flex-direction:column;gap:9px}
+.read-card{--read-color:#b77c24;background:white;border:1px solid #e0e8e1;border-left:4px solid var(--read-color);border-radius:10px;padding:11px 12px;overflow-wrap:anywhere}
+.read-card.ok{--read-color:#1b9167}
+.read-card.error{--read-color:#bf5349}
+.read-card .read-title{display:flex;justify-content:space-between;gap:8px;color:#29483c;font-size:12px;font-weight:700}
+.read-card .read-subtitle{margin-top:5px;color:#587769;font-size:11px;line-height:1.45}
+.read-card summary{cursor:pointer;font-size:11px;color:#2b6c50;font-weight:650;margin-top:8px}
+.read-card pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:250px;overflow:auto;font-size:10px;color:#314c42;background:#f2f8f4;padding:9px;border-radius:6px}
+.read-empty{background:#fff9ed;border:1px solid #efd5ad;color:#78592b;border-radius:10px;padding:12px;font-size:11px;line-height:1.55}
+.inspector-view .export-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.inspector-view .export-actions button{font-size:11px;white-space:normal;line-height:1.4;min-width:0}
+.export-option{background:white;padding:11px;border:1px solid #d7e6dc;border-radius:9px}
+.privacy{font-size:10px;margin-top:23px}
+body.inspector-expanded .workspace{grid-template-columns:0 minmax(0,1fr)}
+body.inspector-expanded .conversation{display:none}
+body.inspector-expanded .inspector{padding:24px clamp(18px,5vw,62px);overflow:visible}
+body.inspector-expanded .inspector-view{max-width:1120px;width:100%;margin:auto}
+body.inspector-expanded .topic-grid{grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:14px}
+body.inspector-expanded .topic-tree{display:grid;grid-template-columns:repeat(auto-fit,minmax(370px,1fr));align-items:start;gap:13px}
+body.inspector-expanded .topic-tree-heading{grid-column:1/-1}
+body.inspector-expanded .topic-episode{min-width:0}
+body.inspector-expanded .journal-header,body.inspector-expanded .journal-tabs{max-width:1120px;width:100%;margin-left:auto;margin-right:auto}
+@media(max-width:980px){.workspace{grid-template-columns:minmax(0,1fr) 370px}.inspector{padding:14px}.topic-card{padding:9px 7px}.topic-card.active{padding:8px 6px}}
+@media(max-width:760px){.workspace{grid-template-columns:1fr}.conversation{min-height:68vh;max-width:100%;border-right:0}.inspector{border-top:1px solid var(--journal-line);padding:18px}.journal-tabs{grid-template-columns:repeat(4,1fr)}body.inspector-expanded .workspace{grid-template-columns:1fr}body.inspector-expanded .inspector{padding:16px}body.inspector-expanded .topic-tree{grid-template-columns:1fr}}
+@media(max-width:440px){.inspector-view .export-actions{grid-template-columns:1fr}.journal-name p{max-width:150px}}
