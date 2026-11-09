@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { parseSubscriberList, gradeBulkAnswer, makeBulkReport, bulkTotals, BULK_SCENARIOS } from '../standalone-ai/bulk-qa.js';
 
 const file=path=>readFileSync(new URL('../'+path,import.meta.url),'utf8');
+const verified=tool=>({toolTrace:[{tool,ok:true,source:'billing-main-summary-live-read-only'}]});
 
 test('input accepts abon and numeric contracts, handles CSV headers, skips duplicates, never auto-finds subscribers',()=>{
   const result=parseSubscriberList('login,contract\nabon123456,700000\nABON123456\n334455\nwrong\n334455');
@@ -16,15 +17,16 @@ test('input accepts abon and numeric contracts, handles CSV headers, skips dupli
 });
 
 test('balances including zero and negative remain distinct from UNKNOWN',()=>{
-  assert.equal(gradeBulkAnswer('balance','На счету 0 грн.',{balance:0}).verdict,'PASS');
-  assert.equal(gradeBulkAnswer('balance','На счету -150 грн.',{balance:-150}).verdict,'PASS');
+  assert.equal(gradeBulkAnswer('balance','На счету 0 грн.',{balance:0},verified('billing.balance')).verdict,'PASS');
+  assert.equal(gradeBulkAnswer('balance','На счету -150 грн.',{balance:-150},verified('billing.balance')).verdict,'PASS');
   assert.equal(gradeBulkAnswer('balance','На счету 700 грн.',{balance:0}).verdict,'FAIL');
+  assert.equal(gradeBulkAnswer('balance','На счету 0 грн.',{balance:0}).category,'evidence_gap');
   assert.equal(gradeBulkAnswer('balance','На счету 0 грн.',{balance:null}).verdict,'REVIEW');
   assert.equal(gradeBulkAnswer('balance','Проверить не удалось.',{balance:250}).verdict,'REVIEW');
 });
 
 test('tariff matching, service contradictions, missing services and payments are handled conservatively',()=>{
-  assert.equal(gradeBulkAnswer('tariff','Ваш тариф BIZ 800, цена 800 грн.',{tariffName:'BIZ 800',tariffPrice:800}).verdict,'PASS');
+  assert.equal(gradeBulkAnswer('tariff','Ваш тариф BIZ 800, цена 800 грн.',{tariffName:'BIZ 800',tariffPrice:800},verified('billing.tariff')).verdict,'PASS');
   assert.equal(gradeBulkAnswer('tariff','Тариф BIZ 800, цена 500 грн.',{tariffName:'BIZ 800',tariffPrice:800}).verdict,'FAIL');
   assert.equal(gradeBulkAnswer('services','Услуг нет.',{services:[{name:'Static IP',price:50}]}).verdict,'FAIL');
   assert.equal(gradeBulkAnswer('services','Услуг нет.',{services:[]}).verdict,'REVIEW');
