@@ -73,7 +73,7 @@ export function gradeIdentityAi(control = {}, ai = {}, identifier = '') {
       : normalize(cand.contract)===expected;
     if(!matched)return miss('FAIL','ai_wrong_customer',
       'AI нашёл другую карточку либо не подтвердил искомый идентификатор.');
-    if(/\bне\s+(?:наш[её]л|найден|знайден|удалось\s+найти|знайш[оі]в)/i.test(response))return miss('REVIEW','ai_reply_conflicts',
+    if(/(?:^|[\s.,;:])не\s+(?:наш[её]л|найден|знайден|удалось\s+найти|знайш[оі]в)/i.test(response))return miss('REVIEW','ai_reply_conflicts',
       'READ успешен, но текст ответа может отрицать результат поиска.');
     return miss('PASS','ai_identity_confirmed',
       'AI вызвал customer.lookup с правильным идентификатором и получил совпадающую карточку.');
@@ -81,8 +81,14 @@ export function gradeIdentityAi(control = {}, ai = {}, identifier = '') {
   if(control.status==='NOT_FOUND'||control.status==='ZERO_RESULT'){
     if(lookup.ok&&lookup.candidateCount>0)return miss('REVIEW','ai_source_changed',
       'Контрольный поиск дал 0 кандидатов, повторный поиск AI нашёл запись; источник изменился или неоднозначен.');
-    if(lookup.code==='NOT_FOUND'&&lookup.candidateCount===0)return miss('PASS','ai_not_found_grounded',
-      'AI вызвал верный поиск; живой Billing подтвердил 0 результатов.');
+    if(lookup.code==='NOT_FOUND'&&lookup.candidateCount===0){
+      const negative=/(?:^|[\s.,;:])не\s+(?:наш[её]л|найден|знайден|удалось\s+найти|знайш[оі]в)/i.test(response);
+      const positive=/(?:наш[её]л|найден|знайден|знайш[оі]в)/i.test(response);
+      if(positive && !negative)return miss('REVIEW','ai_reply_conflicts',
+        'Billing подтвердил 0 результатов, но текст AI может утверждать, что абонент найден.');
+      return miss('PASS','ai_not_found_grounded',
+        'AI вызвал верный поиск; живой Billing подтвердил 0 результатов.');
+    }
     return miss('REVIEW','ai_lookup_unverified','Нельзя подтвердить, что нулевой результат корректен.');
   }
   return miss('REVIEW','control_unverified','Контрольный поиск не дал однозначной записи; нельзя оценить AI.');
