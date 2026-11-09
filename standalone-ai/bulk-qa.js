@@ -48,6 +48,8 @@ export function gradeIdentityAi(control = {}, ai = {}, identifier = '') {
   const miss=(verdict,category,reason)=>({verdict,category,reason});
   if(!ai.ok)return miss('REVIEW','ai_runtime_error','Вызов AI не завершён.');
   if(ai.degraded)return miss('REVIEW','ai_degraded','Деградированный ответ модели, проверка требует повтора.');
+  if(!response.trim() || /^(?:0|ноль|null|undefined|none|not[ _-]?found)$/i.test(response.trim()))
+    return miss('FAIL','ai_zero_reply','AI вернул пустой или нулевой ответ вместо результата идентификации.');
   const lookups=Array.isArray(ai.lookups)?ai.lookups:[];
   if(!lookups.length)return miss('FAIL','ai_no_lookup','AI не вызвал customer.lookup для предъявленного идентификатора.');
   const correctArgs=lookup=>{
@@ -73,8 +75,9 @@ export function gradeIdentityAi(control = {}, ai = {}, identifier = '') {
       : normalize(cand.contract)===expected;
     if(!matched)return miss('FAIL','ai_wrong_customer',
       'AI нашёл другую карточку либо не подтвердил искомый идентификатор.');
-    if(/(?:^|[\s.,;:])не\s+(?:наш[её]л|найден|знайден|удалось\s+найти|знайш[оі]в)/i.test(response))return miss('REVIEW','ai_reply_conflicts',
-      'READ успешен, но текст ответа может отрицать результат поиска.');
+    if(/(?:^|[\s.,;:])не\s+(?:наш[её]л|найден|знайден|удалось\s+найти|знайш[оі]в)/i.test(response))
+      return miss('FAIL','ai_false_not_found_reply',
+        'Billing и AI READ нашли абонента, но финальный ответ AI утверждает обратное.');
     return miss('PASS','ai_identity_confirmed',
       'AI вызвал customer.lookup с правильным идентификатором и получил совпадающую карточку.');
   }
