@@ -118,6 +118,7 @@ export function makeBulkReport(batch,includeIdentifiers=false) {
     index:i+1,subscriber:includeIdentifiers?s.identifier:'#'+String(i+1).padStart(3,'0'),
     status:s.status,sourceError:s.error || null,
     control:snapshotForExport(s.snapshot,includeIdentifiers),
+    requestErrors:(s.requestErrors||[]).map(e=>({scenario:e.scenario,code:e.code,message:e.message,at:e.at})),
     checks:(s.checks||[]).map(c=>({
       scenario:c.scenario,name:c.name,question:c.question,reply:c.reply,
       verdict:c.verdict,manualVerdict:c.manualVerdict || null,
@@ -150,12 +151,13 @@ export function bulkTotals(batch) {
   const subscribers=batch?.subscribers||[],checks=subscribers.flatMap(s=>s.checks||[]);
   const effective=check=>check.manualVerdict || check.verdict;
   const failures=checks.filter(x=>effective(x)==='FAIL');
+  const requestErrors=subscribers.flatMap(s=>s.requestErrors||[]);
   const failureCategories=Object.fromEntries([...new Set(failures.map(x=>x.category || 'other'))]
     .map(category=>[category,failures.filter(x=>(x.category || 'other')===category).length]));
   return {subscribers:subscribers.length,ready:subscribers.filter(s=>s.status==='ready').length,
     blocked:subscribers.filter(s=>s.status==='blocked').length,checks:checks.length,
     pass:checks.filter(x=>effective(x)==='PASS').length,fail:failures.length,
-    review:checks.filter(x=>effective(x)==='REVIEW').length,failureCategories,
+    review:checks.filter(x=>effective(x)==='REVIEW').length,requestErrors:requestErrors.length,failureCategories,
     manuallyReviewed:checks.filter(x=>Boolean(x.manualVerdict)).length,
     usedTokens:checks.reduce((sum,x)=>sum+Number(x.usage?.total_tokens||0),0)};
 }
@@ -190,6 +192,7 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
     ui.summary.textContent=batch ? ('Абонентов: '+totals.subscribers+' · готово: '+totals.ready+
       ' · недоступно: '+totals.blocked+' · проверок: '+totals.checks+
       ' · PASS '+totals.pass+' / FAIL '+totals.fail+' / REVIEW '+totals.review+
+      ' · ошибок выполнения: '+totals.requestErrors+
       ' · токенов: '+totals.usedTokens+' · '+batch.phase) : 'Список не загружен.';
     if(!batch)return;
     batch.subscribers.forEach((sub,i)=>{
@@ -211,6 +214,9 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
       const facts=n('pre','bulk-detail-pre',JSON.stringify({observedAt:sub.snapshot.observedAt,
         source:sub.snapshot.source,facts:sub.snapshot.facts},null,2));
       ui.detail.append(facts);
+    }
+    for(const error of sub.requestErrors || []) {
+      ui.detail.append(n('p','bulk-error','Неудачная попытка '+error.scenario+' · '+error.code+' · '+(error.message||'')+' · '+(error.at||'')));
     }
     for(const check of sub.checks) {
       const box=n('details','bulk-check bulk-'+(check.manualVerdict||check.verdict).toLowerCase());
@@ -296,16 +302,14 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
               sub.checks.push({scenario:scenario.id,name:scenario.name,question,reply:result.reply,
                 ...grade,tools:result.toolTrace,usage:result.usage,elapsedMs:result.elapsedMs,at:new Date().toISOString()});
             } else {
-              sub.checks.push({scenario:scenario.id,name:scenario.name,question,reply:'',
-                verdict:'REVIEW',category:'runtime_error',reason:'Нет подтверждённого результата: '+clean(result?.code||'UNKNOWN'),
-                tools:[],usage:{},elapsedMs:0,at:new Date().toISOString()});
-              stopReason('Ошибка выполнения AI');halted=true;
+              sub.requestErrors = [...(sub.requestErrors || []),{scenario:scenario.id,
+                code:clean(result?.code||'UNKNOWN'),message:'Нет подтверждённого результата AI',at:new Date().toISOString()}];
+              stopReason('Ошибка выполнения AI; вопрос оставлен для ручного повтора');halted=true;
             }
           } catch(error) {
-            sub.checks.push({scenario:scenario.id,name:scenario.name,question,reply:'',
-              verdict:'REVIEW',category:'runtime_error',reason:clean(error?.message||error,220),
-              tools:[],usage:{},elapsedMs:0,at:new Date().toISOString()});
-            stopReason('Ошибка API/Runtime: необходима проверка');halted=true;
+            sub.requestErrors = [...(sub.requestErrors || []),{scenario:scenario.id,
+              code:'AI_RUNTIME_ERROR',message:clean(error?.message||error,220),at:new Date().toISOString()}];
+            stopReason('Ошибка API/Runtime: вопрос можно вручную повторить');halted=true;
           }
           await persist();render();
           if(halted)break;
@@ -340,7 +344,7 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
     batch={schema:'simnet.bulk-finance-qa.v1',id:'bulk-'+Date.now().toString(36),
       createdAt:new Date().toISOString(),phase:'draft',mode:ui.mode.value,
       scenarios:scenarioIds(ui.mode.value),subscribers:ids.accepted.map(identifier=>({
-        identifier,status:'pending',snapshot:null,toolState:null,error:null,checks:[]
+        identifier,status:'pending',snapshot:null,toolState:null,error:null,checks:[],requestErrors:[]
       }))};
     selectedIndex=0;await persist();render();await scan();
   });
@@ -371,7 +375,8 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
       const quote=value=>'"'+String(value??'').replace(/"/g,'""').replace(/\r?\n/g,' ')+'"';
       const rows=[['case','subscriber','status','scenario','verdict','autoVerdict','category','reason','operatorNote','question','reply']];
       for(const c of report.cases){
-        if(!c.checks.length)rows.push([c.index,c.subscriber,c.status,'','BLOCKED','',c.sourceError?.code||'',c.sourceError?.stage||'','','','']);
+        for(const error of c.requestErrors||[])rows.push([c.index,c.subscriber,c.status,error.scenario,'RUNTIME_ERROR','',error.code,error.message,'','','']);
+        if(!c.checks.length && !(c.requestErrors||[]).length)rows.push([c.index,c.subscriber,c.status,'','BLOCKED','',c.sourceError?.code||'',c.sourceError?.stage||'','','','']);
         for(const x of c.checks)rows.push([c.index,c.subscriber,c.status,x.scenario,
           x.manualVerdict||x.verdict,x.verdict,x.category,x.reason,x.operatorNote||'',x.question,x.reply]);
       }
