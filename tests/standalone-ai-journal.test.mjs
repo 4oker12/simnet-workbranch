@@ -51,7 +51,7 @@ test('completed history exceeds 24 without being dropped by normalization', () =
   assert.doesNotMatch(lab,/MAX_TURN_RECORDS|turnRecords: .*\.slice\(|lab\.turnRecords = .*\.slice\(/);
   assert.match(lab,/lab\.turnRecords = \[\.\.\./);
   const manifest=JSON.parse(read('standalone-ai/manifest.json'));
-  assert.equal(manifest.version,'0.3.0');
+  assert.equal(manifest.version,'0.3.1');
   assert.ok(manifest.permissions.includes('unlimitedStorage'));
   const many={turnRecords:Array.from({length:30},(_,i)=>turn(i+1,i%2?'какой тариф?':'какой баланс?'))};
   assert.equal(buildTopicMap(many).flatMap(g=>g.episodes).length,30);
