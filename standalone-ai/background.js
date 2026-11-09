@@ -3,6 +3,7 @@
 import '../src/ai/provider-router.js';
 import '../src/ai/runtime-service.js';
 import '../src/features/ai-operator/lab-background.js';
+import '../src/features/ai-operator/bulk-qa-background.js';
 
 const CHAT_PAGE = chrome.runtime.getURL('standalone-ai/chat.html');
 
