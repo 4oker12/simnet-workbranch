@@ -44,6 +44,19 @@ const amounts = reply => [...String(reply || '').matchAll(/(-?\d[\d\s\u00a0]*(?:
   .map(m=>money(m[1])).filter(x=>x!==null);
 const containsAmount=(text,target)=>amounts(text).some(x=>Math.abs(x-target)<0.011);
 const dateClaim = reply => /(?:\b(?:[12]?\d|3[01])\s*(?:\.|-|\/|\s+)(?:0?[1-9]|1[0-2]|январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр|січн|лют|берез|квіт|трав|черв|лип|серп|верес|жовт|листопад|грудн)|\b\d{1,2}:\d{2}\b)/i.test(reply);
+const evidenceTools = Object.freeze({
+  balance: new Set(['billing.balance','billing.main_summary','customer.snapshot']),
+  tariff: new Set(['billing.tariff','billing.main_summary','customer.snapshot']),
+  services: new Set(['billing.tariff','billing.main_summary','customer.snapshot'])
+});
+const evidenceConfirmed = (scenario, trace = {}) => {
+  const required=evidenceTools[scenario];
+  if(!required)return false;
+  return (Array.isArray(trace.toolTrace) ? trace.toolTrace : []).some(t =>
+    required.has(String(t?.tool || '')) && t?.ok === true &&
+    /billing/i.test(String(t.source || ''))
+  );
+};
 const riskyDebt = reply => /(?:долг|борг|задолж|заборгован).{0,55}(?:обязател|сплат|погас|оплат|термінов|срочн)|(?:обязател|погас|сплат|срочн).{0,45}(?:долг|борг|задолж|заборгован)/i.test(reply);
 
 export function gradeBulkAnswer(scenarioId, reply, facts = {}, trace = {}) {
@@ -51,7 +64,9 @@ export function gradeBulkAnswer(scenarioId, reply, facts = {}, trace = {}) {
   const numbers=amounts(text);
   const fail=(category,reason)=>({verdict:'FAIL',category,reason});
   const review=(category,reason)=>({verdict:'REVIEW',category,reason});
-  const pass=(reason)=>({verdict:'PASS',category:'checked_fact',reason});
+  const pass=(reason)=>evidenceConfirmed(scenarioId,trace)
+    ? ({verdict:'PASS',category:'checked_fact',reason})
+    : review('evidence_gap','Значение совпало с контрольным Billing, но у AI нет подтверждённого тематического READ в этом ходе. '+reason);
   if(!text.trim())return fail('empty_answer','AI не вернул ответ.');
   if(trace.degraded)return review('model_degraded','Модель перешла в деградированный режим: '+clean(trace.degradationReason,120));
   if((text.match(/abon\d{3,12}/gi)||[]).some(login=>login.toLowerCase() !== String(trace.identifier || '').toLowerCase())) {
@@ -105,7 +120,8 @@ export function makeBulkReport(batch,includeIdentifiers=false) {
     control:snapshotForExport(s.snapshot,includeIdentifiers),
     checks:(s.checks||[]).map(c=>({
       scenario:c.scenario,name:c.name,question:c.question,reply:c.reply,
-      verdict:c.verdict,category:c.category,reason:c.reason,
+      verdict:c.verdict,manualVerdict:c.manualVerdict || null,
+      operatorNote:c.operatorNote || '',category:c.category,reason:c.reason,
       usage:c.usage,elapsedMs:c.elapsedMs,tools:c.tools,at:c.at
     }))
   }));
@@ -132,10 +148,15 @@ export function makeBulkReport(batch,includeIdentifiers=false) {
 }
 export function bulkTotals(batch) {
   const subscribers=batch?.subscribers||[],checks=subscribers.flatMap(s=>s.checks||[]);
+  const effective=check=>check.manualVerdict || check.verdict;
+  const failures=checks.filter(x=>effective(x)==='FAIL');
+  const failureCategories=Object.fromEntries([...new Set(failures.map(x=>x.category || 'other'))]
+    .map(category=>[category,failures.filter(x=>(x.category || 'other')===category).length]));
   return {subscribers:subscribers.length,ready:subscribers.filter(s=>s.status==='ready').length,
     blocked:subscribers.filter(s=>s.status==='blocked').length,checks:checks.length,
-    pass:checks.filter(x=>x.verdict==='PASS').length,fail:checks.filter(x=>x.verdict==='FAIL').length,
-    review:checks.filter(x=>x.verdict==='REVIEW').length,
+    pass:checks.filter(x=>effective(x)==='PASS').length,fail:failures.length,
+    review:checks.filter(x=>effective(x)==='REVIEW').length,failureCategories,
+    manuallyReviewed:checks.filter(x=>Boolean(x.manualVerdict)).length,
     usedTokens:checks.reduce((sum,x)=>sum+Number(x.usage?.total_tokens||0),0)};
 }
 
@@ -174,8 +195,8 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
     batch.subscribers.forEach((sub,i)=>{
       const tr=n('tr');
       for(const col of [String(i+1),redactId(sub.identifier),sub.status,
-        String(sub.checks.length), String(sub.checks.filter(c=>c.verdict==='FAIL').length),
-        String(sub.checks.filter(c=>c.verdict==='REVIEW').length)])tr.append(n('td','',col));
+        String(sub.checks.length), String(sub.checks.filter(c=>(c.manualVerdict||c.verdict)==='FAIL').length),
+        String(sub.checks.filter(c=>(c.manualVerdict||c.verdict)==='REVIEW').length)])tr.append(n('td','',col));
       tr.tabIndex=0;tr.className=selectedIndex===i?'selected':'';
       const choose=()=>{selectedIndex=i;render()};
       tr.addEventListener('click',choose);
@@ -192,10 +213,24 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
       ui.detail.append(facts);
     }
     for(const check of sub.checks) {
-      const box=n('details','bulk-check bulk-'+check.verdict.toLowerCase());
-      const summary=n('summary','',check.name+' · '+check.verdict+' · '+check.category);
+      const box=n('details','bulk-check bulk-'+(check.manualVerdict||check.verdict).toLowerCase());
+      const summary=n('summary','',check.name+' · '+(check.manualVerdict||check.verdict)+' · '+check.category+
+        (check.manualVerdict?' [оператор]':''));
       box.append(summary,n('p','',check.question),n('p','bulk-reply',check.reply || 'Нет ответа'),
         n('p','',check.reason));
+      const controls=n('div','bulk-review-controls');
+      const label=n('label','','Оценка оператора (переопределяет автооценку)');
+      const select=n('select');
+      for(const [value,title] of [['','Автоматическая'],['PASS','PASS'],['FAIL','FAIL'],['REVIEW','REVIEW']]){
+        const option=n('option','',title);option.value=value;select.append(option);
+      }
+      select.value=check.manualVerdict||'';
+      select.addEventListener('change',async()=>{check.manualVerdict=select.value||null;await persist();render()});
+      const note=n('textarea');note.rows=2;note.placeholder='Почему ответ неправильный / что требуется исправить';
+      note.value=check.operatorNote||'';
+      note.addEventListener('change',async()=>{check.operatorNote=clean(note.value,1500);await persist();render()});
+      controls.append(label,select,n('label','','Комментарий к ошибке'),note);
+      box.append(controls);
       const detail=n('pre','bulk-detail-pre',JSON.stringify({tools:check.tools,usage:check.usage,elapsedMs:check.elapsedMs},null,2));
       box.append(detail);ui.detail.append(box);
     }
@@ -324,10 +359,11 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
     if(format==='json')downloadLocalFile(JSON.stringify(report,null,2)+'\n','simnet-bulk-qa-'+timestamp+'.json','application/json;charset=utf-8');
     else {
       const quote=value=>'"'+String(value??'').replace(/"/g,'""').replace(/\r?\n/g,' ')+'"';
-      const rows=[['case','subscriber','status','scenario','verdict','category','reason','question','reply']];
+      const rows=[['case','subscriber','status','scenario','verdict','autoVerdict','category','reason','operatorNote','question','reply']];
       for(const c of report.cases){
-        if(!c.checks.length)rows.push([c.index,c.subscriber,c.status,'','BLOCKED',c.sourceError?.code||'',c.sourceError?.stage||'','','']);
-        for(const x of c.checks)rows.push([c.index,c.subscriber,c.status,x.scenario,x.verdict,x.category,x.reason,x.question,x.reply]);
+        if(!c.checks.length)rows.push([c.index,c.subscriber,c.status,'','BLOCKED','',c.sourceError?.code||'',c.sourceError?.stage||'','','','']);
+        for(const x of c.checks)rows.push([c.index,c.subscriber,c.status,x.scenario,
+          x.manualVerdict||x.verdict,x.verdict,x.category,x.reason,x.operatorNote||'',x.question,x.reply]);
       }
       downloadLocalFile('\uFEFF'+rows.map(cols=>cols.map(quote).join(',')).join('\r\n')+'\r\n','simnet-bulk-qa-'+timestamp+'.csv','text/csv;charset=utf-8');
     }
