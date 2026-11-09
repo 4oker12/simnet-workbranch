@@ -166,7 +166,7 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
     toggle:$('bulkQaToggle'),panel:$('bulkQaPanel'),close:$('bulkQaClose'),
     input:$('bulkSubscribers'),file:$('bulkFile'),mode:$('bulkMode'),maxTurns:$('bulkMaxTurns'),budget:$('bulkTokenBudget'),
     validate:$('bulkValidate'),scan:$('bulkScan'),run:$('bulkRun'),stop:$('bulkStop'),
-    resume:$('bulkResume'),clear:$('bulkClear'),exportJson:$('bulkExportJson'),exportCsv:$('bulkExportCsv'),
+    resume:$('bulkResume'),retryBlocked:$('bulkRetryBlocked'),clear:$('bulkClear'),exportJson:$('bulkExportJson'),exportCsv:$('bulkExportCsv'),
     includeIds:$('bulkIncludeIds'),status:$('bulkStatus'),summary:$('bulkSummary'),
     list:$('bulkTableBody'),detail:$('bulkCaseDetail')
   };
@@ -181,7 +181,7 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
     return {turns,tokens};
   };
   const persist=async()=>{if(!batch)return;batch.updatedAt=new Date().toISOString();await chrome.storage.local.set({[STORAGE_KEY]:batch})};
-  const setBusy=value=>{busy=value;for(const k of ['scan','run','resume','validate','clear'])ui[k].disabled=value;ui.stop.disabled=!value};
+  const setBusy=value=>{busy=value;for(const k of ['scan','run','resume','retryBlocked','validate','clear'])ui[k].disabled=value;ui.stop.disabled=!value};
   const isStopped=()=>stopRequested;
   const stopReason=reason=>{batch.phase='stopped-'+(batch.phase==='scanning'?'scan':'run');batch.stopReason=reason};
   function render() {
@@ -347,6 +347,16 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
   ui.run.addEventListener('click',()=>void run());
   ui.stop.addEventListener('click',()=>{stopRequested=true;emit('STOP принят. Текущий запрос завершится; следующий не запустится.')});
   ui.resume.addEventListener('click',()=>void resume());
+  ui.retryBlocked.addEventListener('click',async()=>{
+    if(!batch||busy)return;
+    const blocked=batch.subscribers.filter(s=>s.status==='blocked');
+    if(!blocked.length){emit('Нет заблокированных источником записей.');return}
+    for(const sub of blocked){sub.status='pending';sub.error=null}
+    batch.stopReason='';
+    await persist();render();
+    emit('Повторная проверка '+blocked.length+' записей BLOCKED — вручную, без автоматических retries.');
+    await scan();
+  });
   ui.clear.addEventListener('click',async()=>{
     if(busy)return;
     if(!confirm('Удалить текущий пакет и весь его локальный журнал? Сначала экспортируйте отчёт, если он нужен.'))return;
