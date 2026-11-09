@@ -1,5 +1,7 @@
 'use strict';
 
+import { protectExport } from './trace-report.js';
+
 // Bulk QA is a bounded user-controlled audit, not a second AI/policy engine.
 // All facts originate in the real READ-only Billing preflight. Heuristic answer
 // checks below are conservative: unsupported domains produce REVIEW, not PASS.
@@ -107,9 +109,26 @@ export function makeBulkReport(batch,includeIdentifiers=false) {
       usage:c.usage,elapsedMs:c.elapsedMs,tools:c.tools,at:c.at
     }))
   }));
-  return {schema:'simnet.bulk-finance-qa.v1',createdAt:batch?.createdAt,
+  const report={schema:'simnet.bulk-finance-qa.v1',createdAt:batch?.createdAt,
     exportedAt:new Date().toISOString(),mode:batch?.mode,complete:batch?.phase==='completed',
     requiresManualReview:true,totals:bulkTotals(batch),cases};
+  const safe=protectExport(report,{includeSensitive:includeIdentifiers});
+  if(includeIdentifiers)return safe;
+  // Numeric contracts are not covered by generic redaction patterns, and
+  // the first question often contains an explicit contract. Mask EVERY
+  // occurrence of the provided identifiers, including tool logs/replies.
+  const ids=(batch?.subscribers||[]).map(s=>String(s.identifier||'')).filter(Boolean);
+  const mask=value=>{
+    if(typeof value==='string'){
+      let output=value;
+      for(const id of ids) output=output.split(id).join('[абонент скрыт]');
+      return output;
+    }
+    if(Array.isArray(value))return value.map(mask);
+    if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([key,val])=>[key,mask(val)]));
+    return value;
+  };
+  return mask(safe);
 }
 export function bulkTotals(batch) {
   const subscribers=batch?.subscribers||[],checks=subscribers.flatMap(s=>s.checks||[]);
