@@ -55,10 +55,15 @@ function looksLikeStandaloneAlphanumericContract(value) {
 
 export function classifyBillingLookup(toolArgs = {}) {
   const explicitLogin = clean(toolArgs.login, 80).replace(/\s+/g, '').toLowerCase();
-  const explicitContract = normalizeContractIdentifier(toolArgs.contract);
+  const suppliedContract = clean(toolArgs.contract, 80).replace(/\s+/g, '');
+  // Conversational users sometimes call their abonNNN login a "contract".
+  // The Billing index must still use login search, not numeric-contract search.
+  const abonInContract = suppliedContract.match(/^abon\d{3,12}$/i)?.[0]?.toLowerCase() || '';
+  const explicitContract = abonInContract ? '' : normalizeContractIdentifier(toolArgs.contract);
   const explicitIp = normalizeIp(toolArgs.ip);
   const address = clean(toolArgs.address, 320);
   const query = clean(toolArgs.query, 320);
+  if (abonInContract) return { mode: 'login', value: abonInContract };
   if (/^abon\d{3,12}$/i.test(explicitLogin)) return { mode: 'login', value: explicitLogin };
   if (explicitContract) return { mode: 'contract', value: explicitContract };
   if (explicitIp) return { mode: 'ip', value: explicitIp };
@@ -317,10 +322,28 @@ async function executeSearch(tabId, request) {
         }
         return html;
       };
+      const operations = [];
+      const safeEndpoint = url => {
+        const safe = new URL(url.href);
+        for (const key of [...safe.searchParams.keys()]) {
+          if (key === 'pp' || key === 'uu') safe.searchParams.delete(key);
+          else if (key === 'name' || key === 'id' || key.startsWith('dopfield_')) safe.searchParams.set(key, '[redacted]');
+        }
+        return safe.pathname + safe.search;
+      };
       const fetchDoc = async url => {
-        const response = await fetch(url.href, { method: 'GET', credentials: 'include', cache: 'no-store' });
-        const html = await decodeResponseHtml(response);
-        return { ok: response.ok, status: response.status, url: new URL(response.url || url.href), doc: new DOMParser().parseFromString(html, 'text/html') };
+        const started = Date.now();
+        const endpoint = safeEndpoint(url);
+        try {
+          const response = await fetch(url.href, { method: 'GET', credentials: 'include', cache: 'no-store' });
+          const html = await decodeResponseHtml(response);
+          const doc = new DOMParser().parseFromString(html, 'text/html');
+          operations.push({ kind: 'HTTP', method: 'GET', endpoint, status: response.status, ok: response.ok, durationMs: Date.now() - started, observedAt: new Date().toISOString() });
+          return { ok: response.ok, status: response.status, url: new URL(response.url || url.href), doc };
+        } catch (error) {
+          operations.push({ kind: 'HTTP', method: 'GET', endpoint, status: null, ok: false, code: 'NETWORK_ERROR', durationMs: Date.now() - started });
+          throw error;
+        }
       };
       const makeUrl = params => {
         const url = new URL('/cgi-bin/adm/adm.pl', location.origin);
@@ -401,7 +424,8 @@ async function executeSearch(tabId, request) {
         } catch {}
       }
       const foundIds = [...ids.keys()].slice(0, 8);
-      if (!foundIds.length) return { ok: true, code: 'NOT_FOUND', candidates: [], snapshots: {}, addressResolution };
+      operations.push({ kind: 'DOM', selector: 'a[href] → a=user&id', candidatesFound: ids.size, usedCandidates: foundIds.length });
+      if (!foundIds.length) return { ok: true, code: 'NOT_FOUND', candidates: [], snapshots: {}, addressResolution, httpTrace: operations };
 
       const candidates = [];
       const snapshots = {};
@@ -418,6 +442,11 @@ async function executeSearch(tabId, request) {
           const technicalPage = await fetchDoc(makeUrl({ pp, ...(uu ? { uu } : {}), a: 'dopdata', parent_type: '0', id: billingId, tmpl: '1' }));
           if (technicalPage.ok && !authPage(technicalPage.doc)) snapshot = merge(snapshot, readTechnical(technicalPage.doc));
         } catch {}
+        operations.push({
+          kind: 'DOM', selector: '[name], table rows, #my_x_16',
+          billingId, parsedGroups: Object.keys(snapshot).filter(key => ['identity','address','service','finance','technical','network','payments'].includes(key)),
+          financeFieldsObserved: Object.keys(snapshot.finance || {}).filter(key => typeof snapshot.finance[key] === 'number' && Number.isFinite(snapshot.finance[key]))
+        });
         snapshot.billingId = billingId;
         snapshot.observedAt = new Date().toISOString();
         if (snapshot.finance) snapshot.financeObservedAt = snapshot.observedAt;
@@ -434,7 +463,7 @@ async function executeSearch(tabId, request) {
           resultText: ids.get(billingId) || ''
         });
       }
-      return { ok: true, code: candidates.length ? 'OK' : 'NOT_FOUND', candidates, snapshots, addressResolution };
+      return { ok: true, code: candidates.length ? 'OK' : 'NOT_FOUND', candidates, snapshots, addressResolution, httpTrace: operations };
     }
   });
   return execution?.result || { ok: false, code: 'BILLING_SEARCH_NO_RESULT' };
@@ -449,10 +478,10 @@ function normalizeSearchSnapshots(snapshots = {}) {
 
 export async function searchBillingLive(toolArgs = {}) {
   const request = classifyBillingLookup(toolArgs);
-  if (!request) return { ok: false, code: 'IDENTITY_QUERY_REQUIRED', candidates: [], snapshots: {} };
-  if (!globalThis.chrome?.scripting?.executeScript || !globalThis.chrome?.tabs?.query) return { ok: false, code: 'BILLING_RUNTIME_UNAVAILABLE', candidates: [], snapshots: {} };
+  if (!request) return { ok: false, code: 'IDENTITY_QUERY_REQUIRED', candidates: [], snapshots: {}, request: null };
+  if (!globalThis.chrome?.scripting?.executeScript || !globalThis.chrome?.tabs?.query) return { ok: false, code: 'BILLING_RUNTIME_UNAVAILABLE', candidates: [], snapshots: {}, request };
   const tabs = await billingTabs();
-  if (!tabs.length) return { ok: false, code: 'BILLING_TAB_REQUIRED', candidates: [], snapshots: {} };
+  if (!tabs.length) return { ok: false, code: 'BILLING_TAB_REQUIRED', candidates: [], snapshots: {}, request };
   let last = null;
   for (const tab of tabs) {
     if (!Number.isInteger(tab?.id)) continue;

@@ -20,8 +20,37 @@ function latestRequest(options = {}) {
  * outside that legacy trace, so a source-backed canonical fallback must have
  * higher priority than raw/summary KB text.
  */
+const BILLING_SOURCE_FAILURES = new Set([
+  'BILLING_TAB_REQUIRED', 'BILLING_SESSION_REQUIRED', 'BILLING_AUTH_REQUIRED',
+  'BILLING_TAB_INVALID', 'BILLING_RUNTIME_UNAVAILABLE', 'BILLING_SEARCH_EXECUTION_FAILED',
+  'BILLING_SEARCH_FAILED'
+]);
+
+// This is a source/evidence gate, not an LLM-generated conclusion. In particular,
+// an inaccessible Billing source must never become "subscriber not found" or
+// a request for an unrelated telephone identifier.
+export function billingUnavailableReplyForTrace(toolTrace = []) {
+  const traces = Array.isArray(toolTrace) ? toolTrace : [];
+  const failedLookup = traces.find(item =>
+    item?.tool === 'customer.lookup' && !item?.ok && BILLING_SOURCE_FAILURES.has(String(item?.code || ''))
+  );
+  if (!failedLookup) return '';
+  const hasConfirmedSubscriberFact = traces.some(item => item?.ok && [
+    'customer.lookup', 'customer.snapshot', 'billing.balance',
+    'billing.main_summary', 'billing.tariff', 'billing.payments'
+  ].includes(String(item?.tool || '')));
+  if (hasConfirmedSubscriberFact) return '';
+  return 'Сейчас не могу проверить данные вашего договора: доступ к Billing отсутствует. Полученный идентификатор уже учтён; повторять его или сообщать телефон для устранения этой ошибки не нужно.';
+}
+
 export async function groundSubscriberReply(options = {}) {
   const result = await base.groundSubscriberReply(options);
+  const sourceReply = billingUnavailableReplyForTrace(result?.toolTrace);
+  if (sourceReply) return {
+    ...result,
+    reply: sourceReply,
+    evidenceGate: { applied: true, reason: 'billing_source_unavailable', sourceCodes: (result?.toolTrace || []).filter(item => item?.tool === 'customer.lookup' && !item?.ok).map(item => String(item?.code || '')) }
+  };
   const fallback = result?.evidenceFallback;
   if (!result?.generationDegraded || !fallback?.used || !String(fallback?.reply || '').trim()) return result;
 
