@@ -70,7 +70,7 @@ test('a batch runs one preflight / isolated Lab turn at a time; STOP and explici
   const ui=file('standalone-ai/bulk-qa.js');
   const html=file('standalone-ai/chat.html');
   const manifest=JSON.parse(file('standalone-ai/manifest.json'));
-  assert.equal(manifest.version,'0.3.0');
+  assert.equal(manifest.version,'0.3.1');
   assert.match(bg,/runIsolatedLabCase/);
   assert.match(bg,/readBillingSummaryLive\(\{ billingId, refresh:true \}\)/);
   assert.match(bg,/if \(!exactIdentity\(expected,candidate\)\)/);
