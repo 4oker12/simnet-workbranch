@@ -144,6 +144,58 @@ async function preflight(payload = {}) {
       pendingCandidate:null, domainContext:{}, factSourceCache:{} }
   };
 }
+// One isolated, natural-language identity turn per selected subscriber.
+// The AI gets no pre-bound confirmedCaseId. Its own customer.lookup calls
+// must identify the supplied literal and be compared against the control READ.
+async function identifyViaAI(payload = {}) {
+  const identity = identifierType(payload.identifier);
+  if (!identity) return failure('input','INVALID_IDENTIFIER');
+  const question = (identity.type==='login' ? 'Мой договор ' : 'У меня договор ') +
+    identity.value+'. Найдите мой договор в Billing. Удалось ли найти именно его?';
+  const output=await runIsolatedLabCase({
+    text:question,transcript:[],knowledgeMode:'auto',toolState:{},
+    scope:clean(payload.scope || 'bulk-identity-qa',160)
+  });
+  const exp=output.experiment || {};
+  const variant=(exp.variants || []).find(v=>v.label===exp.activeVariant) ||
+    exp.variants?.[0] || {};
+  const trace=Array.isArray(variant.toolTrace) ? variant.toolTrace : [];
+  const lookups=trace.filter(t=>t?.tool==='customer.lookup').slice(0,10).map(t=>{
+    const data=t.data || {};
+    const candidate=data.candidate || null;
+    return {
+      args:{
+        login:clean(t.args?.login || '',100),
+        contract:clean(t.args?.contract || '',100),
+        address:clean(t.args?.address || '',140),
+        ip:clean(t.args?.ip || '',65)
+      },
+      requestedBy:t.requestedBy || {},
+      ok:t.ok===true,code:clean(t.code || 'UNKNOWN',60),
+      source:clean(t.source || data.source || 'unknown',100),
+      candidateCount:Number.isInteger(data.count) ? data.count
+        : Array.isArray(data.candidates) ? data.candidates.length
+        : t.ok && candidate ? 1 : t.code==='NOT_FOUND' ? 0 : null,
+      candidate:candidate ? {
+        login:clean(candidate.login,100),
+        contract:clean(candidate.contract,100),
+        billingId:clean(candidate.billingId,40)
+      } : null,
+      observedAt:clean(t.observedAt || '',50),
+      httpTrace:Array.isArray(data.httpTrace) ? data.httpTrace.slice(0,35) : []
+    };
+  });
+  return {
+    ok:true,code:'OK',question,reply:clean(output.decision?.reply || variant.reply,2800),
+    intent:clean(output.decision?.intent || exp.analysis?.probe?.whatUserWants,450),
+    lookups,degraded:Boolean(variant.degraded),
+    degradationReason:clean(variant.degradationReason,350),
+    toolCalls:trace.length,usage:exp.usage || {},
+    elapsedMs:Number(exp.elapsedMs || 0),
+    observedAt:new Date().toISOString()
+  };
+}
+
 async function singleTurn(payload = {}) {
   const identity = identifierType(payload.identifier);
   if (!identity) return failure('input','INVALID_IDENTIFIER');
@@ -184,7 +236,7 @@ chrome.runtime.onMessage.addListener((message,_sender,sendResponse)=>{
   if(!TYPES.has(String(message?.type || ''))) return false;
   const action=message.type === 'AI_OPERATOR_BULK_PREFLIGHT'
     ? (message.payload?.identityOnly ? identifySubscriber(message.payload || {}) : preflight(message.payload || {}))
-    : singleTurn(message.payload || {});
+    : (message.payload?.identityOnly ? identifyViaAI(message.payload || {}) : singleTurn(message.payload || {}));
   void action.then(value=>sendResponse({success:true,data:value}),
     error=>sendResponse({success:false,error:clean(error?.message || error,350)}));
   return true;
