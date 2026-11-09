@@ -91,3 +91,65 @@ test('a batch runs one preflight / isolated Lab turn at a time; STOP and explici
     assert.match(html,new RegExp('id="'+id+'"'));
   assert.ok(BULK_SCENARIOS.length>=6);
 });
+
+
+test('identity-first audit records FOUND, zero-candidate NOT_FOUND, SOURCE_ERROR and repeated attempts',()=>{
+  const batch={
+    schema:'simnet.bulk-identity-qa.v1',mode:'identity',
+    createdAt:'2026-11-09T16:00:00Z',phase:'completed',
+    subscribers:[
+      {identifier:'abon100001',status:'FOUND',search:{
+        status:'FOUND',code:'OK',searchMode:'login',candidateCount:1,
+        matched:true,source:'billing-live-read-only',durationMs:28,
+        observedAt:'2026-11-09T16:00:00Z',httpTrace:[{kind:'HTTP',endpoint:'/cgi-bin/adm/adm.pl?a=listuser&name=[redacted]',status:200}]
+      },attempts:[{status:'FOUND',code:'OK',candidateCount:1}]},
+      {identifier:'334455',status:'NOT_FOUND',search:{
+        status:'NOT_FOUND',code:'NOT_FOUND',searchMode:'contract',candidateCount:0,
+        source:'billing-live-read-only',observedAt:'2026-11-09T16:00:02Z'
+      },attempts:[{status:'NOT_FOUND',code:'NOT_FOUND',candidateCount:0}]},
+      {identifier:'abon100003',status:'SOURCE_ERROR',search:{
+        status:'SOURCE_ERROR',code:'BILLING_TAB_REQUIRED',candidateCount:null,
+        source:'none'
+      },attempts:[{status:'SOURCE_ERROR',code:'BILLING_TAB_REQUIRED',candidateCount:null},
+        {status:'SOURCE_ERROR',code:'BILLING_TAB_REQUIRED',candidateCount:null}]},
+      {identifier:'abon100004',status:'MISMATCH',search:{status:'MISMATCH',code:'OK',candidateCount:1,matched:false},
+        attempts:[{status:'MISMATCH',code:'OK',candidateCount:1}]},
+      {identifier:'abon100005',status:'AMBIGUOUS',search:{status:'AMBIGUOUS',code:'AMBIGUOUS_IDENTITY',candidateCount:2},
+        attempts:[{status:'AMBIGUOUS',code:'AMBIGUOUS_IDENTITY',candidateCount:2}]}
+    ]
+  };
+  const totals=bulkTotals(batch);
+  assert.equal(totals.found,1);
+  assert.equal(totals.notFound,1);
+  assert.equal(totals.sourceErrors,1);
+  assert.equal(totals.mismatch,1);
+  assert.equal(totals.ambiguous,1);
+  assert.equal(totals.attempts,6);
+  assert.equal(totals.usedTokens,0);
+  const report=makeBulkReport(batch);
+  assert.equal(report.schema,'simnet.bulk-identity-qa.v1');
+  assert.equal(report.cases[1].search.candidateCount,0);
+  assert.equal(report.cases[2].search.candidateCount,null);
+  assert.equal(report.cases[2].attempts.length,2);
+  assert.doesNotMatch(JSON.stringify(report),/abon100001|334455|abon100003/);
+  const withIds=makeBulkReport(batch,true);
+  assert.equal(withIds.cases[0].subscriber,'abon100001');
+  assert.equal(withIds.cases[1].subscriber,'334455');
+});
+
+test('identity bulk UI runs only customer.lookup and does not invoke DeepSeek or financial queries',()=>{
+  const ui=file('standalone-ai/bulk-qa.js');
+  const bg=file('src/features/ai-operator/bulk-qa-background.js');
+  const html=file('standalone-ai/chat.html');
+  assert.match(ui,/identityOnly:true/);
+  assert.match(ui,/mode:'identity'/);
+  assert.match(bg,/function identifySubscriber\(/);
+  assert.match(bg,/message\.payload\?\.identityOnly \? identifySubscriber/);
+  const isolated=bg.slice(bg.indexOf('async function identifySubscriber'),bg.indexOf('async function preflight'));
+  assert.match(isolated,/customer\.lookup/);
+  assert.doesNotMatch(isolated,/readBillingSummaryLive|runIsolatedLabCase/);
+  assert.match(html,/id="bulkRun" hidden/);
+  assert.match(html,/FOUND \/ NOT_FOUND \/ ZERO_RESULT/);
+  assert.match(ui,/stopped-scan/);
+  assert.match(ui,/for\(const attempt of sub\.attempts/);
+});
