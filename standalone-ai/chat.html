@@ -31,7 +31,7 @@
 
     <section id="bulkQaPanel" class="bulk-panel" hidden aria-label="Массовая проверка идентификации абонентов">
       <div class="bulk-head">
-        <div><h1>Массовый поиск абонентов</h1><p>Первый этап QA: проверить каждый логин/договор через штатный <code>customer.lookup</code> в Billing. Без запросов к DeepSeek, без проверки баланса и списаний. Все результаты фиксируются.</p></div>
+        <div><h1>Проверка идентификации абонентов</h1><p>1. Получить эталон через штатный Billing <code>customer.lookup</code>. 2. Отдельно проверить, сможет ли DeepSeek найти того же абонента через свой вызов инструмента. Баланс и тарифы не проверяются.</p></div>
         <button type="button" class="secondary" id="bulkQaClose">К диалогу</button>
       </div>
       <div class="bulk-layout">
@@ -45,18 +45,18 @@
 
           <h2>2. Запуск поиска</h2>
           <p class="bulk-muted">Для каждого абонента: нормализация идентификатора → поиск Billing → сопоставление найденного логина или договора. Результаты <strong>FOUND / NOT_FOUND / ZERO_RESULT / MISMATCH / AMBIGUOUS / SOURCE_ERROR</strong> сохраняются отдельно. Нулевой баланс не проверяется и не считается ошибкой.</p>
-          <div hidden>
-          <label class="bulk-label" for="bulkMode">Набор тестов</label>
-          <select id="bulkMode"><option value="identity">Только поиск абонента</option></select>
-          <div class="bulk-limits">
-            <label>Максимум ответов AI в пакете<input id="bulkMaxTurns" type="number" value="30" min="1" max="600" step="1"></label>
-            <label>Лимит токенов в пакете<input id="bulkTokenBudget" type="number" value="100000" min="1000" max="1000000" step="1000"></label>
-          </div>
-          </div>
-          <p class="bulk-muted">Запросы последовательные, без автоматических повторов. STOP останавливает запуск новых проверок после текущего запроса. При недоступном Billing остальные записи остаются в очереди.</p>
+          <select id="bulkMode" hidden><option value="identity">Только идентификация</option></select>
+          <details class="bulk-ai-settings">
+            <summary>Лимиты теста DeepSeek (необходимы только для второго этапа)</summary>
+            <div class="bulk-limits">
+              <label>Максимум AI-проверок<input id="bulkMaxTurns" type="number" value="10" min="1" max="600" step="1"></label>
+              <label>Лимит токенов<input id="bulkTokenBudget" type="number" value="50000" min="1000" max="1000000" step="1000"></label>
+            </div>
+          </details>
+          <p class="bulk-muted">Первый этап не использует DeepSeek и не расходует токены. Второй этап запускается вручную и задаёт модели один вопрос на идентификатор. Запросы последовательные, STOP останавливает новые проверки после текущего запроса.</p>
           <div class="bulk-buttons">
             <button type="button" id="bulkScan">Найти всех абонентов</button>
-            <button type="button" id="bulkRun" hidden>Запустить AI-проверку</button>
+            <button type="button" id="bulkRun">Проверить поиск через AI</button>
             <button type="button" class="bulk-danger" id="bulkStop" disabled>STOP</button>
             <button type="button" class="secondary" id="bulkResume">Продолжить</button>
             <button type="button" class="secondary" id="bulkRetryBlocked">Повторить ошибки</button>
@@ -71,7 +71,7 @@
           <p id="bulkSummary" class="bulk-summary">Список не загружен.</p>
           <div class="bulk-table-wrap">
             <table class="bulk-table">
-              <thead><tr><th>#</th><th>Идентификатор</th><th>Статус</th><th>Кандидатов</th><th>Код</th><th>Время</th></tr></thead>
+              <thead><tr><th>#</th><th>Идентификатор</th><th>Billing</th><th>Кандидатов</th><th>Код</th><th>AI</th><th>Время</th></tr></thead>
               <tbody id="bulkTableBody"></tbody>
             </table>
           </div>
@@ -83,7 +83,7 @@
               <button type="button" class="secondary" id="bulkExportJson">Все результаты · JSON</button>
               <button type="button" class="secondary" id="bulkExportCsv">Все результаты · CSV</button>
             </div>
-            <p class="bulk-muted">FOUND подтверждает совпадение записи Billing по данному идентификатору, но не принадлежность договора конкретному человеку. NOT_FOUND = 0 кандидатов в выполненном поиске. SOURCE_ERROR = проверить наличие вкладки, сессию и запрос; отсутствие абонента этим не доказано. При экспорте идентификаторы скрыты по умолчанию.</p>
+            <p class="bulk-muted">FOUND подтверждает найденную запись Billing, но не принадлежность договора человеку. NOT_FOUND означает ноль кандидатов при выполненном поиске. SOURCE_ERROR — проблему с источником. AI PASS означает, что DeepSeek вызвал правильный инструмент с тем же идентификатором и получил согласованный результат, а не что проверены все слова финального ответа.</p>
           </div>
         </div>
       </div>
