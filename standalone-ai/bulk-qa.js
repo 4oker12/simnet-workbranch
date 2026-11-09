@@ -40,6 +40,54 @@ const money = value => {
   return Number.isFinite(n)?Math.round(n*100)/100:null;
 };
 const normalize = str => String(str || '').toLowerCase().replace(/\s+/g,' ').trim();
+
+export function gradeIdentityAi(control = {}, ai = {}, identifier = '') {
+  const expected=String(identifier || '').trim().toLowerCase();
+  const expectedType=/^abon\d{3,12}$/.test(expected)?'login':'contract';
+  const response=String(ai.reply || '');
+  const miss=(verdict,category,reason)=>({verdict,category,reason});
+  if(!ai.ok)return miss('REVIEW','ai_runtime_error','Вызов AI не завершён.');
+  if(ai.degraded)return miss('REVIEW','ai_degraded','Деградированный ответ модели, проверка требует повтора.');
+  const lookups=Array.isArray(ai.lookups)?ai.lookups:[];
+  if(!lookups.length)return miss('FAIL','ai_no_lookup','AI не вызвал customer.lookup для предъявленного идентификатора.');
+  const correctArgs=lookup=>{
+    const login=normalize(lookup?.args?.login);
+    const contract=normalize(lookup?.args?.contract);
+    return expectedType==='login' ? login===expected && !contract
+      : contract===expected && !login;
+  };
+  if(!lookups.some(correctArgs))return miss('FAIL','ai_wrong_identifier',
+    'AI передал неверный идентификатор или неверное поле в customer.lookup.');
+  const lookup=lookups.filter(correctArgs).at(-1);
+  const source=String(lookup.source || '');
+  if(!/billing/i.test(source) || !['OK','NOT_FOUND'].includes(lookup.code)){
+    return miss('REVIEW','ai_source_error',
+      'AI выбрал поиск, но источник не дал проверенного результата: '+lookup.code);
+  }
+  if(control.status==='FOUND'){
+    if(lookup.code==='NOT_FOUND'||lookup.candidateCount===0)return miss('FAIL','ai_false_not_found',
+      'Контрольный Billing нашёл абонента, а поиск AI вернул 0 кандидатов.');
+    if(!lookup.ok)return miss('REVIEW','ai_lookup_failed','AI READ не подтвердил результат.');
+    const cand=lookup.candidate || {};
+    const matched=expectedType==='login' ? normalize(cand.login)===expected
+      : normalize(cand.contract)===expected;
+    if(!matched)return miss('FAIL','ai_wrong_customer',
+      'AI нашёл другую карточку либо не подтвердил искомый идентификатор.');
+    if(/\bне\s+(?:наш[её]л|найден|знайден|удалось\s+найти|знайш[оі]в)/i.test(response))return miss('REVIEW','ai_reply_conflicts',
+      'READ успешен, но текст ответа может отрицать результат поиска.');
+    return miss('PASS','ai_identity_confirmed',
+      'AI вызвал customer.lookup с правильным идентификатором и получил совпадающую карточку.');
+  }
+  if(control.status==='NOT_FOUND'||control.status==='ZERO_RESULT'){
+    if(lookup.ok&&lookup.candidateCount>0)return miss('REVIEW','ai_source_changed',
+      'Контрольный поиск дал 0 кандидатов, повторный поиск AI нашёл запись; источник изменился или неоднозначен.');
+    if(lookup.code==='NOT_FOUND'&&lookup.candidateCount===0)return miss('PASS','ai_not_found_grounded',
+      'AI вызвал верный поиск; живой Billing подтвердил 0 результатов.');
+    return miss('REVIEW','ai_lookup_unverified','Нельзя подтвердить, что нулевой результат корректен.');
+  }
+  return miss('REVIEW','control_unverified','Контрольный поиск не дал однозначной записи; нельзя оценить AI.');
+}
+
 const amounts = reply => [...String(reply || '').matchAll(/(-?\d[\d\s\u00a0]*(?:[.,]\d{1,2})?)\s*(?:грн|₴|грив(?:ен|ны|ень|ні))/giu)]
   .map(m=>money(m[1])).filter(x=>x!==null);
 const containsAmount=(text,target)=>amounts(text).some(x=>Math.abs(x-target)<0.011);
@@ -130,7 +178,9 @@ export function makeBulkReport(batch,includeIdentifiers=false) {
         status:a.status,code:a.code,candidateCount:a.candidateCount,
         source:a.source,observedAt:a.observedAt,durationMs:a.durationMs,
         httpTrace:a.httpTrace || []
-      }))
+      })),
+      ai:s.ai || null,
+      aiAttempts:(s.aiAttempts||[]).map(a=>({code:a.code,message:a.message||'',at:a.at}))
     }));
     const report={
       schema:'simnet.bulk-identity-qa.v1',createdAt:batch.createdAt,
@@ -139,13 +189,28 @@ export function makeBulkReport(batch,includeIdentifiers=false) {
       note:'FOUND означает точное совпадение идентификатора в customer.lookup, не владение договором человеком. NOT_FOUND = ноль кандидатов штатного поиска, а не доказательство отсутствия договора.'
     };
     const safe=protectExport(report,{includeSensitive:false});
-    if(includeIdentifiers)cases.forEach((row,i)=>{safe.cases[i].subscriber=batch.subscribers[i].identifier});
-    return safe;
+    const ids=(batch.subscribers||[]).map(s=>String(s.identifier||'')).filter(Boolean);
+    const mask=value=>{
+      if(typeof value==='string'){
+        let out=value;
+        for(const id of ids)out=out.split(id).join('[абонент скрыт]');
+        return out;
+      }
+      if(Array.isArray(value))return value.map(mask);
+      if(value && typeof value==='object')
+        return Object.fromEntries(Object.entries(value).map(([key,v])=>[key,mask(v)]));
+      return value;
+    };
+    const redacted=mask(safe);
+    if(includeIdentifiers)cases.forEach((row,i)=>{redacted.cases[i].subscriber=batch.subscribers[i].identifier});
+    return redacted;
   }
   const cases=(batch?.subscribers||[]).map((s,i)=>({
     index:i+1,subscriber:includeIdentifiers?s.identifier:'#'+String(i+1).padStart(3,'0'),
     status:s.status,sourceError:s.error || null,
     control:snapshotForExport(s.snapshot,includeIdentifiers),
+    ai:s.ai||null,
+    aiAttempts:(s.aiAttempts||[]).map(a=>({code:a.code,message:a.message||'',at:a.at})),
     requestErrors:(s.requestErrors||[]).map(e=>({scenario:e.scenario,code:e.code,message:e.message,at:e.at})),
     checks:(s.checks||[]).map(c=>({
       scenario:c.scenario,name:c.name,question:c.question,reply:c.reply,
@@ -186,7 +251,12 @@ export function bulkTotals(batch) {
       ambiguous:count('AMBIGUOUS'),mismatch:count('MISMATCH'),
       sourceErrors:count('SOURCE_ERROR'),invalid:count('INVALID'),
       attempts:subscribers.reduce((sum,s)=>sum+(s.attempts?.length||0),0),
-      usedTokens:0
+      aiChecked:subscribers.filter(s=>s.ai).length,
+      aiPass:subscribers.filter(s=>s.ai?.grade?.verdict==='PASS').length,
+      aiFail:subscribers.filter(s=>s.ai?.grade?.verdict==='FAIL').length,
+      aiReview:subscribers.filter(s=>s.ai?.grade?.verdict==='REVIEW').length,
+      aiErrors:subscribers.reduce((sum,s)=>sum+(s.aiAttempts?.length||0),0),
+      usedTokens:subscribers.reduce((sum,s)=>sum+Number(s.ai?.usage?.total_tokens||0),0)
     };
   }
   const checks=subscribers.flatMap(s=>s.checks||[]);
