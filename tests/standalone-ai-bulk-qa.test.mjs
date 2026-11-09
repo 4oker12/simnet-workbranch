@@ -51,6 +51,14 @@ test('default audit JSON masks supplied contract and login even inside replies, 
   assert.equal(result.totals.pass,1);
   assert.equal(result.totals.blocked,1);
   assert.equal(result.totals.usedTokens,300);
+  const reviewed=structuredClone(batch);
+  reviewed.subscribers[0].checks[0].manualVerdict='FAIL';
+  reviewed.subscribers[0].checks[0].operatorNote='Ошибка фактической трактовки договора 334455.';
+  const manualReport=makeBulkReport(reviewed);
+  assert.equal(manualReport.totals.fail,1);
+  assert.equal(manualReport.totals.manuallyReviewed,1);
+  assert.equal(manualReport.cases[0].checks[0].manualVerdict,'FAIL');
+  assert.doesNotMatch(JSON.stringify(manualReport),/334455/);
   const identifiable=makeBulkReport(batch,true);
   assert.equal(identifiable.cases[0].subscriber,'334455');
 });
@@ -72,7 +80,10 @@ test('a batch runs one preflight / isolated Lab turn at a time; STOP and explici
   assert.match(ui,/Math\.min\(600/);
   assert.match(ui,/tokenBudget/);
   assert.match(ui,/chrome\.storage\.local\.get\(STORAGE_KEY\)/);
-  for(const id of ['bulkQaToggle','bulkQaPanel','bulkFile','bulkScan','bulkRun','bulkStop','bulkResume','bulkExportJson','bulkExportCsv'])
+  assert.match(ui,/bulkRetryBlocked/);
+  assert.match(ui,/manualVerdict/);
+  assert.match(ui,/operatorNote/);
+  for(const id of ['bulkQaToggle','bulkQaPanel','bulkFile','bulkScan','bulkRun','bulkStop','bulkResume','bulkExportJson','bulkExportCsv','bulkRetryBlocked'])
     assert.match(html,new RegExp('id="'+id+'"'));
   assert.ok(BULK_SCENARIOS.length>=6);
 });
