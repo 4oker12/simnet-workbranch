@@ -57,6 +57,8 @@ test('default audit JSON masks supplied contract and login even inside replies, 
   const manualReport=makeBulkReport(reviewed);
   assert.equal(manualReport.totals.fail,1);
   assert.equal(manualReport.totals.manuallyReviewed,1);
+  reviewed.subscribers[0].requestErrors=[{scenario:'tariff',code:'AI_RUNTIME_ERROR',message:'network',at:'2026-11-09'}];
+  assert.equal(makeBulkReport(reviewed).totals.requestErrors,1);
   assert.equal(manualReport.cases[0].checks[0].manualVerdict,'FAIL');
   assert.doesNotMatch(JSON.stringify(manualReport),/334455/);
   const identifiable=makeBulkReport(batch,true);
@@ -83,6 +85,8 @@ test('a batch runs one preflight / isolated Lab turn at a time; STOP and explici
   assert.match(ui,/bulkRetryBlocked/);
   assert.match(ui,/manualVerdict/);
   assert.match(ui,/operatorNote/);
+  assert.match(ui,/requestErrors/);
+  assert.match(ui,/вопрос можно вручную повторить/);
   for(const id of ['bulkQaToggle','bulkQaPanel','bulkFile','bulkScan','bulkRun','bulkStop','bulkResume','bulkExportJson','bulkExportCsv','bulkRetryBlocked'])
     assert.match(html,new RegExp('id="'+id+'"'));
   assert.ok(BULK_SCENARIOS.length>=6);
