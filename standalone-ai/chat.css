@@ -229,3 +229,8 @@ button.bulk-danger:disabled{background:#c6b7b5}
 .bulk-error{color:#ba4e45;font-weight:650}
 .bulk-export{margin-top:18px;padding-top:16px;border-top:1px solid #dce8df}
 @media(max-width:860px){.bulk-layout{grid-template-columns:1fr}.bulk-head{flex-direction:column}.bulk-setup,.bulk-results{padding:16px}}
+
+.bulk-review-controls{margin:12px 0;padding:10px;background:#f1f7f3;border:1px solid #d4e4d8;border-radius:8px;display:grid;gap:8px}
+.bulk-review-controls label{font-size:10px;font-weight:700;color:#376c50}
+.bulk-review-controls select,.bulk-review-controls textarea{font-size:11px;padding:8px;width:100%;border:1px solid #ccded1;border-radius:7px;background:#fff}
+.bulk-review-controls textarea{resize:vertical;min-height:50px}
