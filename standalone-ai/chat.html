@@ -13,6 +13,7 @@
       <div class="brand"><span class="mark">S</span><div><strong>SIMNET AI Operator</strong><small>Standalone · абонентский диалог <span id="buildId" class="build-id">v0.2.0</span></small></div></div>
       <div class="header-actions">
         <span class="status-chip" id="apiState">Проверка DeepSeek…</span>
+        <button class="secondary" id="bulkQaToggle" type="button">Bulk QA</button>
         <button class="secondary" id="settingsToggle" type="button" aria-expanded="false" aria-controls="settings">Настройки</button>
       </div>
     </header>
@@ -26,6 +27,65 @@
         <button class="secondary" id="testConfig" type="button">Проверить API</button>
       </div>
       <p class="helper" id="keyHint">Ключ ещё не настроен.</p>
+    </section>
+
+    <section id="bulkQaPanel" class="bulk-panel" hidden aria-label="Bulk Finance QA">
+      <div class="bulk-head">
+        <div><h1>Bulk Finance QA</h1><p>Массовая READ-only проверка ответов AI по контрольным данным Billing. Ошибки и весь прогресс сохраняются локально.</p></div>
+        <button type="button" class="secondary" id="bulkQaClose">К диалогу</button>
+      </div>
+      <div class="bulk-layout">
+        <div class="bulk-setup">
+          <h2>1. Список абонентов</h2>
+          <p class="bulk-muted">Вставь 1–100 логинов <code>abonNNN</code> или числовых договоров, каждый с новой строки. Можно загрузить TXT/CSV. Дубликаты исключаются.</p>
+          <label class="bulk-label" for="bulkSubscribers">Логины / договоры</label>
+          <textarea id="bulkSubscribers" rows="7" spellcheck="false" placeholder="abon123456&#10;abon987654&#10;334455"></textarea>
+          <label class="bulk-file">Загрузить TXT/CSV <input id="bulkFile" type="file" accept=".txt,.csv,text/plain,text/csv"></label>
+          <button type="button" class="secondary" id="bulkValidate">Проверить список</button>
+
+          <h2>2. Сценарии и лимиты</h2>
+          <label class="bulk-label" for="bulkMode">Набор тестов</label>
+          <select id="bulkMode">
+            <option value="starter">Основной: баланс, тариф, услуги, пополнение (4)</option>
+            <option value="extended">Расширенный: + дата списания и контекст (6)</option>
+          </select>
+          <div class="bulk-limits">
+            <label>Максимум ответов AI в пакете<input id="bulkMaxTurns" type="number" value="30" min="1" max="600" step="1"></label>
+            <label>Лимит токенов в пакете<input id="bulkTokenBudget" type="number" value="100000" min="1000" max="1000000" step="1000"></label>
+          </div>
+          <p class="bulk-muted">Лимиты защищают от неожиданных расходов. Запросы последовательные, без автоматических бесконечных повторов. STOP действует после текущего запроса.</p>
+          <div class="bulk-buttons">
+            <button type="button" id="bulkScan">Собрать факты Billing</button>
+            <button type="button" id="bulkRun">Запустить AI-проверку</button>
+            <button type="button" class="bulk-danger" id="bulkStop" disabled>STOP</button>
+            <button type="button" class="secondary" id="bulkResume">Продолжить</button>
+          </div>
+          <p id="bulkStatus" class="bulk-status" role="status">Пока не загружен пакет.</p>
+        </div>
+        <div class="bulk-results">
+          <div class="bulk-results-head">
+            <h2>3. Результаты и журнал ошибок</h2>
+            <button type="button" id="bulkClear" class="secondary tiny">Очистить пакет</button>
+          </div>
+          <p id="bulkSummary" class="bulk-summary">Список не загружен.</p>
+          <div class="bulk-table-wrap">
+            <table class="bulk-table">
+              <thead><tr><th>#</th><th>Абонент</th><th>Billing</th><th>Ответов</th><th>FAIL</th><th>REVIEW</th></tr></thead>
+              <tbody id="bulkTableBody"></tbody>
+            </table>
+          </div>
+          <div class="bulk-case-detail" id="bulkCaseDetail"></div>
+          <div class="bulk-export">
+            <h2>4. Экспорт отчёта</h2>
+            <label class="bulk-muted"><input type="checkbox" id="bulkIncludeIds"> Включить идентификаторы абонентов в экспорт (по умолчанию скрыты)</label>
+            <div class="bulk-buttons">
+              <button type="button" class="secondary" id="bulkExportJson">Весь пакет · JSON</button>
+              <button type="button" class="secondary" id="bulkExportCsv">Журнал ошибок · CSV</button>
+            </div>
+            <p class="bulk-muted">PASS означает совпадение конкретного проверяемого поля, а не полную проверку всего ответа. Сложные расчёты и отсутствие данных получают REVIEW, а ошибки источника — BLOCKED.</p>
+          </div>
+        </div>
+      </div>
     </section>
 
     <div class="workspace">
