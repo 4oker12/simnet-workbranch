@@ -2,6 +2,7 @@
 
 import { buildTurnTrace, buildDecisionExport, decisionExportText, protectExport } from './trace-report.js';
 import { buildTopicMap } from './topic-map.js';
+import { initBulkQA } from './bulk-qa.js';
 
 // This page has its own extension ID/storage. The AI logic lives in the
 // shared LAB service worker and is intentionally not copied into the UI.
@@ -554,6 +555,7 @@ els.toggle.addEventListener('click', () => {
   els.settings.hidden = !els.settings.hidden;
   els.toggle.setAttribute('aria-expanded', String(!els.settings.hidden));
 });
+initBulkQA({request, downloadLocalFile, isConfigured: () => configured});
 locked(true);
 Promise.all([refreshConfig(), request('AI_OPERATOR_LAB_GET'), refreshSources()])
   .then(([, lab]) => {
