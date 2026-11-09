@@ -148,7 +148,7 @@ test('control identity preflight uses only customer.lookup; AI stage is independ
   const isolated=bg.slice(bg.indexOf('async function identifySubscriber'),bg.indexOf('async function preflight'));
   assert.match(isolated,/customer\.lookup/);
   assert.doesNotMatch(isolated,/readBillingSummaryLive|runIsolatedLabCase/);
-  assert.match(html,/id="bulkRun" hidden/);
+  assert.match(html,/id="bulkRun">Проверить поиск через AI/);
   assert.match(html,/FOUND \/ NOT_FOUND \/ ZERO_RESULT/);
   assert.match(ui,/stopped-scan/);
   assert.match(ui,/for\(const attempt of sub\.attempts/);
