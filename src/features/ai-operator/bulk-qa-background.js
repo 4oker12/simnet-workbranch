@@ -37,6 +37,63 @@ function verifiedSummary(expected, data = {}) {
   // convert its absence into a mismatching identity; preflight lookup was exact.
   return !actual || actual === expected.value;
 }
+function lookupClassification(code, candidateCount, verified) {
+  if (code === 'NOT_FOUND') return 'NOT_FOUND';
+  if (code === 'AMBIGUOUS_IDENTITY') return 'AMBIGUOUS';
+  if (code === 'IDENTITY_MISMATCH' || !verified) return 'MISMATCH';
+  if (code === 'OK' && candidateCount === 0) return 'ZERO_RESULT';
+  if (code === 'OK') return 'FOUND';
+  return 'SOURCE_ERROR';
+}
+
+// Identity-only bulk mode: exercise the existing real customer.lookup authority.
+// Never call Billing summary or an LLM here; an exact lookup is the first
+// separate precondition before evaluating AI semantic reasoning.
+async function identifySubscriber(payload = {}) {
+  const expected = identifierType(payload.identifier);
+  if (!expected) return failure('input', 'INVALID_IDENTIFIER', { status:'INVALID', candidateCount:null });
+  const startedAt = Date.now();
+  const lookup = await executeOperatorTool({tool:'customer.lookup',
+    toolArgs:{[expected.type]:expected.value},labState:{}});
+  const data = lookup?.data || {};
+  const candidate = data.candidate || null;
+  const rawCount = data.count;
+  const candidateCount = Number.isInteger(rawCount) && rawCount >= 0 ? rawCount
+    : Array.isArray(data.candidates) ? data.candidates.length
+      : lookup?.ok && candidate ? 1
+        : lookup?.code === 'NOT_FOUND' ? 0 : null;
+  const verified = Boolean(candidate && exactIdentity(expected,candidate));
+  const code = String(lookup?.code || (lookup?.ok ? 'OK' : 'UNKNOWN'));
+  const status = lookup?.ok && verified && candidateCount === 1 &&
+    !data.requiresConfirmation && Boolean(lookup.statePatch?.confirmedCaseId)
+      ? 'FOUND'
+      : lookup?.ok && candidateCount === 0 ? 'ZERO_RESULT'
+      : lookup?.ok && !verified ? 'MISMATCH'
+      : lookup?.ok && candidateCount !== 1 ? 'AMBIGUOUS'
+      : lookupClassification(code,candidateCount,false);
+  return {
+    ok: status === 'FOUND',
+    status,
+    stage: status === 'SOURCE_ERROR' ? 'source' : 'identity',
+    code,
+    identifier: expected.value,
+    searchMode: expected.type,
+    candidateCount,
+    candidate: candidate ? {
+      login:clean(candidate.login,80),
+      contract:clean(candidate.contract,80),
+      billingId:clean(candidate.billingId,30),
+      caseId:clean(candidate.caseId,70)
+    } : null,
+    matched:verified,
+    observedAt:lookup?.observedAt || new Date().toISOString(),
+    durationMs:Date.now()-startedAt,
+    source:clean(data.source || 'unknown',100),
+    warnings:Array.isArray(lookup?.warnings) ? lookup.warnings.slice(0,8) : [],
+    httpTrace:Array.isArray(data.httpTrace) ? data.httpTrace : []
+  };
+}
+
 async function preflight(payload = {}) {
   const expected = identifierType(payload.identifier);
   if (!expected) return failure('input','INVALID_IDENTIFIER');
@@ -126,7 +183,8 @@ async function singleTurn(payload = {}) {
 chrome.runtime.onMessage.addListener((message,_sender,sendResponse)=>{
   if(!TYPES.has(String(message?.type || ''))) return false;
   const action=message.type === 'AI_OPERATOR_BULK_PREFLIGHT'
-    ? preflight(message.payload || {}) : singleTurn(message.payload || {});
+    ? (message.payload?.identityOnly ? identifySubscriber(message.payload || {}) : preflight(message.payload || {}))
+    : singleTurn(message.payload || {});
   void action.then(value=>sendResponse({success:true,data:value}),
     error=>sendResponse({success:false,error:clean(error?.message || error,350)}));
   return true;
