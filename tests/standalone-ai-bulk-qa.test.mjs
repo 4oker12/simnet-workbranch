@@ -171,7 +171,9 @@ test('AI identification checks actual lookup args, result and candidate against 
     ok:false,code:'NOT_FOUND',source:'billing-live-read-only',candidateCount:0}]};
   assert.equal(gradeIdentityAi({status:'NOT_FOUND'},none,'abon123456').verdict,'PASS');
   assert.equal(gradeIdentityAi({status:'NOT_FOUND'},{...none,reply:'Нашёл абонента'},'abon123456').category,'ai_reply_conflicts');
-  assert.equal(gradeIdentityAi({status:'FOUND'},{...ok(),reply:'Не нашёл договор'},'abon123456').category,'ai_reply_conflicts');
+  assert.equal(gradeIdentityAi({status:'FOUND'},{...ok(),reply:'Не нашёл договор'},'abon123456').category,'ai_false_not_found_reply');
+  assert.equal(gradeIdentityAi({status:'FOUND'},{...ok(),reply:'0'},'abon123456').category,'ai_zero_reply');
+  assert.equal(gradeIdentityAi({status:'NOT_FOUND'},{...none,reply:'0'},'abon123456').category,'ai_zero_reply');
   assert.equal(gradeIdentityAi({status:'FOUND'},none,'abon123456').category,'ai_false_not_found');
   assert.equal(gradeIdentityAi({status:'NOT_FOUND'},ok(),'abon123456').category,'ai_source_changed');
   const broken={ok:true,reply:'Нет данных',lookups:[{args:{login:'abon123456',contract:''},
