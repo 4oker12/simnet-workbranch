@@ -5,7 +5,7 @@ import { protectExport } from './trace-report.js';
 // Bulk QA is a bounded user-controlled audit, not a second AI/policy engine.
 // All facts originate in the real READ-only Billing preflight. Heuristic answer
 // checks below are conservative: unsupported domains produce REVIEW, not PASS.
-const STORAGE_KEY = 'simnet_ai_operator_bulk_qa_v1';
+const STORAGE_KEY = 'simnet_ai_operator_bulk_identity_qa_v1';
 const MAX_SUBSCRIBERS = 100;
 export const BULK_SCENARIOS = Object.freeze([
   {id:'balance', name:'Текущий баланс', question:'Сколько денег сейчас на моём счету?'},
@@ -114,6 +114,34 @@ function snapshotForExport(snapshot,includeIdentifiers) {
     evidence:snapshot.evidence,identity:includeIdentifiers?snapshot.identity:undefined};
 }
 export function makeBulkReport(batch,includeIdentifiers=false) {
+  if (batch?.mode === 'identity') {
+    const cases=(batch.subscribers||[]).map((s,i)=>({
+      index:i+1,
+      subscriber:includeIdentifiers?s.identifier:'#'+String(i+1).padStart(3,'0'),
+      status:s.status,
+      search:s.search ? {
+        status:s.search.status,code:s.search.code,source:s.search.source,
+        searchMode:s.search.searchMode,candidateCount:s.search.candidateCount,
+        matched:s.search.matched,observedAt:s.search.observedAt,durationMs:s.search.durationMs,
+        httpTrace:s.search.httpTrace || [],warnings:s.search.warnings || []
+      }:null,
+      error:s.error ? {code:s.error.code,stage:s.error.stage,message:s.error.message || ''}:null,
+      attempts:(s.attempts||[]).map(a=>({
+        status:a.status,code:a.code,candidateCount:a.candidateCount,
+        source:a.source,observedAt:a.observedAt,durationMs:a.durationMs,
+        httpTrace:a.httpTrace || []
+      }))
+    }));
+    const report={
+      schema:'simnet.bulk-identity-qa.v1',createdAt:batch.createdAt,
+      exportedAt:new Date().toISOString(),mode:'identity',
+      complete:batch.phase==='completed',totals:bulkTotals(batch),cases,
+      note:'FOUND означает точное совпадение идентификатора в customer.lookup, не владение договором человеком. NOT_FOUND = ноль кандидатов штатного поиска, а не доказательство отсутствия договора.'
+    };
+    const safe=protectExport(report,{includeSensitive:false});
+    if(includeIdentifiers)cases.forEach((row,i)=>{safe.cases[i].subscriber=batch.subscribers[i].identifier});
+    return safe;
+  }
   const cases=(batch?.subscribers||[]).map((s,i)=>({
     index:i+1,subscriber:includeIdentifiers?s.identifier:'#'+String(i+1).padStart(3,'0'),
     status:s.status,sourceError:s.error || null,
@@ -148,7 +176,20 @@ export function makeBulkReport(batch,includeIdentifiers=false) {
   return mask(safe);
 }
 export function bulkTotals(batch) {
-  const subscribers=batch?.subscribers||[],checks=subscribers.flatMap(s=>s.checks||[]);
+  const subscribers=batch?.subscribers||[];
+  if (batch?.mode==='identity') {
+    const count=status=>subscribers.filter(s=>s.status===status).length;
+    return {
+      subscribers:subscribers.length,
+      processed:subscribers.filter(s=>s.status!=='pending').length,
+      found:count('FOUND'),notFound:count('NOT_FOUND'),zero:count('ZERO_RESULT'),
+      ambiguous:count('AMBIGUOUS'),mismatch:count('MISMATCH'),
+      sourceErrors:count('SOURCE_ERROR'),invalid:count('INVALID'),
+      attempts:subscribers.reduce((sum,s)=>sum+(s.attempts?.length||0),0),
+      usedTokens:0
+    };
+  }
+  const checks=subscribers.flatMap(s=>s.checks||[]);
   const effective=check=>check.manualVerdict || check.verdict;
   const failures=checks.filter(x=>effective(x)==='FAIL');
   const requestErrors=subscribers.flatMap(s=>s.requestErrors||[]);
@@ -189,6 +230,56 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
   function render() {
     ui.list.replaceChildren();ui.detail.replaceChildren();
     const totals=bulkTotals(batch);
+    if (batch?.mode==='identity') {
+      ui.summary.textContent =
+        'Обработано '+totals.processed+' / '+totals.subscribers+
+        ' · FOUND '+totals.found+' · NOT_FOUND (0) '+totals.notFound+
+        ' · ZERO_RESULT '+totals.zero+' · AMBIGUOUS '+totals.ambiguous+
+        ' · MISMATCH '+totals.mismatch+' · SOURCE_ERROR '+totals.sourceErrors+
+        ' · попыток '+totals.attempts+' · токенов 0 · '+batch.phase;
+      batch.subscribers.forEach((sub,i)=>{
+        const tr=n('tr');
+        for(const col of [String(i+1),sub.identifier,sub.status,
+          sub.search?.candidateCount == null ? '—' : String(sub.search.candidateCount),
+          sub.search?.code || sub.error?.code || '—',
+          sub.search?.durationMs == null ? '—':sub.search.durationMs+' мс'
+        ])tr.append(n('td','',col));
+        tr.tabIndex=0;tr.className=selectedIndex===i?'selected':'';
+        tr.addEventListener('click',()=>{selectedIndex=i;render()});
+        tr.addEventListener('keydown',e=>{if(e.key==='Enter'){selectedIndex=i;render()}});
+        ui.list.append(tr);
+      });
+      const sub=batch.subscribers[selectedIndex];
+      if(!sub)return;
+      ui.detail.append(n('h3','','Абонент #'+(selectedIndex+1)+' · '+sub.identifier));
+      ui.detail.append(n('p','bulk-muted',
+        'Состояние: '+sub.status+' · попыток: '+(sub.attempts?.length||0)));
+      if(sub.search) {
+        ui.detail.append(n('p',sub.status==='FOUND'?'bulk-success':'bulk-error',
+          'Результат: '+sub.search.status+' · код: '+sub.search.code+
+          ' · кандидатов: '+(sub.search.candidateCount??'неизвестно')));
+        const details=n('details','bulk-check');
+        details.append(n('summary','','Проверка идентификатора и реальные HTTP/DOM шаги'));
+        const safeTrace={
+          input:sub.identifier,searchMode:sub.search.searchMode,
+          found:sub.search.candidateCount,matched:sub.search.matched,
+          candidate:sub.search.candidate,source:sub.search.source,
+          observedAt:sub.search.observedAt,durationMs:sub.search.durationMs,
+          warnings:sub.search.warnings,httpTrace:sub.search.httpTrace
+        };
+        details.append(n('pre','bulk-detail-pre',JSON.stringify(safeTrace,null,2)));
+        ui.detail.append(details);
+      }
+      if(sub.error)ui.detail.append(n('p','bulk-error',
+        'Сбой: '+sub.error.stage+' → '+sub.error.code+
+        (sub.error.message?' · '+sub.error.message:'')));
+      for(const attempt of sub.attempts||[]){
+        ui.detail.append(n('p','bulk-muted',
+          (attempt.observedAt||'')+' · '+attempt.status+' · '+attempt.code+
+          ' · кандидатов: '+(attempt.candidateCount??'неизвестно')));
+      }
+      return;
+    }
     ui.summary.textContent=batch ? ('Абонентов: '+totals.subscribers+' · готово: '+totals.ready+
       ' · недоступно: '+totals.blocked+' · проверок: '+totals.checks+
       ' · PASS '+totals.pass+' / FAIL '+totals.fail+' / REVIEW '+totals.review+
@@ -251,20 +342,50 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
         if(isStopped()){stopReason('STOP запрошен оператором');break}
         emit('READ Billing: абонент '+(i+1)+' / '+batch.subscribers.length);
         try {
-          const data=await request('AI_OPERATOR_BULK_PREFLIGHT',{identifier:sub.identifier});
-          if(data?.ok) {
-            sub.status='ready';sub.snapshot={facts:data.facts,identity:data.identity,
-              observedAt:data.observedAt,source:data.source,evidence:data.evidence};sub.toolState=data.toolState;
-          } else {sub.status='blocked';sub.error={stage:data?.stage||'preflight',code:data?.code||'UNKNOWN',evidence:{lookup:data?.lookupTrace,summary:data?.summaryTrace}}}
+          if(batch.mode==='identity') {
+            const data=await request('AI_OPERATOR_BULK_PREFLIGHT',{identifier:sub.identifier,identityOnly:true});
+            const status=['FOUND','NOT_FOUND','ZERO_RESULT','AMBIGUOUS','MISMATCH','SOURCE_ERROR','INVALID']
+              .includes(data?.status) ? data.status : 'SOURCE_ERROR';
+            sub.status=status;
+            sub.search={...data,status};
+            sub.error=status==='SOURCE_ERROR'||status==='INVALID'
+              ? {stage:data?.stage||'source',code:data?.code||'UNKNOWN'} : null;
+            sub.attempts=[...(sub.attempts||[]),{
+              status,code:data?.code||'UNKNOWN',candidateCount:data?.candidateCount??null,
+              source:data?.source||'unknown',observedAt:data?.observedAt||new Date().toISOString(),
+              durationMs:data?.durationMs??null,httpTrace:data?.httpTrace||[]
+            }];
+            if(status==='SOURCE_ERROR' && [
+              'BILLING_TAB_REQUIRED','BILLING_AUTH_REQUIRED',
+              'BILLING_SESSION_REQUIRED','BILLING_RUNTIME_UNAVAILABLE'
+            ].includes(data?.code)){
+              stopReason('Billing недоступен: '+data.code+'. Исправь источник и нажми «Повторить ошибки».');
+              // Preserve remaining pending cases; do not spam a disconnected Billing.
+            }
+          } else {
+            const data=await request('AI_OPERATOR_BULK_PREFLIGHT',{identifier:sub.identifier});
+            if(data?.ok) {
+              sub.status='ready';sub.snapshot={facts:data.facts,identity:data.identity,
+                observedAt:data.observedAt,source:data.source,evidence:data.evidence};sub.toolState=data.toolState;
+            } else {sub.status='blocked';sub.error={stage:data?.stage||'preflight',code:data?.code||'UNKNOWN',evidence:{lookup:data?.lookupTrace,summary:data?.summaryTrace}}}
+          }
         } catch(error) {
-          sub.status='blocked';sub.error={stage:'runtime',code:'REQUEST_FAILED',message:clean(error?.message||error,250)};
-          // Authentication/API/infrastructure errors are not evidence that the customer is absent.
+          sub.status=batch.mode==='identity'?'SOURCE_ERROR':'blocked';
+          sub.error={stage:'runtime',code:'REQUEST_FAILED',message:clean(error?.message||error,250)};
+          if(batch.mode==='identity'){
+            sub.search={status:'SOURCE_ERROR',code:'REQUEST_FAILED',candidateCount:null,source:'none',
+              observedAt:new Date().toISOString(),warnings:[sub.error.message],httpTrace:[]};
+            sub.attempts=[...(sub.attempts||[]),sub.search];
+          }
         }
         await persist();render();
+        if(batch.phase==='stopped-run'||batch.phase==='stopped-scan')break;
       }
       if(batch.phase==='scanning')batch.phase='scanned';
       await persist();render();
-      emit(batch.phase==='scanned'?'Контрольные READ завершены. Можно запускать AI-проверку.':'Сбор фактов остановлен.');
+      emit(batch.phase==='scanned'
+        ? (batch.mode==='identity'?'Проверены все идентификаторы. Ошибки и нулевые результаты сохранены.':'Контрольные READ завершены. Можно запускать AI-проверку.')
+        : 'Поиск остановлен: '+(batch.stopReason||'STOP'));
     }finally{setBusy(false)}
   }
   async function run() {
@@ -321,6 +442,11 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
   }
   async function resume() {
     if(!batch||busy)return;
+    if(batch.mode==='identity') {
+      if(batch.subscribers.some(s=>s.status==='pending'))await scan();
+      else emit('Непроверенных абонентов нет. Для повторной проверки нажми «Повторить ошибки».');
+      return;
+    }
     if(batch.subscribers.some(s=>s.status==='pending'))await scan();
     else await run();
   }
@@ -341,24 +467,27 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
     if(batch&&batch.subscribers.some(s=>s.status!=='pending')){emit('Существующий пакет уже запущен. Продолжи или очисти его.',true);return}
     const ids=parseSubscriberList(ui.input.value);
     if(ids.invalid.length||ids.overLimit||!ids.accepted.length){emit('Исправь список: нужны 1–100 логинов abonNNN или числовых договоров, без ошибок.',true);return}
-    batch={schema:'simnet.bulk-finance-qa.v1',id:'bulk-'+Date.now().toString(36),
-      createdAt:new Date().toISOString(),phase:'draft',mode:ui.mode.value,
-      scenarios:scenarioIds(ui.mode.value),subscribers:ids.accepted.map(identifier=>({
-        identifier,status:'pending',snapshot:null,toolState:null,error:null,checks:[],requestErrors:[]
+    batch={schema:'simnet.bulk-identity-qa.v1',id:'bulk-'+Date.now().toString(36),
+      createdAt:new Date().toISOString(),phase:'draft',mode:'identity',
+      scenarios:[],subscribers:ids.accepted.map(identifier=>({
+        identifier,status:'pending',search:null,snapshot:null,
+        toolState:null,error:null,checks:[],requestErrors:[],attempts:[]
       }))};
     selectedIndex=0;await persist();render();await scan();
   });
-  ui.run.addEventListener('click',()=>void run());
+  ui.run.addEventListener('click',()=>{if(batch?.mode==='identity')return;void run()});
   ui.stop.addEventListener('click',()=>{stopRequested=true;emit('STOP принят. Текущий запрос завершится; следующий не запустится.')});
   ui.resume.addEventListener('click',()=>void resume());
   ui.retryBlocked.addEventListener('click',async()=>{
     if(!batch||busy)return;
-    const blocked=batch.subscribers.filter(s=>s.status==='blocked');
-    if(!blocked.length){emit('Нет заблокированных источником записей.');return}
+    const blocked=batch.subscribers.filter(s=>batch.mode==='identity'
+      ? !['FOUND','pending'].includes(s.status)
+      : s.status==='blocked');
+    if(!blocked.length){emit('Нет ошибок поиска для повтора.');return}
     for(const sub of blocked){sub.status='pending';sub.error=null}
     batch.stopReason='';
     await persist();render();
-    emit('Повторная проверка '+blocked.length+' записей BLOCKED — вручную, без автоматических retries.');
+    emit('Повторная проверка '+blocked.length+' записей с ошибками, без повторения FOUND.');
     await scan();
   });
   ui.clear.addEventListener('click',async()=>{
@@ -370,9 +499,22 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
     if(!batch){emit('Нет сохранённых результатов.',true);return}
     const report=makeBulkReport(batch,ui.includeIds.checked);
     const timestamp=new Date().toISOString().replace(/[:.]/g,'-');
-    if(format==='json')downloadLocalFile(JSON.stringify(report,null,2)+'\n','simnet-bulk-qa-'+timestamp+'.json','application/json;charset=utf-8');
+    if(format==='json')downloadLocalFile(JSON.stringify(report,null,2)+'\n','simnet-bulk-identity-'+timestamp+'.json','application/json;charset=utf-8');
     else {
       const quote=value=>'"'+String(value??'').replace(/"/g,'""').replace(/\r?\n/g,' ')+'"';
+      if(batch.mode==='identity'){
+        const rows=[['case','subscriber','status','searchMode','candidates','code','source','observedAt','durationMs','attempts']];
+        for(const entry of report.cases) rows.push([
+          entry.index,entry.subscriber,entry.status,entry.search?.searchMode||'',
+          entry.search?.candidateCount??'',entry.search?.code||entry.error?.code||'',
+          entry.search?.source||'',entry.search?.observedAt||'',
+          entry.search?.durationMs??'',entry.attempts?.length||0
+        ]);
+        downloadLocalFile('\uFEFF'+rows.map(cols=>cols.map(quote).join(',')).join('\r\n')+'\r\n',
+          'simnet-bulk-identity-'+timestamp+'.csv','text/csv;charset=utf-8');
+        emit('Экспорт результатов поиска создан локально.');
+        return;
+      }
       const rows=[['case','subscriber','status','scenario','verdict','autoVerdict','category','reason','operatorNote','question','reply']];
       for(const c of report.cases){
         for(const error of c.requestErrors||[])rows.push([c.index,c.subscriber,c.status,error.scenario,'RUNTIME_ERROR','',error.code,error.message,'','','']);
@@ -387,7 +529,7 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
   ui.exportJson.addEventListener('click',()=>exportData('json'));
   ui.exportCsv.addEventListener('click',()=>exportData('csv'));
   void chrome.storage.local.get(STORAGE_KEY).then(stored=>{
-    if(stored?.[STORAGE_KEY]?.schema==='simnet.bulk-finance-qa.v1'){
+    if(stored?.[STORAGE_KEY]?.schema==='simnet.bulk-identity-qa.v1'){
       batch=stored[STORAGE_KEY];
       if(['scanning','running'].includes(batch.phase)){
         batch.phase=batch.phase==='scanning'?'stopped-scan':'stopped-run';
