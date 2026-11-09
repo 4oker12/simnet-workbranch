@@ -40,9 +40,9 @@ function verifiedSummary(expected, data = {}) {
 function lookupClassification(code, candidateCount, verified) {
   if (code === 'NOT_FOUND') return 'NOT_FOUND';
   if (code === 'AMBIGUOUS_IDENTITY') return 'AMBIGUOUS';
-  if (code === 'IDENTITY_MISMATCH' || !verified) return 'MISMATCH';
+  if (code === 'IDENTITY_MISMATCH') return 'MISMATCH';
   if (code === 'OK' && candidateCount === 0) return 'ZERO_RESULT';
-  if (code === 'OK') return 'FOUND';
+  // An unsuccessful source READ is not proof of identity mismatch.
   return 'SOURCE_ERROR';
 }
 
