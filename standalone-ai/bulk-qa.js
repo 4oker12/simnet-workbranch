@@ -166,7 +166,7 @@ export function makeBulkReport(batch,includeIdentifiers=false) {
     const cases=(batch.subscribers||[]).map((s,i)=>({
       index:i+1,
       subscriber:includeIdentifiers?s.identifier:'#'+String(i+1).padStart(3,'0'),
-      status:s.status,
+      status:s.status,operatorNote:s.operatorNote || '',
       search:s.search ? {
         status:s.search.status,code:s.search.code,source:s.search.source,
         searchMode:s.search.searchMode,candidateCount:s.search.candidateCount,
@@ -328,6 +328,15 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
       ui.detail.append(n('h3','','Абонент #'+(selectedIndex+1)+' · '+sub.identifier));
       ui.detail.append(n('p','bulk-muted',
         'Состояние: '+sub.status+' · попыток: '+(sub.attempts?.length||0)));
+      const noteLabel=n('label','bulk-label','Заметка оператора по этому абоненту');
+      const note=n('textarea');note.rows=2;
+      note.placeholder='Например: в Billing находится вручную, автоматический поиск вернул 0';
+      note.value=sub.operatorNote||'';
+      note.addEventListener('change',async()=>{
+        sub.operatorNote=clean(note.value,1500);
+        await persist();render();
+      });
+      ui.detail.append(noteLabel,note);
       if(sub.search) {
         ui.detail.append(n('p',sub.status==='FOUND'?'bulk-success':'bulk-error',
           'Результат: '+sub.search.status+' · код: '+sub.search.code+
@@ -620,7 +629,7 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
       createdAt:new Date().toISOString(),phase:'draft',mode:'identity',
       scenarios:[],subscribers:ids.accepted.map(identifier=>({
         identifier,status:'pending',search:null,snapshot:null,ai:null,aiAttempts:[],
-        toolState:null,error:null,checks:[],requestErrors:[],attempts:[]
+        operatorNote:'',toolState:null,error:null,checks:[],requestErrors:[],attempts:[]
       }))};
     selectedIndex=0;await persist();render();await scan();
   });
@@ -652,7 +661,7 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
     else {
       const quote=value=>'"'+String(value??'').replace(/"/g,'""').replace(/\r?\n/g,' ')+'"';
       if(batch.mode==='identity'){
-        const rows=[['case','subscriber','status','searchMode','candidates','code','source','observedAt','durationMs','attempts','aiVerdict','aiCategory','aiReason','aiReply','aiToolCalls','aiTokens']];
+        const rows=[['case','subscriber','status','searchMode','candidates','code','source','observedAt','durationMs','attempts','aiVerdict','aiCategory','aiReason','aiReply','aiToolCalls','aiTokens','operatorNote']];
         for(const entry of report.cases) rows.push([
           entry.index,entry.subscriber,entry.status,entry.search?.searchMode||'',
           entry.search?.candidateCount??'',entry.search?.code||entry.error?.code||'',
@@ -660,7 +669,7 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
           entry.search?.durationMs??'',entry.attempts?.length||0,
           entry.ai?.grade?.verdict||'',entry.ai?.grade?.category||'',
           entry.ai?.grade?.reason||'',entry.ai?.reply||'',entry.ai?.toolCalls||0,
-          entry.ai?.usage?.total_tokens||0
+          entry.ai?.usage?.total_tokens||0,entry.operatorNote||''
         ]);
         downloadLocalFile('\uFEFF'+rows.map(cols=>cols.map(quote).join(',')).join('\r\n')+'\r\n',
           'simnet-bulk-identity-'+timestamp+'.csv','text/csv;charset=utf-8');
