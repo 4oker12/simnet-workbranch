@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { parseSubscriberList, gradeBulkAnswer, makeBulkReport, bulkTotals, BULK_SCENARIOS } from '../standalone-ai/bulk-qa.js';
+import { parseSubscriberList, gradeBulkAnswer, gradeIdentityAi, makeBulkReport, bulkTotals, BULK_SCENARIOS } from '../standalone-ai/bulk-qa.js';
 
 const file=path=>readFileSync(new URL('../'+path,import.meta.url),'utf8');
 const verified=tool=>({toolTrace:[{tool,ok:true,source:'billing-main-summary-live-read-only'}]});
@@ -137,7 +137,7 @@ test('identity-first audit records FOUND, zero-candidate NOT_FOUND, SOURCE_ERROR
   assert.equal(withIds.cases[1].subscriber,'334455');
 });
 
-test('identity bulk UI runs only customer.lookup and does not invoke DeepSeek or financial queries',()=>{
+test('control identity preflight uses only customer.lookup; AI stage is independent from financial queries',()=>{
   const ui=file('standalone-ai/bulk-qa.js');
   const bg=file('src/features/ai-operator/bulk-qa-background.js');
   const html=file('standalone-ai/chat.html');
@@ -152,4 +152,47 @@ test('identity bulk UI runs only customer.lookup and does not invoke DeepSeek or
   assert.match(html,/FOUND \/ NOT_FOUND \/ ZERO_RESULT/);
   assert.match(ui,/stopped-scan/);
   assert.match(ui,/for\(const attempt of sub\.attempts/);
+});
+
+
+test('AI identification checks actual lookup args, result and candidate against Billing control',()=>{
+  const ok=(login='abon123456')=>({ok:true,reply:'Нашёл абонента.',degraded:false,
+    lookups:[{args:{login,contract:''},ok:true,code:'OK',
+      source:'billing-live-read-only',candidateCount:1,candidate:{login}}]});
+  assert.equal(gradeIdentityAi({status:'FOUND'},ok(),'abon123456').verdict,'PASS');
+  assert.equal(gradeIdentityAi({status:'FOUND'},ok('abon654321'),'abon123456').category,'ai_wrong_identifier');
+  assert.equal(gradeIdentityAi({status:'FOUND'},{...ok(),lookups:[]},'abon123456').category,'ai_no_lookup');
+  assert.equal(gradeIdentityAi({status:'FOUND'},{...ok(),degraded:true},'abon123456').verdict,'REVIEW');
+  const none={ok:true,reply:'Не найден',lookups:[{args:{login:'abon123456',contract:''},
+    ok:false,code:'NOT_FOUND',source:'billing-live-read-only',candidateCount:0}]};
+  assert.equal(gradeIdentityAi({status:'NOT_FOUND'},none,'abon123456').verdict,'PASS');
+  assert.equal(gradeIdentityAi({status:'FOUND'},none,'abon123456').category,'ai_false_not_found');
+  assert.equal(gradeIdentityAi({status:'NOT_FOUND'},ok(),'abon123456').category,'ai_source_changed');
+  const broken={ok:true,reply:'Нет данных',lookups:[{args:{login:'abon123456',contract:''},
+    ok:false,code:'BILLING_TAB_REQUIRED',source:'billing-live-read-only',candidateCount:null}]};
+  assert.equal(gradeIdentityAi({status:'FOUND'},broken,'abon123456').category,'ai_source_error');
+  const numeric={ok:true,reply:'Договор найден',lookups:[{args:{login:'',contract:'334455'},
+    ok:true,code:'OK',source:'billing-live-read-only',candidateCount:1,candidate:{contract:'334455'}}]};
+  assert.equal(gradeIdentityAi({status:'FOUND'},numeric,'334455').verdict,'PASS');
+  assert.equal(gradeIdentityAi({status:'FOUND'},numeric,'abon123456').category,'ai_wrong_identifier');
+});
+
+test('AI identity stage runs one isolated fresh lab case per subscriber and retains STOP/retries',()=>{
+  const bg=file('src/features/ai-operator/bulk-qa-background.js');
+  const ui=file('standalone-ai/bulk-qa.js');
+  const html=file('standalone-ai/chat.html');
+  const start=bg.indexOf('async function identifyViaAI(');
+  const end=bg.indexOf('async function singleTurn(',start);
+  const slice=bg.slice(start,end);
+  assert.ok(start>=0&&end>start);
+  assert.match(slice,/runIsolatedLabCase\(/);
+  assert.match(slice,/toolState:\{\}/);
+  assert.match(slice,/customer\.lookup/);
+  assert.doesNotMatch(slice,/billing\.balance|billing\.tariff/);
+  assert.match(ui,/async function runIdentityAi\(/);
+  assert.match(ui,/identityOnly:true,identifier:sub\.identifier/);
+  assert.match(ui,/bulkTotals\(batch\)/);
+  assert.match(ui,/aiAttempts/);
+  assert.match(ui,/stopped-ai/);
+  assert.match(html,/id="bulkRun">Проверить поиск через AI/);
 });
