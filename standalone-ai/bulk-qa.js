@@ -306,12 +306,16 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
         ' · FOUND '+totals.found+' · NOT_FOUND (0) '+totals.notFound+
         ' · ZERO_RESULT '+totals.zero+' · AMBIGUOUS '+totals.ambiguous+
         ' · MISMATCH '+totals.mismatch+' · SOURCE_ERROR '+totals.sourceErrors+
-        ' · попыток '+totals.attempts+' · токенов 0 · '+batch.phase;
+        ' · попыток '+totals.attempts+
+        ' · AI '+totals.aiChecked+' ('+totals.aiPass+' PASS / '+totals.aiFail+
+        ' FAIL / '+totals.aiReview+' REVIEW)'+
+        ' · токенов '+totals.usedTokens+' · '+batch.phase;
       batch.subscribers.forEach((sub,i)=>{
         const tr=n('tr');
         for(const col of [String(i+1),sub.identifier,sub.status,
           sub.search?.candidateCount == null ? '—' : String(sub.search.candidateCount),
           sub.search?.code || sub.error?.code || '—',
+          sub.ai?.grade?.verdict || '—',
           sub.search?.durationMs == null ? '—':sub.search.durationMs+' мс'
         ])tr.append(n('td','',col));
         tr.tabIndex=0;tr.className=selectedIndex===i?'selected':'';
@@ -343,6 +347,23 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
       if(sub.error)ui.detail.append(n('p','bulk-error',
         'Сбой: '+sub.error.stage+' → '+sub.error.code+
         (sub.error.message?' · '+sub.error.message:'')));
+      if(sub.ai){
+        const ai=n('details','bulk-check bulk-'+(sub.ai.grade?.verdict==='PASS'?'pass':
+          sub.ai.grade?.verdict==='FAIL'?'fail':'review'));
+        ai.open=true;
+        ai.append(n('summary','','AI: '+(sub.ai.grade?.verdict||'REVIEW')+' · '+(sub.ai.grade?.category||'unknown')));
+        ai.append(n('p','bulk-muted',sub.ai.grade?.reason||''));
+        ai.append(n('p','bulk-reply',sub.ai.reply||'Модель не дала ответа'));
+        ai.append(n('pre','bulk-detail-pre',JSON.stringify({
+          asked:sub.ai.question,modelIntent:sub.ai.intent,toolCalls:sub.ai.toolCalls,
+          lookupArgsAndResults:sub.ai.lookups,usage:sub.ai.usage,elapsedMs:sub.ai.elapsedMs
+        },null,2)));
+        ui.detail.append(ai);
+      }
+      for(const attempt of sub.aiAttempts||[]){
+        ui.detail.append(n('p','bulk-error',
+          'Неудачная попытка AI: '+attempt.code+' · '+attempt.message+' · '+attempt.at));
+      }
       for(const attempt of sub.attempts||[]){
         ui.detail.append(n('p','bulk-muted',
           (attempt.observedAt||'')+' · '+attempt.status+' · '+attempt.code+
@@ -418,6 +439,7 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
               .includes(data?.status) ? data.status : 'SOURCE_ERROR';
             sub.status=status;
             sub.search={...data,status};
+            sub.ai=null; // Previous verdict no longer belongs to the new control lookup.
             sub.error=status==='SOURCE_ERROR'||status==='INVALID'
               ? {stage:data?.stage||'source',code:data?.code||'UNKNOWN'} : null;
             sub.attempts=[...(sub.attempts||[]),{
@@ -458,7 +480,63 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
         : 'Поиск остановлен: '+(batch.stopReason||'STOP'));
     }finally{setBusy(false)}
   }
+  async function runIdentityAi() {
+    if(busy||!batch||batch.mode!=='identity')return;
+    if(batch.subscribers.some(s=>s.status==='pending')){
+      emit('Сначала закончи контрольный поиск Billing.',true);return;
+    }
+    if(!isConfigured()){
+      emit('Для проверки именно AI нужен подключённый DeepSeek API. Контрольный поиск уже выполнен.',true);return;
+    }
+    const {turns,tokens}=limits();
+    const eligible=batch.subscribers.filter(s=>['FOUND','NOT_FOUND','ZERO_RESULT'].includes(s.status));
+    if(!eligible.length){emit('Нет результатов Billing, которые можно сопоставить с ответом AI.',true);return}
+    stopRequested=false;setBusy(true);batch.phase='ai-running';await persist();
+    try{
+      for(let i=0;i<batch.subscribers.length;i++){
+        const sub=batch.subscribers[i];
+        if(!['FOUND','NOT_FOUND','ZERO_RESULT'].includes(sub.status)||sub.ai)continue;
+        if(isStopped()){batch.phase='stopped-ai';batch.stopReason='STOP оператора';break}
+        const total=bulkTotals(batch);
+        if(total.aiChecked>=turns||total.usedTokens>=tokens){
+          batch.phase='stopped-ai';
+          batch.stopReason='Достигнут лимит AI-проверок или токенов';break;
+        }
+        emit('DeepSeek: идентификация #'+(i+1)+' / '+batch.subscribers.length);
+        try{
+          const output=await request('AI_OPERATOR_BULK_TURN',{
+            identityOnly:true,identifier:sub.identifier,
+            scope:'bulk-identity:'+batch.id+':'+i
+          });
+          if(!output?.ok){
+            sub.aiAttempts=[...(sub.aiAttempts||[]),{
+              code:output?.code||'AI_NO_RESULT',message:'Нет подтверждённого выполнения',
+              at:new Date().toISOString()
+            }];
+            batch.phase='stopped-ai';batch.stopReason='Ошибка AI. Вопрос можно повторить вручную.';
+          }else{
+            const grade=gradeIdentityAi(sub.search,output,sub.identifier);
+            sub.ai={...output,grade};
+          }
+        }catch(error){
+          sub.aiAttempts=[...(sub.aiAttempts||[]),{
+            code:'AI_RUNTIME_ERROR',message:clean(error?.message||error,220),
+            at:new Date().toISOString()
+          }];
+          batch.phase='stopped-ai';batch.stopReason='Ошибка API/Runtime. Случай оставлен для повтора.';
+        }
+        await persist();render();
+        if(batch.phase==='stopped-ai')break;
+      }
+      if(batch.phase==='ai-running')batch.phase='completed';
+      await persist();render();
+      emit(batch.phase==='completed'?'AI-проверка идентификации завершена. Ошибки и результаты сохранены.'
+        :'AI-проверка остановлена: '+(batch.stopReason||'STOP'));
+    }finally{setBusy(false)}
+  }
+
   async function run() {
+    if(batch?.mode==='identity')return runIdentityAi();
     if(busy||!batch)return;
     if(batch.subscribers.some(s=>s.status==='pending')){emit('Сначала завершите сбор контрольных данных Billing.',true);return}
     if(!isConfigured()){emit('Сначала настрой DeepSeek API в настройках расширения.',true);return}
@@ -514,7 +592,8 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
     if(!batch||busy)return;
     if(batch.mode==='identity') {
       if(batch.subscribers.some(s=>s.status==='pending'))await scan();
-      else emit('Непроверенных абонентов нет. Для повторной проверки нажми «Повторить ошибки».');
+      else if(batch.subscribers.some(s=>['FOUND','NOT_FOUND','ZERO_RESULT'].includes(s.status)&&!s.ai))await runIdentityAi();
+      else emit('Новых задач нет. Для повторного поиска нажми «Повторить ошибки».');
       return;
     }
     if(batch.subscribers.some(s=>s.status==='pending'))await scan();
@@ -540,12 +619,12 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
     batch={schema:'simnet.bulk-identity-qa.v1',id:'bulk-'+Date.now().toString(36),
       createdAt:new Date().toISOString(),phase:'draft',mode:'identity',
       scenarios:[],subscribers:ids.accepted.map(identifier=>({
-        identifier,status:'pending',search:null,snapshot:null,
+        identifier,status:'pending',search:null,snapshot:null,ai:null,aiAttempts:[],
         toolState:null,error:null,checks:[],requestErrors:[],attempts:[]
       }))};
     selectedIndex=0;await persist();render();await scan();
   });
-  ui.run.addEventListener('click',()=>{if(batch?.mode==='identity')return;void run()});
+  ui.run.addEventListener('click',()=>void run());
   ui.stop.addEventListener('click',()=>{stopRequested=true;emit('STOP принят. Текущий запрос завершится; следующий не запустится.')});
   ui.resume.addEventListener('click',()=>void resume());
   ui.retryBlocked.addEventListener('click',async()=>{
@@ -573,12 +652,15 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
     else {
       const quote=value=>'"'+String(value??'').replace(/"/g,'""').replace(/\r?\n/g,' ')+'"';
       if(batch.mode==='identity'){
-        const rows=[['case','subscriber','status','searchMode','candidates','code','source','observedAt','durationMs','attempts']];
+        const rows=[['case','subscriber','status','searchMode','candidates','code','source','observedAt','durationMs','attempts','aiVerdict','aiCategory','aiReason','aiReply','aiToolCalls','aiTokens']];
         for(const entry of report.cases) rows.push([
           entry.index,entry.subscriber,entry.status,entry.search?.searchMode||'',
           entry.search?.candidateCount??'',entry.search?.code||entry.error?.code||'',
           entry.search?.source||'',entry.search?.observedAt||'',
-          entry.search?.durationMs??'',entry.attempts?.length||0
+          entry.search?.durationMs??'',entry.attempts?.length||0,
+          entry.ai?.grade?.verdict||'',entry.ai?.grade?.category||'',
+          entry.ai?.grade?.reason||'',entry.ai?.reply||'',entry.ai?.toolCalls||0,
+          entry.ai?.usage?.total_tokens||0
         ]);
         downloadLocalFile('\uFEFF'+rows.map(cols=>cols.map(quote).join(',')).join('\r\n')+'\r\n',
           'simnet-bulk-identity-'+timestamp+'.csv','text/csv;charset=utf-8');
@@ -601,8 +683,9 @@ export function initBulkQA({request,downloadLocalFile,isConfigured}) {
   void chrome.storage.local.get(STORAGE_KEY).then(stored=>{
     if(stored?.[STORAGE_KEY]?.schema==='simnet.bulk-identity-qa.v1'){
       batch=stored[STORAGE_KEY];
-      if(['scanning','running'].includes(batch.phase)){
-        batch.phase=batch.phase==='scanning'?'stopped-scan':'stopped-run';
+      if(['scanning','running','ai-running'].includes(batch.phase)){
+        batch.phase=batch.phase==='scanning'?'stopped-scan':
+          batch.phase==='ai-running'?'stopped-ai':'stopped-run';
         batch.stopReason='Вкладка закрывалась; требуется ручное возобновление.';
       }
       emit('Найден сохранённый пакет. Можно продолжить с оставшегося шага.');
