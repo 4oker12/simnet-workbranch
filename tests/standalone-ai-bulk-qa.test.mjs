@@ -131,6 +131,10 @@ test('identity-first audit records FOUND, zero-candidate NOT_FOUND, SOURCE_ERROR
   assert.equal(report.cases[1].search.candidateCount,0);
   assert.equal(report.cases[2].search.candidateCount,null);
   assert.equal(report.cases[2].attempts.length,2);
+  batch.subscribers[1].operatorNote='Локально вручную договор 334455 существует.';
+  const notesReport=makeBulkReport(batch);
+  assert.match(notesReport.cases[1].operatorNote,/Локально вручную/);
+  assert.doesNotMatch(notesReport.cases[1].operatorNote,/334455/);
   assert.doesNotMatch(JSON.stringify(report),/abon100001|334455|abon100003/);
   const withIds=makeBulkReport(batch,true);
   assert.equal(withIds.cases[0].subscriber,'abon100001');
@@ -166,6 +170,8 @@ test('AI identification checks actual lookup args, result and candidate against 
   const none={ok:true,reply:'Не найден',lookups:[{args:{login:'abon123456',contract:''},
     ok:false,code:'NOT_FOUND',source:'billing-live-read-only',candidateCount:0}]};
   assert.equal(gradeIdentityAi({status:'NOT_FOUND'},none,'abon123456').verdict,'PASS');
+  assert.equal(gradeIdentityAi({status:'NOT_FOUND'},{...none,reply:'Нашёл абонента'},'abon123456').category,'ai_reply_conflicts');
+  assert.equal(gradeIdentityAi({status:'FOUND'},{...ok(),reply:'Не нашёл договор'},'abon123456').category,'ai_reply_conflicts');
   assert.equal(gradeIdentityAi({status:'FOUND'},none,'abon123456').category,'ai_false_not_found');
   assert.equal(gradeIdentityAi({status:'NOT_FOUND'},ok(),'abon123456').category,'ai_source_changed');
   const broken={ok:true,reply:'Нет данных',lookups:[{args:{login:'abon123456',contract:''},
